@@ -24,11 +24,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, EnumDef, FunctionDef, FunctionKind, TypeCategory};
-use super::super::managed_host_invoker::HOST_INVOKER_KINDS;
-use super::{idiomatic_class_name, kebab, sanitize_racket_ident};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, EnumDef, FunctionDef, FunctionKind, TypeCategory},
+        managed_host_invoker::HOST_INVOKER_KINDS,
+    },
+    idiomatic_class_name, kebab, sanitize_racket_ident,
+};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,

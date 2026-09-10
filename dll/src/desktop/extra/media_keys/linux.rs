@@ -56,12 +56,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
-    media_session::{MediaPlaybackState, NowPlayingInfo},
+    media_session::{MediaControlKind, MediaControlRequest, MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_control};
+use azul_layout::managers::media_keys::{push_media_control, push_media_key};
 
 /// The object path both interfaces are served at. Fixed by the MPRIS spec:
 /// clients look here and nowhere else.
@@ -137,7 +136,10 @@ fn metadata_map() -> std::collections::HashMap<String, zbus::zvariant::OwnedValu
         put("mpris:length", Value::from(info.duration_us()));
     }
     if !info.artwork_url.as_str().is_empty() {
-        put("mpris:artUrl", Value::from(info.artwork_url.as_str().to_string()));
+        put(
+            "mpris:artUrl",
+            Value::from(info.artwork_url.as_str().to_string()),
+        );
     }
     if !info.title.as_str().is_empty() {
         put("xesam:title", Value::from(info.title.as_str().to_string()));
@@ -535,9 +537,9 @@ fn announce() {
         Some(MediaPlaybackState::Paused) => "Paused",
         _ => "Stopped",
     };
-    if let Ok(v) = zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(
-        status.to_string(),
-    )) {
+    if let Ok(v) =
+        zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(status.to_string()))
+    {
         changed.insert("PlaybackStatus".to_string(), v);
     }
     // `Metadata` is `a{sv}`, so the value in the changed map is a VARIANT

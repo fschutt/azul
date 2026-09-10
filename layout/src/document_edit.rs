@@ -82,11 +82,9 @@ pub fn fragment(children: Vec<Dom>) -> Dom {
 
 /// Apply a structural changeset to the `Dom` the app holds.
 ///
-/// * `root` - the app's document tree (e.g. from its own builder or
-///   `reconstruct_dom_subtree`).
-/// * `host_path` - child-index path from `root` to the node whose CHILD LIST
-///   the operation edits (`[]` = `root` itself). For Split/Merge this is the
-///   PARENT of the split/merged nodes.
+/// * `root` - the app's document tree (e.g. from its own builder or `reconstruct_dom_subtree`).
+/// * `host_path` - child-index path from `root` to the node whose CHILD LIST the operation edits
+///   (`[]` = `root` itself). For Split/Merge this is the PARENT of the split/merged nodes.
 /// * `changeset` - as delivered by `CallbackInfo::get_document_edit_clone`.
 ///
 /// Index resolution for Split/Merge uses the changeset's OWN resume point
@@ -451,7 +449,8 @@ fn apply_wrap(
 /// Remove the wrapper child at `at`, splicing its children into its place;
 /// text meeting at either seam coalesces (so wrap → unwrap round-trips to
 /// the original tree). Inverse: the wrap that re-covers the spliced range.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose splice + both-seam coalesce + exact inverse
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose splice + both-seam coalesce +
+                                 // exact inverse
 fn apply_unwrap(
     host: &mut Dom,
     unwrap: &crate::managers::changeset::DocOpUnwrapRange,
@@ -637,11 +636,14 @@ pub fn split_dom_at_path(dom: &Dom, path: &[u32]) -> (Dom, Dom) {
 
 #[cfg(test)]
 mod tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
     use super::*;
     use crate::managers::changeset::EditResumePoint;
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::styled_dom::NodeHierarchyItemId;
-    use azul_core::task::{Instant, SystemTick};
 
     fn any_node() -> DomNodeId {
         DomNodeId {

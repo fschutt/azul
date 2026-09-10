@@ -6,7 +6,6 @@
 //! The regenerate_layout function takes direct field references instead of using trait methods
 //! to avoid borrow checker issues (similar to invoke_callbacks pattern).
 
-use azul_layout::solver3::LayoutNodeId;
 use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{
@@ -17,12 +16,12 @@ use azul_core::{
     refany::RefAny,
     resources::{ImageCache, RendererResources},
 };
-use azul_css::system::SystemStyle;
+use azul_css::{system::SystemStyle, LayoutDebugMessage};
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::LayoutNodeId, window::LayoutWindow,
+    window_state::FullWindowState,
 };
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
 use super::debug_server::{self, LogCategory};
@@ -30,7 +29,6 @@ use crate::{
     desktop::{csd, wr_translate2},
     log_debug, log_info,
 };
-use azul_css::LayoutDebugMessage;
 
 /// Delay in ms before scrollbar overlay starts fading out after scroll stops.
 const SCROLLBAR_FADE_DELAY_MS: u64 = 500;
@@ -389,9 +387,9 @@ pub fn regenerate_layout(
                 .is_none()
             {
                 crate::plog_warn!(
-                    "[fonts] the system UI font {:?} (from SystemStyle) was NOT found by the \
-                     font scan — text set in it falls back to the platform default list. \
-                     Check the family name and the scanned font directories.",
+                    "[fonts] the system UI font {:?} (from SystemStyle) was NOT found by the font \
+                     scan — text set in it falls back to the platform default list. Check the \
+                     family name and the scanned font directories.",
                     ui.as_str()
                 );
             }
@@ -715,9 +713,9 @@ pub fn regenerate_layout(
 
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
-    // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()` (@scope-like).
-    // We collect all CSS objects, flatten the tree, and run a single cascade pass.
-    // E2E `mount` override: replace the app's DOM wholesale with the test's
+    // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()`
+    // (@scope-like). We collect all CSS objects, flatten the tree, and run a single cascade
+    // pass. E2E `mount` override: replace the app's DOM wholesale with the test's
     // inline XML+CSS document (reusing the existing XML→StyledDom parser).
     //
     // `style_user_dom` is the cascade AND the icon resolution that has to
@@ -850,10 +848,10 @@ pub fn regenerate_layout(
     // concatenates the CSS caches — it does NOT re-run inheritance or rebuild the
     // compact cache. This causes two correctness bugs:
     //
-    //   1. Inherited properties (color, font-size, direction) from parent nodes
-    //      do not flow into appended child subtrees.
-    //   2. The compact cache entries from child subtrees are stale — they reflect
-    //      the child's isolated cascade, not the composed tree with parent overrides.
+    //   1. Inherited properties (color, font-size, direction) from parent nodes do not flow into
+    //      appended child subtrees.
+    //   2. The compact cache entries from child subtrees are stale — they reflect the child's
+    //      isolated cascade, not the composed tree with parent overrides.
     //
     // Additionally, CSD injection (step 3) may have prepended titlebar nodes via
     // another append_child(), further invalidating the cache.
@@ -1110,7 +1108,8 @@ pub fn regenerate_layout(
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
             log_debug!(
                 LogCategory::Layout,
-                "[regenerate_layout] DOM structurally unchanged (size_changed={window_size_changed})"
+                "[regenerate_layout] DOM structurally unchanged \
+                 (size_changed={window_size_changed})"
             );
 
             // Transfer the new image callback RefAnys to the old DOM's nodes.
@@ -1256,8 +1255,8 @@ pub fn regenerate_layout(
             {
                 log_debug!(
                     LogCategory::Layout,
-                    "[regenerate_layout] size changed, DOM equivalent — relaying out the \
-                     PREVIOUS StyledDom (warm caches) at the new size"
+                    "[regenerate_layout] size changed, DOM equivalent — relaying out the PREVIOUS \
+                     StyledDom (warm caches) at the new size"
                 );
                 styled_dom = old_result.styled_dom;
             }
@@ -1597,30 +1596,28 @@ pub fn regenerate_layout(
 /// &mut debug_messages)` immediately. Backends differ in how their frame-generation
 /// path then presents:
 ///
-/// - **Transaction-only generate path** (macOS, linux/x11): `generate_frame_if_needed`
-///   already rebuilds the WebRender transaction from the current StyledDom WITHOUT
-///   re-running layout (it calls `generate_frame()`), so the event arm just calls
-///   `request_regeneration(reason)` and the existing path presents.
+/// - **Transaction-only generate path** (macOS, linux/x11): `generate_frame_if_needed` already
+///   rebuilds the WebRender transaction from the current StyledDom WITHOUT re-running layout (it
+///   calls `generate_frame()`), so the event arm just calls `request_regeneration(reason)` and the
+///   existing path presents.
 ///     - DONE: macos/mod.rs (`process_close_event` etc., the reference arm).
 ///     - DONE: linux/x11/mod.rs (its `generate_frame_if_needed` is transaction-only).
 ///
-/// - **Full-regen generate path** (windows, linux/wayland): the frame path runs the
-///   FULL `regenerate_layout()` when a regeneration is pending, which would
-///   OVERRIDE the incremental pass. These use `request_relayout_only()` on
-///   `CommonWindowState` (`event.rs`), which raises the relayout-only request
-///   AND the ordinary one (so the frame gates see that work is owed). The frame
-///   path then branches: `relayout_only_pending()` ⇒ SKIP the full
-///   `regenerate_layout()` (layout is already up to date) but STILL build + send the
-///   WebRender transaction + present; else `regeneration_pending()` ⇒ full
-///   `regenerate_layout()`. Both requests are retired after the frame is sent.
+/// - **Full-regen generate path** (windows, linux/wayland): the frame path runs the FULL
+///   `regenerate_layout()` when a regeneration is pending, which would OVERRIDE the incremental
+///   pass. These use `request_relayout_only()` on `CommonWindowState` (`event.rs`), which raises
+///   the relayout-only request AND the ordinary one (so the frame gates see that work is owed). The
+///   frame path then branches: `relayout_only_pending()` ⇒ SKIP the full `regenerate_layout()`
+///   (layout is already up to date) but STILL build + send the WebRender transaction + present;
+///   else `regeneration_pending()` ⇒ full `regenerate_layout()`. Both requests are retired after
+///   the frame is sent.
 ///     - DONE: windows/mod.rs — `ShouldIncrementalRelayout` event arm +
-///       `send_frame_after_incremental_relayout()` helper called from the WM_PAINT
-///       relayout-only branch (GPU `generate_frame` + flush / CPU hit-tester
-///       rebuild — `regenerate_layout()`'s finalize tail — then `render_and_present(true)`).
-///     - DONE: linux/wayland/mod.rs — both `ShouldIncrementalRelayout` event arms
-///       split; `generate_frame_if_needed` runs `regenerate_layout()` only in the true
-///       full case and still rebuilds the hit-tester + sends the transaction (via
-///       `generate_frame()`) in both.
+///       `send_frame_after_incremental_relayout()` helper called from the WM_PAINT relayout-only
+///       branch (GPU `generate_frame` + flush / CPU hit-tester rebuild — `regenerate_layout()`'s
+///       finalize tail — then `render_and_present(true)`).
+///     - DONE: linux/wayland/mod.rs — both `ShouldIncrementalRelayout` event arms split;
+///       `generate_frame_if_needed` runs `regenerate_layout()` only in the true full case and still
+///       rebuilds the hit-tester + sends the transaction (via `generate_frame()`) in both.
 /// [`incremental_relayout`] + the solver3 reconcile-skip hint. ONLY for the
 /// resize-latch call sites (`take_resize_relayout()` branches): there the
 /// StyledDom is by construction the same object with zero DOM/style dirt, so
@@ -1808,7 +1805,8 @@ fn apply_runtime_states_before_layout(
                                 styled_node.styled_node_state.drag_over = true;
                                 log_debug!(
                                     LogCategory::Layout,
-                                    "[apply_runtime_states_before_layout] Set drag_over=true for node {:?}",
+                                    "[apply_runtime_states_before_layout] Set drag_over=true for \
+                                     node {:?}",
                                     target_node_id
                                 );
                             }
@@ -2123,8 +2121,8 @@ pub(crate) fn reconcile_transient_windows(
         rects
     };
 
-    // 2. Reconcile, measuring each popup's content on demand (on scratch
-    //    caches — the popup window lays the content out itself).
+    // 2. Reconcile, measuring each popup's content on demand (on scratch caches — the popup window
+    //    lays the content out itself).
     let diff = {
         // `reconcile` wants a closure that reads layout_window while the
         // manager is borrowed mutably — split the borrow by taking the

@@ -5,8 +5,8 @@
 //! azul `Thread` and opens the CPU-rendered dialog window in the `Checking`
 //! phase. The worker's writeback flips the shared state to what it found:
 //!
-//! * self-updatable install + newer version → changelog + **Install now** /
-//!   **Remind me later** (7-day suspend) / **Close**
+//! * self-updatable install + newer version → changelog + **Install now** / **Remind me later**
+//!   (7-day suspend) / **Close**
 //! * package-managed install → "update via `<hint>`" note, NO install button
 //! * up-to-date / error → the respective message + **Close**
 //!
@@ -19,25 +19,26 @@
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
 use azul_core::{
-    callbacks::Update,
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
+    dom::Dom,
     refany::RefAny,
     task::{ThreadId, ThreadReceiver},
 };
 use azul_css::AzString;
 
 use super::{cpu_dialog_window, markdown, style};
-use crate::callbacks::CallbackInfo;
-use crate::thread::{
-    Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
-    WriteBackCallbackType,
+use crate::{
+    callbacks::CallbackInfo,
+    thread::{
+        Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallbackType,
+    },
+    updater::{
+        apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
+        effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
+    },
+    widgets::button::{Button, ButtonOnClickCallbackType},
 };
-use crate::updater::{
-    apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
-    effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
-};
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
-use azul_core::dom::Dom;
 
 /// Where the dialog currently is.
 // Internal (not repr(C)) state machine; Available legitimately carries the

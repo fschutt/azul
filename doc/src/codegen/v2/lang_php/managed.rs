@@ -8,17 +8,13 @@
 //!
 //! Two pieces emitted into the generated `Azul.php`:
 //!
-//! 1. **cdef extension** — the host-invoker C-ABI declarations
-//!    (releaser, RefAny new/get host-handle, per-kind invoker setters
-//!    and `_createFromHostHandle` constructors) appended to the
-//!    `Azul::CDEF` heredoc, so PHP's FFI parser sees them on the first
-//!    `FFI::cdef(...)` call.
-//! 2. **`Azul` class additions** — static `$_handles` storage, lazy
-//!    `ensureHostInvokerInit()` that pins one closure per kind via
-//!    `$ffi->cast(...)`, public `registerCallback($kind, $fn)` factory
-//!    that returns the matching `Az<Kind>` cdata struct, and
-//!    `refanyCreate($value)` / `refanyGet($refany)` user-data helpers
-//!    that share the same id-keyed table.
+//! 1. **cdef extension** — the host-invoker C-ABI declarations (releaser, RefAny new/get
+//!    host-handle, per-kind invoker setters and `_createFromHostHandle` constructors) appended to
+//!    the `Azul::CDEF` heredoc, so PHP's FFI parser sees them on the first `FFI::cdef(...)` call.
+//! 2. **`Azul` class additions** — static `$_handles` storage, lazy `ensureHostInvokerInit()` that
+//!    pins one closure per kind via `$ffi->cast(...)`, public `registerCallback($kind, $fn)`
+//!    factory that returns the matching `Az<Kind>` cdata struct, and `refanyCreate($value)` /
+//!    `refanyGet($refany)` user-data helpers that share the same id-keyed table.
 //!
 //! ## How user code consumes this
 //!
@@ -40,10 +36,10 @@
 //! `Azul::registerCallback` automatically, the explicit `$cb =` step
 //! disappears and the hello-world looks like Lua's.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{
-    emit_cdef_block, has_return, host_invoker_kinds, wrapper_name,
+use super::super::{
+    generator::CodeBuilder,
+    ir::CodegenIR,
+    managed_host_invoker::{emit_cdef_block, has_return, host_invoker_kinds, wrapper_name},
 };
 
 /// Build the additional cdef text to append to `Azul::CDEF`. The result
@@ -66,8 +62,8 @@ pub fn cdef_extension(ir: &CodegenIR) -> String {
 ///
 /// Call order in `mod.rs`:
 ///   1. The existing `cdef()` accessor.
-///   2. **This function** — adds storage + ensureHostInvokerInit +
-///      registerCallback + refanyCreate / refanyGet.
+///   2. **This function** — adds storage + ensureHostInvokerInit + registerCallback + refanyCreate
+///      / refanyGet.
 ///   3. Closing `}` of the class.
 pub fn emit_azul_class_members(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();

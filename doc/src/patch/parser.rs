@@ -207,7 +207,8 @@ impl<'ast> Visit<'ast> for SymbolCollector {
                     let field_span_bytes = Self::get_span_lines(field);
 
                     // Format field type if available
-                    let mut hover_text = field_doc.clone(); // Clone field_doc as it's used later by itself
+                    let mut hover_text = field_doc.clone(); // Clone field_doc as it's used later by
+                                                            // itself
                     if let syn::Type::Path(type_path) = &field.ty {
                         if let Some(segment) = type_path.path.segments.last() {
                             hover_text = format!("{} (type: {})", field_doc, segment.ident);
@@ -713,7 +714,8 @@ impl SymbolHierarchy {
 
         match symbol_type {
             SymbolType::Function => {
-                let signature = extract_function_signature(doc); // doc is the original hover_text here
+                let signature = extract_function_signature(doc); // doc is the original hover_text
+                                                                 // here
                 let extracted_doc = extract_doc_comment(doc); // This is the actual doc part
                 self.symbols
                     .entry(category)

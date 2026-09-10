@@ -11,17 +11,19 @@
 //! `mock` op (a canned picker answer, a canned HTTP response, ...), then
 //! assert on the labels below.
 
-use azul::db::{Db, DbConfig, DbOpenResult, DbSyncStatusResult, DbValue, DbValueResult};
-use azul::callbacks::CallbackType;
-use azul::dialog::{ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult};
-use azul::dom::IdOrClass;
-use azul::error::ResultDbDbError;
-use azul::file::FileReadBytesResult;
-use azul::http::{HttpGetResult, HttpRequestConfig};
-use azul::option::{OptionColorU, OptionDbScope, OptionFileTypeList, OptionString};
-use azul::prelude::*;
-use azul::vec::IdOrClassVec;
-use azul::widgets::Button;
+use azul::{
+    callbacks::CallbackType,
+    db::{Db, DbConfig, DbOpenResult, DbSyncStatusResult, DbValue, DbValueResult},
+    dialog::{ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult},
+    dom::IdOrClass,
+    error::ResultDbDbError,
+    file::FileReadBytesResult,
+    http::{HttpGetResult, HttpRequestConfig},
+    option::{OptionColorU, OptionDbScope, OptionFileTypeList, OptionString},
+    prelude::*,
+    vec::IdOrClassVec,
+    widgets::Button,
+};
 
 /// The endpoints the demo talks to. Under e2e they are mocked; in a real
 /// run they simply fail (the domain is reserved) and the labels show it.
@@ -246,7 +248,11 @@ extern "C" fn on_db_got(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Up
 extern "C" fn on_sync(mut data: RefAny, _: CallbackInfo) -> Update {
     let db = match data.downcast_ref::<Demo>().and_then(|d| d.db.clone()) {
         Some(db) => db,
-        None => return set(&mut data, |d| d.sync = "sync: open the db first".to_string()),
+        None => {
+            return set(&mut data, |d| {
+                d.sync = "sync: open the db first".to_string()
+            })
+        }
     };
     let _request = db.sync_now(OptionDbScope::None, data, on_synced);
     Update::DoNothing

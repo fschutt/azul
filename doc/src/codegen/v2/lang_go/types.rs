@@ -2,14 +2,12 @@
 //!
 //! Two distinct outputs:
 //!
-//! 1. **Unit-only enums** -> `type AzButtonType uint32` plus a `const`
-//!    block listing every variant. Values are referenced through cgo
-//!    (`C.AzButtonType_Primary`) so the Go side stays in sync with the
-//!    C ABI even if the underlying numeric values change.
+//! 1. **Unit-only enums** -> `type AzButtonType uint32` plus a `const` block listing every variant.
+//!    Values are referenced through cgo (`C.AzButtonType_Primary`) so the Go side stays in sync
+//!    with the C ABI even if the underlying numeric values change.
 //!
-//! 2. **Tagged-union enums** -> a sealed Go interface
-//!    (`type AzCssProperty interface { isAzCssProperty() }`) plus a
-//!    per-variant struct that implements it. This gives users
+//! 2. **Tagged-union enums** -> a sealed Go interface (`type AzCssProperty interface {
+//!    isAzCssProperty() }`) plus a per-variant struct that implements it. This gives users
 //!    Go-idiomatic exhaustiveness via type switches:
 //!
 //!    ```go
@@ -36,10 +34,14 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionKind, TypeCategory};
-use super::{ffi_type_name, sanitize_identifier};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionKind, TypeCategory},
+    },
+    ffi_type_name, sanitize_identifier,
+};
 
 /// Generate the contents of `types.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -196,7 +198,9 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str,
             }
             FunctionKind::PartialEq => {
                 b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
-                b.line(&format!("func (self {go_name}) Equal(other {go_name}) bool {{"));
+                b.line(&format!(
+                    "func (self {go_name}) Equal(other {go_name}) bool {{"
+                ));
                 b.line(&format!("    a := C.{go_name}(self)"));
                 b.line(&format!("    o := C.{go_name}(other)"));
                 b.line(&format!("    return bool(C.{go_name}_partialEq(&a, &o))"));
@@ -205,7 +209,9 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str,
             FunctionKind::PartialCmp => {
                 b.line("// PartialOrder delegates to the Rust PartialOrd. The C ABI answers");
                 b.line("// 0 = less, 1 = equal, 2 = greater.");
-                b.line(&format!("func (self {go_name}) PartialOrder(other {go_name}) uint8 {{"));
+                b.line(&format!(
+                    "func (self {go_name}) PartialOrder(other {go_name}) uint8 {{"
+                ));
                 b.line(&format!("    a := C.{go_name}(self)"));
                 b.line(&format!("    o := C.{go_name}(other)"));
                 b.line(&format!("    return uint8(C.{go_name}_partialCmp(&a, &o))"));
@@ -213,7 +219,9 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str,
             }
             FunctionKind::Cmp => {
                 b.line("// Order delegates to the Rust Ord. Same encoding as PartialOrder.");
-                b.line(&format!("func (self {go_name}) Order(other {go_name}) uint8 {{"));
+                b.line(&format!(
+                    "func (self {go_name}) Order(other {go_name}) uint8 {{"
+                ));
                 b.line(&format!("    a := C.{go_name}(self)"));
                 b.line(&format!("    o := C.{go_name}(other)"));
                 b.line(&format!("    return uint8(C.{go_name}_cmp(&a, &o))"));
@@ -391,7 +399,9 @@ fn emit_union_trait_functions(b: &mut CodeBuilder, iface: &str, class_name: &str
         b.blank();
         match f.kind {
             FunctionKind::DeepCopy => {
-                b.line(&format!("// {bare}Clone is a deep copy, delegating to the Rust Clone."));
+                b.line(&format!(
+                    "// {bare}Clone is a deep copy, delegating to the Rust Clone."
+                ));
                 b.line(&format!("func {bare}Clone(v C.{iface}) C.{iface} {{"));
                 b.line(&format!("    return C.{iface}_clone(&v)"));
                 b.line("}");
@@ -403,32 +413,49 @@ fn emit_union_trait_functions(b: &mut CodeBuilder, iface: &str, class_name: &str
                 b.line("}");
             }
             FunctionKind::PartialEq => {
-                b.line(&format!("// {bare}Equal reports structural equality, delegating to the Rust PartialEq."));
-                b.line(&format!("func {bare}Equal(a C.{iface}, o C.{iface}) bool {{"));
+                b.line(&format!(
+                    "// {bare}Equal reports structural equality, delegating to the Rust PartialEq."
+                ));
+                b.line(&format!(
+                    "func {bare}Equal(a C.{iface}, o C.{iface}) bool {{"
+                ));
                 b.line(&format!("    return bool(C.{iface}_partialEq(&a, &o))"));
                 b.line("}");
             }
             FunctionKind::PartialCmp => {
-                b.line(&format!("// {bare}PartialOrder delegates to the Rust PartialOrd."));
+                b.line(&format!(
+                    "// {bare}PartialOrder delegates to the Rust PartialOrd."
+                ));
                 b.line("// The C ABI answers 0 = less, 1 = equal, 2 = greater.");
-                b.line(&format!("func {bare}PartialOrder(a C.{iface}, o C.{iface}) uint8 {{"));
+                b.line(&format!(
+                    "func {bare}PartialOrder(a C.{iface}, o C.{iface}) uint8 {{"
+                ));
                 b.line(&format!("    return uint8(C.{iface}_partialCmp(&a, &o))"));
                 b.line("}");
             }
             FunctionKind::Cmp => {
-                b.line(&format!("// {bare}Order delegates to the Rust Ord. Same encoding as {bare}PartialOrder."));
-                b.line(&format!("func {bare}Order(a C.{iface}, o C.{iface}) uint8 {{"));
+                b.line(&format!(
+                    "// {bare}Order delegates to the Rust Ord. Same encoding as \
+                     {bare}PartialOrder."
+                ));
+                b.line(&format!(
+                    "func {bare}Order(a C.{iface}, o C.{iface}) uint8 {{"
+                ));
                 b.line(&format!("    return uint8(C.{iface}_cmp(&a, &o))"));
                 b.line("}");
             }
             FunctionKind::Hash => {
-                b.line(&format!("// {bare}Hash delegates to the Rust Hash, as a 64-bit digest."));
+                b.line(&format!(
+                    "// {bare}Hash delegates to the Rust Hash, as a 64-bit digest."
+                ));
                 b.line(&format!("func {bare}Hash(v C.{iface}) uint64 {{"));
                 b.line(&format!("    return uint64(C.{iface}_hash(&v))"));
                 b.line("}");
             }
             FunctionKind::DebugToString => {
-                b.line(&format!("// {bare}String is the Rust `{{:#?}}` rendering. The AzString the ABI"));
+                b.line(&format!(
+                    "// {bare}String is the Rust `{{:#?}}` rendering. The AzString the ABI"
+                ));
                 b.line("// returns owns its buffer and GoStr only copies, so it is freed here.");
                 b.line(&format!("func {bare}String(v C.{iface}) string {{"));
                 b.line(&format!("    s := C.{iface}_toDbgString(&v)"));

@@ -9,11 +9,7 @@
 //! text-in-PDF (walk `TextLayout` -> printpdf text Ops) and a markdown
 //! editor / live preview are follow-ups.
 
-use azul::error::ResultRefAnyString;
-use azul::json::Json;
-use azul::dialog::FileDialog;
-use azul::pdf::Pdf;
-use azul::prelude::*;
+use azul::{dialog::FileDialog, error::ResultRefAnyString, json::Json, pdf::Pdf, prelude::*};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -41,18 +37,17 @@ impl DocState {
     }
 }
 
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
-    font-family: sans-serif; background: #f4f4f7;";
-const TOOLBAR: &str = "display: flex; flex-direction: row; align-items: center; \
-    background: #2b2b3c; color: white; padding: 10px 16px;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; font-family: sans-serif; \
+                    background: #f4f4f7;";
+const TOOLBAR: &str = "display: flex; flex-direction: row; align-items: center; background: \
+                       #2b2b3c; color: white; padding: 10px 16px;";
 const TITLE: &str = "font-size: 18px; flex-grow: 1;";
-const BTN: &str = "background: #4a90e2; color: white; padding: 8px 16px; \
-    border-radius: 6px; font-size: 14px; cursor: pointer;";
-const PAGE: &str = "flex-grow: 1; margin: 16px; padding: 24px; background: white; \
-    border-radius: 8px;";
+const BTN: &str = "background: #4a90e2; color: white; padding: 8px 16px; border-radius: 6px; \
+                   font-size: 14px; cursor: pointer;";
+const PAGE: &str =
+    "flex-grow: 1; margin: 16px; padding: 24px; background: white; border-radius: 8px;";
 const H1: &str = "font-size: 24px; color: #1c1c28; margin-bottom: 6px;";
-const SECTION: &str = "background: #eef1f8; border-radius: 6px; padding: 12px; \
-    margin: 10px 0px;";
+const SECTION: &str = "background: #eef1f8; border-radius: 6px; padding: 12px; margin: 10px 0px;";
 const SECTION_H: &str = "font-size: 16px; color: #2b2b3c; margin-bottom: 4px;";
 const BODY: &str = "color: #4a4a5a; font-size: 14px;";
 const STATUS: &str = "color: #2e7d32; font-size: 13px; margin-top: 10px;";
@@ -66,9 +61,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let mut page = doc_page();
 
     if exported {
-        page = page.with_child(
-            Dom::create_p_with_text(format!("Exported to {}", path)).with_css(STATUS),
-        );
+        page = page
+            .with_child(Dom::create_p_with_text(format!("Exported to {}", path)).with_css(STATUS));
     }
 
     Dom::create_body().with_child(
@@ -107,11 +101,13 @@ fn doc_page() -> Dom {
         .with_child(Dom::create_p_with_text("Project Brief").with_css(H1))
         .with_child(section(
             "Overview",
-            "AzulDoc renders a styled document and exports it to PDF via the public Pdf::from_dom API (headless dom -> PDF pages, no window).",
+            "AzulDoc renders a styled document and exports it to PDF via the public Pdf::from_dom \
+             API (headless dom -> PDF pages, no window).",
         ))
         .with_child(section(
             "Status",
-            "P5: PDF export wired end-to-end. Solid fills export today; text and inline images follow.",
+            "P5: PDF export wired end-to-end. Solid fills export today; text and inline images \
+             follow.",
         ))
         .with_child(section(
             "Next",

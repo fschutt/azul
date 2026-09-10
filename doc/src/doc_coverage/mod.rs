@@ -10,8 +10,7 @@
 //!
 //! Usage: `azul-doc doc-coverage [--agents <N>] [--out <dir>]`  (default N=20)
 
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use anyhow::Result;
 
@@ -228,8 +227,8 @@ pub fn run(root: &Path, api_data: &ApiData, opts: &DocCoverageOptions) -> Result
     )?;
 
     println!(
-        "doc-coverage: {total} undocumented items across {nfiles} source files \
-         -> {} agent task files in {}",
+        "doc-coverage: {total} undocumented items across {nfiles} source files -> {} agent task \
+         files in {}",
         manifest.len(),
         tasks_dir.display()
     );

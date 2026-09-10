@@ -1,5 +1,4 @@
-use azul::option::OptionDom;
-use azul::prelude::*;
+use azul::{option::OptionDom, prelude::*};
 
 const TOTAL_ROWS: usize = 1_000_000;
 const ROW_HEIGHT: f32 = 22.0;
@@ -69,9 +68,9 @@ extern "C" fn render_rows(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         row.add_child(cell(
             &format!("{}", row_idx + 1),
             &format!(
-                "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: {ROW_HEIGHT}px; \
-                 line-height: {ROW_HEIGHT}px; text-align: center; font-size: 11px; color: #444444; \
-                 background: #eceff4; border-right: 1px solid #b6bcc6; \
+                "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: \
+                 {ROW_HEIGHT}px; line-height: {ROW_HEIGHT}px; text-align: center; font-size: \
+                 11px; color: #444444; background: #eceff4; border-right: 1px solid #b6bcc6; \
                  border-bottom: 1px solid #d7dbe2;"
             ),
         ));
@@ -109,15 +108,15 @@ extern "C" fn render_rows(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
 
 fn column_header() -> Dom {
     let mut header = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; background: #dfe3ea; \
-         border-bottom: 1px solid #9aa2ae;",
+        "display: flex; flex-direction: row; background: #dfe3ea; border-bottom: 1px solid \
+         #9aa2ae;",
     );
 
     header.add_child(cell(
         "",
         &format!(
-            "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: 24px; \
-             line-height: 24px; border-right: 1px solid #9aa2ae; background: #d3d8e0;"
+            "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: 24px; line-height: \
+             24px; border-right: 1px solid #9aa2ae; background: #d3d8e0;"
         ),
     ));
 
@@ -126,8 +125,8 @@ fn column_header() -> Dom {
             &format!("{label}   {title}"),
             &format!(
                 "width: {COL_WIDTH}px; min-width: {COL_WIDTH}px; height: 24px; line-height: 24px; \
-                 padding-left: 6px; font-size: 11px; font-weight: bold; color: #33404f; \
-                 overflow: hidden; border-right: 1px solid #9aa2ae;"
+                 padding-left: 6px; font-size: 11px; font-weight: bold; color: #33404f; overflow: \
+                 hidden; border-right: 1px solid #9aa2ae;"
             ),
         ));
     }
@@ -142,8 +141,7 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         COL_LABELS.len()
     ))
     .with_css(
-        "padding: 8px 12px; background: #217346; color: white; font-size: 13px; \
-         font-weight: bold;",
+        "padding: 8px 12px; background: #217346; color: white; font-size: 13px; font-weight: bold;",
     );
 
     let vview = Dom::create_virtual_view(data.clone(), render_rows).with_css(
@@ -153,8 +151,8 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let status =
         Dom::create_div_with_text("Ready   -   only the visible band of cells exists in the DOM")
             .with_css(
-                "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; \
-         color: #55606e; font-size: 11px;",
+                "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; color: \
+                 #55606e; font-size: 11px;",
             );
 
     Dom::create_body()

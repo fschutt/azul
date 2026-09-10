@@ -4,7 +4,11 @@
 
 use azul_core::{
     callbacks::CoreCallbackDataVec,
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
+    dom::{
+        Dom, DomVec, IdOrClass,
+        IdOrClass::{Class, Id},
+        IdOrClassVec,
+    },
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)]
@@ -86,18 +90,16 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
 ///
 /// # Two modes
 ///
-/// 1. **Title-only** ([`Titlebar::dom`], the default for
-///    `WindowDecorations::NoTitleAutoInject`):
-///    The OS still draws the native window-control buttons (traffic lights on
-///    macOS, caption buttons on Windows).  The titlebar reserves
-///    `padding_left` / `padding_right` so the title text doesn't overlap them.
+/// 1. **Title-only** ([`Titlebar::dom`], the default for `WindowDecorations::NoTitleAutoInject`):
+///    The OS still draws the native window-control buttons (traffic lights on macOS, caption
+///    buttons on Windows).  The titlebar reserves `padding_left` / `padding_right` so the title
+///    text doesn't overlap them.
 ///
-/// 2. **Full CSD** ([`Titlebar::dom_with_buttons`], used when
-///    `WindowDecorations::None` + `has_decorations`):
-///    The titlebar renders its own close / minimize / maximize buttons as
-///    regular DOM nodes.  Each button carries a plain `MouseDown` callback
-///    that calls `CallbackInfo::modify_window_state()` - exactly the same
-///    mechanism used for window dragging.  No special event-system hooks.
+/// 2. **Full CSD** ([`Titlebar::dom_with_buttons`], used when `WindowDecorations::None` +
+///    `has_decorations`): The titlebar renders its own close / minimize / maximize buttons as
+///    regular DOM nodes.  Each button carries a plain `MouseDown` callback that calls
+///    `CallbackInfo::modify_window_state()` - exactly the same mechanism used for window dragging.
+///    No special event-system hooks.
 ///
 /// Window-control buttons use `Dom::create_icon("system:titlebar-close,…")` — an
 /// icon spec is a fallback chain, so the DESKTOP's own control icons win where
@@ -361,9 +363,9 @@ impl Titlebar {
         // not take the decision away.
         if let OptionColorU::Some(bg) = self.background_color {
             props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
-                    vec![StyleBackgroundContent::Color(bg)],
-                )),
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
+                    StyleBackgroundContent::Color(bg),
+                ])),
             ));
         }
         // …and the dimmed one for when focus leaves. `:backdrop` is the
@@ -372,9 +374,9 @@ impl Titlebar {
         // conditional declaration like `:hover`.
         if let OptionColorU::Some(bg) = self.background_inactive {
             props.push(CssPropertyWithConditions::with_single_condition(
-                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
-                    vec![StyleBackgroundContent::Color(bg)],
-                )),
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
+                    StyleBackgroundContent::Color(bg),
+                ])),
                 &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
             ));
         }
@@ -486,7 +488,9 @@ impl Titlebar {
     }
 
     /// Inner builder for both modes.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     fn dom_inner(
         self,
         show_buttons: bool,
@@ -641,11 +645,11 @@ pub(crate) fn maximize_icon_view(
         // button, so one place produced both. Two REPLACED-ELEMENT SIZING BUGS
         // make that unsafe, and both were measured rather than guessed:
         //
-        //   * as a flex item, a replaced element takes its INTRINSIC main-axis
-        //     size whatever the CSS says. `width: 34px`, `flex-basis: 0` and
-        //     `flex-grow: 1` were each tried; the view laid out 12px wide.
-        //   * a PERCENTAGE on a replaced element falls back to intrinsic too:
-        //     `width: 100%` in a 34x28 button also gave 12x16.
+        //   * as a flex item, a replaced element takes its INTRINSIC main-axis size whatever the
+        //     CSS says. `width: 34px`, `flex-basis: 0` and `flex-grow: 1` were each tried; the
+        //     view laid out 12px wide.
+        //   * a PERCENTAGE on a replaced element falls back to intrinsic too: `width: 100%` in a
+        //     34x28 button also gave 12x16.
         //
         // With an explicit pixel size it takes the size but is PLACED from the
         // intrinsic one - measured at (1215,22)+32x26 inside a button at
@@ -741,7 +745,9 @@ extern "C" fn render_maximize_icon(
 }
 
 /// Build the `.csd-buttons` container with close/min/max button DOM nodes.
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn build_button_container(
     buttons: &TitlebarButtons,
     hover: OptionColorU,
@@ -755,20 +761,19 @@ fn build_button_container(
     // The hover background a control takes, as an inline `:hover` declaration.
     // Emitted per button rather than as one class rule because CLOSE has its
     // own colour on Breeze and Windows alike (red), and the others do not.
-    let hover_style = |c: OptionColorU| -> CssPropertyWithConditionsVec {
-        match c {
-            OptionColorU::Some(c) => {
-                CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::on_hover(
-                    CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
-                        vec![StyleBackgroundContent::Color(c)],
+    let hover_style =
+        |c: OptionColorU| -> CssPropertyWithConditionsVec {
+            match c {
+                OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(vec![
+                    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+                        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(c)]),
                     )),
-                )])
+                ]),
+                // Nothing stated: declare nothing, so an app's own `.csd-button`
+                // styling keeps full control.
+                OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
             }
-            // Nothing stated: declare nothing, so an app's own `.csd-button`
-            // styling keeps full control.
-            OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
-        }
-    };
+        };
 
     let mut children = Vec::new();
 
@@ -836,7 +841,9 @@ fn build_button_container(
             Dom::create_div()
                 .with_ids_and_classes(classes)
                 .with_css_props(hover_style(close_hover))
-                .with_child(Dom::create_icon("system:titlebar-close,system:window-close,close"))
+                .with_child(Dom::create_icon(
+                    "system:titlebar-close,system:window-close,close",
+                ))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -928,9 +935,9 @@ pub(crate) fn glyph_drawn_by_view(
 /// Every callback is a plain `extern "C"` function that uses
 /// `CallbackInfo::modify_window_state()`.  No special hooks needed.
 pub mod callbacks {
+    use azul_core::{callbacks::Update, refany::RefAny};
+
     use crate::callbacks::CallbackInfo;
-    use azul_core::callbacks::Update;
-    use azul_core::refany::RefAny;
 
     /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
@@ -988,8 +995,7 @@ pub mod callbacks {
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use]
     pub extern "C" fn titlebar_drag(_data: RefAny, mut info: CallbackInfo) -> Update {
-        use azul_core::geom::PhysicalPositionI32;
-        use azul_core::window::WindowPosition;
+        use azul_core::{geom::PhysicalPositionI32, window::WindowPosition};
 
         let delta = info.get_drag_delta_screen_incremental();
         let current_pos = info.get_current_window_state().position;
@@ -2120,17 +2126,20 @@ mod autotest_generated {
     /// assertion fails; a decoration then stays "active"-coloured forever.
     #[test]
     fn build_container_style_dims_the_titlebar_when_the_window_is_unfocused() {
-        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-        use azul_css::props::basic::color::{ColorU, OptionColorU};
+        use azul_css::{
+            dynamic_selector::{DynamicSelector, PseudoStateType},
+            props::basic::color::{ColorU, OptionColorU},
+        };
 
         let mut t = tb("x");
         t.background_inactive = OptionColorU::Some(ColorU::new_rgb(0x2a, 0x2e, 0x32));
         let styled = t.build_container_style(true);
         assert!(
             styled.as_ref().iter().any(|p| {
-                p.apply_if.as_ref().iter().any(|c| {
-                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
-                })
+                p.apply_if
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop)))
             }),
             "the unfocused colour must be declared under :backdrop"
         );
@@ -2139,9 +2148,10 @@ mod autotest_generated {
         plain.background_inactive = OptionColorU::None;
         assert!(
             !plain.build_container_style(true).as_ref().iter().any(|p| {
-                p.apply_if.as_ref().iter().any(|c| {
-                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
-                })
+                p.apply_if
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop)))
             }),
             "an unstated colour must declare NOTHING"
         );
@@ -2695,8 +2705,16 @@ mod autotest_generated {
                 ..off
             };
             assert_eq!(
-                fingerprint(&build_button_container(&off, OptionColorU::None, OptionColorU::None)),
-                fingerprint(&build_button_container(&on, OptionColorU::None, OptionColorU::None)),
+                fingerprint(&build_button_container(
+                    &off,
+                    OptionColorU::None,
+                    OptionColorU::None
+                )),
+                fingerprint(&build_button_container(
+                    &on,
+                    OptionColorU::None,
+                    OptionColorU::None
+                )),
                 "has_fullscreen changed the rendered buttons",
             );
         }
@@ -2756,7 +2774,11 @@ mod autotest_generated {
             ),
         ];
 
-        let container = build_button_container(&TitlebarButtons::default(), OptionColorU::None, OptionColorU::None);
+        let container = build_button_container(
+            &TitlebarButtons::default(),
+            OptionColorU::None,
+            OptionColorU::None,
+        );
         let kids = container.children.as_ref();
         assert_eq!(kids.len(), 3);
 
@@ -2780,8 +2802,7 @@ mod autotest_generated {
                 );
                 continue;
             }
-            let spec =
-                icon_of(child).unwrap_or_else(|| panic!("{id} rendered no icon at all"));
+            let spec = icon_of(child).unwrap_or_else(|| panic!("{id} rendered no icon at all"));
             assert_eq!(
                 spec,
                 alloc::format!("{native},{fallback}"),
@@ -2837,7 +2858,11 @@ mod autotest_generated {
 
     #[test]
     fn every_button_carries_the_shared_and_the_specific_class() {
-        let container = build_button_container(&TitlebarButtons::default(), OptionColorU::None, OptionColorU::None);
+        let container = build_button_container(
+            &TitlebarButtons::default(),
+            OptionColorU::None,
+            OptionColorU::None,
+        );
         for (node, specific) in
             container
                 .children
@@ -3350,8 +3375,9 @@ pub fn handle_fullscreen_keys(info: &mut crate::callbacks::CallbackInfo) -> bool
 
 #[cfg(test)]
 mod drag_region_tests {
-    use super::*;
     use azul_core::dom::{Dom, EventFilter, HoverEventFilter};
+
+    use super::*;
 
     /// The region must carry all THREE behaviours a native title bar has.
     /// Missing any one is a bar that looks right and behaves wrong: no drag, a

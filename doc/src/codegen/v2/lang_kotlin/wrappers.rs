@@ -22,13 +22,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
-    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
+        },
+    },
     ffi_type_name, kotlin_class_name, map_kt_owned, map_kt_return, sanitize_kt_identifier,
 };
 
@@ -617,11 +619,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             for (sam_type, doc_note) in [
                 (
                     sam_raw.as_str(),
-                    "Smart factory: pass a layout-callback lambda; the host-invoker registration and bytes-copy plumbing happen internally.",
+                    "Smart factory: pass a layout-callback lambda; the host-invoker registration \
+                     and bytes-copy plumbing happen internally.",
                 ),
                 (
                     sam_typed.as_str(),
-                    "Smart factory (typed): pass a typed callback that returns a wrapper directly; the bridge splices the bytes into the embedded callback field.",
+                    "Smart factory (typed): pass a typed callback that returns a wrapper \
+                     directly; the bridge splices the bytes into the embedded callback field.",
                 ),
             ] {
                 builder.line("/**");
@@ -632,10 +636,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
                     sam_type, wrapper_class
                 ));
                 builder.indent();
-                builder.line(&format!(
-                    "val __cb = AzulHostInvoker.{}(fn)",
-                    register_fn
-                ));
+                builder.line(&format!("val __cb = AzulHostInvoker.{}(fn)", register_fn));
                 builder.line(&format!(
                     "val __wco = {}.INSTANCE.{}()",
                     native_class, info.default_c_name
@@ -648,14 +649,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
                     field_path
                 ));
                 builder.line("__wco.read()");
-                builder.line(&format!(
-                    "return {}(__wco.getPointer())",
-                    wrapper_class
-                ));
+                builder.line(&format!("return {}(__wco.getPointer())", wrapper_class));
                 builder.dedent();
                 builder.line("}");
                 builder.blank();
-                let _ = (ffi_class.as_str(), cb_ffi.as_str()); // referenced via register/default; keep names alive for IR-driven debugging
+                let _ = (ffi_class.as_str(), cb_ffi.as_str()); // referenced via register/default;
+                                                               // keep names alive for IR-driven
+                                                               // debugging
             }
         }
         for func in static_funcs {
@@ -723,7 +723,10 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // action no-ops), then `clean()` to deregister the Cleanable so the
     // Cleaner thread can never fire a double-free after the C side has
     // taken ownership.
-    builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
+    builder.line(
+        "/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership \
+         to the C ABI by-value). */",
+    );
     builder.line("internal fun __consume() {");
     builder.indent();
     builder.line("if (closed) return");
@@ -799,7 +802,8 @@ fn emit_kt_wrapper_class_conv(
     let ffi = ffi_type_name(type_name);
     let raw_local = format!("__{}_raw", stem);
     pre_call_lines.push(format!(
-        "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) as {ffi}.ByValue",
+        "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) \
+         as {ffi}.ByValue",
         raw_local = raw_local,
         ffi = ffi,
         arg = raw_name,
@@ -996,7 +1000,10 @@ fn emit_kt_vec_iterator(builder: &mut CodeBuilder, s: &StructDef, elem_type: &st
     if clone_call.is_some() {
         builder.line("/// Each element is deep-cloned via _clone; safe past Vec close.");
     } else {
-        builder.line("/// Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers past the Vec's lifetime.");
+        builder.line(
+            "/// Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers \
+             past the Vec's lifetime.",
+        );
     }
     builder.line(&format!(
         "override fun iterator(): Iterator<{}> {{",
@@ -1592,11 +1599,10 @@ fn idiomatic_method_name(method_name: &str) -> String {
 /// Escape doc-comment text for KDoc emission. Several characters in
 /// the raw Rust docs would otherwise confuse Kotlin's parser:
 ///
-/// - `*/` inside paths like `/users/*/name` is read as the doc-comment
-///   terminator, prematurely closing the KDoc and surfacing as
-///   "Missing '}" / "Unclosed comment" errors on later lines.
-/// - `{` / `}` are KDoc inline-tag delimiters. Unbalanced braces from
-///   inline code samples (`r#"{"users":...}"#`) trip the doc parser.
+/// - `*/` inside paths like `/users/*/name` is read as the doc-comment terminator, prematurely
+///   closing the KDoc and surfacing as "Missing '}" / "Unclosed comment" errors on later lines.
+/// - `{` / `}` are KDoc inline-tag delimiters. Unbalanced braces from inline code samples
+///   (`r#"{"users":...}"#`) trip the doc parser.
 pub(crate) fn kdoc_escape(s: &str) -> String {
     s.replace("*/", "*&#47;")
         .replace('{', "&#123;")

@@ -43,14 +43,14 @@ use objc::{
     declare::ClassDecl,
     msg_send,
     runtime::{Class, Object, Sel},
-    sel, sel_impl,
+    sel, sel_impl, Encode, Encoding,
 };
 
-use objc::{Encode, Encoding};
-
 use super::{azul_ios_window, ns_string_to_rust, settle, CGPoint, CGRect, CGSize, IOSWindow};
-use crate::desktop::shell2::common::{debug_server::LogCategory, event::PlatformWindow};
-use crate::log_debug;
+use crate::{
+    desktop::shell2::common::{debug_server::LogCategory, event::PlatformWindow},
+    log_debug,
+};
 
 /// `NSRange`. Not declared anywhere else in the iOS shell - `setMarkedText:
 /// selectedRange:` is the first place it crosses the boundary.
@@ -187,7 +187,10 @@ fn range_class() -> &'static Class {
             sel!(end),
             range_end as extern "C" fn(&Object, Sel) -> *mut Object,
         );
-        decl.add_method(sel!(isEmpty), range_is_empty as extern "C" fn(&Object, Sel) -> bool);
+        decl.add_method(
+            sel!(isEmpty),
+            range_is_empty as extern "C" fn(&Object, Sel) -> bool,
+        );
         CLS = decl.register();
     });
     unsafe { &*CLS }
@@ -212,7 +215,11 @@ fn make_position(offset: usize) -> *mut Object {
 fn make_range(start: usize, end: usize) -> *mut Object {
     // Ordered on construction, so nothing downstream has to wonder. UIKit
     // does hand out reversed pairs while dragging a selection backwards.
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     unsafe {
         let cls = range_class();
         let obj: *mut Object = msg_send![cls, alloc];
@@ -471,7 +478,11 @@ extern "C" fn unmark_text(_this: &Object, _cmd: Sel) {
         // COMMIT, not discard. `unmarkText` means "the composition is
         // finished, accept it" - throwing the preedit away here would delete
         // whatever the user had just chosen.
-        let preedit = lw.text_edit_manager.preedit_text.clone().unwrap_or_default();
+        let preedit = lw
+            .text_edit_manager
+            .preedit_text
+            .clone()
+            .unwrap_or_default();
         if !preedit.is_empty() {
             lw.text_edit_manager.commit_composition(preedit.clone());
             let _ = lw.record_text_input(&preedit);
@@ -703,7 +714,11 @@ extern "C" fn caret_rect_for_position(_this: &Object, _cmd: Sel, position: *mut 
     r
 }
 
-extern "C" fn selection_rects_for_range(_this: &Object, _cmd: Sel, _range: *mut Object) -> *mut Object {
+extern "C" fn selection_rects_for_range(
+    _this: &Object,
+    _cmd: Sel,
+    _range: *mut Object,
+) -> *mut Object {
     // An EMPTY array, not nil: UIKit enumerates the result unconditionally.
     unsafe { msg_send![class!(NSArray), array] }
 }
@@ -752,7 +767,11 @@ extern "C" fn closest_position_to_point_within_range(
             point.y as f32,
         ))
     })();
-    let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+    let (lo, hi) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     make_position(hit.map_or(hi, |o| o.clamp(lo, hi)))
 }
 
@@ -1066,8 +1085,7 @@ pub(super) fn register(decl: &mut ClassDecl) {
         );
         decl.add_method(
             sel!(setBaseWritingDirection:forRange:),
-            set_base_writing_direction_for_range
-                as extern "C" fn(&Object, Sel, i64, *mut Object),
+            set_base_writing_direction_for_range as extern "C" fn(&Object, Sel, i64, *mut Object),
         );
         decl.add_method(
             sel!(firstRectForRange:),

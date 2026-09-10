@@ -47,11 +47,16 @@ use webrender::{
     render_api::ResourceUpdate as WrResourceUpdate,
 };
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::desktop::wr_translate2::{
-    translate_image_key, wr_translate_border_radius, wr_translate_color_f, wr_translate_pipeline_id,
+use crate::{
+    desktop::{
+        shell2::common::debug_server::LogCategory,
+        wr_translate2::{
+            translate_image_key, wr_translate_border_radius, wr_translate_color_f,
+            wr_translate_pipeline_id,
+        },
+    },
+    log_debug,
 };
-use crate::log_debug;
 
 /// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
 /// All display list coordinates are in logical CSS pixels and need to be scaled
@@ -155,8 +160,8 @@ fn push_text_decoration_rect(
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
-/// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively built.
-/// Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
+/// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively
+/// built. Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
 ///
 /// Read ONCE per process: the environment cannot change under a running app,
 /// and this is consulted for every `HitTestArea` in every display list, so a
@@ -292,8 +297,13 @@ pub fn translate_displaylist_to_wr(
 
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, clip_stack.len={}, spatial_stack.len={}",
-                    rect, current_clip_chain, current_spatial, clip_stack.len(), spatial_stack.len()
+                    "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, \
+                     clip_stack.len={}, spatial_stack.len={}",
+                    rect,
+                    current_clip_chain,
+                    current_spatial,
+                    clip_stack.len(),
+                    spatial_stack.len()
                 );
 
                 let info = CommonItemProperties {
@@ -501,9 +511,14 @@ pub fn translate_displaylist_to_wr(
                 let base_clip_chain_id = current_clip!();
                 let current_offset = current_offset!();
 
-                log_debug!(LogCategory::DisplayList,
-                    "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, thumb={:?}",
-                    info.bounds, current_offset, info.track_bounds, info.thumb_bounds
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, \
+                     thumb={:?}",
+                    info.bounds,
+                    current_offset,
+                    info.track_bounds,
+                    info.thumb_bounds
                 );
 
                 // If we have an opacity key, wrap the entire scrollbar in an
@@ -649,7 +664,8 @@ pub fn translate_displaylist_to_wr(
                 // Determine the spatial_id for the thumb. If we have a GPU transform key,
                 // wrap in a reference frame for dynamic positioning.
                 let thumb_spatial_id = if let Some(transform_key) = &info.thumb_transform_key {
-                    // Convert initial transform to WR LayoutTransform with DPI scaling on translation
+                    // Convert initial transform to WR LayoutTransform with DPI scaling on
+                    // translation
                     let t = &info.thumb_initial_transform;
                     let wr_transform = LayoutTransform::new(
                         t.m[0][0],
@@ -797,9 +813,14 @@ pub fn translate_displaylist_to_wr(
 
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, clip_stack.len={}, \
-                     current_spatial={:?}, current_clip={:?}",
-                    bounds, rect, spatial_stack.len(), clip_stack.len(), current_spatial, current_clip
+                    "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, \
+                     clip_stack.len={}, current_spatial={:?}, current_clip={:?}",
+                    bounds,
+                    rect,
+                    spatial_stack.len(),
+                    clip_stack.len(),
+                    current_spatial,
+                    current_clip
                 );
 
                 // Handle rounded corners if border_radius is non-zero
@@ -837,7 +858,8 @@ pub fn translate_displaylist_to_wr(
 
                     log_debug!(
                         LogCategory::DisplayList,
-                        "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to clip_stack",
+                        "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to \
+                         clip_stack",
                         new_clip_id
                     );
 
@@ -855,8 +877,11 @@ pub fn translate_displaylist_to_wr(
 
                     log_debug!(
                         LogCategory::DisplayList,
-                        "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, new_clip_chain_id={:?}, pushing to clip_stack",
-                        clip_id, parent, new_clip_chain_id
+                        "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, \
+                         new_clip_chain_id={:?}, pushing to clip_stack",
+                        clip_id,
+                        parent,
+                        new_clip_chain_id
                     );
 
                     clip_stack.push(new_clip_chain_id);
@@ -918,8 +943,8 @@ pub fn translate_displaylist_to_wr(
 
                 // The content_rect is in PARENT space (same coordinate system as frame_rect)
                 // Origin should match frame_rect.origin, size is the total scrollable content
-                // This ensures that child coordinates (which are in parent-space after offset adjustment)
-                // are correctly positioned relative to the scroll frame
+                // This ensures that child coordinates (which are in parent-space after offset
+                // adjustment) are correctly positioned relative to the scroll frame
                 let content_rect = LayoutRect::from_origin_and_size(
                     adjusted_frame_rect.min, // Content origin matches frame origin
                     LayoutSize::new(
@@ -931,8 +956,8 @@ pub fn translate_displaylist_to_wr(
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
-                     scroll_id={}, parent_space={:?}, current_clip={:?}, \
-                     spatial_stack.len={}, clip_stack.len={}",
+                     scroll_id={}, parent_space={:?}, current_clip={:?}, spatial_stack.len={}, \
+                     clip_stack.len={}",
                     frame_rect,
                     content_rect,
                     scroll_id,
@@ -942,9 +967,13 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.len()
                 );
 
-                log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, content_rect={:?}",
-                    frame_rect, adjusted_frame_rect, content_rect
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, \
+                     content_rect={:?}",
+                    frame_rect,
+                    adjusted_frame_rect,
+                    content_rect
                 );
 
                 let scroll_spatial_id = builder.define_scroll_frame(
@@ -984,18 +1013,27 @@ pub fn translate_displaylist_to_wr(
                 // to (0, 0), placing it ABOVE the viewport clip at y=53.
 
                 // Define clip for the scroll frame in PARENT SPACE (where the viewport is)
-                // CRITICAL: The clip must be in parent space so it stays stationary while content scrolls!
-                // If we define it in scroll space, the clip would scroll with the content (wrong).
+                // CRITICAL: The clip must be in parent space so it stays stationary while content
+                // scrolls! If we define it in scroll space, the clip would scroll
+                // with the content (wrong).
                 let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
 
-                log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, adjusted_frame_rect={:?}",
-                    scroll_clip_id, parent_space, adjusted_frame_rect
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, \
+                     adjusted_frame_rect={:?}",
+                    scroll_clip_id,
+                    parent_space,
+                    adjusted_frame_rect
                 );
 
-                log_debug!(LogCategory::DisplayList,
-                    "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on parent_space={:?} with frame_rect={:?}",
-                    scroll_clip_id, parent_space, frame_rect
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
+                     parent_space={:?} with frame_rect={:?}",
+                    scroll_clip_id,
+                    parent_space,
+                    frame_rect
                 );
 
                 // Create a clip chain with this clip, parented to the current clip chain
@@ -1013,9 +1051,12 @@ pub fn translate_displaylist_to_wr(
                     parent_clip
                 );
 
-                log_debug!(LogCategory::DisplayList,
-                    "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with parent={:?}",
-                    scroll_clip_chain, parent_clip
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with \
+                     parent={:?}",
+                    scroll_clip_chain,
+                    parent_clip
                 );
 
                 clip_stack.push(scroll_clip_chain);
@@ -1034,7 +1075,8 @@ pub fn translate_displaylist_to_wr(
 
                 log_debug!(
                     LogCategory::DisplayList,
-                    "[compositor2] PushScrollFrame: pushed scroll container hit-test tag=({}, 0x{:04x})",
+                    "[compositor2] PushScrollFrame: pushed scroll container hit-test tag=({}, \
+                     0x{:04x})",
                     scroll_id,
                     TAG_TYPE_SCROLL_CONTAINER
                 );
@@ -1160,8 +1202,10 @@ pub fn translate_displaylist_to_wr(
                 clip_rect,
                 source_node_index: _,
             } => {
-                log_debug!(LogCategory::DisplayList,
-                    "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}, dpi={}",
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, \
+                     clip_rect={:?}, dpi={}",
                     glyphs.len(),
                     font_size_px,
                     color,
@@ -1400,9 +1444,10 @@ pub fn translate_displaylist_to_wr(
                 let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
 
                 // Push reference frame at ZERO origin.
-                // The reference frame is purely for the dynamic transform (drag delta / CSS transform).
-                // Items inside keep their absolute (DPI-scaled) coordinates.
-                // We do NOT shift the coordinate origin - the transform handles all movement.
+                // The reference frame is purely for the dynamic transform (drag delta / CSS
+                // transform). Items inside keep their absolute (DPI-scaled)
+                // coordinates. We do NOT shift the coordinate origin - the
+                // transform handles all movement.
                 let new_spatial_id = builder.push_reference_frame(
                     LayoutPoint::zero(),
                     parent_spatial_id,
@@ -2314,7 +2359,8 @@ pub fn translate_displaylist_to_wr(
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
-                        "[compositor2] PopImageMaskClip: SKIPPED (clip_stack.len={}, would underflow)",
+                        "[compositor2] PopImageMaskClip: SKIPPED (clip_stack.len={}, would \
+                         underflow)",
                         before_len
                     );
                 }
@@ -2520,7 +2566,8 @@ fn push_text(
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
     container_origin: azul_core::geom::LogicalPosition, // Container origin (already scaled)
-    scroll_offset: (f32, f32), // Offset to subtract from glyph positions for scroll frames
+    scroll_offset: (f32, f32),                          /* Offset to subtract from glyph
+                                                         * positions for scroll frames */
 ) {
     let dpi_scale = dpi.inner.get();
 
@@ -2579,8 +2626,10 @@ fn push_text(
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
-    log_debug!(LogCategory::DisplayList,
-        "[push_text] Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
+    log_debug!(
+        LogCategory::DisplayList,
+        "[push_text] Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, \
+         container_origin=({}, {}), dpi={}",
         wr_glyphs.len(),
         wr_font_instance_key,
         wr_color,

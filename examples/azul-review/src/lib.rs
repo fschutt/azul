@@ -18,22 +18,19 @@
 //! It is also the stress test for the tablet surface, and it uses all of it at
 //! once rather than one feature at a time:
 //!
-//! * `PenState` — pressure drives nib width, tilt elongates the dab, and
-//!   flipping the stylus erases (`is_eraser`).
-//! * The Wacom **PAD** — ExpressKeys select the semantic colour without
-//!   leaving the page, and the ring scrolls. That producer landed on this
-//!   branch; before it, `get_tablet_pad()` returned `None` on every platform.
-//! * Touch — a finger draws with a default pressure, so the app is usable on a
-//!   tablet with no stylus at all.
-//! * Microphone — audio recorded while drawing is bound to the strokes made in
-//!   that window. The terse mark is the headline; the spoken part is the
-//!   reasoning nobody wants to write by hand.
+//! * `PenState` — pressure drives nib width, tilt elongates the dab, and flipping the stylus erases
+//!   (`is_eraser`).
+//! * The Wacom **PAD** — ExpressKeys select the semantic colour without leaving the page, and the
+//!   ring scrolls. That producer landed on this branch; before it, `get_tablet_pad()` returned
+//!   `None` on every platform.
+//! * Touch — a finger draws with a default pressure, so the app is usable on a tablet with no
+//!   stylus at all.
+//! * Microphone — audio recorded while drawing is bound to the strokes made in that window. The
+//!   terse mark is the headline; the spoken part is the reasoning nobody wants to write by hand.
 
 use std::path::PathBuf;
 
-use azul::prelude::*;
-use azul::task::TerminateTimer;
-use azul::time::SystemTimeDiff;
+use azul::{prelude::*, task::TerminateTimer, time::SystemTimeDiff};
 
 pub mod code;
 pub mod ink;
@@ -302,7 +299,11 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.tool = if backward { s.tool.prev() } else { s.tool.next() };
+    s.tool = if backward {
+        s.tool.prev()
+    } else {
+        s.tool.next()
+    };
     // Leaving the audio pen closes the clip rather than leaving it open: the
     // binding is to the strokes drawn WITH that nib, and a clip that kept
     // running would bind speech to marks made by a different tool.

@@ -16,11 +16,11 @@
 //! The queue is `Arc<Mutex<..>>` because the producer is NOT always the loop
 //! thread:
 //!
-//! * Android — `AccessibilityNodeProvider::performAction` runs on the Java UI
-//!   thread while `android_main` runs on its own native thread.
-//! * iOS — UIKit calls `accessibilityActivate` on the main thread, which is
-//!   also the `CADisplayLink` thread, so it would be safe unsynchronised; it
-//!   shares the type anyway rather than growing a second one.
+//! * Android — `AccessibilityNodeProvider::performAction` runs on the Java UI thread while
+//!   `android_main` runs on its own native thread.
+//! * iOS — UIKit calls `accessibilityActivate` on the main thread, which is also the
+//!   `CADisplayLink` thread, so it would be safe unsynchronised; it shares the type anyway rather
+//!   than growing a second one.
 //! * headless — a test/host may inject from any thread.
 
 use std::{

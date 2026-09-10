@@ -30,14 +30,14 @@
 //! - `TypeCategory::Boxed`            — internal heap wrappers.
 //! - `TypeCategory::GenericTemplate`  — generic shells.
 //! - `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the
-//!   user-facing `CallbackDataPair` wrapper *is* emitted; consumers cast
-//!   their Lua callbacks via `ffi.cast('Az<CallbackTypedefName>', fn)`).
+//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the user-facing
+//!   `CallbackDataPair` wrapper *is* emitted; consumers cast their Lua callbacks via
+//!   `ffi.cast('Az<CallbackTypedefName>', fn)`).
 
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::super::{
+    ir::{CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    managed_lang_helpers::has_callback_arg,
 };
-use super::super::managed_lang_helpers::has_callback_arg;
 
 /// Generate the full wrapper section as a single Lua source string.
 ///
@@ -329,7 +329,10 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
                 )
             ));
         } else {
-            out.push_str("            -- WARNING: element has no _clone — borrowed view dangles if the Vec is closed.\n");
+            out.push_str(
+                "            -- WARNING: element has no _clone — borrowed view dangles if the Vec \
+                 is closed.\n",
+            );
             out.push_str("            t[i + 1] = self.ptr[i]\n");
         }
 
@@ -348,9 +351,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         // which would otherwise dereference NULL inside the C-side
         // partialEq comparator and SIGSEGV.
         format!(
-            ", __eq = function(a, b) \
-             if type(a) ~= 'cdata' or type(b) ~= 'cdata' then return false end; \
-             return C.{}(a, b) end",
+            ", __eq = function(a, b) if type(a) ~= 'cdata' or type(b) ~= 'cdata' then return \
+             false end; return C.{}(a, b) end",
             eq_sym
         )
     } else {
@@ -367,13 +369,9 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // the bytes — otherwise every tostring() leaks the heap buffer.
     let tostring_clause = if has_dbg {
         format!(
-            ", __tostring = function(self) \
-             local az = C.{}(self); \
-             local ok = az.vec.ptr ~= nil and az.vec.len > 0; \
-             local s = ok and ffi.string(az.vec.ptr, tonumber(az.vec.len)) or ''; \
-             C.AzString_delete(az); \
-             return s \
-             end",
+            ", __tostring = function(self) local az = C.{}(self); local ok = az.vec.ptr ~= nil \
+             and az.vec.len > 0; local s = ok and ffi.string(az.vec.ptr, tonumber(az.vec.len)) or \
+             ''; C.AzString_delete(az); return s end",
             dbg_sym
         )
     } else {
@@ -400,7 +398,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{}{}{} }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) \
+             end{}{}{} }})\n",
             c_name, class, delete_c, eq_clause, tostring_clause, len_clause
         ));
     } else if method_count > 0 || has_eq || has_dbg || is_vec {
@@ -526,7 +525,8 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end \
+             }})\n",
             c_name, class, delete_c
         ));
     } else if method_count + auto_method_count > 0 {
@@ -571,18 +571,18 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 //
 // Two output forms:
 //
-// * Instance method (lives inside a `do ... end` block, base indent 4 spaces):
-//       function Class_methods:method(...) ... end
-// * Static method (lives inside `azul.Class = { ... }` literal, base indent 4):
-//       method = function(...) ... end,
+// * Instance method (lives inside a `do ... end` block, base indent 4 spaces): function
+//   Class_methods:method(...) ... end
+// * Static method (lives inside `azul.Class = { ... }` literal, base indent 4): method =
+//   function(...) ... end,
 //
 // Both branch on `has_callback_arg(func)`:
 //
-// * No callback args → keep the simple varargs forwarder, which forwards
-//   all incoming args verbatim.
-// * Has callback args → emit an explicit parameter list and inject a
-//   `arg = azul.pin_callback('AzFooCallbackType', arg)` line for each
-//   callback-typed arg before the C call.
+// * No callback args → keep the simple varargs forwarder, which forwards all incoming args
+//   verbatim.
+// * Has callback args → emit an explicit parameter list and inject a `arg =
+//   azul.pin_callback('AzFooCallbackType', arg)` line for each callback-typed arg before the C
+//   call.
 
 /// Emit one instance method line (the do-block and `local Foo_methods = {}`
 /// are emitted by the caller). `func.args[0]` is the receiver (named after
@@ -608,9 +608,8 @@ fn emit_instance_method(
     });
     if takes_thread_callback {
         out.push_str(&format!(
-            "    function {}_methods:{}(...)\n\
-             \x20       error('ThreadCallback from Lua is unsupported; use the writeback pattern', 2)\n\
-             \x20   end\n",
+            "    function {}_methods:{}(...)\n\x20       error('ThreadCallback from Lua is \
+             unsupported; use the writeback pattern', 2)\n\x20   end\n",
             class, lua_method
         ));
         return;
@@ -1071,9 +1070,8 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     });
     if takes_thread_callback {
         out.push_str(&format!(
-            "    {} = function(...)\n\
-             \x20       error('ThreadCallback from Lua is unsupported; use the writeback pattern', 2)\n\
-             \x20   end,\n",
+            "    {} = function(...)\n\x20       error('ThreadCallback from Lua is unsupported; \
+             use the writeback pattern', 2)\n\x20   end,\n",
             lua_method
         ));
         return;
@@ -1085,11 +1083,11 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
 
     // Ownership plumbing (mirrors emit_instance_method):
-    // * armed return  — owned by-value C returns never see the metatype
-    //   __gc (LuaJIT arms it only for ffi.new cdata), so arm explicitly.
-    // * consumed args — owned by-value args of deletable types transfer
-    //   their bytes to Rust; disarm the (possibly armed) cdata after the
-    //   call so its finalizer can't double-free Rust-owned memory.
+    // * armed return  — owned by-value C returns never see the metatype __gc (LuaJIT arms it only
+    //   for ffi.new cdata), so arm explicitly.
+    // * consumed args — owned by-value args of deletable types transfer their bytes to Rust; disarm
+    //   the (possibly armed) cdata after the call so its finalizer can't double-free Rust-owned
+    //   memory.
     let ret_fin = func
         .return_type
         .as_deref()
@@ -1333,20 +1331,15 @@ fn emit_callback_pin_lines(
             //
             // What we substitute for the variable depends on the arg
             // type api.json declared:
-            //   * If the arg type is the *wrapper struct* (e.g.
-            //     "ButtonOnClickCallback"), pass the WHOLE struct — the
-            //     wrapper call site binds the `<c_name>Struct` C symbol
-            //     (see `managed_c_symbol`), whose signature takes the
-            //     wrapper by value, so the `.ctx`/`.callable` host
-            //     handle survives the C boundary.
-            //   * If the arg type is the *raw function pointer typedef*
-            //     (e.g. "CallbackType"), pass just `.cb`. The static
-            //     thunk in libazul still routes through the host
-            //     invoker, but ANY ctx is dropped at the C boundary
-            //     because the C ABI doesn't carry it. Functions in this
-            //     shape need a special-case fixup elsewhere (see
-            //     emit_static_method's WindowCreateOptions::create
-            //     branch).
+            //   * If the arg type is the *wrapper struct* (e.g. "ButtonOnClickCallback"), pass the
+            //     WHOLE struct — the wrapper call site binds the `<c_name>Struct` C symbol (see
+            //     `managed_c_symbol`), whose signature takes the wrapper by value, so the
+            //     `.ctx`/`.callable` host handle survives the C boundary.
+            //   * If the arg type is the *raw function pointer typedef* (e.g. "CallbackType"), pass
+            //     just `.cb`. The static thunk in libazul still routes through the host invoker,
+            //     but ANY ctx is dropped at the C boundary because the C ABI doesn't carry it.
+            //     Functions in this shape need a special-case fixup elsewhere (see
+            //     emit_static_method's WindowCreateOptions::create branch).
             // (2026-07-04: an interim revision always passed `.cb`
             // because the cdef declared the raw fn-ptr symbol for the
             // smart setters too — LuaJIT rightly rejected struct→fnptr.

@@ -116,7 +116,8 @@ pub fn generate_transmuted_fn_body(
     fn_args: &str,
     is_for_dll: bool,
     keep_self_name: bool, // If true, use "_self" for self parameter (for PyO3 bindings)
-    force_clone_self: bool, // If true, always clone self (for PyO3 methods where API says self by-value)
+    force_clone_self: bool, /* If true, always clone self (for PyO3 methods where API says self
+                           * by-value) */
     skip_args: &BTreeSet<String>, // Arguments to skip (already converted with _ffi suffix)
 ) -> String {
     let self_var = to_snake_case(class_name);
@@ -342,7 +343,8 @@ pub fn generate_transmuted_fn_body(
                 .unwrap_or_else(|| base_type.clone())
         };
 
-        // For PyO3 bindings, use "_self" instead of "self" because Rust doesn't allow shadowing self
+        // For PyO3 bindings, use "_self" instead of "self" because Rust doesn't allow shadowing
+        // self
         let var_name = if keep_self_name && arg_name == "self" {
             "_self"
         } else {
@@ -399,7 +401,8 @@ pub fn generate_transmuted_fn_body(
     // IMPORTANT: If self is a reference AND fn_body uses consuming methods (builder pattern),
     // we need to clone. Builder methods like .with_*() consume self.
     // But for methods that just use references (like encode_bmp()), we should NOT clone.
-    // ALSO: If force_clone_self is true, we always clone (for PyO3 methods where API says self by-value)
+    // ALSO: If force_clone_self is true, we always clone (for PyO3 methods where API says self
+    // by-value)
     if keep_self_name && !is_constructor {
         // Detect if fn_body uses builder pattern (consuming methods)
         // Builder pattern methods typically are: .with_*, .set_*, etc. that return Self

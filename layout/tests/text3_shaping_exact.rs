@@ -9,13 +9,16 @@
 //! ligature substitution and pair kerning actually fire — if "fi" stays two
 //! glyphs or "AV" is unkerned, that is a MAJOR engine bug and the test FAILS.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::text3::cache::{BidiDirection, Glyph, StyleProperties};
-use azul_layout::text3::default::shape_text_for_parsed_font;
-use azul_layout::text3::script::{Language, Script};
+use azul_layout::{
+    font::parsed::ParsedFont,
+    text3::{
+        cache::{BidiDirection, Glyph, StyleProperties},
+        default::shape_text_for_parsed_font,
+        script::{Language, Script},
+    },
+};
 use rust_fontconfig::FontBytes;
 
 const FONT_SIZE: f32 = 20.0;

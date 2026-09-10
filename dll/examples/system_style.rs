@@ -13,8 +13,7 @@
 //! It does NOT open a window or run the event loop.
 
 use azul::desktop::app::App;
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
+use azul_core::{refany::RefAny, resources::AppConfig};
 
 fn main() {
     let app = App::create(RefAny::new(()), AppConfig::default());

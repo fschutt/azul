@@ -1,17 +1,19 @@
+use std::collections::HashMap;
+
+use agg_rust::{blur::stack_blur_rgba32, rendering_buffer::RowAccessor, trans_affine::TransAffine};
+use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_css::props::{
+    basic::{pixel::DEFAULT_FONT_SIZE, ColorU, FontRef},
+    style::filter::StyleFilter,
+};
+
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use super::*;
-
 use crate::glyph_cache::GlyphCache;
-use agg_rust::blur::stack_blur_rgba32;
-use agg_rust::rendering_buffer::RowAccessor;
-use agg_rust::trans_affine::TransAffine;
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-use azul_css::props::basic::{ColorU, FontRef};
-use azul_css::props::style::filter::StyleFilter;
-use std::collections::HashMap;
 
 /// A row-major 3x3 matrix over column vectors `[x; y; 1]`:
 /// `x' = (m0 x + m1 y + m2) / w`, `y' = (m3 x + m4 y + m5) / w`,
@@ -58,8 +60,10 @@ pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
     // agg: x' = x*sx + y*shx + tx; y' = x*shy + y*sy + ty
     TransAffine::new_custom(m[0], m[3], m[1], m[4], m[2], m[5])
 }
-use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId};
-use crate::text3::cache::FontManager;
+use crate::{
+    solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId},
+    text3::cache::FontManager,
+};
 
 const IDENTITY_EPSILON: f32 = 0.0001;
 
@@ -215,10 +219,10 @@ fn report_impossible_layer_size(
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             eprintln!(
-                "[azul][compositor] layer for node {node:?} requested at \
-                 {}x{} logical (dpi {dpi_factor}) — {why}. This is a LAYOUT bug: \
-                 no box has an infinite used size. The layer is being skipped or \
-                 clamped so the process survives; the wrong size is still wrong.",
+                "[azul][compositor] layer for node {node:?} requested at {}x{} logical (dpi \
+                 {dpi_factor}) — {why}. This is a LAYOUT bug: no box has an infinite used size. \
+                 The layer is being skipped or clamped so the process survives; the wrong size is \
+                 still wrong.",
                 size.width, size.height,
             );
         });
@@ -770,8 +774,14 @@ impl CompositorState {
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             for (id, range, bounds, scroll_id, child_ranges) in &layer_ranges {
                 std::eprintln!(
-                    "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} (dl_len={})",
-                    id, range, bounds, scroll_id, child_ranges, display_list.items.len()
+                    "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} \
+                     (dl_len={})",
+                    id,
+                    range,
+                    bounds,
+                    scroll_id,
+                    child_ranges,
+                    display_list.items.len()
                 );
             }
         }
@@ -1244,7 +1254,8 @@ enum MatchKind {
 }
 
 /// Find the matching Pop for a given Push at index `start`.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -> usize {
     let mut depth = 1u32;
     for (i, item) in items.iter().enumerate().skip(start + 1) {
@@ -1769,7 +1780,8 @@ fn shift_diagonal_2d(
 /// Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[must_use]
 pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
@@ -2106,7 +2118,10 @@ pub fn collect_scroll_shifts(
     dpi_factor: f32,
 ) -> Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> {
     let moved = |id: &LocalScrollId, offset: &(f32, f32)| -> Option<(f32, f32)> {
-        let prev = previous_scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0));
+        let prev = previous_scroll_offsets
+            .get(id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
         let delta = (offset.0 - prev.0, offset.1 - prev.1);
         // Threshold in PHYSICAL pixels: a delta that moves the content by at
         // least half a device pixel must repaint (at dpi=2 a 0.3-logical
@@ -2124,7 +2139,10 @@ pub fn collect_scroll_shifts(
                 ..
             } => {
                 let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
-                if let Some(delta) = scroll_offsets.get(scroll_id).and_then(|o| moved(scroll_id, o)) {
+                if let Some(delta) = scroll_offsets
+                    .get(scroll_id)
+                    .and_then(|o| moved(scroll_id, o))
+                {
                     let mut clip = *clip_bounds.inner();
                     clip.origin.x -= acc.0;
                     clip.origin.y -= acc.1;
@@ -2287,7 +2305,8 @@ fn opaque_fill_rect(it: &DisplayListItem) -> Option<LogicalRect> {
 /// True if every ~4px sample of `target` lies inside some rect in `covers`.
 /// Point-sampled so sub-4px gaps (imperceptible if dragged) don't force a full
 /// repaint; empty `covers` → not covered.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     if covers.is_empty() {
         return false;
@@ -2299,11 +2318,13 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
     #[allow(clippy::while_float)]
-    // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+    // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
+    // artificial
     while y < y1 {
         let mut x = x0 + step * 0.5;
         #[allow(clippy::while_float)]
-        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
+        // artificial
         while x < x1 {
             let inside = covers.iter().any(|r| {
                 x >= r.origin.x
@@ -2328,7 +2349,8 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )] // bounded pixel/coord/colour/glyph cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
         match filter {
@@ -2448,7 +2470,8 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     chunk[2] = nb.clamp(0.0, 255.0) as u8;
                 }
             }
-            _ => {} // Blend, Flood, ColorMatrix, DropShadow, ComponentTransfer, Offset, Composite not yet implemented
+            _ => {} /* Blend, Flood, ColorMatrix, DropShadow, ComponentTransfer, Offset,
+                     * Composite not yet implemented */
         }
     }
 }
@@ -2595,12 +2618,12 @@ pub struct TranslateHint {
 /// the old ones, translated.
 ///
 /// The conditions, all of which must hold:
-/// - the dominant delta is INTEGRAL in physical pixels; a fractional blit would
-///   change every subpixel phase, so those frames must re-render
+/// - the dominant delta is INTEGRAL in physical pixels; a fractional blit would change every
+///   subpixel phase, so those frames must re-render
 /// - it actually moved at least one physical pixel
 /// - the previous frame's pixels are trustworthy (`can_reuse_previous_frame`)
-/// - this display list has not already been shifted, which is what
-///   `already_shifted` carries (a buffers-held retry would shift twice)
+/// - this display list has not already been shifted, which is what `already_shifted` carries (a
+///   buffers-held retry would shift twice)
 #[must_use]
 pub fn translate_hint_for_patch(
     last_patch_move: Option<&crate::solver3::display_list::PatchMoveSummary>,
@@ -3425,7 +3448,8 @@ pub fn compute_virtual_view_damage(
 }
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
@@ -3554,9 +3578,9 @@ pub fn compare_region(
 
 #[cfg(test)]
 mod layer_size_is_never_an_allocation_bomb {
-    use super::*;
-
     use azul_core::geom::LogicalSize;
+
+    use super::*;
 
     fn sz(w: f32, h: f32) -> LogicalSize {
         LogicalSize::new(w, h)
@@ -3605,9 +3629,10 @@ mod layer_size_is_never_an_allocation_bomb {
 
 #[cfg(test)]
 mod translate_hint_contract {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
     use super::*;
     use crate::solver3::display_list::PatchMoveSummary;
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
     fn mv(dx: f32, dy: f32) -> PatchMoveSummary {
         let r = LogicalRect::new(
@@ -3660,13 +3685,15 @@ mod translate_hint_contract {
 
 #[cfg(test)]
 mod scroll_shift_tests {
-    use super::*;
     use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    use super::*;
 
     /// Pixmap where every pixel encodes its own coords: R = x&0xFF, G = y&0xFF.
     /// After a shift, a pixel's (R,G) tells you which source pixel landed there,
     /// so we can assert the move is an exact translation.
-    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived
+                                             // names
     fn xy_pixmap(w: u32, h: u32) -> AzulPixmap {
         let mut p = AzulPixmap::new(w, h).unwrap();
         let d = p.data_mut();
@@ -3681,7 +3708,8 @@ mod scroll_shift_tests {
         }
         p
     }
-    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived
+                                             // names
     fn at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
         let w = p.width();
         let d = p.data();
@@ -3856,7 +3884,8 @@ mod scroll_shift_tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path
+                                // / cache-key match
     fn vertical_scroll_one_strip_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
@@ -3887,7 +3916,8 @@ mod scroll_shift_tests {
 
     #[test]
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path
+                                // / cache-key match
     fn diagonal_pan_two_strips_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
@@ -3964,10 +3994,11 @@ mod scroll_shift_tests {
     }
 
     // --- #20 fast-path eligibility ---
+    use azul_css::props::basic::color::ColorU;
+
     use crate::solver3::display_list::{
         BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
     };
-    use azul_css::props::basic::color::ColorU;
 
     fn dl(items: Vec<DisplayListItem>) -> DisplayList {
         DisplayList {
@@ -3982,7 +4013,8 @@ mod scroll_shift_tests {
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
         rect(x, y, w, h).into()
     }
-    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived
+                                             // names
     fn fill(x: f32, y: f32, w: f32, h: f32, a: u8) -> DisplayListItem {
         DisplayListItem::Rect {
             bounds: wr(x, y, w, h),
@@ -4147,12 +4179,16 @@ mod backdrop_filter_tests {
         FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
     }
 
-    use crate::cpurender::{CpuRenderState, ScrollOffsetMap};
-    use crate::solver3::display_list::DisplayList;
     use azul_core::resources::RendererResources;
-    use azul_css::props::basic::length::PercentageValue;
-    use azul_css::props::basic::ColorU;
-    use azul_css::props::style::filter::StyleFilter;
+    use azul_css::props::{
+        basic::{length::PercentageValue, ColorU},
+        style::filter::StyleFilter,
+    };
+
+    use crate::{
+        cpurender::{CpuRenderState, ScrollOffsetMap},
+        solver3::display_list::DisplayList,
+    };
 
     fn lrect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect {
@@ -4268,11 +4304,9 @@ mod autotest_generated {
         resources::{RendererResources, TransformKey},
         transform::ComputedTransform3D,
     };
-    use azul_css::{
-        props::basic::{
-            angle::AngleValue, color::ColorU, length::PercentageValue, pixel::PixelValue,
-        },
-        props::style::filter::{StyleBlur, StyleFilter},
+    use azul_css::props::{
+        basic::{angle::AngleValue, color::ColorU, length::PercentageValue, pixel::PixelValue},
+        style::filter::{StyleBlur, StyleFilter},
     };
 
     use super::*;
@@ -5380,8 +5414,8 @@ mod autotest_generated {
         let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o);
         assert!(
             !d.rects.is_empty() || d.needs_full,
-            "a key present in old but absent in new is a change (the frame \
-             settles to identity, damaging its old offset position)"
+            "a key present in old but absent in new is a change (the frame settles to identity, \
+             damaging its old offset position)"
         );
         assert!(
             !d.needs_full,
@@ -5492,15 +5526,14 @@ mod autotest_generated {
 
             assert!(
                 covers(delta, 0.0, 16.0, 16.0),
-                "delta={delta}: damage misses the NEW rect, so the item would \
-                 never appear there. damage={d:?}"
+                "delta={delta}: damage misses the NEW rect, so the item would never appear there. \
+                 damage={d:?}"
             );
             assert!(
                 covers(0.0, 0.0, 16.0, 16.0),
-                "delta={delta}: damage misses the pixels the item VACATED. The \
-                 old paint stays on screen — this is the slider's trail of blue \
-                 thumbs on the grey track, and it is a property of the damage \
-                 diff, not of the slider. damage={d:?}"
+                "delta={delta}: damage misses the pixels the item VACATED. The old paint stays on \
+                 screen — this is the slider's trail of blue thumbs on the grey track, and it is \
+                 a property of the damage diff, not of the slider. damage={d:?}"
             );
         }
     }
@@ -5721,7 +5754,10 @@ mod autotest_generated {
         cur.insert(dom, Arc::clone(&caret_off));
 
         let d = compute_virtual_view_damage(&parent, &cur, &prev);
-        assert!(!d.is_empty(), "the caret DID change - something must repaint");
+        assert!(
+            !d.is_empty(),
+            "the caret DID change - something must repaint"
+        );
 
         let view_area = 1200.0 * 900.0;
         let damaged: f32 = d.iter().map(|r| r.size.width * r.size.height).sum();
@@ -6063,17 +6099,17 @@ mod autotest_generated {
         dlist(vec![
             push_scroll(1, 0.0, 0.0, 20.0, 20.0),
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
@@ -6081,17 +6117,17 @@ mod autotest_generated {
                 opacity_key: None,
             },
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopOpacity,
             DisplayListItem::PushFilter {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
@@ -6101,17 +6137,17 @@ mod autotest_generated {
                 })],
             },
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopFilter,
         ])
     }
@@ -6129,41 +6165,52 @@ mod autotest_generated {
         let list = dlist(vec![
             push_scroll(1, 0.0, 0.0, 40.0, 40.0),
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             push_scroll(2, 2.0, 2.0, 10.0, 10.0),
             DisplayListItem::PopScrollFrame,
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopScrollFrame,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(c.layers.len(), 2, "root + outer only; the empty inner frame allocates nothing");
+        assert_eq!(
+            c.layers.len(),
+            2,
+            "root + outer only; the empty inner frame allocates nothing"
+        );
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(root.children.len(), 1);
         let outer = c.layers.get(&root.children[0]).unwrap();
         assert_eq!(outer.scroll_id, Some(1));
-        assert!(outer.children.is_empty(), "the empty inner frame must not appear as a child");
-        assert_eq!(outer.display_list_range, (1, 5), "outer range runs to ITS OWN pop, not the inner one");
+        assert!(
+            outer.children.is_empty(),
+            "the empty inner frame must not appear as a child"
+        );
+        assert_eq!(
+            outer.display_list_range,
+            (1, 5),
+            "outer range runs to ITS OWN pop, not the inner one"
+        );
     }
 
     #[test]
@@ -6292,17 +6339,17 @@ mod autotest_generated {
                 opacity_key: None,
             },
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopOpacity,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
@@ -6328,17 +6375,17 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
             },
             rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ),
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopReferenceFrame,
         ]);
         c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new(), &HashMap::new());
@@ -6369,18 +6416,22 @@ mod autotest_generated {
         // Baked identity, live moved: the node IS displaced this frame.
         let mut c = CompositorState::new(64, 64);
         c.allocate_layers_from_display_list(
-            &dlist(vec![ref_frame(1), rect_item(
-            0.0,
-            0.0,
-            16.0,
-            16.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 255,
-                a: 255,
-            },
-        ), DisplayListItem::PopReferenceFrame]),
+            &dlist(vec![
+                ref_frame(1),
+                rect_item(
+                    0.0,
+                    0.0,
+                    16.0,
+                    16.0,
+                    ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                ),
+                DisplayListItem::PopReferenceFrame,
+            ]),
             1.0,
             &live,
             &HashMap::new(),
@@ -6952,7 +7003,8 @@ mod autotest_generated {
         for r in &damage {
             assert!(
                 r.origin.y >= 19.0 && r.origin.y + r.size.height <= 43.0,
-                "damage stays in the changed window (the shared prefix/suffix are untouched): {r:?}"
+                "damage stays in the changed window (the shared prefix/suffix are untouched): \
+                 {r:?}"
             );
         }
     }
@@ -7075,8 +7127,7 @@ mod autotest_generated {
         assert_eq!(
             at(&out, 48, 48),
             [255, 255, 255, 255],
-            "…and NOT at the double-offset position (30..50) the old absolute \
-             placement produced"
+            "…and NOT at the double-offset position (30..50) the old absolute placement produced"
         );
     }
 

@@ -79,7 +79,8 @@ fn nested_div_with_text_has_nonzero_height() {
     eprintln!("[nested] div.counter rect = {div:?}");
     assert!(
         div.size.height > 0.0,
-        "div containing inline text should have height>0 (got {}) — this is the hello-world blocker",
+        "div containing inline text should have height>0 (got {}) — this is the hello-world \
+         blocker",
         div.size.height
     );
 }

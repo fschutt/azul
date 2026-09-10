@@ -18,8 +18,8 @@
 //! counted as a failure.
 //!
 //! Hard-won lessons inherited from earlier E2E fleets:
-//!   1. A RATE-LIMITED `claude -p` exits 0 and answers with the limit message
-//!      as PLAIN TEXT. That must never be written out as a test.
+//!   1. A RATE-LIMITED `claude -p` exits 0 and answers with the limit message as PLAIN TEXT. That
+//!      must never be written out as a test.
 //!   2. RESUME: a 13k-line run *will* be interrupted. Keep a done-list.
 //!   3. `--dry-run` prints the work list and launches nothing.
 //!   4. Only mark a line done when the artifact actually landed AND validated.
@@ -36,8 +36,8 @@
 //! AND still passes the validation gate. Anything else is work:
 //!   * no artifact                      -> generate
 //!   * artifact exists but FAILS the gate -> regenerate (overwrite)
-//!   * artifact whose hash is no longer in the corpus -> STALE ORPHAN, reported,
-//!     deleted only with `--prune`
+//!   * artifact whose hash is no longer in the corpus -> STALE ORPHAN, reported, deleted only with
+//!     `--prune`
 //! `--limit N` means "generate N MORE", i.e. it truncates the not-yet-done list
 //! (after `--filter`), never the corpus.
 //!
@@ -251,8 +251,8 @@ impl GenE2eOptions {
 
 /// One usage string, shared by the parse error and `main`'s help.
 pub const USAGE: &str = "usage: azul-doc gen-e2e <txt-file> <out-dir> [--jobs N] [--model M] \
-                         [--effort E] [--limit N] [--filter <tag>] [--dry-run] [--redo] \
-                         [--prune] [--review-batch N [--review-model M] [--review-effort E]]";
+                         [--effort E] [--limit N] [--filter <tag>] [--dry-run] [--redo] [--prune] \
+                         [--review-batch N [--review-model M] [--review-effort E]]";
 
 fn next<'a>(args: &[&'a str], i: &mut usize, flag: &str) -> Result<&'a str> {
     *i += 1;
@@ -1139,15 +1139,14 @@ fn schema_doc(schema: &Schema) -> String {
         s.push_str(&format!("- {} : {}\n", a.name, render_params(&a.params)));
     }
     s.push_str(
-        "\n`?` = optional. Params NOT listed here do not exist — do not invent any.\n\
-         The op list above is EXHAUSTIVE: an op you do not see above is REJECTED by the \
-         validator, and your test is thrown away. In particular there is NO op that forces a \
-         repaint or a relayout — the engine must decide to do that BY ITSELF in response to the \
-         input/mutation you perform; that decision is exactly what these tests measure.\n\
-         `vs` always names a snapshot created EARLIER in the same timeline by \
-         `snapshot_frame {\"as\": …}` (pixels), `snapshot_resources {\"as\": …}` \
-         (resource counters) or `snapshot_managers {\"as\": …}` (every manager's \
-         state, for `assert_only_managers_changed`).\n",
+        "\n`?` = optional. Params NOT listed here do not exist — do not invent any.\nThe op list \
+         above is EXHAUSTIVE: an op you do not see above is REJECTED by the validator, and your \
+         test is thrown away. In particular there is NO op that forces a repaint or a relayout — \
+         the engine must decide to do that BY ITSELF in response to the input/mutation you \
+         perform; that decision is exactly what these tests measure.\n`vs` always names a \
+         snapshot created EARLIER in the same timeline by `snapshot_frame {\"as\": …}` (pixels), \
+         `snapshot_resources {\"as\": …}` (resource counters) or `snapshot_managers {\"as\": …}` \
+         (every manager's state, for `assert_only_managers_changed`).\n",
     );
     s
 }
@@ -1418,9 +1417,9 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
         // is implemented.
         if schema.is_zombie(op) {
             bail!(
-                "step {i}: op `{op}` is declared in DebugEvent but has no match arm — it \
-                 silently returns ok and does nothing; implement it or remove it before it may \
-                 appear in a test"
+                "step {i}: op `{op}` is declared in DebugEvent but has no match arm — it silently \
+                 returns ok and does nothing; implement it or remove it before it may appear in a \
+                 test"
             );
         }
         // SCOPE — the classification table is the law (`OP_POLICY`). The prompt
@@ -2004,8 +2003,7 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
             println!("[dry] last:  {:05} -> {}", last.index, last.out.display());
         }
         println!(
-            "[dry-run] total={} already-done={} to-generate={} stale-orphans={}. Nothing \
-             launched.",
+            "[dry-run] total={} already-done={} to-generate={} stale-orphans={}. Nothing launched.",
             p.total,
             p.already_done,
             p.todo.len(),
@@ -2346,15 +2344,16 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     let mut s = String::new();
     s.push_str(&format!("# gen-e2e batch review — `{}`\n\n", b.id));
     s.push_str(
-        "Written by `azul-doc gen-e2e --review-batch N`. The **FACTS** section is machine-generated \
-         from the actual run and cannot be argued with. The **REVIEW** section is one agent's \
-         reading of it, and is advisory: nothing in it is applied automatically.\n\n",
+        "Written by `azul-doc gen-e2e --review-batch N`. The **FACTS** section is \
+         machine-generated from the actual run and cannot be argued with. The **REVIEW** section \
+         is one agent's reading of it, and is advisory: nothing in it is applied \
+         automatically.\n\n",
     );
     s.push_str(&format!(
         "- corpus: `{}`\n- out-dir: `{}`\n- batch: **{n}** line(s) — {generated} generated, {} \
          rejected by the gate\n- run: **{passed} passed, {failed} failed**\n- scenarios that \
-         capture an image: {with_png}/{generated} (NOT required — images are triage material, \
-         see below)\n\n",
+         capture an image: {with_png}/{generated} (NOT required — images are triage material, see \
+         below)\n\n",
         b.corpus,
         b.out_dir.display(),
         n - generated,
@@ -2399,8 +2398,8 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     s.push_str("\n### Failures, attributed\n\n");
     if failures.is_empty() {
         s.push_str(
-            "None. (A batch with zero failures is not automatically a good batch — see the \
-                    review below: a test can pass because it asserts nothing.)\n",
+            "None. (A batch with zero failures is not automatically a good batch — see the review \
+             below: a test can pass because it asserts nothing.)\n",
         );
     } else {
         for e in failures {
@@ -2443,7 +2442,7 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     if !dupes.is_empty() {
         s.push_str(
             "\n**PNG PATH COLLISION** — scenarios run in parallel, so these race and the \
-                    surviving file is whichever finished last:\n",
+             surviving file is whichever finished last:\n",
         );
         for d in dupes {
             s.push_str(&format!("- `{d}`\n"));
@@ -2521,8 +2520,8 @@ fn policy_doc(schema: &Schema) -> String {
     let zombies = schema.zombies();
     s.push_str(&format!(
         "\n### DECLARED BUT UNIMPLEMENTED (`{}` zombie op(s): a match arm is missing, so the \
-         dispatch answers `ok` without doing anything — hidden from the generator and rejected \
-         by the gate)\n",
+         dispatch answers `ok` without doing anything — hidden from the generator and rejected by \
+         the gate)\n",
         zombies.len()
     ));
     for z in &zombies {
@@ -2550,8 +2549,8 @@ fn policy_doc(schema: &Schema) -> String {
 fn triage_doc(schema: &Schema) -> String {
     let Some(op) = schema.known_op(PNG_OP) else {
         return format!(
-            "(this engine has no `{PNG_OP}` op, so there is no way to capture an image — attribute \
-             failures from the error text alone.)\n"
+            "(this engine has no `{PNG_OP}` op, so there is no way to capture an image — \
+             attribute failures from the error text alone.)\n"
         );
     };
     let params = op
@@ -2563,26 +2562,22 @@ fn triage_doc(schema: &Schema) -> String {
     format!(
         "You have TOOLS (bash, read, write) and your working directory is the REPO ROOT. For any \
          scenario you cannot attribute from its error text alone — and for any failure you are \
-         about to call an ENGINE bug — LOOK AT WHAT RENDERED instead of guessing:\n\
-         \n\
-         1. COPY the scenario JSON to `{TRIAGE_DIR}<name>.json`. NEVER edit the artifact in the \
-         out-dir: it is the committed test, it must stay byte-identical, and triage steps that \
-         leak into it would be committed noise.\n\
-         2. In the COPY, insert `{PNG_OP}` steps ({params}) at the interesting points — right \
-         after the mount settles, and again after the interaction — writing to \
-         `{TRIAGE_DIR}<name>-<step>.png`. It writes the frame MASKED TO THE DAMAGE REGION \
-         (transparent elsewhere), which is exactly the picture that settles \"did the engine \
-         repaint the right area?\". `which` selects `paint` (default) or `present` damage; `crop` \
-         trims to the damage bounding box. A 1x1 transparent PNG means THERE WAS NO DAMAGE — that \
-         is a finding, not a broken capture.\n\
-         3. Run the copy: `./target/release/azul-doc e2e {TRIAGE_DIR}<name>.json`, then open the \
-         PNGs you wrote and say what you see.\n\
-         4. Do NOT use `take_native_screenshot` (no host hook is installed anywhere — it fails in \
-         every runner we have) and do not bother with `take_screenshot` (it answers with base64 in \
-         the step response, it writes no file you can open).\n\
-         5. Images are YOUR WORKING MATERIAL, not an artifact. `{TRIAGE_DIR}` is under `target/`, \
-         which `.gitignore` excludes — leave them there, never copy one into the repo, never \
-         `git add` anything.\n"
+         about to call an ENGINE bug — LOOK AT WHAT RENDERED instead of guessing:\n\n1. COPY the \
+         scenario JSON to `{TRIAGE_DIR}<name>.json`. NEVER edit the artifact in the out-dir: it \
+         is the committed test, it must stay byte-identical, and triage steps that leak into it \
+         would be committed noise.\n2. In the COPY, insert `{PNG_OP}` steps ({params}) at the \
+         interesting points — right after the mount settles, and again after the interaction — \
+         writing to `{TRIAGE_DIR}<name>-<step>.png`. It writes the frame MASKED TO THE DAMAGE \
+         REGION (transparent elsewhere), which is exactly the picture that settles \"did the \
+         engine repaint the right area?\". `which` selects `paint` (default) or `present` damage; \
+         `crop` trims to the damage bounding box. A 1x1 transparent PNG means THERE WAS NO DAMAGE \
+         — that is a finding, not a broken capture.\n3. Run the copy: `./target/release/azul-doc \
+         e2e {TRIAGE_DIR}<name>.json`, then open the PNGs you wrote and say what you see.\n4. Do \
+         NOT use `take_native_screenshot` (no host hook is installed anywhere — it fails in every \
+         runner we have) and do not bother with `take_screenshot` (it answers with base64 in the \
+         step response, it writes no file you can open).\n5. Images are YOUR WORKING MATERIAL, \
+         not an artifact. `{TRIAGE_DIR}` is under `target/`, which `.gitignore` excludes — leave \
+         them there, never copy one into the repo, never `git add` anything.\n"
     )
 }
 
@@ -3479,8 +3474,8 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         let dir = std::env::temp_dir().join(format!("gene2e-zombie-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
 
-        // 1. `Focus` is declared but has NO arm -> zombie: hidden from the
-        //    prompt, rejected by the gate.
+        // 1. `Focus` is declared but has NO arm -> zombie: hidden from the prompt, rejected by the
+        //    gate.
         let root = synthetic_root(&dir, "");
         let s = parse_schema(&root).unwrap();
         assert!(s.is_zombie("focus"));

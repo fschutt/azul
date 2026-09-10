@@ -25,10 +25,14 @@
 
 use std::collections::HashSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind};
-use super::{sanitize_identifier, should_emit_function};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind},
+    },
+    sanitize_identifier, should_emit_function,
+};
 
 pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     b.line("// ----------------------------------------------------------------------------");

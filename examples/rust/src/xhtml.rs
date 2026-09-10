@@ -1,6 +1,8 @@
-use azul::error::{ResultXmlXmlError, XmlError};
-use azul::prelude::*;
-use azul::xml::Xml;
+use azul::{
+    error::{ResultXmlXmlError, XmlError},
+    prelude::*,
+    xml::Xml,
+};
 
 static XHTML: &str = include_str!("../../assets/spreadsheet.xhtml");
 

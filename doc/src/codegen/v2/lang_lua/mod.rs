@@ -4,12 +4,11 @@
 //! `libazul` to LuaJIT scripts via the built-in `ffi` module. The
 //! generated file has three layers, top-to-bottom:
 //!
-//! 1. `ffi.cdef[[ ... ]]` — the entire `azul.h` payload, with C
-//!    preprocessor directives stripped (see [`cdef::strip_for_cdef`]).
+//! 1. `ffi.cdef[[ ... ]]` — the entire `azul.h` payload, with C preprocessor directives stripped
+//!    (see [`cdef::strip_for_cdef`]).
 //! 2. `local C = ffi.load('azul')` — load the native library.
-//! 3. Idiomatic wrappers — methods tables + metatypes + an `azul`
-//!    namespace where method names drop the `Az<TypeName>_` prefix
-//!    (see [`wrappers::generate_wrappers`]).
+//! 3. Idiomatic wrappers — methods tables + metatypes + an `azul` namespace where method names drop
+//!    the `Az<TypeName>_` prefix (see [`wrappers::generate_wrappers`]).
 //!
 //! ## LuaJIT-only
 //!
@@ -30,10 +29,12 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::{CodeBuilder, LanguageGenerator};
-use super::ir::CodegenIR;
-use super::lang_c::CGenerator;
+use super::{
+    config::CodegenConfig,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::CodegenIR,
+    lang_c::CGenerator,
+};
 
 /// Generate the full `azul.lua` source file.
 ///
@@ -42,8 +43,8 @@ use super::lang_c::CGenerator;
 /// signatures of other language entry points and so future configuration
 /// hooks can be threaded through without breaking callers.
 pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
-    // 1. Run the production C-header generator and strip preprocessor
-    //    directives so the result is acceptable inside `ffi.cdef[[...]]`.
+    // 1. Run the production C-header generator and strip preprocessor directives so the result is
+    //    acceptable inside `ffi.cdef[[...]]`.
     let c_config = CodegenConfig::c_header();
     let c_header = CGenerator.generate(ir, &c_config)?;
     let cdef_payload = cdef::strip_for_cdef(&c_header);
@@ -208,9 +209,9 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("}");
     builder.blank();
 
-    // 4. Load the native library behind a MEMOIZING PROXY: first access to
-    //    a function cdefs its declaration, resolves it, and caches the
-    //    cdata; enum constants and anything else fall through untouched.
+    // 4. Load the native library behind a MEMOIZING PROXY: first access to a function cdefs its
+    //    declaration, resolves it, and caches the cdata; enum constants and anything else fall
+    //    through untouched.
     builder.line("local __az_raw = ffi.load('azul')");
     builder.line("local C = setmetatable({}, {");
     builder.line("    __index = function(cache, name)");
@@ -273,12 +274,11 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("azul.C = C");
     builder.blank();
 
-    // 6. Managed-FFI prelude: per-kind invoker registrations + RefAny
-    //    user-data store. Must be emitted before the wrappers because
-    //    wrapper methods reference `azul._register_callback(...)` for
-    //    callback-typed arguments. The prelude is data-driven from the
-    //    IR so adding a new callback kind to api.json contributes one
-    //    cdef + one libffi closure registration automatically.
+    // 6. Managed-FFI prelude: per-kind invoker registrations + RefAny user-data store. Must be
+    //    emitted before the wrappers because wrapper methods reference
+    //    `azul._register_callback(...)` for callback-typed arguments. The prelude is data-driven
+    //    from the IR so adding a new callback kind to api.json contributes one cdef + one libffi
+    //    closure registration automatically.
     let mut managed_buf = String::new();
     managed::emit_managed_prelude(&mut managed_buf, ir);
     builder.raw(&managed_buf);
@@ -286,12 +286,12 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     // 7. Wrapper layer.
     builder.raw(&wrappers::generate_wrappers(ir));
 
-    // 8. Postlude: ergonomic helpers that need to attach to wrapper tables
-    //    after the wrappers have created them.
+    // 8. Postlude: ergonomic helpers that need to attach to wrapper tables after the wrappers have
+    //    created them.
     //    - `azul.String.from_lua(s)` — explicit Lua-string → AzString.
-    //    - `azul._az_string(v)` — auto-conversion helper used by the
-    //      wrapper codegen for every Owned `String` arg, so plain Lua
-    //      strings flow through `Dom.create_p_with_text("hi")` directly.
+    //    - `azul._az_string(v)` — auto-conversion helper used by the wrapper codegen for every
+    //      Owned `String` arg, so plain Lua strings flow through `Dom.create_p_with_text("hi")`
+    //      directly.
     builder.line("");
     builder.line("-- Postlude: convenience helpers that hang off generated wrappers.");
     builder.line("azul.String.from_lua = function(s)");

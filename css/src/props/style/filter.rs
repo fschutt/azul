@@ -153,7 +153,8 @@ pub struct ArithmeticCoefficients {
     pub k4: FloatValue,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleCompositeFilter {
@@ -249,8 +250,7 @@ pub mod parser {
     #[allow(clippy::wildcard_imports)]
     // parser submodule reuses the parent module's value types
     use super::*;
-    use crate::corety::AzString;
-    use crate::props::basic::parse_percentage_value;
+    use crate::{corety::AzString, props::basic::parse_percentage_value};
 
     // -- Top-level Filter Error --
 
@@ -463,7 +463,8 @@ pub mod parser {
         }
     }
     #[allow(variant_size_differences)]
-    // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+    // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings);
+    // size disparity accepted
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {
@@ -907,14 +908,14 @@ pub mod parser {
     mod autotest_generated {
         // Parsed values are compared against the exact source literals.
 
-        #[allow(clippy::wildcard_imports)]
-        use super::*;
         use alloc::{
             string::{String, ToString},
             vec,
             vec::Vec,
         };
 
+        #[allow(clippy::wildcard_imports)]
+        use super::*;
         use crate::props::{
             basic::{
                 angle::{AngleMetric, AngleValue, CssAngleValueParseError},
@@ -1540,10 +1541,9 @@ pub mod parser {
             // re-parsable form (i.e. everything except ComponentTransfer, see
             // parse_style_filter_component_transfer_does_not_round_trip).
             let src = "blur(5px) blur(2px 4px) flood(#ff0000ff) opacity(50%) blend(multiply) \
-                       offset(10px 20px) hue-rotate(90deg) grayscale(100%) invert(25%) \
-                       sepia(60%) brightness(150%) contrast(200%) saturate(50%) \
-                       composite(over) composite(arithmetic 1 2 3 4) \
-                       drop-shadow(10px 5px 5px #888888ff) \
+                       offset(10px 20px) hue-rotate(90deg) grayscale(100%) invert(25%) sepia(60%) \
+                       brightness(150%) contrast(200%) saturate(50%) composite(over) \
+                       composite(arithmetic 1 2 3 4) drop-shadow(10px 5px 5px #888888ff) \
                        color-matrix(1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0)";
 
             let parsed = parse_style_filter_vec(src).unwrap();
@@ -1947,9 +1947,9 @@ pub mod parser {
 
         #[test]
         fn parse_color_matrix_boundary_numbers_saturate() {
-            let src = "NaN inf -inf 1e400 -1e400 1e-400 -0 0 1 -1 \
-                       9223372036854775807 -9223372036854775808 0.5 -0.5 \
-                       3.4028235e38 -3.4028235e38 1.1754944e-38 0 0 0";
+            let src = "NaN inf -inf 1e400 -1e400 1e-400 -0 0 1 -1 9223372036854775807 \
+                       -9223372036854775808 0.5 -0.5 3.4028235e38 -3.4028235e38 1.1754944e-38 0 0 \
+                       0";
             let m = parse_color_matrix(src).unwrap();
             for (i, v) in m.to_array().iter().enumerate() {
                 assert!(

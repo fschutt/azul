@@ -77,8 +77,8 @@ impl AlsaPcm {
             );
             if rc < 0 || pcm.is_null() {
                 crate::plog_warn!(
-                    "[audio] snd_pcm_open(\"default\", PLAYBACK) failed (rc={}) — no \
-                     ALSA output device, audio playback unavailable",
+                    "[audio] snd_pcm_open(\"default\", PLAYBACK) failed (rc={}) — no ALSA output \
+                     device, audio playback unavailable",
                     rc
                 );
                 return None;
@@ -95,8 +95,8 @@ impl AlsaPcm {
             );
             if rc < 0 {
                 crate::plog_warn!(
-                    "[audio] snd_pcm_set_params({} Hz x{} f32) rejected (rc={}) — \
-                     audio playback unavailable",
+                    "[audio] snd_pcm_set_params({} Hz x{} f32) rejected (rc={}) — audio playback \
+                     unavailable",
                     rate,
                     channels,
                     rc
@@ -171,8 +171,8 @@ impl AlsaCapture {
             );
             if rc < 0 || pcm.is_null() {
                 crate::plog_warn!(
-                    "[audio] snd_pcm_open(\"default\", CAPTURE) failed (rc={}) — no \
-                     ALSA input device, microphone capture unavailable",
+                    "[audio] snd_pcm_open(\"default\", CAPTURE) failed (rc={}) — no ALSA input \
+                     device, microphone capture unavailable",
                     rc
                 );
                 return None;
@@ -188,8 +188,8 @@ impl AlsaCapture {
             );
             if rc < 0 {
                 crate::plog_warn!(
-                    "[audio] snd_pcm_set_params({} Hz x{} f32, CAPTURE) rejected \
-                     (rc={}) — microphone capture unavailable",
+                    "[audio] snd_pcm_set_params({} Hz x{} f32, CAPTURE) rejected (rc={}) — \
+                     microphone capture unavailable",
                     rate,
                     channels,
                     rc

@@ -47,10 +47,12 @@
 //! └── pending_window_creates: Vec      (popup/dialog queue)
 //! ```
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
+};
 
 use azul_core::{
     geom::LogicalPosition,
@@ -68,19 +70,20 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions},
 };
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use crate::desktop::shell2::common::event::HitTestNode;
-use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
-
-use crate::desktop::shell2::common::{
-    accessibility::A11yActionQueue,
-    debug_server::{self, LogCategory},
-    event::{self, CommonWindowState, PlatformWindow},
-    WindowError,
+use crate::{
+    desktop::{
+        shell2::common::{
+            accessibility::A11yActionQueue,
+            debug_server::{self, LogCategory},
+            event::{self, CommonWindowState, HitTestNode, PlatformWindow},
+            WindowError,
+        },
+        wr_translate2::{AsyncHitTester, WrRenderApi},
+    },
+    impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn,
 };
-use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Events that can be injected into a HeadlessWindow for testing or
 /// via the debug server.
@@ -564,18 +567,28 @@ impl CpuBackend {
                 azul_css::props::basic::color::OptionColorU::None => None,
             };
             let system_choice = if self.follow_system_background {
-                layout_window.system_style.as_ref().and_then(|s| {
-                    match s.colors.window_background {
+                layout_window
+                    .system_style
+                    .as_ref()
+                    .and_then(|s| match s.colors.window_background {
                         azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
                         azul_css::props::basic::color::OptionColorU::None => None,
-                    }
-                })
+                    })
             } else {
                 None
             };
-            app_choice
-                .or(system_choice)
-                .map_or([255, 255, 255, 255], |c| [c.r, c.g, c.b, 255])
+            app_choice.or(system_choice).map_or_else(
+                || {
+                    if layout_window.current_window_state.theme
+                        == azul_core::window::WindowTheme::DarkMode
+                    {
+                        [42, 46, 50, 255]
+                    } else {
+                        [255, 255, 255, 255]
+                    }
+                },
+                |c| [c.r, c.g, c.b, 255],
+            )
         };
         let compositor = self
             .compositor
@@ -915,7 +928,8 @@ impl CpuBackend {
             // arm is guarded by six more conditions, and any one of them turns
             // "nothing changed" into work.
             eprintln!(
-                "[HLDMG-GATE] needs_resize={} resize_damage={} has_scroll={} vview={} gpu_rects={} gpu_full={} zombie={} patch_moved={}",
+                "[HLDMG-GATE] needs_resize={} resize_damage={} has_scroll={} vview={} \
+                 gpu_rects={} gpu_full={} zombie={} patch_moved={}",
                 needs_resize,
                 resize_damage.len(),
                 has_scroll,
@@ -1204,8 +1218,14 @@ impl CpuBackend {
                 }
             }
             eprintln!(
-                "[cpu-vview] ROOT DL census: total={} rects={} texts={} vviews={} other={} header_dark_rect={}",
-                display_list.items.len(), rects, texts, vviews, other, dark_rect
+                "[cpu-vview] ROOT DL census: total={} rects={} texts={} vviews={} other={} \
+                 header_dark_rect={}",
+                display_list.items.len(),
+                rects,
+                texts,
+                vviews,
+                other,
+                dark_rect
             );
             // One-shot full item dump (first frame only): every Push/Pop with
             // bounds — the header is dropped by SOMETHING among these.
@@ -2170,15 +2190,13 @@ impl HeadlessWindow {
     /// Win32 `GetMessage` loop / the X11 `XNextEvent` loop.
     ///
     /// The loop uses a `Condvar` for zero-CPU blocking:
-    /// * When timers are active it uses `wait_timeout` (16 ms / 60 Hz)
-    ///   so timers get ticked even without external events.
-    /// * When no timers are active it calls `wait` (indefinite) — the
-    ///   thread is parked until `inject_event()`, `start_timer()`, or
-    ///   another caller invokes `wake()`.
-    /// * If nothing can ever wake the loop (no timers, no threads, no
-    ///   debug server) a one-time warning is printed to stderr and the
-    ///   loop blocks forever — identical to a desktop window nobody
-    ///   interacts with.
+    /// * When timers are active it uses `wait_timeout` (16 ms / 60 Hz) so timers get ticked even
+    ///   without external events.
+    /// * When no timers are active it calls `wait` (indefinite) — the thread is parked until
+    ///   `inject_event()`, `start_timer()`, or another caller invokes `wake()`.
+    /// * If nothing can ever wake the loop (no timers, no threads, no debug server) a one-time
+    ///   warning is printed to stderr and the loop blocks forever — identical to a desktop window
+    ///   nobody interacts with.
     pub fn run(mut self) -> Result<(), WindowError> {
         let debug_enabled = debug_server::is_debug_enabled();
         let start = Instant::now();
@@ -2228,8 +2246,8 @@ impl HeadlessWindow {
             } else {
                 log_warn!(
                     LogCategory::Rendering,
-                    "[Headless] AZ_HEADLESS_SNAPSHOT_PATH set but no last_frame after initial layout — \
-                     ensure the app's layout callback returns a non-empty DOM",
+                    "[Headless] AZ_HEADLESS_SNAPSHOT_PATH set but no last_frame after initial \
+                     layout — ensure the app's layout callback returns a non-empty DOM",
                 );
             }
             // Exit cleanly so CI/test scripts get a deterministic
@@ -2280,8 +2298,8 @@ impl HeadlessWindow {
                 // caller's timeout fires, which is now a real failure signal.
                 log_warn!(
                     LogCategory::Rendering,
-                    "[Headless] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set but NO frame has rendered — \
-                     not exiting, so the caller's timeout reports this as the failure it is",
+                    "[Headless] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set but NO frame has rendered \
+                     — not exiting, so the caller's timeout reports this as the failure it is",
                 );
             }
         }
@@ -2920,11 +2938,10 @@ impl HeadlessWindow {
             if !has_wake_sources && !warned_no_wake_sources {
                 warned_no_wake_sources = true;
                 eprintln!(
-                    "[azul] HeadlessWindow: no timers, threads, or debug server active. \
-                     The event loop will block indefinitely on a condvar \
-                     (same as a desktop window nobody interacts with). \
-                     Set AZ_DEBUG=1 to enable the debug server, or \
-                     inject events via inject_event()."
+                    "[azul] HeadlessWindow: no timers, threads, or debug server active. The event \
+                     loop will block indefinitely on a condvar (same as a desktop window nobody \
+                     interacts with). Set AZ_DEBUG=1 to enable the debug server, or inject events \
+                     via inject_event()."
                 );
             }
 
@@ -3160,10 +3177,12 @@ mod tests {
     // `cargo test -p azul-dll damage_ -- --nocapture`).
     // =====================================================================
 
-    use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
-    use azul_core::dom::Dom;
-    use azul_core::geom::LogicalSize;
-    use azul_core::refany::OptionRefAny;
+    use azul_core::{
+        callbacks::{LayoutCallback, LayoutCallbackInfo},
+        dom::Dom,
+        geom::LogicalSize,
+        refany::OptionRefAny,
+    };
     use azul_layout::solver3::display_list::DisplayListItem;
 
     /// Minimal app state the harness layout callback reads.
@@ -3200,13 +3219,12 @@ mod tests {
     /// Why inject the parsed font rather than register it in the `FcFontCache`
     /// (the obvious approach)? Because a single in-memory font CANNOT serve text
     /// through an otherwise-empty fontconfig cache (the trail, #15):
-    /// - generic families ("serif", azul's default) are EXPANDED to a hardcoded
-    ///   OS list ("DejaVu Serif", …) and the generic is dropped, so a custom font
-    ///   is never matched by the generic name (the `web/eventloop.rs` "serif
-    ///   sans-serif monospace" trick silently does nothing);
-    /// - the Unicode-fallback path skips every codepoint < U+0400 (it assumes the
-    ///   CSS fallbacks' own glyphs cover Latin — i.e. that real system fonts
-    ///   exist), so ASCII resolves no fallback in an empty cache.
+    /// - generic families ("serif", azul's default) are EXPANDED to a hardcoded OS list ("DejaVu
+    ///   Serif", …) and the generic is dropped, so a custom font is never matched by the generic
+    ///   name (the `web/eventloop.rs` "serif sans-serif monospace" trick silently does nothing);
+    /// - the Unicode-fallback path skips every codepoint < U+0400 (it assumes the CSS fallbacks'
+    ///   own glyphs cover Latin — i.e. that real system fonts exist), so ASCII resolves no fallback
+    ///   in an empty cache.
     ///
     /// The shaper's last resort, however, is a direct glyph probe over the
     /// LOADED fonts (`split_text_by_font_coverage`'s `.or_else` →
@@ -3297,12 +3315,14 @@ mod tests {
     }
 
     extern "C" fn harness_layout_box(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let red = data
@@ -3342,15 +3362,21 @@ mod tests {
     /// with a centered label underneath (moves by HALF the delta) — the
     /// mover-diversity of the live miniword ribbon, in miniature.
     extern "C" fn harness_layout_ribbon(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions as C;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::layout::flex::{LayoutFlexDirection, LayoutFlexGrow};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions as C,
+            props::{
+                basic::color::ColorU,
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    flex::{LayoutFlexDirection, LayoutFlexGrow},
+                },
+                property::CssProperty,
+                style::{
+                    background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                    text::StyleTextAlign,
+                },
+            },
         };
-        use azul_css::props::style::text::StyleTextAlign;
 
         let label = data
             .downcast_ref::<UiState>()
@@ -3654,8 +3680,10 @@ mod tests {
     /// every group caption stays centered on its footer.
     #[test]
     fn azwriter_ribbon_resize_sweep_keeps_tabs_one_line_and_captions_centered() {
-        use azul_core::dom::{DomId, DomNodeId, NodeId, NodeType};
-        use azul_core::geom::LogicalSize;
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId, NodeType},
+            geom::LogicalSize,
+        };
         use azul_layout::widgets::ribbon::{
             Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem,
             RibbonTab, RibbonTabVec,
@@ -3911,12 +3939,14 @@ mod tests {
     /// flips the box color at viewport width <= 720 (a threshold that was
     /// NOT on the old hardcoded CSS_BREAKPOINTS guess list).
     extern "C" fn harness_layout_breakpoint(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, MinMaxRange};
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelector, MinMaxRange},
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         if let Some(mut st) = data.downcast_mut::<BreakpointState>() {
@@ -4120,15 +4150,13 @@ mod tests {
     /// box. These are the shapes that move the BOX, and each one breaks a
     /// different naive assumption:
     ///
-    ///  * **box-shadow** — visual bounds deliberately EXCEED the item box
-    ///    (offset + blur + spread), so damage taken from the box alone
-    ///    leaves the shadow's fringe stale.
-    ///  * **shrinking** — the vacated area is outside the NEW bounds, so
-    ///    damage must include the OLD bounds or the old pixels survive.
-    ///  * **anonymous layout boxes** — the div holds inline text, so the
-    ///    layout tree carries boxes the DOM never had, and resizing moves
-    ///    them; any NodeId -> item mapping has to cope with items that have
-    ///    no DOM identity.
+    ///  * **box-shadow** — visual bounds deliberately EXCEED the item box (offset + blur + spread),
+    ///    so damage taken from the box alone leaves the shadow's fringe stale.
+    ///  * **shrinking** — the vacated area is outside the NEW bounds, so damage must include the
+    ///    OLD bounds or the old pixels survive.
+    ///  * **anonymous layout boxes** — the div holds inline text, so the layout tree carries boxes
+    ///    the DOM never had, and resizing moves them; any NodeId -> item mapping has to cope with
+    ///    items that have no DOM identity.
     ///
     /// Each step is compared pixel-for-pixel against a full repaint, the
     /// same ground truth `damage_survives_a_randomised_edit_sequence` uses.
@@ -4148,15 +4176,18 @@ mod tests {
         }
 
         extern "C" fn layout_shapes(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-            use azul_css::dynamic_selector::CssPropertyWithConditions as P;
-            use azul_css::props::basic::color::ColorU;
-            use azul_css::props::basic::{PixelValue, PixelValueNoPercent};
-            use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-            use azul_css::props::property::CssProperty;
-            use azul_css::props::style::background::{
-                StyleBackgroundContent, StyleBackgroundContentVec,
+            use azul_css::{
+                dynamic_selector::CssPropertyWithConditions as P,
+                props::{
+                    basic::{color::ColorU, PixelValue, PixelValueNoPercent},
+                    layout::dimensions::{LayoutHeight, LayoutWidth},
+                    property::CssProperty,
+                    style::{
+                        background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                        box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+                    },
+                },
             };
-            use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
             let v = data
                 .downcast_ref::<ShapeState>()
@@ -4265,9 +4296,9 @@ mod tests {
             }
             assert_eq!(
                 diffs, 0,
-                "variant {step} left {diffs} stale pixels, first at {first:?}. \
-                 Damage did not cover a shadow fringe, a vacated area, or an \
-                 anonymous-box change. damage = {damage:?}"
+                "variant {step} left {diffs} stale pixels, first at {first:?}. Damage did not \
+                 cover a shadow fringe, a vacated area, or an anonymous-box change. damage = \
+                 {damage:?}"
             );
         }
     }
@@ -4289,12 +4320,14 @@ mod tests {
         }
 
         extern "C" fn layout_nb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-            use azul_css::dynamic_selector::CssPropertyWithConditions as P;
-            use azul_css::props::basic::color::ColorU;
-            use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-            use azul_css::props::property::CssProperty;
-            use azul_css::props::style::background::{
-                StyleBackgroundContent, StyleBackgroundContentVec,
+            use azul_css::{
+                dynamic_selector::CssPropertyWithConditions as P,
+                props::{
+                    basic::color::ColorU,
+                    layout::dimensions::{LayoutHeight, LayoutWidth},
+                    property::CssProperty,
+                    style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                },
             };
 
             let v = data
@@ -4399,14 +4432,14 @@ mod tests {
             }
             assert_eq!(
                 diffs, 0,
-                "step {step}: external buffer diverges from the owned render at {diffs} px, \
-                 first {first:?} — native damage {native_damage:?}"
+                "step {step}: external buffer diverges from the owned render at {diffs} px, first \
+                 {first:?} — native damage {native_damage:?}"
             );
         }
         assert!(
             saw_incremental,
-            "every step took the full-repaint path — the external-base \
-             incremental law was never exercised"
+            "every step took the full-repaint path — the external-base incremental law was never \
+             exercised"
         );
     }
 
@@ -4516,12 +4549,11 @@ mod tests {
     /// `GlyphCache::gc()` frees the previous generation — thousands of
     /// vectors. Two ways to get this wrong, and this pins both:
     ///
-    ///  * never calling it: the cold generation is held until a rotation
-    ///    overwrites it, so memory is retained long after the text changed.
-    ///  * calling it every present: `prev` never survives long enough for a
-    ///    rotated-out glyph to be promoted back, collapsing the two
-    ///    generations into one and reintroducing the rebuild storm the
-    ///    generational scheme exists to prevent.
+    ///  * never calling it: the cold generation is held until a rotation overwrites it, so memory
+    ///    is retained long after the text changed.
+    ///  * calling it every present: `prev` never survives long enough for a rotated-out glyph to be
+    ///    promoted back, collapsing the two generations into one and reintroducing the rebuild
+    ///    storm the generational scheme exists to prevent.
     #[test]
     fn glyph_cache_gc_runs_on_idle_frames_only() {
         let state = Arc::new(RefCell::new(RefAny::new(UiState {
@@ -4537,14 +4569,14 @@ mod tests {
         let after_change = window.cpu_backend.glyph_cache.paths_len();
         assert!(
             after_change > 0,
-            "the changed frame must have populated the glyph path cache, or \
-             this test cannot tell GC from an empty cache"
+            "the changed frame must have populated the glyph path cache, or this test cannot tell \
+             GC from an empty cache"
         );
         assert_ne!(
             window.cpu_backend.last_frame_damage,
             FrameDamage::None,
-            "a text change must damage something; if it does not, the idle \
-             branch below is being reached for the wrong reason"
+            "a text change must damage something; if it does not, the idle branch below is being \
+             reached for the wrong reason"
         );
 
         // Force a rotation so there IS a previous generation to collect.
@@ -4559,8 +4591,7 @@ mod tests {
         }
         assert!(
             window.cpu_backend.glyph_cache.prev_generation_len() > 0,
-            "the fixture failed to rotate a generation, so the GC assertion \
-             below would be vacuous"
+            "the fixture failed to rotate a generation, so the GC assertion below would be vacuous"
         );
 
         // Now an IDLE frame: same content, nothing to paint.
@@ -4568,8 +4599,8 @@ mod tests {
         assert_eq!(
             window.cpu_backend.glyph_cache.prev_generation_len(),
             0,
-            "an idle frame must collect the previous generation — that is the \
-             whole point of doing GC here rather than on a keystroke"
+            "an idle frame must collect the previous generation — that is the whole point of \
+             doing GC here rather than on a keystroke"
         );
         assert_eq!(
             window.cpu_backend.last_frame_damage,
@@ -4581,8 +4612,7 @@ mod tests {
         let after_idle = window.cpu_backend.glyph_cache.paths_len();
         assert!(
             after_idle <= after_change,
-            "an idle frame must not GROW the glyph cache (was {after_change}, \
-             now {after_idle})"
+            "an idle frame must not GROW the glyph cache (was {after_change}, now {after_idle})"
         );
 
         // And the cache must still serve: another edit reuses it rather than
@@ -4591,8 +4621,8 @@ mod tests {
         window.regenerate_layout().expect("second edit");
         assert!(
             window.cpu_backend.glyph_cache.paths_len() > 0,
-            "the glyph cache must survive an idle-frame GC — if it is empty \
-             here, GC threw away the LIVE generation, not the cold one"
+            "the glyph cache must survive an idle-frame GC — if it is empty here, GC threw away \
+             the LIVE generation, not the cold one"
         );
     }
 
@@ -4707,9 +4737,8 @@ mod tests {
             }
             assert_eq!(
                 diffs, 0,
-                "step {step} (text = {text:?}) left {diffs} stale pixels, first at \
-                 {first:?}. The damage rects did not cover everything that \
-                 changed. damage = {damage:?}"
+                "step {step} (text = {text:?}) left {diffs} stale pixels, first at {first:?}. The \
+                 damage rects did not cover everything that changed. damage = {damage:?}"
             );
         }
     }
@@ -4740,8 +4769,8 @@ mod tests {
     /// region the damage rects failed to cover shows up as a difference.
     #[test]
     fn tight_text_damage_leaves_no_stale_pixels() {
-        let long = "the quick brown fox jumps over the lazy dog and keeps on \
-                    running past the end of the first line and onto a second";
+        let long = "the quick brown fox jumps over the lazy dog and keeps on running past the end \
+                    of the first line and onto a second";
         let state = Arc::new(RefCell::new(RefAny::new(UiState {
             label: long.to_string(),
         })));
@@ -4790,21 +4819,21 @@ mod tests {
             }
         }
         println!(
-            "[harness] stale-pixel check: {diffs} differing px, first at {first:?}, \
-             damage = {damage:?}"
+            "[harness] stale-pixel check: {diffs} differing px, first at {first:?}, damage = \
+             {damage:?}"
         );
         assert_eq!(
             diffs, 0,
-            "the incrementally-painted frame differs from a full repaint of the \
-             same content in {diffs} pixels (first at {first:?}). The damage \
-             rects did not cover everything that changed, so those pixels are \
-             STALE on a real screen. damage = {damage:?}"
+            "the incrementally-painted frame differs from a full repaint of the same content in \
+             {diffs} pixels (first at {first:?}). The damage rects did not cover everything that \
+             changed, so those pixels are STALE on a real screen. damage = {damage:?}"
         );
     }
 
     #[test]
     fn damage_one_char_edit_reports_its_granularity() {
-        let long = "the quick brown fox jumps over the lazy dog and keeps on                     running past the end of the first line and onto a second";
+        let long = "the quick brown fox jumps over the lazy dog and keeps on                     \
+                    running past the end of the first line and onto a second";
         let state = Arc::new(RefCell::new(RefAny::new(UiState {
             label: long.to_string(),
         })));
@@ -4829,20 +4858,19 @@ mod tests {
         // The window is 400x300; the text node spans most of its width.
         let window_area = 400.0 * 300.0;
         println!(
-            "[harness] one-char edit damage = {damage:?}\n\
-             [harness]   damaged {damaged_area:.0} px2 of {window_area:.0} px2 window              = {:.1}%",
+            "[harness] one-char edit damage = {damage:?}\n[harness]   damaged {damaged_area:.0} \
+             px2 of {window_area:.0} px2 window              = {:.1}%",
             damaged_area / window_area * 100.0
         );
 
         assert!(
             damaged_area > 0.0,
-            "a text change must damage SOMETHING, or the edit never reaches the \
-             screen"
+            "a text change must damage SOMETHING, or the edit never reaches the screen"
         );
         assert!(
             !matches!(damage, FrameDamage::Full),
-            "a one-character edit must not escalate to a FULL-window repaint — \
-             that is the worst case and means damage tracking gave up entirely"
+            "a one-character edit must not escalate to a FULL-window repaint — that is the worst \
+             case and means damage tracking gave up entirely"
         );
     }
 
@@ -4875,8 +4903,8 @@ mod tests {
         assert_eq!(
             before,
             vec![3],
-            "baseline: expected an initial 3-glyph run (\"AAA\"), got {:?} \
-             (no fonts? text not shaping?)",
+            "baseline: expected an initial 3-glyph run (\"AAA\"), got {:?} (no fonts? text not \
+             shaping?)",
             before
         );
 
@@ -4886,11 +4914,10 @@ mod tests {
         assert_eq!(
             after,
             vec![8],
-            "STALE-TEXT BUG (#11): after changing the label to \"BBBBBBBB\" (8 chars) \
-             the display list should contain an 8-glyph text run, but it still has {:?} \
-             — the text change never reached the display list. Damage was {:?}, so the \
-             diff/regen ran but produced STALE content (display-list generation bug, \
-             not a damage bug).",
+            "STALE-TEXT BUG (#11): after changing the label to \"BBBBBBBB\" (8 chars) the display \
+             list should contain an 8-glyph text run, but it still has {:?} — the text change \
+             never reached the display list. Damage was {:?}, so the diff/regen ran but produced \
+             STALE content (display-list generation bug, not a damage bug).",
             after,
             damage
         );
@@ -4976,8 +5003,8 @@ mod tests {
         );
         assert!(
             window.has_active_timers(),
-            "the timer installed by create_callback must land in the \
-             layout window (AddTimer change applied)"
+            "the timer installed by create_callback must land in the layout window (AddTimer \
+             change applied)"
         );
 
         // Exactly once per window lifetime — a second lifecycle pass must
@@ -5014,9 +5041,8 @@ mod tests {
         assert_eq!(
             damage,
             FrameDamage::None,
-            "NO-OP relayout produced {:?} — an unchanged DOM must yield \
-             FrameDamage::None; false-positive damage every frame defeats \
-             incremental rendering.",
+            "NO-OP relayout produced {:?} — an unchanged DOM must yield FrameDamage::None; \
+             false-positive damage every frame defeats incremental rendering.",
             damage
         );
     }
@@ -5041,15 +5067,14 @@ mod tests {
         match damage_area(&damage) {
             Some(a) if a > 0.0 => assert!(
                 a < window_area * 0.5,
-                "box recolor damage area {} should be ~box-sized (~5000), not \
-                 near-full-window {} — damage={:?}",
+                "box recolor damage area {} should be ~box-sized (~5000), not near-full-window {} \
+                 — damage={:?}",
                 a,
                 window_area,
                 damage
             ),
             other => panic!(
-                "box recolor should produce bounded incremental damage, got \
-                 area={:?} damage={:?}",
+                "box recolor should produce bounded incremental damage, got area={:?} damage={:?}",
                 other, damage
             ),
         }
@@ -5149,12 +5174,14 @@ mod tests {
     }
 
     extern "C" fn harness_layout_grid(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let (boxes, highlight) = data
@@ -5253,15 +5280,14 @@ mod tests {
         match damage_area(&damage) {
             Some(a) if a > 0.0 => assert!(
                 a < window_area * 0.5,
-                "size reflow damage area {} should be box-sized (~10000), not \
-                 near-full-window {} — damage={:?}",
+                "size reflow damage area {} should be box-sized (~10000), not near-full-window {} \
+                 — damage={:?}",
                 a,
                 window_area,
                 damage
             ),
             other => panic!(
-                "size reflow should produce bounded incremental damage, got \
-                 area={:?} damage={:?}",
+                "size reflow should produce bounded incremental damage, got area={:?} damage={:?}",
                 other, damage
             ),
         }
@@ -5289,8 +5315,8 @@ mod tests {
         let max_y = damage_max_y(&damage);
         assert!(
             max_y >= 140.0,
-            "reflow-shift damage must reach the shifted sibling (bottom ~158), \
-             got max_y={} damage={:?} — box2 would ghost/not repaint",
+            "reflow-shift damage must reach the shifted sibling (bottom ~158), got max_y={} \
+             damage={:?} — box2 would ghost/not repaint",
             max_y,
             damage
         );
@@ -5322,8 +5348,7 @@ mod tests {
                 let max_y = damage_max_y(&damage);
                 assert!(
                     max_y >= 90.0,
-                    "structural add must damage the new box (~y 108), got \
-                     max_y={} damage={:?}",
+                    "structural add must damage the new box (~y 108), got max_y={} damage={:?}",
                     max_y,
                     damage
                 );
@@ -5364,11 +5389,17 @@ mod tests {
     }
 
     extern "C" fn click_counter_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
-        use azul_core::events::{EventFilter, HoverEventFilter};
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            events::{EventFilter, HoverEventFilter},
+        };
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+            },
+        };
 
         let hits = data
             .downcast_ref::<ClickCounterState>()
@@ -5494,11 +5525,15 @@ mod tests {
 
     extern "C" fn slider_demo_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         use azul_core::refany::OptionRefAny;
-        use azul_css::dynamic_selector::CssPropertyWithConditions as C;
-        use azul_css::props::layout::spacing::{
-            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions as C,
+            props::{
+                layout::spacing::{
+                    LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+                },
+                property::CssProperty,
+            },
         };
-        use azul_css::props::property::CssProperty;
         use azul_layout::widgets::slider::{Slider, SliderOnValueChangeCallback};
 
         let (value, interactions) = data
@@ -5580,7 +5615,10 @@ mod tests {
             ws.size.dimensions.height,
             ws.size.dpi as f32 / 96.0,
         );
-        let mut fresh = CpuBackend { follow_system_background: false, ..CpuBackend::new() };
+        let mut fresh = CpuBackend {
+            follow_system_background: false,
+            ..CpuBackend::new()
+        };
         let lw = window.common.layout_window.as_ref().expect("layout window");
         fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
         let full = fresh
@@ -5663,10 +5701,10 @@ mod tests {
             let (diffs, first) = incremental_vs_full(&mut window);
             assert_eq!(
                 diffs, 0,
-                "drag step {i} (cursor x={x}): the presented frame differs from a full \
-                 repaint of the same display list in {diffs} px, first at {first:?} — a \
-                 thumb ghost / stale pixels on a real screen. thumb now {now:?}, before \
-                 {prev_thumb:?}, damage {damage:?}"
+                "drag step {i} (cursor x={x}): the presented frame differs from a full repaint of \
+                 the same display list in {diffs} px, first at {first:?} — a thumb ghost / stale \
+                 pixels on a real screen. thumb now {now:?}, before {prev_thumb:?}, damage \
+                 {damage:?}"
             );
             if let Some(r) = now.first() {
                 prev_thumb = *r;
@@ -5772,8 +5810,9 @@ mod tests {
 
     #[test]
     fn a_text_selection_survives_a_relayout() {
-        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::MouseButton;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
 
         let state = Arc::new(RefCell::new(RefAny::new(())));
         let mut window = make_window_sized(&state, selection_layout, 500.0, 200.0);
@@ -5850,8 +5889,8 @@ mod tests {
         let after = selection_rect_count(&window);
         assert!(
             after > 0,
-            "the selection band vanished on relayout ({before} SelectionRect(s) before, {after} after): \
-             the layout path must paint the live selection, not an empty map"
+            "the selection band vanished on relayout ({before} SelectionRect(s) before, {after} \
+             after): the layout path must paint the live selection, not an empty map"
         );
         assert!(
             window
@@ -5881,8 +5920,8 @@ mod tests {
     extern "C" fn right_aligned_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Dom::create_body()
             .with_css(
-                "display: flex; flex-direction: row; justify-content: flex-end; \
-                 width: 100%; height: 100%; margin: 0;",
+                "display: flex; flex-direction: row; justify-content: flex-end; width: 100%; \
+                 height: 100%; margin: 0;",
             )
             .with_child(
                 Dom::create_div()
@@ -5890,16 +5929,14 @@ mod tests {
                         vec![azul_core::dom::IdOrClass::Class("target".into())].into(),
                     )
                     .with_css(
-                        "width: 40px; height: 40px; flex-grow: 0; flex-shrink: 0; \
-                         background: red;",
+                        "width: 40px; height: 40px; flex-grow: 0; flex-shrink: 0; background: red;",
                     ),
             )
     }
 
     /// Does the window's CPU hit-tester report a `.target` node at (x, y)?
     fn cpu_hit_tester_hits_class(window: &HeadlessWindow, class: &str, x: f32, y: f32) -> bool {
-        use azul_core::dom::IdOrClass;
-        use azul_core::geom::LogicalPosition;
+        use azul_core::{dom::IdOrClass, geom::LogicalPosition};
 
         let Some(ht) = window.common.cpu_hit_tester.as_ref() else {
             panic!("the headless window must own a CPU hit-tester");
@@ -5971,8 +6008,8 @@ mod tests {
         );
         assert!(
             cpu_hit_tester_hits_class(&window, "target", 480.0, 20.0),
-            "STALE HIT-TESTER: layout moved the box to x = 460 but the hit-tester still \
-             answers for the 300 px window — the relayout-only path skipped the rebuild"
+            "STALE HIT-TESTER: layout moved the box to x = 460 but the hit-tester still answers \
+             for the 300 px window — the relayout-only path skipped the rebuild"
         );
         assert!(
             !cpu_hit_tester_hits_class(&window, "target", 280.0, 20.0),
@@ -6087,10 +6124,13 @@ mod tests {
 
     #[test]
     fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        use crate::desktop::shell2::common::layout::LayoutRegenerateResult;
-        use azul_core::geom::LogicalPosition;
         use std::sync::atomic::Ordering;
+
+        use azul_core::geom::LogicalPosition;
+
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
             content: RefAny::new(VvCounter { value: 0 }),
@@ -6130,8 +6170,8 @@ mod tests {
         );
         assert!(
             pending_virtual_view_updates(&window) > 0,
-            "an unchanged RefreshDom must queue the VirtualViews for a re-invoke: the DOM \
-             did not change, the data behind the view did"
+            "an unchanged RefreshDom must queue the VirtualViews for a re-invoke: the DOM did not \
+             change, the data behind the view did"
         );
 
         // The frame path drains the queue before it paints.
@@ -6206,8 +6246,10 @@ mod tests {
     }
 
     extern "C" fn pinch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
-        use azul_core::events::{EventFilter, HoverEventFilter};
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            events::{EventFilter, HoverEventFilter},
+        };
         let log = data
             .downcast_ref::<PinchLog>()
             .map(|l| l.clone())
@@ -6241,9 +6283,11 @@ mod tests {
 
     #[test]
     fn a_native_pinch_is_visible_to_the_callbacks_of_its_own_pass() {
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
         use core::sync::atomic::{AtomicUsize, Ordering};
+
+        use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
 
         let log = PinchLog {
             seen: Arc::new(AtomicUsize::new(0)),
@@ -6281,8 +6325,8 @@ mod tests {
         assert_eq!(
             log.seen.load(Ordering::SeqCst),
             1,
-            "the callback must be able to READ the pinch it was dispatched for: \
-             clearing the native gesture before dispatch hands it `None`"
+            "the callback must be able to READ the pinch it was dispatched for: clearing the \
+             native gesture before dispatch hands it `None`"
         );
         assert_eq!(log.scale_milli.load(Ordering::SeqCst), 1500);
 
@@ -6331,8 +6375,10 @@ mod tests {
     }
 
     extern "C" fn node_resized_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
-        use azul_core::dom::{ComponentEventFilter, EventFilter};
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{ComponentEventFilter, EventFilter},
+        };
         let log = data
             .downcast_ref::<ResizeLog>()
             .map(|l| l.clone())
@@ -6362,8 +6408,9 @@ mod tests {
 
     #[test]
     fn node_resized_fires_after_a_relayout() {
-        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
         use core::sync::atomic::{AtomicUsize, Ordering};
+
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
 
         let log = ResizeLog {
             hits: Arc::new(AtomicUsize::new(0)),
@@ -6394,8 +6441,8 @@ mod tests {
         assert_eq!(
             log.hits.load(Ordering::SeqCst),
             1,
-            "NodeResized must fire once for the child whose box grew (and not for \
-             the fixed-width sibling)"
+            "NodeResized must fire once for the child whose box grew (and not for the fixed-width \
+             sibling)"
         );
         assert_eq!(
             log.last_width.load(Ordering::SeqCst),
@@ -6509,8 +6556,8 @@ mod tests {
         assert_eq!(
             preview,
             Some((200, 90)),
-            "AT MOUNT the widget already knows its laid-out size (AfterMount has the \
-             hit node), so the camera is opened at the tile's size, not a 1080p default"
+            "AT MOUNT the widget already knows its laid-out size (AfterMount has the hit node), \
+             so the camera is opened at the tile's size, not a 1080p default"
         );
 
         // Widen the window through the resize fast path: the tile grows to
@@ -6616,10 +6663,12 @@ mod tests {
     }
 
     extern "C" fn accel_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_core::callbacks::CoreCallback;
-        use azul_core::dom::{IdOrClass, TabIndex};
-        use azul_core::menu::{Menu, MenuItem, StringMenuItem};
-        use azul_core::window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec};
+        use azul_core::{
+            callbacks::CoreCallback,
+            dom::{IdOrClass, TabIndex},
+            menu::{Menu, MenuItem, StringMenuItem},
+            window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec},
+        };
 
         let log = data.downcast_ref::<AccelLog>().map(|l| AccelLog {
             saved: l.saved.clone(),
@@ -6668,9 +6717,9 @@ mod tests {
 
     #[test]
     fn a_menu_accelerator_runs_the_items_callback_once_per_chord_on_the_shared_path() {
-        use azul_core::events::MouseButton;
-        use azul_core::window::VirtualKeyCode as K;
         use core::sync::atomic::{AtomicUsize, Ordering};
+
+        use azul_core::{events::MouseButton, window::VirtualKeyCode as K};
 
         let log = AccelLog {
             saved: Arc::new(AtomicUsize::new(0)),
@@ -6951,8 +7000,8 @@ mod tests {
         let caret = carets[carets.len() - 1];
         assert!(
             caret.origin.x > c.origin.x + 20.0,
-            "the caret must land AT THE CLICK ({x}), not at the start of the field: \
-             caret {caret:?} in {c:?}"
+            "the caret must land AT THE CLICK ({x}), not at the start of the field: caret \
+             {caret:?} in {c:?}"
         );
         assert!(
             caret.origin.x <= x + 20.0,
@@ -6993,7 +7042,6 @@ mod tests {
             },
         );
 
-
         // THE FIELD IS NOT BLANK ON FOCUS. Before, focus hid the placeholder
         // and the empty editable painted no caret, so a focused empty field
         // was a blank box — "the TextInput is not working". The placeholder
@@ -7032,8 +7080,8 @@ mod tests {
         let carets = caret_items(&window);
         assert!(
             !carets.is_empty(),
-            "NO CARET: a focused EMPTY editable must paint the strut caret (the empty value \
-             <p> keeps a strut line box inside the editing host)"
+            "NO CARET: a focused EMPTY editable must paint the strut caret (the empty value <p> \
+             keeps a strut line box inside the editing host)"
         );
         let caret = carets[carets.len() - 1];
         assert!(
@@ -7144,8 +7192,7 @@ mod tests {
     // plus a Slider — through the passes the report named.
 
     extern "C" fn text_area_and_slider_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_layout::widgets::slider::Slider;
-        use azul_layout::widgets::text_area::TextArea;
+        use azul_layout::widgets::{slider::Slider, text_area::TextArea};
         let slider_value = data
             .downcast_ref::<SliderUiState>()
             .map_or(40.0, |s| s.slider_value);
@@ -7190,10 +7237,7 @@ mod tests {
     fn watched_rects(
         window: &HeadlessWindow,
         when: &str,
-    ) -> (
-        azul_core::geom::LogicalRect,
-        azul_core::geom::LogicalRect,
-    ) {
+    ) -> (azul_core::geom::LogicalRect, azul_core::geom::LogicalRect) {
         // The textarea's PROMPT is deliberately not watched here. It used to
         // be the third rect, found by class — but the
         // placeholder-as-engine-attribute refactor deleted that node, and
@@ -7226,8 +7270,9 @@ mod tests {
 
     #[test]
     fn the_patched_display_list_equals_the_wholesale_build_for_the_widgets_scene() {
-        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::MouseButton;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
 
         let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
             slider_value: 40.0,
@@ -7391,8 +7436,9 @@ mod tests {
 
     #[test]
     fn the_pressed_node_gets_its_release_wherever_the_pointer_let_go() {
-        use azul_core::events::MouseButton;
         use core::sync::atomic::{AtomicUsize, Ordering};
+
+        use azul_core::events::MouseButton;
 
         let log = PressLog {
             a_down: Arc::new(AtomicUsize::new(0)),
@@ -7576,24 +7622,27 @@ mod tests {
     }
 
     extern "C" fn ribbon_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::{
+                    background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                    border::{
+                        BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+                        LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+                        StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+                        StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+                        StyleBorderTopStyle,
+                    },
+                },
+            },
+            AzString,
         };
-        use azul_css::AzString;
         use azul_layout::widgets::ribbon::{
             Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
-        };
-
-        use azul_css::props::style::border::{
-            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
-            StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
-            StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
         };
 
         let (active, bordered) = data
@@ -7709,9 +7758,11 @@ mod tests {
 
     /// On-screen rects of every laid-out node carrying `class`, left to right.
     fn rects_by_class(window: &HeadlessWindow, class: &str) -> Vec<azul_core::geom::LogicalRect> {
-        use azul_core::dom::{DomId, DomNodeId, IdOrClass};
-        use azul_core::geom::LogicalRect;
-        use azul_core::styled_dom::NodeHierarchyItemId;
+        use azul_core::{
+            dom::{DomId, DomNodeId, IdOrClass},
+            geom::LogicalRect,
+            styled_dom::NodeHierarchyItemId,
+        };
 
         let Some(lw) = window.common.layout_window.as_ref() else {
             return Vec::new();
@@ -7838,8 +7889,8 @@ mod tests {
         assert_eq!(
             active_tab_of(&state),
             Some(1),
-            "the click at ({x}, {y}) did not reach the tab header, so every \
-             comparison below would pass for the wrong reason"
+            "the click at ({x}, {y}) did not reach the tab header, so every comparison below \
+             would pass for the wrong reason"
         );
 
         // The same state painted from scratch. The cursor has to sit where
@@ -7934,8 +7985,8 @@ mod tests {
         for (i, (ta, tb)) in a.iter().zip(b.iter()).enumerate() {
             assert_eq!(
                 ta, tb,
-                "Text[{i}] differs after a tab click at ({x}, {y}); the clicked \
-                 window painted a colour it resolved before the switch"
+                "Text[{i}] differs after a tab click at ({x}, {y}); the clicked window painted a \
+                 colour it resolved before the switch"
             );
         }
     }
@@ -7974,12 +8025,12 @@ mod tests {
 
         match &damage {
             FrameDamage::Full => panic!(
-                "a ribbon tab click reported FULL damage. Only the tab strip and \
-                 the group band changed."
+                "a ribbon tab click reported FULL damage. Only the tab strip and the group band \
+                 changed."
             ),
             FrameDamage::None => panic!(
-                "a ribbon tab click reported NO damage, but the visible tab \
-                 changed - the new frame would never reach the screen"
+                "a ribbon tab click reported NO damage, but the visible tab changed - the new \
+                 frame would never reach the screen"
             ),
             FrameDamage::Rects(rects) => {
                 let intruders: Vec<_> = rects
@@ -7988,9 +8039,8 @@ mod tests {
                     .collect();
                 assert!(
                     intruders.is_empty(),
-                    "a tab click damaged {} rect(s) reaching below the ribbon's \
-                     own bottom edge (y = {band}), into the document area that \
-                     did not change: {intruders:?}",
+                    "a tab click damaged {} rect(s) reaching below the ribbon's own bottom edge \
+                     (y = {band}), into the document area that did not change: {intruders:?}",
                     intruders.len()
                 );
             }
@@ -8013,10 +8063,10 @@ mod tests {
     /// `shaped.extend(cached.clusters.iter().cloned())` makes both
     /// assertions fail — verified.
     extern "C" fn twin_label_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::text::StyleTextColor;
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{basic::color::ColorU, property::CssProperty, style::text::StyleTextColor},
+        };
 
         let label = |r: u8, g: u8, b: u8| {
             Dom::create_div()
@@ -8057,9 +8107,9 @@ mod tests {
         assert_eq!(
             (red, blue),
             (1, 1),
-            "each label keeps its own colour; the shaping cache is keyed on \
-             layout_hash, which excludes colour, so a shared entry would paint \
-             both in whichever colour shaped first. items = {texts:?}"
+            "each label keeps its own colour; the shaping cache is keyed on layout_hash, which \
+             excludes colour, so a shared entry would paint both in whichever colour shaped \
+             first. items = {texts:?}"
         );
 
         let mut sources: Vec<&str> = texts
@@ -8071,9 +8121,8 @@ mod tests {
         assert_eq!(
             sources.len(),
             2,
-            "the two labels must report DIFFERENT source nodes - damage \
-             attributes rects by source_node_index, so a shared one repaints \
-             the wrong node. items = {texts:?}"
+            "the two labels must report DIFFERENT source nodes - damage attributes rects by \
+             source_node_index, so a shared one repaints the wrong node. items = {texts:?}"
         );
     }
 
@@ -8122,9 +8171,8 @@ mod tests {
             let n = borders.iter().filter(|b| b.contains(needle)).count();
             assert_eq!(
                 n, 1,
-                "expected exactly one border carrying the {name} tab colour, \
-                 found {n}. Per-tab style is not reaching the header (or is \
-                 reaching more than one)."
+                "expected exactly one border carrying the {name} tab colour, found {n}. Per-tab \
+                 style is not reaching the header (or is reaching more than one)."
             );
         }
     }
@@ -8178,15 +8226,17 @@ mod tests {
         assert_eq!(
             dl_texts(&window),
             dl_texts(&fresh),
-            "a tab switch must leave the untouched tabs where a fresh render \
-             puts them"
+            "a tab switch must leave the untouched tabs where a fresh render puts them"
         );
     }
 
     fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {
+        use azul_core::{
+            events::{MouseButton, ProcessEventResult},
+            window::CursorPosition,
+        };
+
         use crate::desktop::shell2::common::event::PlatformWindow;
-        use azul_core::events::{MouseButton, ProcessEventResult};
-        use azul_core::window::CursorPosition;
 
         window.snapshot_window_state_baseline("headless.test.step");
         let mut tier = ProcessEventResult::DoNothing;
@@ -8350,16 +8400,14 @@ mod tests {
         match damage_area(&damage) {
             Some(a) if a > 0.0 => assert!(
                 a < window_area * 0.2,
-                "single-box recolor in a {}-box grid damaged area {} — should be \
-                 ~one box (~2000 px²), not the whole grid/window. Damage is not \
-                 incremental at scale. damage={:?}",
+                "single-box recolor in a {}-box grid damaged area {} — should be ~one box (~2000 \
+                 px²), not the whole grid/window. Damage is not incremental at scale. damage={:?}",
                 n,
                 a,
                 damage
             ),
             other => panic!(
-                "single-box recolor should produce small local damage, got \
-                 area={:?} damage={:?}",
+                "single-box recolor should produce small local damage, got area={:?} damage={:?}",
                 other, damage
             ),
         }
@@ -8375,13 +8423,17 @@ mod tests {
     /// A 200x100 `overflow:scroll` container holding `n_items` 30px-tall rows
     /// (so n_items > ~3 overflows and makes it scrollable).
     extern "C" fn harness_layout_scroll(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::layout::overflow::LayoutOverflow;
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    overflow::LayoutOverflow,
+                },
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let n = data
@@ -8436,13 +8488,17 @@ mod tests {
     /// scrollable diagonally (mobile pan). Rows alternate colour every 30px so a
     /// vertical scroll is visible at a fixed pixel.
     extern "C" fn harness_layout_scroll_2d(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::layout::overflow::LayoutOverflow;
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    overflow::LayoutOverflow,
+                },
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let n = data
@@ -8499,12 +8555,14 @@ mod tests {
     /// intersecting several disjoint damage rects repainted across their
     /// whole union, erasing the untouched content in between).
     extern "C" fn harness_layout_grid_on_bg(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let (boxes, highlight) = data
@@ -8600,10 +8658,9 @@ mod tests {
         assert_eq!(
             after,
             [220, 30, 30, 255],
-            "box2 (unchanged, BETWEEN the two damage rects) was overwritten — \
-             an item intersecting several disjoint damage rects must not \
-             repaint across their union (it erases skipped neighbours); \
-             damage={:?}",
+            "box2 (unchanged, BETWEEN the two damage rects) was overwritten — an item \
+             intersecting several disjoint damage rects must not repaint across their union (it \
+             erases skipped neighbours); damage={:?}",
             damage
         );
         // And the actually-changed boxes must have their new colors.
@@ -8625,13 +8682,17 @@ mod tests {
         mut data: RefAny,
         _info: LayoutCallbackInfo,
     ) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::layout::overflow::LayoutOverflow;
-        use azul_css::props::property::CssProperty;
-        use azul_css::props::style::background::{
-            StyleBackgroundContent, StyleBackgroundContentVec,
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    overflow::LayoutOverflow,
+                },
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
         };
 
         let (n, highlight) = data
@@ -8700,9 +8761,11 @@ mod tests {
     /// Scroll the (single) scroll frame of `window` to vertical offset `dy`.
     #[cfg(feature = "cpurender")]
     fn scroll_frame_to(window: &mut HeadlessWindow, dy: f32) {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let node_id = window
             .common
@@ -8773,10 +8836,9 @@ mod tests {
         assert_eq!(
             after,
             [30, 220, 30, 255],
-            "row 1 changed color while the frame was scrolled but its ON-SCREEN \
-             pixels did not update — the damage diff must project item bounds \
-             through the scroll offset (content-space damage repaints the wrong \
-             band); damage={:?}",
+            "row 1 changed color while the frame was scrolled but its ON-SCREEN pixels did not \
+             update — the damage diff must project item bounds through the scroll offset \
+             (content-space damage repaints the wrong band); damage={:?}",
             damage
         );
     }
@@ -8826,9 +8888,9 @@ mod tests {
         let damaged = |d: &FrameDamage| -> bool { *d != FrameDamage::None };
         assert!(
             !damaged(&d1),
-            "0.2px scroll must not repaint ANYTHING: the content shift is \
-             below the half-device-pixel threshold and the thumb moves ~0.03px, \
-             which quantises to no move at all; got {:?}",
+            "0.2px scroll must not repaint ANYTHING: the content shift is below the \
+             half-device-pixel threshold and the thumb moves ~0.03px, which quantises to no move \
+             at all; got {:?}",
             d1
         );
         assert!(
@@ -8838,10 +8900,9 @@ mod tests {
         );
         assert!(
             damaged(&d3),
-            "0.6px CUMULATIVE scroll crossed half a device pixel and must \
-             repaint content — if the damage is empty the baseline advanced on \
-             skipped frames and slow trackpad scrolling is swallowed forever; \
-             got {:?}",
+            "0.6px CUMULATIVE scroll crossed half a device pixel and must repaint content — if \
+             the damage is empty the baseline advanced on skipped frames and slow trackpad \
+             scrolling is swallowed forever; got {:?}",
             d3
         );
     }
@@ -8917,16 +8978,15 @@ mod tests {
         println!("[harness] painted {painted:.0}px2 of clip {clip_area:.0}px2 = {ratio:.2}");
         assert!(
             ratio < 0.6,
-            "scrolling 30px of a 100px clip repainted {:.0}% of it. The \
-             memmove fast path did not fire, so every pan re-rasterizes the \
-             whole scrolled area instead of shifting the pixels it already \
-             has. damage = {damage:?}",
+            "scrolling 30px of a 100px clip repainted {:.0}% of it. The memmove fast path did not \
+             fire, so every pan re-rasterizes the whole scrolled area instead of shifting the \
+             pixels it already has. damage = {damage:?}",
             ratio * 100.0
         );
         assert!(
             painted > 0.0,
-            "scrolling repainted NOTHING — the newly exposed strip must still \
-             be painted, or scrolled-in content is stale pixels"
+            "scrolling repainted NOTHING — the newly exposed strip must still be painted, or \
+             scrolled-in content is stale pixels"
         );
     }
 
@@ -8942,7 +9002,9 @@ mod tests {
         assert_eq!(
             damage,
             FrameDamage::None,
-            "an idle window with a scrollbar must skip (FrameDamage::None);              non-None means the scrollbar (or another item) produces false              per-frame damage and idle windows burn CPU forever"
+            "an idle window with a scrollbar must skip (FrameDamage::None);              non-None \
+             means the scrollbar (or another item) produces false              per-frame damage \
+             and idle windows burn CPU forever"
         );
         // And scrolling must still damage the bar (thumb moved → GPU value
         // diff) — the equality arm must not have frozen the thumb.
@@ -8990,9 +9052,9 @@ mod tests {
                 };
                 assert!(
                     rs.iter().any(covers),
-                    "scroll must damage the scrollbar {bar:?} (the thumb moved via \
-                     the GPU value cache, and the display-list items compare equal, \
-                     so nothing else can raise it); got {rs:?}"
+                    "scroll must damage the scrollbar {bar:?} (the thumb moved via the GPU value \
+                     cache, and the display-list items compare equal, so nothing else can raise \
+                     it); got {rs:?}"
                 );
             }
             other => panic!("scroll should be incremental, got {:?}", other),
@@ -9058,8 +9120,10 @@ mod tests {
     /// of the incremental and compositor paths.
     #[cfg(feature = "cpurender")]
     fn offset_aware_reference(w: &mut HeadlessWindow) -> azul_layout::cpurender::AzulPixmap {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+        };
         let (pw, ph) = w
             .cpu_backend
             .last_frame
@@ -9118,9 +9182,11 @@ mod tests {
         dy: f32,
         tag: &str,
     ) -> FrameDamage {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut w = make_window_with(&state, cb);
@@ -9172,22 +9238,25 @@ mod tests {
 
         let (diff_px, max_d) = pixmap_diff(&fast, &full);
         println!(
-            "[harness] {tag}: fast-vs-full diff_px={diff_px} max_delta={max_d} (PNGs in /tmp/{tag}_*.png)"
+            "[harness] {tag}: fast-vs-full diff_px={diff_px} max_delta={max_d} (PNGs in \
+             /tmp/{tag}_*.png)"
         );
         assert_eq!(
             diff_px, 0,
-            "{tag}: fast-path scroll is NOT pixel-identical to a full re-render \
-             ({diff_px} px differ, max channel delta {max_d}). The memmove produced \
-             a wrong frame — see /tmp/{tag}_fast.png vs /tmp/{tag}_full.png",
+            "{tag}: fast-path scroll is NOT pixel-identical to a full re-render ({diff_px} px \
+             differ, max channel delta {max_d}). The memmove produced a wrong frame — see \
+             /tmp/{tag}_fast.png vs /tmp/{tag}_full.png",
         );
         damage
     }
 
     #[test]
     fn scroll_moves_content_not_just_scrollbar() {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
@@ -9215,8 +9284,8 @@ mod tests {
         let node_id = match scroll_node {
             Some(n) => n,
             None => panic!(
-                "overflow:scroll created NO scroll frame (scroll_id_to_node_id empty) \
-                 — content {}px in a 100px container should be scrollable",
+                "overflow:scroll created NO scroll frame (scroll_id_to_node_id empty) — content \
+                 {}px in a 100px container should be scrollable",
                 20 * 30
             ),
         };
@@ -9264,9 +9333,9 @@ mod tests {
             );
             assert_ne!(
                 before_px, after_px,
-                "scroll did NOT change the content at (50,20) — content is FROZEN on \
-                 scroll; only the scrollbar moved (damage={:?}). scroll_layer is dead \
-                 code (§0.6) and content items don't shift in the display list.",
+                "scroll did NOT change the content at (50,20) — content is FROZEN on scroll; only \
+                 the scrollbar moved (damage={:?}). scroll_layer is dead code (§0.6) and content \
+                 items don't shift in the display list.",
                 damage
             );
         }
@@ -9278,9 +9347,11 @@ mod tests {
         // The render-vs-present split: scrolling PAINTS a thin strip but PRESENTS
         // the whole clip (the pixels moved on screen). Paint damage must stay a
         // strip; present damage must cover the full clip.
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
@@ -9339,9 +9410,11 @@ mod tests {
 
     #[test]
     fn scroll_repaint_pixels_is_strip() {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll);
@@ -9394,9 +9467,8 @@ mod tests {
         match pixels {
             Some(px) => assert!(
                 px <= 10_000.0,
-                "scroll repainted {} px — should be a ~30px strip + scrollbar (~6.8k \
-                 px), not the full viewport (~20k px = m×n). Wire scroll_layer \
-                 pixel-shift (#14). damage={:?}",
+                "scroll repainted {} px — should be a ~30px strip + scrollbar (~6.8k px), not the \
+                 full viewport (~20k px = m×n). Wire scroll_layer pixel-shift (#14). damage={:?}",
                 px,
                 damage
             ),
@@ -9413,9 +9485,11 @@ mod tests {
         // an L-shape (a bottom strip + a right strip), not the whole viewport and
         // not fall back to a full-clip repaint. Exercises the single-pass 2-D
         // shift end-to-end through render_frame.
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut window = make_window_with(&state, harness_layout_scroll_2d);
@@ -9466,8 +9540,8 @@ mod tests {
         match pixels {
             Some(px) => assert!(
                 px > 0.0 && px <= 12_000.0,
-                "diagonal pan repainted {} px — expected a thin L-shape (two strips \
-                 + scrollbars), not a full-clip repaint. damage={:?}",
+                "diagonal pan repainted {} px — expected a thin L-shape (two strips + \
+                 scrollbars), not a full-clip repaint. damage={:?}",
                 px,
                 damage
             ),
@@ -9483,8 +9557,8 @@ mod tests {
                 .count();
             assert!(
                 content_strips >= 2,
-                "diagonal pan must expose TWO content strips (bottom + right), got \
-                 {} sizeable rects in {:?}",
+                "diagonal pan must expose TWO content strips (bottom + right), got {} sizeable \
+                 rects in {:?}",
                 content_strips,
                 damage
             );
@@ -9545,9 +9619,11 @@ mod tests {
         // offsets. It used to render with an empty offset map → a full repaint while
         // scrolled drew content at offset 0. Force the compositor full path at a
         // 30px scroll and assert it matches the offset-aware reference.
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::hit_test::ScrollPosition;
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
 
         let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 100 })));
         let mut w = make_window_with(&state, harness_layout_scroll);
@@ -9599,8 +9675,8 @@ mod tests {
         // bug was a whole-viewport mismatch (~18k px, full row phase wrong).
         assert!(
             diff_px < 200,
-            "compositor full-render does not apply the scroll offset (diff {diff_px}px, \
-             max delta {max_d}) — see /tmp/scroll_compositor_full.png",
+            "compositor full-render does not apply the scroll offset (diff {diff_px}px, max delta \
+             {max_d}) — see /tmp/scroll_compositor_full.png",
         );
     }
 

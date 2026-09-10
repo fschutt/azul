@@ -79,7 +79,6 @@ extern crate alloc;
 extern crate azul_css;
 
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
-///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -104,8 +103,10 @@ pub mod sync {
 
     #[cfg(not(feature = "std"))]
     mod nostd {
-        use core::cell::UnsafeCell;
-        use core::sync::atomic::{AtomicU8, Ordering};
+        use core::{
+            cell::UnsafeCell,
+            sync::atomic::{AtomicU8, Ordering},
+        };
 
         const UNINIT: u8 = 0;
         const BUSY: u8 = 1;
@@ -305,13 +306,14 @@ pub mod dom;
 pub mod drag;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
+/// Form constraint validation - the `ValidityState` an `Invalid` event
+/// explains itself with. The rules live in `azul_layout::form`.
+pub mod form;
 /// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
 /// `GamepadState`.
 ///
 /// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
-pub mod haptics;
-pub mod hid;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 ///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
@@ -319,7 +321,6 @@ pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
-///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -327,9 +328,10 @@ pub mod gl_fxaa;
 pub mod glconst;
 /// GPU value cache for CSS transforms and opacity.
 pub mod gpu;
+pub mod haptics;
+pub mod hid;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
-///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -347,11 +349,6 @@ pub mod keyring;
 /// never by a cargo feature — see the module docs for the 2026-08-07 incident
 /// that made a compile-time gate delete the one diagnosis that was needed.
 pub mod log_filter;
-/// Form constraint validation - the `ValidityState` an `Invalid` event
-/// explains itself with. The rules live in `azul_layout::form`.
-pub mod form;
-/// Menu system: context menus, dropdown menus, and menu bars.
-pub mod menu;
 /// Media playback POD types — the `PlaybackState` the six media events
 /// describe (11c).
 ///
@@ -362,6 +359,8 @@ pub mod media_player;
 /// The app-facing half of the media-key transport in
 /// `dll/desktop/extra/media_keys`.
 pub mod media_session;
+/// Menu system: context menus, dropdown menus, and menu bars.
+pub mod menu;
 /// Paged-media primitives: the `FragmentationContext` (continuous vs. paged) and
 /// `PageMargins`. The pagination/slicing logic lives in `azul_layout::solver3`.
 pub mod paged;

@@ -2,8 +2,7 @@
 /// are correctly resolved through the cascade pipeline.
 use azul_core::dom::{Dom, NodeType};
 use azul_core::styled_dom::StyledDom;
-use azul_css::compact_cache::*;
-use azul_css::css::Css;
+use azul_css::{compact_cache::*, css::Css};
 
 /// Helper: create StyledDom from Dom + CSS string
 fn styled(dom: Dom, css_str: &str) -> StyledDom {
@@ -176,9 +175,10 @@ fn test_global_star_doesnt_override_ua_display() {
 #[test]
 fn test_font_weight_inherits_from_parent() {
     // Parent sets font-weight:bold, child should inherit
-    use azul_css::dynamic_selector::CssPropertyWithConditions;
-    use azul_css::props::basic::StyleFontWeight;
-    use azul_css::props::property::CssProperty;
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{basic::StyleFontWeight, property::CssProperty},
+    };
 
     let dom = Dom::create_html().with_child(
         Dom::create_body()
@@ -227,9 +227,10 @@ fn test_display_does_not_inherit() {
 
 #[test]
 fn test_inline_css_overrides_stylesheet() {
-    use azul_css::dynamic_selector::CssPropertyWithConditions;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::property::CssProperty;
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{basic::pixel::PixelValue, property::CssProperty},
+    };
 
     // Stylesheet says div { width: 100px }, inline says width: 200px
     let dom = Dom::create_html().with_child(
@@ -290,7 +291,11 @@ fn test_background_color_via_class_selector() {
     let state = azul_core::styled_dom::StyledNodeState::default();
 
     let bg = cache.get_background_content(&node_data[div_id], &div_id, &state);
-    assert!(bg.is_some(), "Div with class 'red' should have background-color from .red {{ background-color: #ff0000 }}");
+    assert!(
+        bg.is_some(),
+        "Div with class 'red' should have background-color from .red {{ background-color: #ff0000 \
+         }}"
+    );
 }
 
 // ===================================================================
@@ -465,7 +470,10 @@ fn test_roundtrip_position_offsets() {
 
 #[test]
 fn test_roundtrip_display_flex() {
-    let s = styled_div_with_css(".t { display: flex; flex-direction: column; flex-wrap: wrap; justify-content: center; align-items: center; }");
+    let s = styled_div_with_css(
+        ".t { display: flex; flex-direction: column; flex-wrap: wrap; justify-content: center; \
+         align-items: center; }",
+    );
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let t1 = cc.tier1_enums[2];
     let display = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
@@ -846,7 +854,11 @@ fn test_multiple_text_children_with_different_parent_styles() {
                     )),
             ),
     );
-    let s = styled(dom, ".red { color: #ff0000; background: #ffcccc; } .blue { color: #0000ff; background: #ccccff; }");
+    let s = styled(
+        dom,
+        ".red { color: #ff0000; background: #ffcccc; } .blue { color: #0000ff; background: \
+         #ccccff; }",
+    );
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
 
     // node 0=Html, 1=Body, 2=Div.red, 3=Text("red text"), 4=Div.blue, 5=Text("blue text")

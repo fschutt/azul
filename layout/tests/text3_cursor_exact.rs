@@ -8,18 +8,19 @@
 //! "foo bar baz" byte layout (all 1-byte chars, each 10px):
 //!   f0 o1 o2 sp3 b4 a5 r6 sp7 b8 a9 z10  (x = byte*10)
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
-    LoadedFonts, OverflowInfo, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::cache::{
+        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+        LoadedFonts, OverflowInfo, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
+        UnifiedLayout,
+    },
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 

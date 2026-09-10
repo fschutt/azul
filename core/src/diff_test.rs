@@ -3,8 +3,7 @@ pub use super::*;
 #[cfg(test)]
 mod audit_tests {
     use super::*;
-    use crate::dom::NodeData;
-    use crate::styled_dom::NodeHierarchyItem;
+    use crate::{dom::NodeData, styled_dom::NodeHierarchyItem};
 
     // Build a NodeHierarchyItem from optional 0-based indices (encoded 1-based).
     fn hitem(
@@ -137,25 +136,23 @@ mod audit_tests {
 // category:
 //
 //   * numeric      -> 0 / MIN / MAX / overflow / NaN / saturation
-//   * "parser"-ish -> malformed, huge, boundary and unicode text input
-//                     (`reconcile_cursor_position` is the byte-offset parser here)
-//   * round-trip   -> precompute == per-node compute, fingerprint == recompute,
-//                     BitOr == BitOrAssign
-//   * getters /    -> invariants hold on default, empty and extreme instances
-//     predicates
+//   * "parser"-ish -> malformed, huge, boundary and unicode text input (`reconcile_cursor_position`
+//     is the byte-offset parser here)
+//   * round-trip   -> precompute == per-node compute, fingerprint == recompute, BitOr ==
+//     BitOrAssign
+//   * getters /    -> invariants hold on default, empty and extreme instances predicates
 //
 // The module is inline (not `core/tests/`) because `has_*_callback`,
 // `create_lifecycle_event` and `ChangeAccumulator::classify_change_scope` are
 // private to this module.
 #[cfg(test)]
 mod autotest_generated {
-    use super::*;
-
     use azul_css::{
         css::CssPropertyValue,
         props::{layout::LayoutWidth, property::CssProperty},
     };
 
+    use super::*;
     use crate::{
         callbacks::CoreCallback,
         dom::{DatasetMergeCallbackType, TabIndex},
@@ -1666,9 +1663,9 @@ mod autotest_generated {
 
         assert!(
             image_churn_count(NODE) > before,
-            "the reconciler did not notice an image node reverting to a \
-             placeholder while the previous build held a real frame — the \
-             flicker this lint exists to name would go unreported"
+            "the reconciler did not notice an image node reverting to a placeholder while the \
+             previous build held a real frame — the flicker this lint exists to name would go \
+             unreported"
         );
     }
 
@@ -1753,8 +1750,8 @@ mod autotest_generated {
         assert_eq!(
             image_ref_get_hash(&carried),
             image_ref_get_hash(&real),
-            "the rebuilt node did not inherit the previous frame — it will show \
-             the placeholder until the next writeback, which is the flicker"
+            "the rebuilt node did not inherit the previous frame — it will show the placeholder \
+             until the next writeback, which is the flicker"
         );
     }
 
@@ -1766,8 +1763,10 @@ mod autotest_generated {
     /// allocation while the next merge reads another.
     #[test]
     fn autotest_merge_fresh_dataset_unifies_fresh_callbacks_with_the_retained_state() {
-        use crate::callbacks::{CoreCallback, CoreCallbackData};
-        use crate::dom::{EventFilter, HoverEventFilter};
+        use crate::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{EventFilter, HoverEventFilter},
+        };
 
         // Never invoked here; `CoreCallback::cb` is a type-erased fn address.
         fn noop_cb() {}
@@ -1803,8 +1802,8 @@ mod autotest_generated {
         let cb_ptr = nodes[0].callbacks.as_ref()[0].refany.sharing_info.ptr as usize;
         assert_eq!(
             cb_ptr, ds_ptr,
-            "the fresh callback must be re-pointed at the merged dataset, or the widget \
-             mutates one allocation and the next merge reads another"
+            "the fresh callback must be re-pointed at the merged dataset, or the widget mutates \
+             one allocation and the next merge reads another"
         );
 
         // Without a merge callback the fresh dataset wins (same as transfer_states'

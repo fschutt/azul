@@ -1806,7 +1806,10 @@ mod autotest_generated {
         assert!(close(font_size_parts(&v.property).unwrap().1, 20.0));
 
         // the parent's own value keeps the Own origin
-        assert_eq!(c.computed_values.values_for(0)[0].1.origin, CssPropertyOrigin::Own);
+        assert_eq!(
+            c.computed_values.values_for(0)[0].1.origin,
+            CssPropertyOrigin::Own
+        );
     }
 
     #[test]

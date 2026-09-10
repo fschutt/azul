@@ -35,9 +35,13 @@ pub fn handle_event(event: &GeolocationDiffEvent) {
 }
 
 mod imp {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc, Mutex,
+        },
+        time::Duration,
+    };
 
     use azul_layout::managers::geolocation::{
         push_location_fix, GeolocationDiffEvent, LocationFix,
@@ -222,8 +226,8 @@ mod imp {
             );
             if hr != S_OK || location.is_null() {
                 crate::plog_warn!(
-                    "[geolocation] windows: Location API unavailable (hr={:#x}) — \
-                     no fixes will be delivered",
+                    "[geolocation] windows: Location API unavailable (hr={:#x}) — no fixes will \
+                     be delivered",
                     hr
                 );
                 co_uninit();

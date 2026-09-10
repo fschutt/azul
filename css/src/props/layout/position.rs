@@ -2,15 +2,17 @@
 //! `bottom`, `left`, and `z-index`. Types defined here are consumed by the
 //! layout solver to resolve positioned elements.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
 #[cfg(feature = "parser")]
 use crate::props::basic::pixel::parse_pixel_value;
-use crate::props::{
-    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
+use crate::{
+    corety::AzString,
+    props::{
+        basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        formatter::PrintAsCssValue,
+        macros::PixelValueTaker,
+    },
 };
 
 // --- LayoutPosition ---

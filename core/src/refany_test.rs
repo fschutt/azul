@@ -15,8 +15,9 @@ pub use super::*;
     private_interfaces
 )] // pedantic lints are noise in unsafe-exercising test code
 mod audit_tests {
-    use super::*;
     use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
 
     static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 

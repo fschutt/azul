@@ -9,10 +9,13 @@
 //! - std::function support
 //! - Uses std::memset/std::strlen
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::{common::*, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    CppDialect,
+};
 
 /// C++11/C++14 dialect generator
 pub struct Cpp11Generator;
@@ -28,7 +31,10 @@ impl CppDialect for Cpp11Generator {
 
         // Header comment
         code.push_str(&generate_header_comment(std));
-        code.push_str("// =============================================================================\r\n\r\n");
+        code.push_str(
+            "// =============================================================================\r\n\\
+             r\n",
+        );
 
         // Include guards
         code.push_str(&generate_include_guards_begin(std));
@@ -104,7 +110,10 @@ impl CppDialect for Cpp11Generator {
 
         // Method implementations
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -325,7 +334,8 @@ impl CppDialect for Cpp11Generator {
                 class_name, class_name
             ));
             code.push_str(&format!(
-                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return *this; }}\r\n",
+                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return \
+                 *this; }}\r\n",
                 class_name, class_name
             ));
         } else if needs_destructor {
@@ -424,7 +434,8 @@ impl CppDialect for Cpp11Generator {
 
         // C++11: toStdVector
         code.push_str(&format!(
-            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); }}\r\n",
+            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); \
+             }}\r\n",
             c_elem_type, c_elem_type
         ));
     }
@@ -436,9 +447,19 @@ impl CppDialect for Cpp11Generator {
         _config: &CodegenConfig,
     ) {
         code.push_str("\r\n    // String methods\r\n");
-        code.push_str("    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
-        code.push_str("    String(const std::string& s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, s.size())) {}\r\n");
-        code.push_str("    const char* c_str() const { return reinterpret_cast<const char*>(inner_.vec.ptr); }\r\n");
+        code.push_str(
+            "    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const \
+             uint8_t*>(s), 0, std::strlen(s))) {}\r\n",
+        );
+        code.push_str(
+            "    String(const std::string& s) : \
+             inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, \
+             s.size())) {}\r\n",
+        );
+        code.push_str(
+            "    const char* c_str() const { return reinterpret_cast<const \
+             char*>(inner_.vec.ptr); }\r\n",
+        );
         code.push_str("    size_t length() const { return inner_.vec.len; }\r\n");
         code.push_str(
             "    std::string toStdString() const { return std::string(c_str(), length()); }\r\n",
@@ -481,7 +502,8 @@ impl CppDialect for Cpp11Generator {
             c_inner_type
         ));
         code.push_str(&format!(
-            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
+            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; \
+             }}\r\n",
             c_inner_type, c_inner_type
         ));
     }
@@ -614,7 +636,6 @@ impl Cpp11Generator {
             }
         }
     }
-
 }
 
 /// Emit a wrapper-class declaration for C++11+ generators (cpp11, cpp14).
@@ -714,7 +735,8 @@ pub fn emit_class_declaration_cpp11_or_later(
             c_type_name, c_type_name
         ));
         code.push_str(&format!(
-            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; \
+             }}\r\n",
             c_type_name, c_type_name
         ));
     }

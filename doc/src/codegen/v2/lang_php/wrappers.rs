@@ -4,14 +4,13 @@
 //! emit a `final class TypeName` inside `namespace Azul` that:
 //!
 //! - Stores the raw FFI cdata in a private property (`$ptr`).
-//! - Implements `__destruct()` to call `Azul::lib()->Az<Type>_delete($ptr)`,
-//!   forwarding the address via `FFI::addr(...)` so the C function gets a
-//!   pointer to the boxed value.
-//! - Surfaces every non-trait method on `TypeName` as an idiomatic instance
-//!   or static method that delegates to the underlying FFI function.
-//! - For tagged-union (data-bearing) enums, exposes per-variant predicates
-//!   `isVariantName()` and per-variant payload extractors
-//!   `payloadVariantName()` returning the FFI cdata of the variant payload.
+//! - Implements `__destruct()` to call `Azul::lib()->Az<Type>_delete($ptr)`, forwarding the address
+//!   via `FFI::addr(...)` so the C function gets a pointer to the boxed value.
+//! - Surfaces every non-trait method on `TypeName` as an idiomatic instance or static method that
+//!   delegates to the underlying FFI function.
+//! - For tagged-union (data-bearing) enums, exposes per-variant predicates `isVariantName()` and
+//!   per-variant payload extractors `payloadVariantName()` returning the FFI cdata of the variant
+//!   payload.
 //!
 //! ## Skipped categories
 //!
@@ -20,8 +19,8 @@
 //! - `TypeCategory::Boxed`            — internal heap wrappers.
 //! - `TypeCategory::GenericTemplate`  — generic shells.
 //! - `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the
-//!   user-facing wrapper struct is emitted instead).
+//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the user-facing wrapper struct
+//!   is emitted instead).
 //! - Generic-parameterised types (those with non-empty `generic_params`).
 //!
 //! ## Naming
@@ -170,8 +169,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // Methods. We emit:
     //   - Instance methods for Method / MethodMut.
     //   - clone() for DeepCopy.
-    //   - toString() for DebugToString (NOT __toString — we don't want
-    //     PHP's casting magic to swallow native errors).
+    //   - toString() for DebugToString (NOT __toString — we don't want PHP's casting magic to
+    //     swallow native errors).
     //   - Static factories for Constructor / StaticMethod / Default.
     let mut emitted_any_instance = false;
     for f in &funcs {

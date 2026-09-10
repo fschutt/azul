@@ -22,8 +22,11 @@
 use azul_layout::managers::permission::{
     Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
-use objc::runtime::{Class, Object};
-use objc::{msg_send, sel, sel_impl};
+use objc::{
+    msg_send,
+    runtime::{Class, Object},
+    sel, sel_impl,
+};
 
 pub fn handle_event(event: &PermissionDiffEvent) {
     let _ = event;

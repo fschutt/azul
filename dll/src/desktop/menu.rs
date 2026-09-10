@@ -19,9 +19,13 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
-use crate::desktop::display::{get_display_at_point, get_primary_display};
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{
+    desktop::{
+        display::{get_display_at_point, get_primary_display},
+        shell2::common::debug_server::LogCategory,
+    },
+    log_debug,
+};
 
 /// Menu window data stored in RefAny
 #[derive(Debug, Clone)]

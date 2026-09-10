@@ -43,8 +43,8 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{
@@ -204,7 +204,8 @@ const fn is_leap(year: u32) -> bool {
 }
 
 /// Number of days in the given (1-based) month of the given year.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -1300,8 +1301,8 @@ mod autotest_generated {
         let popup = &c[2];
         assert!(
             matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
-            "the calendar must live in a <transient-window> so it can overlap \
-             what follows it instead of taking a calendar's worth of page space",
+            "the calendar must live in a <transient-window> so it can overlap what follows it \
+             instead of taking a calendar's worth of page space",
         );
         popup
     }

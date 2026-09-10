@@ -1,34 +1,41 @@
+use std::collections::HashMap;
+
+use agg_rust::{
+    basics::{FillingRule, PATH_FLAGS_NONE},
+    blur::stack_blur_rgba32,
+    color::Rgba8,
+    conv_stroke::ConvStroke,
+    gradient_lut::GradientLut,
+    path_storage::PathStorage,
+    pixfmt_rgba::PixfmtRgba32,
+    rasterizer_scanline_aa::RasterizerScanlineAa,
+    renderer_base::RendererBase,
+    renderer_scanline::render_scanlines_aa_solid,
+    rendering_buffer::RowAccessor,
+    rounded_rect::RoundedRect,
+    scanline_u::ScanlineU8,
+    span_gradient::{GradientConic, GradientRadialD, GradientX},
+    trans_affine::TransAffine,
+};
+use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::{DecodedImage, ImageRef, RendererResources},
+    ui_solver::GlyphInstance,
+};
+use azul_css::props::{
+    basic::{pixel::DEFAULT_FONT_SIZE, ColorOrSystem, ColorU, FontRef},
+    style::{box_shadow::StyleBoxShadow, filter::StyleFilter},
+};
+
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use super::*;
-
-use crate::font::parsed::ParsedFont;
-use crate::glyph_cache::GlyphCache;
-use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId};
-use crate::text3::cache::{FontHash, FontManager};
-use agg_rust::basics::{FillingRule, PATH_FLAGS_NONE};
-use agg_rust::blur::stack_blur_rgba32;
-use agg_rust::color::Rgba8;
-use agg_rust::conv_stroke::ConvStroke;
-use agg_rust::gradient_lut::GradientLut;
-use agg_rust::path_storage::PathStorage;
-use agg_rust::pixfmt_rgba::PixfmtRgba32;
-use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-use agg_rust::renderer_base::RendererBase;
-use agg_rust::renderer_scanline::render_scanlines_aa_solid;
-use agg_rust::rendering_buffer::RowAccessor;
-use agg_rust::rounded_rect::RoundedRect;
-use agg_rust::scanline_u::ScanlineU8;
-use agg_rust::span_gradient::{GradientConic, GradientRadialD, GradientX};
-use agg_rust::trans_affine::TransAffine;
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::{DecodedImage, ImageRef, RendererResources};
-use azul_core::ui_solver::GlyphInstance;
-use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-use azul_css::props::basic::{ColorOrSystem, ColorU, FontRef};
-use azul_css::props::style::box_shadow::StyleBoxShadow;
-use azul_css::props::style::filter::StyleFilter;
-use std::collections::HashMap;
+use crate::{
+    font::parsed::ParsedFont,
+    glyph_cache::GlyphCache,
+    solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId},
+    text3::cache::{FontHash, FontManager},
+};
 
 const MAX_SHADOW_PIXBUF_SIZE: u32 = 4096;
 
@@ -52,7 +59,9 @@ const SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
 /// Concrete colors are returned verbatim. `system:*` keywords are
 /// resolved against `system_colors` when available and fall back to
 /// `SYSTEM_COLOR_FALLBACK` otherwise.
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn resolve_color(
     color: &ColorOrSystem,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -171,7 +180,9 @@ fn resolve_background_position(
     (x, y)
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer:
+                                                                        // bounded pixel/coord/
+                                                                        // colour casts
 fn render_linear_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -237,7 +248,8 @@ fn render_linear_gradient(
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn render_radial_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -1431,7 +1443,8 @@ fn damage_logging_enabled() -> bool {
 }
 
 #[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
-#[allow(clippy::tuple_array_conversions)] // explicit [r,g,b,a]->(r,g,b,a) is correct; .into() was not
+#[allow(clippy::tuple_array_conversions)] // explicit [r,g,b,a]->(r,g,b,a) is correct; .into() was
+                                          // not
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1564,8 +1577,8 @@ pub fn render_display_list_damaged(
             .sum();
         let window = i64::from(pw_i) * i64::from(ph_i);
         eprintln!(
-            "[damage] {} rect(s) after merge (from {} requested), {total} px = {:.1}% of \
-             the {pw_i}x{ph_i} window, {} display-list item(s)",
+            "[damage] {} rect(s) after merge (from {} requested), {total} px = {:.1}% of the \
+             {pw_i}x{ph_i} window, {} display-list item(s)",
             rects.len(),
             damage_rects.len(),
             if window > 0 {
@@ -1673,8 +1686,8 @@ pub fn render_display_list_damaged(
         }
         if damage_logging_enabled() {
             eprintln!(
-                "[damage]   rect {}x{} @ ({}, {}) phys — painted {painted} item(s), \
-                 skipped {skipped}",
+                "[damage]   rect {}x{} @ ({}, {}) phys — painted {painted} item(s), skipped \
+                 {skipped}",
                 sr.x1 - sr.x0,
                 sr.y1 - sr.y0,
                 sr.x0,
@@ -1694,7 +1707,8 @@ pub fn render_display_list_damaged(
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///
@@ -2196,14 +2210,14 @@ pub fn render_single_item(
             border_radius,
         } => {
             // Two fixes (the invisible-maps-header bug):
-            // 1. The clip must live in the same coordinate space items draw in
-            //    (`pos - accumulated_scroll`) — shift it via scroll_rect() like
-            //    every drawing arm. A VirtualView child's PushClip otherwise
-            //    lands at raw child-local coordinates on the window.
-            // 2. A nested clip can only NARROW the active one. Pushing the rect
-            //    verbatim let a child DL's own PushClip REPLACE the VirtualView
-            //    composite clip, so the child painted over the whole window
-            //    (the maps header/toolbar disappeared under the tile grid).
+            // 1. The clip must live in the same coordinate space items draw in (`pos -
+            //    accumulated_scroll`) — shift it via scroll_rect() like every drawing arm. A
+            //    VirtualView child's PushClip otherwise lands at raw child-local coordinates on the
+            //    window.
+            // 2. A nested clip can only NARROW the active one. Pushing the rect verbatim let a
+            //    child DL's own PushClip REPLACE the VirtualView composite clip, so the child
+            //    painted over the whole window (the maps header/toolbar disappeared under the tile
+            //    grid).
             let new_clip = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
             // A PushClip carries MANDATORY bounds, so a None here means those bounds were
             // degenerate/NaN — an UNPAINTABLE clip, not "no clip". intersect_clips reads
@@ -2299,12 +2313,17 @@ pub fn render_single_item(
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 eprintln!(
-                    "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} avail_ids={:?}",
+                    "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} \
+                     avail_ids={:?}",
                     child_dom_id.inner,
                     child_dl.is_some(),
                     child_dl.as_ref().map_or(0, |d| d.items.len()),
                     bounds.inner(),
-                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<Vec<_>>(),
+                    render_state
+                        .virtual_view_display_lists
+                        .keys()
+                        .map(|k| k.inner)
+                        .collect::<Vec<_>>(),
                 );
             }
             if let Some(child_dl) = child_dl {
@@ -2356,7 +2375,10 @@ pub fn render_single_item(
         {
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
-                eprintln!("[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — nothing composites)");
+                eprintln!(
+                    "[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — \
+                     nothing composites)"
+                );
             }
         }
 
@@ -2638,7 +2660,9 @@ fn round_edge(v: f32) -> i32 {
 /// The width is scaled by the geometry's own scale factor, not by the
 /// coordinates: a 2-unit rule in a 16-unit viewBox is 8 device px in a 64px
 /// box, and that is a property of the mapping, not of the points.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer:
+                                                                       // bounded pixel/coord/colour
+                                                                       // casts
 fn render_stroked_path(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2654,15 +2678,8 @@ fn render_stroked_path(
     if color.a == 0 || !width.is_finite() || width <= 0.0 {
         return;
     }
-    let (sx, sy, tx, ty) = svg_user_space_mapping(
-        bounds,
-        view_box,
-        dpi_factor,
-    );
-    let (ox, oy) = (
-        bounds.origin.x * dpi_factor,
-        bounds.origin.y * dpi_factor,
-    );
+    let (sx, sy, tx, ty) = svg_user_space_mapping(bounds, view_box, dpi_factor);
+    let (ox, oy) = (bounds.origin.x * dpi_factor, bounds.origin.y * dpi_factor);
     let mx = |x: f32| f64::from((x + tx) * sx + ox);
     let my = |y: f32| f64::from((y + ty) * sy + oy);
     let mut geometry = svg_path_to_agg(path, &mx, &my);
@@ -2688,16 +2705,12 @@ fn render_stroked_path(
         u32::from(color.b),
         u32::from(color.a),
     );
-    agg_fill_path_clipped(
-        pixmap,
-        &mut stroke,
-        &agg_color,
-        FillingRule::NonZero,
-        clip,
-    );
+    agg_fill_path_clipped(pixmap, &mut stroke, &agg_color, FillingRule::NonZero, clip);
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer:
+                                                                       // bounded pixel/coord/colour
+                                                                       // casts
 fn render_rect(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2848,13 +2861,13 @@ pub enum TextAa {
 /// Desktop gets LCD subpixel. MOBILE GETS GRAYSCALE, which is what iOS and
 /// Android themselves do, and for their reasons rather than ours:
 ///
-/// * The device rotates. Subpixel rendering bakes in one physical RGB stripe
-///   order; turn the phone 90 degrees and every fringe is wrong.
-/// * Phone panels are frequently not RGB stripe at all — `PenTile` and other
-///   OLED arrangements have no consistent horizontal triad to address.
-/// * The frame is composited and often scaled (the emulator does this too),
-///   and any resampling smears the per-channel offsets into visible colour
-///   fringing — which reads as "blurry text" rather than as sharpening.
+/// * The device rotates. Subpixel rendering bakes in one physical RGB stripe order; turn the phone
+///   90 degrees and every fringe is wrong.
+/// * Phone panels are frequently not RGB stripe at all — `PenTile` and other OLED arrangements have
+///   no consistent horizontal triad to address.
+/// * The frame is composited and often scaled (the emulator does this too), and any resampling
+///   smears the per-channel offsets into visible colour fringing — which reads as "blurry text"
+///   rather than as sharpening.
 ///
 /// `AZ_TEXT_AA=lcd` still forces it back on for anyone who wants to look.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -2954,14 +2967,14 @@ fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
 /// R/B subpixel fringes instead of a single grey coverage.
 ///
 /// Assumptions / limitations (documented, since this is opt-in):
-/// - **Horizontal RGB** subpixel order. A BGR panel would need the R/B taps
-///   swapped; a vertical panel would need a transposed (3× vertical) variant.
-/// - **Opaque background.** The pixfmt writes per-channel and forces the touched
-///   pixel's alpha to 255, so subpixel text composited onto a transparent layer
-///   is wrong — as it is for every LCD text pipeline. The default flat render
-///   path fills the frame opaque white, which is the intended target.
-/// - Uses the glyph **path** cache (`get_or_build`), not the pre-rasterized cell
-///   cache, since the cells are 1× horizontal; LCD is thus a little slower.
+/// - **Horizontal RGB** subpixel order. A BGR panel would need the R/B taps swapped; a vertical
+///   panel would need a transposed (3× vertical) variant.
+/// - **Opaque background.** The pixfmt writes per-channel and forces the touched pixel's alpha to
+///   255, so subpixel text composited onto a transparent layer is wrong — as it is for every LCD
+///   text pipeline. The default flat render path fills the frame opaque white, which is the
+///   intended target.
+/// - Uses the glyph **path** cache (`get_or_build`), not the pre-rasterized cell cache, since the
+///   cells are 1× horizontal; LCD is thus a little slower.
 ///
 /// The Y baseline is grid-snapped (crisp vertical) and X is placed at true
 /// fractional position (1/3-px LCD precision) when `AZ_TEXT_SUBPIXEL` is on, or
@@ -3141,16 +3154,13 @@ fn render_glyphs_lcd(
 /// sRGB-space blend. Defaults to the colorimetric path.
 ///
 /// - `AZ_LCD_BLEND=legacy` selects the old sRGB-space blending.
-/// - `AZ_LCD_COVERAGE_GAMMA=<100..255>` tone curve on stripe coverage,
-///   x100 (default 220 = c^(1/2.2)): pure linear compositing renders
-///   dark-on-light lighter than Skia/ClearType, which blend in an
-///   intermediate gamma space; this restores conventional stem weight
-///   while keeping linear per-channel mixing.
-/// - `AZ_LCD_CONTRAST=<0..255>` additional skia-style coverage contrast
-///   (default 0).
-/// - `AZ_LCD_CHROMA_LIMIT=<0..255>` caps how far a stripe may deviate
-///   from the luminance-correct composite (0 = physically free stripes,
-///   the default; 255 = grayscale-equivalent).
+/// - `AZ_LCD_COVERAGE_GAMMA=<100..255>` tone curve on stripe coverage, x100 (default 220 =
+///   c^(1/2.2)): pure linear compositing renders dark-on-light lighter than Skia/ClearType, which
+///   blend in an intermediate gamma space; this restores conventional stem weight while keeping
+///   linear per-channel mixing.
+/// - `AZ_LCD_CONTRAST=<0..255>` additional skia-style coverage contrast (default 0).
+/// - `AZ_LCD_CHROMA_LIMIT=<0..255>` caps how far a stripe may deviate from the luminance-correct
+///   composite (0 = physically free stripes, the default; 255 = grayscale-equivalent).
 ///
 /// Read once.
 fn lcd_linear_params() -> Option<agg_rust::pixfmt_lcd::LcdBlendParams> {
@@ -3192,17 +3202,16 @@ fn font_resolution_failed(font_hash: u64) {
     static SEEN: OnceLock<Mutex<std::collections::BTreeSet<u64>>> = OnceLock::new();
     debug_assert!(
         false,
-        "[cpurender] BUG: layout emitted font hash {font_hash} that its own FontManager \
-         cannot resolve — the display list and the font state are out of sync"
+        "[cpurender] BUG: layout emitted font hash {font_hash} that its own FontManager cannot \
+         resolve — the display list and the font state are out of sync"
     );
     let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
     if let Ok(mut seen) = seen.lock() {
         if seen.insert(font_hash) {
             eprintln!(
-                "[azul][font] BUG: layout emitted font hash {font_hash} that its own \
-                 FontManager cannot resolve (neither a loaded face nor a registered \
-                 embedded font). The text using it CANNOT be drawn. This is an azul \
-                 bug — please report it."
+                "[azul][font] BUG: layout emitted font hash {font_hash} that its own FontManager \
+                 cannot resolve (neither a loaded face nor a registered embedded font). The text \
+                 using it CANNOT be drawn. This is an azul bug — please report it."
             );
         }
     }
@@ -3259,22 +3268,23 @@ fn render_text_with_bg(
             if let Some(params) = lcd_linear_params() {
                 if lcd_pretile_enabled()
                     && render_text_prerendered_lcd(
-                    glyphs,
-                    font_hash,
-                    font_size_px,
-                    color,
-                    bg,
-                    proven_rect.0,
-                    params,
-                    pixmap,
-                    clip_rect,
-                    clip,
-                    renderer_resources,
-                    font_manager,
-                    dpi_factor,
-                    glyph_cache,
-                    scroll_offset,
-                ) {
+                        glyphs,
+                        font_hash,
+                        font_size_px,
+                        color,
+                        bg,
+                        proven_rect.0,
+                        params,
+                        pixmap,
+                        clip_rect,
+                        clip,
+                        renderer_resources,
+                        font_manager,
+                        dpi_factor,
+                        glyph_cache,
+                        scroll_offset,
+                    )
+                {
                     return;
                 }
             }
@@ -3318,8 +3328,9 @@ fn render_text_prerendered_lcd(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
 ) -> bool {
-    use crate::glyph_cache::LcdGlyphTile;
     use agg_rust::pixfmt_lcd::LcdDistributionLut;
+
+    use crate::glyph_cache::LcdGlyphTile;
     let _ = renderer_resources;
     let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash.font_hash) else {
         return false;
@@ -3827,7 +3838,9 @@ fn render_text_shadow(
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer:
+                                                                       // bounded pixel/coord/colour
+                                                                       // casts
 fn render_border(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -3900,8 +3913,7 @@ fn render_border(
     match border_style {
         BorderStyle::Dashed | BorderStyle::Dotted => {
             // For dashed/dotted: stroke the border path with dash pattern
-            use agg_rust::conv_dash::ConvDash;
-            use agg_rust::conv_stroke::ConvStroke;
+            use agg_rust::{conv_dash::ConvDash, conv_stroke::ConvStroke};
 
             let half = sw / 2.0;
             let mut stroke_path = PathStorage::new();
@@ -3963,7 +3975,8 @@ fn render_border(
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
 /// Each side is a trapezoid: outer edge → inner edge with 45° miters at corners.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn render_border_sides(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -4176,7 +4189,8 @@ fn render_border_sides(
     clippy::cast_sign_loss
 )] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::many_single_char_names, clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -4260,10 +4274,10 @@ fn render_image(
             static CALLBACK_PLACEHOLDER: std::sync::Once = std::sync::Once::new();
             CALLBACK_PLACEHOLDER.call_once(|| {
                 eprintln!(
-                    "[azul][cpurender] a RenderImageCallback image was composited as a \
-                     flat grey placeholder: the frame was rendered without content \
-                     preparation (LayoutWindow::prepare_frame_cpu), so the callback's \
-                     content cannot appear (logged once)"
+                    "[azul][cpurender] a RenderImageCallback image was composited as a flat grey \
+                     placeholder: the frame was rendered without content preparation \
+                     (LayoutWindow::prepare_frame_cpu), so the callback's content cannot appear \
+                     (logged once)"
                 );
             });
             let gray = Rgba8::new(200, 200, 200, 255);
@@ -4527,13 +4541,11 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
 /// This keeps the quality and gets the cost back:
 ///
 /// * the scale, tap counts and per-column tap positions are computed once,
-/// * each source row is converted to straight RGBA once (`RgbaRow`) and reused
-///   by every destination row that samples it — a 2× upscale touches one new
-///   source row every two destination rows,
-/// * the bilinear case is separable: the horizontal partial
-///   `p00·(1−tx) + p10·tx` is kept in f32 per source row, so the per-destination
-///   -pixel work is one lerp of two f32 rows. Keeping the partial in f32 is what
-///   makes the result bit-identical rather than merely close.
+/// * each source row is converted to straight RGBA once (`RgbaRow`) and reused by every destination
+///   row that samples it — a 2× upscale touches one new source row every two destination rows,
+/// * the bilinear case is separable: the horizontal partial `p00·(1−tx) + p10·tx` is kept in f32
+///   per source row, so the per-destination -pixel work is one lerp of two f32 rows. Keeping the
+///   partial in f32 is what makes the result bit-identical rather than merely close.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
@@ -4669,7 +4681,9 @@ fn blit_sampled_image(
         for (t, slot) in live.iter_mut().enumerate().take(ny as usize) {
             let fy = cy + ((t as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
             let y = (fy.floor() as i32).clamp(0, last_y) as u32;
-            let idx = if let Some(i) = rows.iter().position(|r| r.y == Some(y)) { i } else {
+            let idx = if let Some(i) = rows.iter().position(|r| r.y == Some(y)) {
+                i
+            } else {
                 let victim = (0..rows.len())
                     .find(|i| claimed & (1u32 << i) == 0)
                     .unwrap_or(0);
@@ -4805,7 +4819,13 @@ fn rounded_rect_coverage(x: f32, y: f32, rect: &AzRect, radii: [f32; 4]) -> f32 
 /// because both the upscale and the downscale branch funnel through the same
 /// `composite_rgba_row`: one place to be correct, and the hot per-pixel maths
 /// above it is untouched. Rows that clear the corner bands cost one compare.
-fn mask_row_to_rounded_rect(stage: &mut [u8], row_x0: f32, row_y: f32, rect: &AzRect, radii: [f32; 4]) {
+fn mask_row_to_rounded_rect(
+    stage: &mut [u8],
+    row_x0: f32,
+    row_y: f32,
+    rect: &AzRect,
+    radii: [f32; 4],
+) {
     let [tl, tr, br, bl] = radii;
     let y = row_y + 0.5;
     let top = tl.max(tr);
@@ -4928,7 +4948,8 @@ pub struct ComponentPreviewResult {
 }
 
 /// Compute the tight bounding box of all display list items.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
@@ -4984,17 +5005,19 @@ pub fn render_component_preview(
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
-    use crate::{
-        font_traits::TextLayoutCache,
-        solver3::{self, cache::LayoutCache, display_list::DisplayList},
-    };
+    use std::collections::{BTreeMap, HashMap};
+
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         resources::{IdNamespace, RendererResources},
         selection::{SelectionState, TextSelection},
     };
-    use std::collections::{BTreeMap, HashMap};
+
+    use crate::{
+        font_traits::TextLayoutCache,
+        solver3::{self, cache::LayoutCache, display_list::DisplayList},
+    };
 
     const MAX_SIZE: f32 = 4096.0;
 
@@ -5029,8 +5052,10 @@ pub fn render_component_preview(
 
     // --- Font resolution ---
     {
-        use crate::solver3::getters::collect_and_resolve_font_chains_with_registration;
-        use crate::text3::default::PathLoader;
+        use crate::{
+            solver3::getters::collect_and_resolve_font_chains_with_registration,
+            text3::default::PathLoader,
+        };
 
         let platform = azul_css::system::Platform::current();
 
@@ -5105,9 +5130,9 @@ pub fn render_component_preview(
         false,
         Vec::new(),
         Default::default(), // owner_colors (U1): no live participants here
-        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): headless preview paints no ring
-        false, // paint_selection_handles (U2-a): headless preview paints no handles
-        None, // preedit_text: not needed for headless preview rendering
+        Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii): headless preview paints no ring
+        false,              // paint_selection_handles (U2-a): headless preview paints no handles
+        None,               // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),
         None, // content overlay: no live window in headless preview
         system_style.clone(),
@@ -5225,11 +5250,11 @@ pub fn render_dom_to_image(
 /// The two things [`render_dom_to_image`] cannot express, and both matter to
 /// the same caller:
 ///
-/// * a TRANSPARENT background (alpha 0). An icon has to composite over
-///   whatever is behind it; rendered on opaque white it arrives as a white
-///   tile sitting in the titlebar instead of a glyph on it.
-/// * the RGBA buffer, so a caller building an `ImageRef` does not encode a PNG
-///   and immediately decode it again.
+/// * a TRANSPARENT background (alpha 0). An icon has to composite over whatever is behind it;
+///   rendered on opaque white it arrives as a white tile sitting in the titlebar instead of a glyph
+///   on it.
+/// * the RGBA buffer, so a caller building an `ImageRef` does not encode a PNG and immediately
+///   decode it again.
 ///
 /// This is the path an SVG should take: the XML parser already maps
 /// `<path>`, `<use>`, `<linearGradient>` and `<stop>` onto real DOM nodes
@@ -5248,8 +5273,9 @@ pub fn render_dom_to_rgba(
     dpi: f32,
     background: ColorU,
 ) -> Result<ComponentPreviewResult, String> {
-    use crate::font_traits::FontManager;
     use azul_core::styled_dom::StyledDom;
+
+    use crate::font_traits::FontManager;
 
     let styled_dom = StyledDom::create(&mut dom, css);
 
@@ -5305,9 +5331,9 @@ pub fn render_text_run_to_pixmap(
     use rust_fontconfig::{FcPattern, OwnedFontSource};
 
     // 1. Resolve a default (sans-serif) system font, falling back to any font.
-    //    `query_with_fallback` IS that ladder — exact, then family-relaxed, then
-    //    coverage-only — so it replaces the hand-rolled `or_else` chain and keeps
-    //    the relaxation rules in one place, where fontconfig's own live.
+    //    `query_with_fallback` IS that ladder — exact, then family-relaxed, then coverage-only — so
+    //    it replaces the hand-rolled `or_else` chain and keeps the relaxation rules in one place,
+    //    where fontconfig's own live.
     let mut trace = Vec::new();
     let matched = fc_cache.query_with_fallback(
         &FcPattern {
@@ -5334,10 +5360,9 @@ pub fn render_text_run_to_pixmap(
     }
     let scale = font_size_px / upm;
 
-    // 2. Register the font in a throwaway FontManager. This helper builds its own
-    //    one-item display list, so it also has to supply the font state that list
-    //    is written against — through the SAME manager every other renderer
-    //    consults, never a parallel RendererResources map.
+    // 2. Register the font in a throwaway FontManager. This helper builds its own one-item display
+    //    list, so it also has to supply the font state that list is written against — through the
+    //    SAME manager every other renderer consults, never a parallel RendererResources map.
     let rr = RendererResources::default();
     let font_ref = crate::parsed_font_to_font_ref(parsed.clone());
     let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
@@ -5346,9 +5371,9 @@ pub fn render_text_run_to_pixmap(
     fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
     let font_hash = FontHash { font_hash: hash };
 
-    // 3. Shape the string (simple per-char advances; tooltips are short,
-    //    single-line and unstyled, so the full bidi/complex shaper isn't
-    //    reachable here — same simplification as the pagination header path).
+    // 3. Shape the string (simple per-char advances; tooltips are short, single-line and unstyled,
+    //    so the full bidi/complex shaper isn't reachable here — same simplification as the
+    //    pagination header path).
     let ascent = parsed.font_metrics.ascent * scale;
     let descent = parsed.font_metrics.descent * scale; // typically negative
     let baseline_y = padding_px + ascent;
@@ -5414,12 +5439,17 @@ pub fn render_text_run_to_pixmap(
 
 #[cfg(all(test, feature = "std"))]
 mod text_shadow_tests {
-    use super::*;
-    use crate::font::parsed::ParsedFont;
-    use crate::solver3::display_list::{DisplayList, WindowLogicalRect};
     use azul_core::resources::{FontKey, IdNamespace};
-    use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
-    use azul_css::props::style::box_shadow::StyleBoxShadow;
+    use azul_css::props::{
+        basic::pixel::{PixelValue, PixelValueNoPercent},
+        style::box_shadow::StyleBoxShadow,
+    };
+
+    use super::*;
+    use crate::{
+        font::parsed::ParsedFont,
+        solver3::display_list::{DisplayList, WindowLogicalRect},
+    };
 
     fn load_test_font() -> Option<ParsedFont> {
         let candidates = [
@@ -5584,8 +5614,8 @@ mod text_shadow_tests {
 
         assert!(
             red_shadow > red_plain + 20,
-            "text-shadow must paint red shadow pixels beyond the baseline \
-             (plain {red_plain}, shadow {red_shadow})"
+            "text-shadow must paint red shadow pixels beyond the baseline (plain {red_plain}, \
+             shadow {red_shadow})"
         );
 
         // The shadow must be OFFSET to the right of the glyphs: there must be red
@@ -5698,7 +5728,8 @@ mod text_shadow_tests {
 #[cfg(all(test, feature = "std"))]
 #[allow(clippy::float_cmp)] // exact compares on values the code copies through verbatim
 #[allow(clippy::many_single_char_names)] // domain-standard coordinate/colour names
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // bounded test-fixture casts
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // bounded test-fixture
+                                                                        // casts
 mod autotest_generated {
     use agg_rust::gradient_lut::ColorFunction;
     use azul_core::{
@@ -6209,7 +6240,8 @@ mod autotest_generated {
                 let (x, y) = resolve_background_position(&pos, w, h);
                 assert!(
                     !x.is_nan() && !y.is_nan(),
-                    "w={w}, h={h} produced NaN ({x}, {y}) — a NaN center poisons the gradient transform"
+                    "w={w}, h={h} produced NaN ({x}, {y}) — a NaN center poisons the gradient \
+                     transform"
                 );
             }
         }
@@ -6820,7 +6852,8 @@ mod autotest_generated {
         let dark = p.data().chunks_exact(4).filter(|c| c[0] < 50).count();
         assert!(
             dark <= 90,
-            "a zero-offset outset shadow must not paint under the border box              (only the 1px anti-seam sliver may darken), got {dark}"
+            "a zero-offset outset shadow must not paint under the border box              (only \
+             the 1px anti-seam sliver may darken), got {dark}"
         );
         // And an OFFSET shadow must still visibly paint outside the box.
         let mut p2 = pixmap(60, 60);
@@ -8063,10 +8096,10 @@ mod autotest_generated {
     /// `debug_assert`. The two build profiles therefore owe DIFFERENT contracts and
     /// this pins both:
     ///
-    ///   - debug: die on it. That gate exists so a test catches the desync, and a
-    ///     test that swallowed it would be the exact silent failure it guards.
-    ///   - release: drop that one text run and keep the frame — losing a line of
-    ///     text must never take the window down in front of a user.
+    ///   - debug: die on it. That gate exists so a test catches the desync, and a test that
+    ///     swallowed it would be the exact silent failure it guards.
+    ///   - release: drop that one text run and keep the frame — losing a line of text must never
+    ///     take the window down in front of a user.
     ///
     /// Asserting only the release half is what made this test fail on a debug
     /// `cargo test`: it demanded graceful degradation from a build deliberately
@@ -8194,8 +8227,8 @@ mod autotest_generated {
         for (name, c) in [("r", r), ("g", g), ("b", b)] {
             assert!(
                 (96..=160).contains(&c),
-                "NEAREST SAMPLING: a 4x4 checkerboard shrunk into one pixel must average to \
-                 mid grey, got {name} = {c} (pure black/white = one source pixel won)"
+                "NEAREST SAMPLING: a 4x4 checkerboard shrunk into one pixel must average to mid \
+                 grey, got {name} = {c} (pure black/white = one source pixel won)"
             );
         }
         assert_eq!(px_at(&p, 2, 2), [255, 255, 255, 255], "outside the bounds");
@@ -8377,8 +8410,8 @@ mod autotest_generated {
         blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), None, &mut conv);
         assert!(
             conv.0 <= sh as usize + 1,
-            "a {sh}-row source must be converted about once per row, not per destination row: \
-             {} conversions",
+            "a {sh}-row source must be converted about once per row, not per destination row: {} \
+             conversions",
             conv.0
         );
         assert!(
@@ -9039,9 +9072,12 @@ mod damage_debug_tests {
 
 #[cfg(all(test, feature = "std"))]
 mod shadow_blur_cache_tests {
+    use azul_css::props::{
+        basic::pixel::{PixelValue, PixelValueNoPercent},
+        style::box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+    };
+
     use super::*;
-    use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
-    use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
     fn pv(v: f32) -> PixelValueNoPercent {
         PixelValueNoPercent {
@@ -9189,9 +9225,12 @@ mod shadow_blur_cache_tests {
 
 #[cfg(all(test, feature = "std"))]
 mod shadow_ring_blit_tests {
+    use azul_css::props::{
+        basic::pixel::{PixelValue, PixelValueNoPercent},
+        style::box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+    };
+
     use super::*;
-    use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
-    use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
     fn pv(v: f32) -> PixelValueNoPercent {
         PixelValueNoPercent {
@@ -9261,7 +9300,6 @@ mod shadow_ring_blit_tests {
 #[cfg(all(test, feature = "std"))]
 pub(super) mod lcd_pretile_tests {
     use super::*;
-
     use crate::font::parsed::ParsedFont;
 
     pub(super) fn load_test_font_pub() -> Option<ParsedFont> {
@@ -9438,7 +9476,8 @@ pub(super) mod lcd_pretile_tests {
             .count();
         assert_eq!(
             diff, 0,
-            "split-run path diverges from the sweep on {diff} bytes —              overlapping components must merge coverage, not composite tiles"
+            "split-run path diverges from the sweep on {diff} bytes —              overlapping \
+             components must merge coverage, not composite tiles"
         );
     }
 
@@ -9542,9 +9581,8 @@ pub(super) mod lcd_pretile_tests {
             .count();
         assert_eq!(
             diff, 0,
-            "pre-blended tiles diverge from the sweep on {diff} bytes — \
-             same pipeline must mean same pixels (check FIR padding and \
-             tile placement)"
+            "pre-blended tiles diverge from the sweep on {diff} bytes — same pipeline must mean \
+             same pixels (check FIR padding and tile placement)"
         );
     }
 }
@@ -9631,9 +9669,8 @@ mod layer_path_text_tests {
             for c in 0..3 {
                 assert!(
                     px[c] >= lo[c].saturating_sub(1) && px[c] <= hi[c].saturating_add(1),
-                    "{what}: pixel {i} channel {c} = {} is outside the ink gamut [{}, {}] — \
-                     text blended against something that is not the backdrop (transparent \
-                     layer?)",
+                    "{what}: pixel {i} channel {c} = {} is outside the ink gamut [{}, {}] — text \
+                     blended against something that is not the backdrop (transparent layer?)",
                     px[c],
                     lo[c],
                     hi[c]
@@ -9741,8 +9778,8 @@ mod layer_path_text_tests {
             .count();
         assert_eq!(
             ldiff, 0,
-            "text inside a scroll-frame layer diverges from the flat render on {ldiff} bytes: \
-             the layer was swept against a transparent backdrop instead of the page"
+            "text inside a scroll-frame layer diverges from the flat render on {ldiff} bytes: the \
+             layer was swept against a transparent backdrop instead of the page"
         );
     }
 }
@@ -9821,8 +9858,8 @@ mod damaged_vs_plain_text_tests {
             .collect();
         assert!(
             diff.is_empty(),
-            "plain vs damaged-full-rect diverge on {} bytes, first at px ({}, {}): \
-             plain={:?} damaged={:?}",
+            "plain vs damaged-full-rect diverge on {} bytes, first at px ({}, {}): plain={:?} \
+             damaged={:?}",
             diff.len(),
             (diff[0] / 4) % 200,
             (diff[0] / 4) / 200,
@@ -9851,8 +9888,8 @@ mod pass2b_clamp_tests {
         // ...and the checked equivalent of the pre-fix arithmetic overflows.
         assert!(
             ((tx1 - tx0) as u32).checked_mul(4).is_none(),
-            "the pre-fix `(tx1 - tx0) as u32 * 4` would overflow here — the \
-             empty-rect guard in pass 2b must skip before this math runs"
+            "the pre-fix `(tx1 - tx0) as u32 * 4` would overflow here — the empty-rect guard in \
+             pass 2b must skip before this math runs"
         );
     }
 }

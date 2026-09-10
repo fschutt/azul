@@ -8,8 +8,7 @@ use alloc::sync::Arc;
 
 use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
 use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use crate::desktop::shell2::common::debug_server;
 
@@ -169,7 +168,9 @@ impl App {
                 crate::desktop::extra::natural_scroll::read_system_preference(),
             );
         }
-        azul_layout::window::set_global_expose_system_media_controls(app_config.expose_system_media_controls);
+        azul_layout::window::set_global_expose_system_media_controls(
+            app_config.expose_system_media_controls,
+        );
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
@@ -231,13 +232,12 @@ impl App {
     ///
     /// Best-effort, and deliberately narrower than it looks:
     ///
-    /// * macOS sets `applicationIconImage`, which Apple documents as TEMPORARY -
-    ///   it is process-local and resets on next launch. Persisting it needs an
-    ///   `NSDockTilePlugIn`, which the App Store bans, and writing the bundle
-    ///   icon breaks the code signature, so neither is offered.
-    /// * The Windows EXE icon CANNOT be changed at runtime at all
-    ///   (`BeginUpdateResource` requires the target not be executing, and
-    ///   rewriting resources invalidates Authenticode).
+    /// * macOS sets `applicationIconImage`, which Apple documents as TEMPORARY - it is
+    ///   process-local and resets on next launch. Persisting it needs an `NSDockTilePlugIn`, which
+    ///   the App Store bans, and writing the bundle icon breaks the code signature, so neither is
+    ///   offered.
+    /// * The Windows EXE icon CANNOT be changed at runtime at all (`BeginUpdateResource` requires
+    ///   the target not be executing, and rewriting resources invalidates Authenticode).
     ///
     ///.
     pub fn set_app_icon(&mut self, spec: azul_css::AzString) {
@@ -412,7 +412,8 @@ impl App {
             // like the panic hook's), when it can actually send.
             if azul_layout::telemetry::respawn_reporter_for_pending_crash() {
                 crate::plog_info!(
-                    "[azul] a crash dump from a previous launch is pending - opened the crash reporter"
+                    "[azul] a crash dump from a previous launch is pending - opened the crash \
+                     reporter"
                 );
             }
         }

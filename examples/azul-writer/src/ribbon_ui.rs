@@ -5,22 +5,22 @@
 //! public `azul::widgets` ribbon API. The FILE app button opens the
 //! backstage (`crate::on_file_button`).
 
-use azul::callbacks::{
-    ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType,
-    RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, RefAny, Update,
-};
-use azul::dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback};
-use azul::option::OptionRefAny;
-use azul::str::String as AzString;
-use azul::widgets::{
-    ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
-    RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+use azul::{
+    callbacks::{
+        ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType, RefAny,
+        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
+    },
+    css::{ColorU, SystemStyle},
+    dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback},
+    option::OptionRefAny,
+    str::String as AzString,
+    widgets::{
+        ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
+        RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+    },
 };
 
-use azul::css::{ColorU, SystemStyle};
-
-use crate::palette::Palette;
-use crate::AppState;
+use crate::{palette::Palette, AppState};
 
 // ---------------------------------------------------------------------------
 // Callbacks
@@ -332,8 +332,9 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     // sample vanished into it. `sample_ink` keeps the hue and lifts only the
     // lightness, and only until it clears WCAG AA against this palette's
     // chrome - so on a light desktop every preview is byte-identical to before.
-    let ink =
-        |r: u8, g: u8, b: u8| Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal));
+    let ink = |r: u8, g: u8, b: u8| {
+        Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal))
+    };
     let cells = vec![
         cell(
             format!("font-size: 14px; color: {};", ink(68, 68, 68)),
@@ -355,7 +356,11 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
             "AaBbCcD",
             "Heading 2",
         ),
-        cell(format!("font-size: 19px; color: {};", ink(38, 38, 38)), "AaB", "Title"),
+        cell(
+            format!("font-size: 19px; color: {};", ink(38, 38, 38)),
+            "AaB",
+            "Title",
+        ),
         cell(
             format!("font-size: 13px; color: {};", ink(90, 90, 90)),
             "AaBbCcD",

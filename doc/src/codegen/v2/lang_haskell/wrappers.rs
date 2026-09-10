@@ -3,52 +3,50 @@
 //! Everything here is derived from the IR; nothing is keyed on a method
 //! or class name. The module has four parts:
 //!
-//! 1. **Managed wrapper types.** Every struct that owns a resource (has a
-//!    `_delete`) or has methods becomes
-//!    `data C = C { cRaw :: ForeignPtr T.C, cConsumed :: IORef Bool }`:
-//!    a GC-managed, pinned buffer of exactly `sizeOf (undefined :: T.C)`
-//!    bytes (the cbits layout oracle) plus a tombstone. Passing the value
-//!    to a by-value C parameter *moves* the bytes into libazul and sets
-//!    the tombstone; `disposeC` runs `_delete` unless the tombstone is
-//!    set. The buffer itself is freed by the GC, never by a finalizer that
-//!    calls into libazul — so nothing runs on a foreign thread.
+//! 1. **Managed wrapper types.** Every struct that owns a resource (has a `_delete`) or has methods
+//!    becomes `data C = C { cRaw :: ForeignPtr T.C, cConsumed :: IORef Bool }`: a GC-managed,
+//!    pinned buffer of exactly `sizeOf (undefined :: T.C)` bytes (the cbits layout oracle) plus a
+//!    tombstone. Passing the value to a by-value C parameter *moves* the bytes into libazul and
+//!    sets the tombstone; `disposeC` runs `_delete` unless the tombstone is set. The buffer itself
+//!    is freed by the GC, never by a finalizer that calls into libazul — so nothing runs on a
+//!    foreign thread.
 //!
-//! 2. **Constructors and methods**, one Haskell function per api.json
-//!    function: `<class><Method>`, arguments in api.json order with the
-//!    receiver LAST so builder chains read as `>>=` pipelines
-//!    (`domCreateBody >>= domWithChild label`). Haskell `String`s marshal
-//!    to `AzString`, `Bool` to `bool`, enums and POD structs travel as
-//!    `Azul.Types` values, wrapper classes as wrappers, `RefAny` by clone.
+//! 2. **Constructors and methods**, one Haskell function per api.json function: `<class><Method>`,
+//!    arguments in api.json order with the receiver LAST so builder chains read as `>>=` pipelines
+//!    (`domCreateBody >>= domWithChild label`). Haskell `String`s marshal to `AzString`, `Bool` to
+//!    `bool`, enums and POD structs travel as `Azul.Types` values, wrapper classes as wrappers,
+//!    `RefAny` by clone.
 //!
-//! 3. **The host-handle `RefAny`.** `refAnyCreate` stores any `Typeable`
-//!    Haskell value in a process-wide table keyed by a `Word64` handle and
-//!    wraps the handle in a libazul `RefAny` (`AzRefAny_newHostHandle`);
-//!    `refAnyGet` / `refAnyModify` look the value up again from any clone
-//!    of that `RefAny`, and libazul calls the registered releaser when the
-//!    last clone drops. This is the same protocol every managed binding
-//!    (Lua, Ruby, OCaml, C#, ...) uses — see `core/src/host_invoker.rs`.
+//! 3. **The host-handle `RefAny`.** `refAnyCreate` stores any `Typeable` Haskell value in a
+//!    process-wide table keyed by a `Word64` handle and wraps the handle in a libazul `RefAny`
+//!    (`AzRefAny_newHostHandle`); `refAnyGet` / `refAnyModify` look the value up again from any
+//!    clone of that `RefAny`, and libazul calls the registered releaser when the last clone drops.
+//!    This is the same protocol every managed binding (Lua, Ruby, OCaml, C#, ...) uses — see
+//!    `core/src/host_invoker.rs`.
 //!
-//! 4. **Callbacks as closures.** For every callback kind in
-//!    `HOST_INVOKER_KINDS` the module registers one invoker with libazul
-//!    that dispatches on the handle stored in the callback's `ctx`, so a
-//!    setter such as `buttonWithOnClick` takes a plain Haskell closure and
-//!    every button can have its own. `windowCreateOptionsCreate` takes the
-//!    layout closure the same way (spliced into the default options at the
-//!    oracle's `offsetof`).
+//! 4. **Callbacks as closures.** For every callback kind in `HOST_INVOKER_KINDS` the module
+//!    registers one invoker with libazul that dispatches on the handle stored in the callback's
+//!    `ctx`, so a setter such as `buttonWithOnClick` takes a plain Haskell closure and every button
+//!    can have its own. `windowCreateOptionsCreate` takes the layout closure the same way (spliced
+//!    into the default options at the oracle's `offsetof`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionDef, FunctionKind,
-    MonomorphizedKind, StructDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionDef, FunctionKind,
+            MonomorphizedKind, StructDef, TypeCategory,
+        },
+        managed_host_invoker,
+    },
+    functions::{ffi_signature, host_invoker_signature},
+    haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc,
 };
-use super::super::managed_host_invoker;
-use super::functions::{ffi_signature, host_invoker_signature};
-use super::{haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc};
 
 // ============================================================================
 // Entry point
@@ -253,7 +251,10 @@ fn emit_header(builder: &mut CodeBuilder, ctx: &Ctx, body_src: &str) {
     builder.line("-}");
     builder.line("{-# LANGUAGE ScopedTypeVariables #-}");
     builder.line("{-# LANGUAGE FlexibleInstances #-}");
-    builder.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-name-shadowing -Wno-unused-local-binds #-}");
+    builder.line(
+        "{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-name-shadowing \
+         -Wno-unused-local-binds #-}",
+    );
     builder.blank();
     builder.line("module Azul");
     builder.indent();
@@ -274,7 +275,10 @@ fn emit_header(builder: &mut CodeBuilder, ctx: &Ctx, body_src: &str) {
     builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
     builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, newForeignPtr_, withForeignPtr)");
+    builder.line(
+        "import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, newForeignPtr_, \
+         withForeignPtr)",
+    );
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Marshal.Array (withArrayLen)");
     builder.line("import Foreign.Marshal.Utils (copyBytes, fromBool, toBool)");
@@ -307,7 +311,11 @@ fn reexports(ctx: &Ctx, body_src: &str) -> Vec<String> {
         }
         let hs = haskell_data_name(&s.name);
         let mut names = vec![hs.clone()];
-        names.extend(s.fields.iter().map(|f| haskell_field_name(&s.name, &f.name)));
+        names.extend(
+            s.fields
+                .iter()
+                .map(|f| haskell_field_name(&s.name, &f.name)),
+        );
         if !clashes(&names) {
             out.push(format!("T.{}(..)", hs));
         }
@@ -318,7 +326,11 @@ fn reexports(ctx: &Ctx, body_src: &str) -> Vec<String> {
         }
         let hs = haskell_data_name(&e.name);
         let mut names = vec![hs.clone()];
-        names.extend(e.variants.iter().map(|v| haskell_variant_name(&e.name, &v.name)));
+        names.extend(
+            e.variants
+                .iter()
+                .map(|v| haskell_variant_name(&e.name, &v.name)),
+        );
         if !clashes(&names) {
             out.push(format!("T.{}(..)", hs));
         }
@@ -351,7 +363,11 @@ fn reexports(ctx: &Ctx, body_src: &str) -> Vec<String> {
                     continue;
                 }
                 let mut names = vec![hs.clone()];
-                names.extend(variants.iter().map(|v| haskell_variant_name(&ta.name, &v.name)));
+                names.extend(
+                    variants
+                        .iter()
+                        .map(|v| haskell_variant_name(&ta.name, &v.name)),
+                );
                 if !clashes(&names) {
                     out.push(format!("T.{}(..)", hs));
                 }
@@ -416,7 +432,9 @@ fn emit_prelude(b: &mut CodeBuilder, ctx: &Ctx) {
     b.line("-- | Called by libazul (through the registered releaser) when the last");
     b.line("-- clone of a host-handle RefAny is dropped.");
     b.line("azulReleaseHandle :: Word64 -> IO ()");
-    b.line("azulReleaseHandle h = atomicModifyIORef' azulHandleTable (\\m -> (Map.delete h m, ()))");
+    b.line(
+        "azulReleaseHandle h = atomicModifyIORef' azulHandleTable (\\m -> (Map.delete h m, ()))",
+    );
     b.blank();
 
     b.line("-- ---------------------------------------------------------------------------");
@@ -426,9 +444,14 @@ fn emit_prelude(b: &mut CodeBuilder, ctx: &Ctx) {
     if let (Some(from_bytes), Some(delete)) = (&ctx.string_from_bytes, &ctx.string_delete) {
         b.line("-- | Pass a Haskell String as an AzString the callee takes ownership of.");
         b.line("withAzStringArg :: String -> (Ptr T.AzString -> IO a) -> IO a");
-        b.line("withAzStringArg s k = withArrayLen (T.encodeUtf8 s) $ \\n bytes -> alloca $ \\p -> do");
+        b.line(
+            "withAzStringArg s k = withArrayLen (T.encodeUtf8 s) $ \\n bytes -> alloca $ \\p -> do",
+        );
         b.indent();
-        b.line(&format!("FFI.c_{}_via bytes 0 (fromIntegral n) p", from_bytes));
+        b.line(&format!(
+            "FFI.c_{}_via bytes 0 (fromIntegral n) p",
+            from_bytes
+        ));
         b.line("k p");
         b.dedent();
         b.blank();
@@ -477,16 +500,25 @@ fn emit_wrapper_class(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
         t = t
     ));
     b.blank();
-    b.line(&format!("-- | A fresh, uninitialised '{}' buffer (the C side fills it).", w));
+    b.line(&format!(
+        "-- | A fresh, uninitialised '{}' buffer (the C side fills it).",
+        w
+    ));
     b.line(&format!("alloc{} :: IO {}", w, w));
     b.line(&format!("alloc{} = do", w));
     b.indent();
-    b.line(&format!("fp <- mallocForeignPtrBytes (sizeOf (undefined :: {}))", t));
+    b.line(&format!(
+        "fp <- mallocForeignPtrBytes (sizeOf (undefined :: {}))",
+        t
+    ));
     b.line("c <- newIORef False");
     b.line(&format!("pure ({} fp c)", w));
     b.dedent();
     b.blank();
-    b.line(&format!("-- | View memory libazul owns (a callback argument) as a '{}'; never deleted.", w));
+    b.line(&format!(
+        "-- | View memory libazul owns (a callback argument) as a '{}'; never deleted.",
+        w
+    ));
     b.line(&format!("borrow{} :: Ptr {} -> IO {}", w, t, w));
     b.line(&format!("borrow{} p = do", w));
     b.indent();
@@ -495,14 +527,26 @@ fn emit_wrapper_class(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
     b.line(&format!("pure ({} fp c)", w));
     b.dedent();
     b.blank();
-    b.line(&format!("with{} :: {} -> (Ptr {} -> IO a) -> IO a", w, w, t));
+    b.line(&format!(
+        "with{} :: {} -> (Ptr {} -> IO a) -> IO a",
+        w, w, t
+    ));
     b.line(&format!("with{} h = withForeignPtr ({}Raw h)", w, l));
     b.blank();
-    b.line(&format!("-- | Mark a '{}' as moved into libazul (a by-value C parameter took it).", w));
+    b.line(&format!(
+        "-- | Mark a '{}' as moved into libazul (a by-value C parameter took it).",
+        w
+    ));
     b.line(&format!("consume{} :: {} -> IO ()", w, w));
-    b.line(&format!("consume{} h = writeIORef ({}Consumed h) True", w, l));
+    b.line(&format!(
+        "consume{} h = writeIORef ({}Consumed h) True",
+        w, l
+    ));
     b.blank();
-    b.line(&format!("-- | Release a '{}' now, unless it has been consumed.", w));
+    b.line(&format!(
+        "-- | Release a '{}' now, unless it has been consumed.",
+        w
+    ));
     b.line(&format!("dispose{} :: {} -> IO ()", w, w));
     if ctx.deletable.contains(&s.name) {
         b.line(&format!("dispose{} h = do", w));
@@ -571,7 +615,8 @@ fn emit_eq_instance(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
     b.line(&format!("instance Eq {} where", w));
     b.indent();
     b.line(&format!(
-        "a == b = unsafePerformIO $ with{} a $ \\pa -> with{} b $ \\pb -> toBool <$> FFI.c_{} pa pb",
+        "a == b = unsafePerformIO $ with{} a $ \\pa -> with{} b $ \\pb -> toBool <$> FFI.c_{} pa \
+         pb",
         w, w, helper
     ));
     b.dedent();
@@ -816,14 +861,13 @@ fn emit_callback_kind(b: &mut CodeBuilder, cb: &CallbackTypedefDef, ctx: &Ctx) {
 /// per shape a user may hand to a setter of this kind:
 ///
 /// - the raw closure (`RefAny -> CallbackInfo -> IO T.Update`), as is;
-/// - for kinds that return a value, a pure state transition on the model
-///   behind the `RefAny`: `model -> CallbackInfo -> (model, T.Update)`.
-///   The binding reads the model, applies the function, stores the new
-///   model and returns the verdict — `UI = f(data)` with `update ::
-///   model -> (model, verdict)`, nothing mutated in user code;
-/// - for kinds that return a wrapper (a `Dom`), the model-typed view
-///   `RefAny -> model -> LayoutCallbackInfo -> IO Dom` (the `RefAny` stays
-///   in scope because attaching a child's callback needs it).
+/// - for kinds that return a value, a pure state transition on the model behind the `RefAny`:
+///   `model -> CallbackInfo -> (model, T.Update)`. The binding reads the model, applies the
+///   function, stores the new model and returns the verdict — `UI = f(data)` with `update :: model
+///   -> (model, verdict)`, nothing mutated in user code;
+/// - for kinds that return a wrapper (a `Dom`), the model-typed view `RefAny -> model ->
+///   LayoutCallbackInfo -> IO Dom` (the `RefAny` stays in scope because attaching a child's
+///   callback needs it).
 ///
 /// A `RefAny` that does not hold the model type raises inside the
 /// invoker, which logs it and leaves libazul's default return in place.
@@ -837,7 +881,10 @@ fn emit_handler_class(
 ) {
     let class = format!("{}Handler", wrapper_hs);
     let method = format!("{}Handler", lower_first(wrapper_hs));
-    b.line(&format!("-- | Every shape 'azulRegister{}' accepts: the raw closure, or a", kind));
+    b.line(&format!(
+        "-- | Every shape 'azulRegister{}' accepts: the raw closure, or a",
+        kind
+    ));
     b.line("-- function of the model behind the RefAny (see the instances).");
     b.line(&format!("class {} h where", class));
     b.indent();
@@ -871,7 +918,13 @@ fn emit_handler_class(
     let rest_sig = if rest.is_empty() {
         String::new()
     } else {
-        format!("{} -> ", rest.iter().map(|t| paren(t)).collect::<Vec<_>>().join(" -> "))
+        format!(
+            "{} -> ",
+            rest.iter()
+                .map(|t| paren(t))
+                .collect::<Vec<_>>()
+                .join(" -> ")
+        )
     };
     let rest_call = if rest_vars.is_empty() {
         String::new()
@@ -888,7 +941,10 @@ fn emit_handler_class(
             b.line(&format!("{} f dat{} = do", method, rest_call));
             b.indent();
             b.line("h <- azulRefAnyHandle dat");
-            b.line("r <- atomicModifyIORef' azulHandleTable $ \\m -> case Map.lookup h m >>= fromDynamic of");
+            b.line(
+                "r <- atomicModifyIORef' azulHandleTable $ \\m -> case Map.lookup h m >>= \
+                 fromDynamic of",
+            );
             b.indent();
             b.line(&format!(
                 "Just v -> let (v', out) = f v{} in v' `seq` (Map.insert h (toDyn v') m, Just out)",
@@ -897,7 +953,8 @@ fn emit_handler_class(
             b.line("Nothing -> (m, Nothing)");
             b.dedent();
             b.line(&format!(
-                "maybe (ioError (userError \"{}: the RefAny does not hold the model type this handler expects\")) pure r",
+                "maybe (ioError (userError \"{}: the RefAny does not hold the model type this \
+                 handler expects\")) pure r",
                 kind
             ));
             b.dedent();
@@ -914,7 +971,8 @@ fn emit_handler_class(
             b.indent();
             b.line("v <- refAnyGet dat");
             b.line(&format!(
-                "maybe (ioError (userError \"{}: the RefAny does not hold the model type this handler expects\")) (\\m -> f dat m{}) v",
+                "maybe (ioError (userError \"{}: the RefAny does not hold the model type this \
+                 handler expects\")) (\\m -> f dat m{}) v",
                 kind, rest_call
             ));
             b.dedent();
@@ -941,7 +999,10 @@ fn emit_ensure_managed(b: &mut CodeBuilder, ctx: &Ctx) {
             continue;
         }
         let kind = managed_host_invoker::wrapper_name(cb);
-        b.line(&format!("inv{} <- FFI.mk_{}Invoker azulInvoke{}", kind, kind, kind));
+        b.line(&format!(
+            "inv{} <- FFI.mk_{}Invoker azulInvoke{}",
+            kind, kind, kind
+        ));
         b.line(&format!("FFI.c_AzApp_set{}Invoker inv{}", kind, kind));
     }
     b.dedent();
@@ -1030,18 +1091,29 @@ fn emit_layout_factory(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
 /// How one argument is marshalled.
 enum ArgPlan {
     /// Passed as is (C primitive or raw pointer); `bool` converts.
-    Direct { hs: String, is_bool: bool },
+    Direct {
+        hs: String,
+        is_bool: bool,
+    },
     /// Haskell `String` -> AzString the callee owns / borrows.
     StringOwned,
     StringRef,
     /// `RefAny`: a clone is handed to a by-value parameter; borrowed otherwise.
     RefAnyClone,
     /// A wrapper class: moved (consumed) or borrowed.
-    Wrapper { hs: String, consume: bool },
+    Wrapper {
+        hs: String,
+        consume: bool,
+    },
     /// A `Azul.Types` value: `alloca` + `poke`, pointer passed.
-    Value { hs: String },
+    Value {
+        hs: String,
+    },
     /// A host-invoker callback: a closure.
-    Closure { kind: String, hs: String },
+    Closure {
+        kind: String,
+        hs: String,
+    },
 }
 
 enum RetPlan {
@@ -1306,7 +1378,12 @@ fn emit_function(
     } else {
         format!("({}) => ", constraints.join(", "))
     };
-    b.line(&format!("{} :: {}{}", name, context, sig_parts.join(" -> ")));
+    b.line(&format!(
+        "{} :: {}{}",
+        name,
+        context,
+        sig_parts.join(" -> ")
+    ));
     let param_list: Vec<String> = order.iter().map(|&i| params[i].clone()).collect();
     b.line(&format!("{} {} = do", name, param_list.join(" ")));
     b.indent();
@@ -1396,7 +1473,9 @@ fn emit_function(
         func.c_name
     );
 
-    let call = format!("FFI.{} {}", sig.binding, call_args.join(" ")).trim_end().to_string();
+    let call = format!("FFI.{} {}", sig.binding, call_args.join(" "))
+        .trim_end()
+        .to_string();
     let capture = if captures { "__r <- " } else { "" };
     if openers.is_empty() {
         b.line(&format!("{}{}", capture, call));
@@ -1479,11 +1558,31 @@ fn qualify_types(sig: &str, ctx: &Ctx) -> String {
         if word.is_empty() {
             return;
         }
-        let is_type_name = word.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
-        let known = ctx.ir.structs.iter().any(|s| haskell_data_name(&s.name) == *word)
-            || ctx.ir.enums.iter().any(|e| haskell_data_name(&e.name) == *word)
-            || ctx.ir.type_aliases.iter().any(|a| haskell_data_name(&a.name) == *word)
-            || ctx.ir.callback_typedefs.iter().any(|c| haskell_data_name(&c.name) == *word);
+        let is_type_name = word
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false);
+        let known = ctx
+            .ir
+            .structs
+            .iter()
+            .any(|s| haskell_data_name(&s.name) == *word)
+            || ctx
+                .ir
+                .enums
+                .iter()
+                .any(|e| haskell_data_name(&e.name) == *word)
+            || ctx
+                .ir
+                .type_aliases
+                .iter()
+                .any(|a| haskell_data_name(&a.name) == *word)
+            || ctx
+                .ir
+                .callback_typedefs
+                .iter()
+                .any(|c| haskell_data_name(&c.name) == *word);
         if is_type_name && known {
             out.push_str("T.");
         }

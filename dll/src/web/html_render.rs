@@ -7,23 +7,23 @@
 //!
 //! Images are collected and served at `/az/img/{id}`, fonts at `/az/font/{id}`.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInfoRefData};
-use azul_core::dom::{Dom, NodeData, NodeType};
-use azul_core::gl::OptionGlContextPtr;
-use azul_core::id::NodeId;
-use azul_core::prop_cache::{CssPropertyCache, StatefulCssProperty};
-use azul_core::refany::RefAny;
-use azul_core::resources::{ImageCache, ImageRef, RouteMatch};
-use azul_core::styled_dom::StyledDom;
-use azul_css::dynamic_selector::PseudoStateType;
-use azul_css::props::property::CssPropertyType;
-use azul_css::system::SystemStyle;
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInfoRefData},
+    dom::{Dom, NodeData, NodeType},
+    gl::OptionGlContextPtr,
+    id::NodeId,
+    prop_cache::{CssPropertyCache, StatefulCssProperty},
+    refany::RefAny,
+    resources::{ImageCache, ImageRef, RouteMatch},
+    styled_dom::StyledDom,
+};
+use azul_css::{
+    dynamic_selector::PseudoStateType, props::property::CssPropertyType, system::SystemStyle,
+};
 use azul_layout::window_state::FullWindowState;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use super::DiscoveredCallback;
 
@@ -158,9 +158,8 @@ pub fn render_initial_page(
         debug_print_dom(&dom, 0, &mut debug_counter);
     }
 
-    // 2. Run Azul's full cascade: Dom → StyledDom
-    //    This resolves ALL conditions (OS, theme, viewport, container, language)
-    //    and produces computed styles per node.
+    // 2. Run Azul's full cascade: Dom → StyledDom This resolves ALL conditions (OS, theme,
+    //    viewport, container, language) and produces computed styles per node.
     let styled_dom = StyledDom::create_from_dom(dom);
 
     log::debug!(
@@ -168,9 +167,9 @@ pub fn render_initial_page(
         styled_dom.node_data.as_ref().len(),
     );
 
-    // 3. Walk the StyledDom: generate HTML structure + CSS rules from computed styles.
-    //    The walk also collects every callback fn-pointer it sees, deduped by
-    //    fn-ptr in mod.rs to produce the global CallbackWasm list.
+    // 3. Walk the StyledDom: generate HTML structure + CSS rules from computed styles. The walk
+    //    also collects every callback fn-pointer it sees, deduped by fn-ptr in mod.rs to produce
+    //    the global CallbackWasm list.
     let mut ctx = RenderContext::new();
 
     // Collect bundled fonts as @font-face rules
@@ -201,11 +200,10 @@ pub fn render_initial_page(
         ctx.fonts.len(),
     );
 
-    // 4. Generate preload hints + loader JS now that the walk has populated
-    //    `ctx.callbacks`. The preload hints list every discovered callback's
-    //    `/az/cb/{name}.{hash}.wasm` URL so the browser warms its cache; the
-    //    server still answers each one with a tiny stub (or 404) until the
-    //    remill-based lift in Phase C is wired up.
+    // 4. Generate preload hints + loader JS now that the walk has populated `ctx.callbacks`. The
+    //    preload hints list every discovered callback's `/az/cb/{name}.{hash}.wasm` URL so the
+    //    browser warms its cache; the server still answers each one with a tiny stub (or 404) until
+    //    the remill-based lift in Phase C is wired up.
     //
     //    M8.3 also adds a `/az/layout/{name}.{hash}.wasm` hint for the
     //    route's layout callback so the browser fetches it in parallel
@@ -497,14 +495,12 @@ impl RenderContext {
     /// and the M4 client-side WASM dispatch path.
     ///
     /// Emits:
-    ///   - `data-az-cb="<node_idx>"` — synthetic node ID (server-side
-    ///     route lookup key for `POST /az/exec/{id}`).
-    ///   - `data-az-ev="<event_name>"` — JS event type (`click`,
-    ///     `mouseenter`, …) derived from the first callback's
-    ///     EventFilter. loader_js binds the listener under this name.
-    ///   - `data-az-wasm="/az/cb/<sym>.<hash>.wasm"` — URL of the
-    ///     per-callback WASM module. loader_js fetches +
-    ///     instantiates this on DOMContentLoaded, dispatches on click.
+    ///   - `data-az-cb="<node_idx>"` — synthetic node ID (server-side route lookup key for `POST
+    ///     /az/exec/{id}`).
+    ///   - `data-az-ev="<event_name>"` — JS event type (`click`, `mouseenter`, …) derived from the
+    ///     first callback's EventFilter. loader_js binds the listener under this name.
+    ///   - `data-az-wasm="/az/cb/<sym>.<hash>.wasm"` — URL of the per-callback WASM module.
+    ///     loader_js fetches + instantiates this on DOMContentLoaded, dispatches on click.
     fn emit_callback_attrs(&mut self, nd: &NodeData, az_id: usize, attrs: &mut String) {
         if nd.callbacks.as_ref().is_empty() {
             return;

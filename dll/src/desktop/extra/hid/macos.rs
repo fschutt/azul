@@ -156,11 +156,11 @@ fn access_granted(k: &IoKit) -> bool {
 
 /// Read an integer device property, or `0` when absent.
 unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 {
-    let Ok(get_property) =
-        k.lib
-            .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
-                b"IOHIDDeviceGetProperty\0",
-            )
+    let Ok(get_property) = k
+        .lib
+        .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
+            b"IOHIDDeviceGetProperty\0",
+        )
     else {
         return 0;
     };
@@ -172,9 +172,8 @@ unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 {
     if value.is_null() {
         return 0;
     }
-    let Ok(number_get) = k
-        .cf
-        .get::<unsafe extern "C" fn(CFTypeRef, i64, *mut i64) -> bool>(b"CFNumberGetValue\0")
+    let Ok(number_get) =
+        k.cf.get::<unsafe extern "C" fn(CFTypeRef, i64, *mut i64) -> bool>(b"CFNumberGetValue\0")
     else {
         return 0;
     };
@@ -188,11 +187,11 @@ unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 {
 }
 
 unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String {
-    let Ok(get_property) =
-        k.lib
-            .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
-                b"IOHIDDeviceGetProperty\0",
-            )
+    let Ok(get_property) = k
+        .lib
+        .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
+            b"IOHIDDeviceGetProperty\0",
+        )
     else {
         return String::new();
     };
@@ -204,9 +203,8 @@ unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String {
     if value.is_null() {
         return String::new();
     }
-    let Ok(get_cstring) = k
-        .cf
-        .get::<unsafe extern "C" fn(CFTypeRef, *mut u8, isize, u32) -> bool>(
+    let Ok(get_cstring) =
+        k.cf.get::<unsafe extern "C" fn(CFTypeRef, *mut u8, isize, u32) -> bool>(
             b"CFStringGetCString\0",
         )
     else {
@@ -223,9 +221,8 @@ unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String {
 }
 
 unsafe fn cfstring(k: &IoKit, bytes: &[u8]) -> Option<CFTypeRef> {
-    let create = k
-        .cf
-        .get::<unsafe extern "C" fn(CFAllocatorRef, *const u8, u32) -> CFTypeRef>(
+    let create =
+        k.cf.get::<unsafe extern "C" fn(CFAllocatorRef, *const u8, u32) -> CFTypeRef>(
             b"CFStringCreateWithCString\0",
         )
         .ok()?;
@@ -262,8 +259,7 @@ static MANAGER: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 /// The devices whose identity we resolved, keyed by `IOHIDDeviceRef`, so the
 /// report callback can name the sender without re-reading its properties on
 /// every report (a CF round trip per report at up to 1000 Hz).
-static DEVICE_BY_REF: std::sync::Mutex<Vec<(usize, HidDevice)>> =
-    std::sync::Mutex::new(Vec::new());
+static DEVICE_BY_REF: std::sync::Mutex<Vec<(usize, HidDevice)>> = std::sync::Mutex::new(Vec::new());
 
 /// `IOHIDReportCallback`. Runs on the run loop, i.e. the main thread, so it
 /// only parks into the channel - the pump folds it in later.
@@ -349,16 +345,18 @@ pub fn enumerate() {
         // NULL matching dictionary = every HID device. Narrowing it here would
         // defeat the point: this backend exists for the devices azul does NOT
         // model, so it cannot know what to match on.
-        if let Ok(set_matching) =
-            k.lib
-                .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef)>(b"IOHIDManagerSetDeviceMatching\0")
+        if let Ok(set_matching) = k
+            .lib
+            .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef)>(b"IOHIDManagerSetDeviceMatching\0")
         {
             set_matching(manager, core::ptr::null());
         }
 
         let Ok(open) = k
             .lib
-            .get::<unsafe extern "C" fn(CFTypeRef, IOOptionBits) -> IOReturn>(b"IOHIDManagerOpen\0")
+            .get::<unsafe extern "C" fn(CFTypeRef, IOOptionBits) -> IOReturn>(
+                b"IOHIDManagerOpen\0",
+            )
         else {
             release(k, manager);
             return;
@@ -380,10 +378,8 @@ pub fn enumerate() {
         if let (Ok(copy_devices), Ok(set_get_count), Ok(set_get_values)) = (
             k.lib
                 .get::<unsafe extern "C" fn(CFTypeRef) -> CFTypeRef>(b"IOHIDManagerCopyDevices\0"),
-            k.cf
-                .get::<unsafe extern "C" fn(CFTypeRef) -> isize>(b"CFSetGetCount\0"),
-            k.cf
-                .get::<unsafe extern "C" fn(CFTypeRef, *mut CFTypeRef)>(b"CFSetGetValues\0"),
+            k.cf.get::<unsafe extern "C" fn(CFTypeRef) -> isize>(b"CFSetGetCount\0"),
+            k.cf.get::<unsafe extern "C" fn(CFTypeRef, *mut CFTypeRef)>(b"CFSetGetValues\0"),
         ) {
             let set = copy_devices(manager);
             if !set.is_null() {
@@ -444,10 +440,8 @@ pub fn enumerate() {
                 .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef, CFTypeRef)>(
                     b"IOHIDManagerScheduleWithRunLoop\0",
                 ),
-            k.cf
-                .get::<unsafe extern "C" fn() -> CFTypeRef>(b"CFRunLoopGetCurrent\0"),
-            k.cf
-                .get::<*const CFTypeRef>(b"kCFRunLoopDefaultMode\0"),
+            k.cf.get::<unsafe extern "C" fn() -> CFTypeRef>(b"CFRunLoopGetCurrent\0"),
+            k.cf.get::<*const CFTypeRef>(b"kCFRunLoopDefaultMode\0"),
         ) {
             register(manager, input_report_callback, core::ptr::null_mut());
             schedule(manager, current_loop(), **default_mode);
@@ -480,7 +474,9 @@ pub fn feature_report(instance: u64, report_id: u8, len: usize) -> Option<Vec<u8
         let map = DEVICE_BY_REF
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        map.iter().find(|(_, d)| d.instance == instance).map(|(r, _)| *r)?
+        map.iter()
+            .find(|(_, d)| d.instance == instance)
+            .map(|(r, _)| *r)?
     };
     unsafe {
         let get_report = k

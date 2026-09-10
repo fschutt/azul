@@ -26,17 +26,16 @@
 //! asserted per-backend below (search "DIVERGENCE"); the ICU4X reference is the
 //! contract and the macOS value is the locally-verified platform output:
 //!
-//!   1. format_time(include_seconds = FALSE) — ALL locales. ICU4X still emits
-//!      seconds (icu 2.1 `fieldsets::T::short()` resolves to H:mm:ss); the
-//!      Foundation/NLS backends correctly honor the flag. Looks like an ICU4X
-//!      *backend* bug — flagged for maintainer review.
-//!   2. format_datetime — en-US, fr-FR. Foundation joins date+time with a
-//!      locale connector ("at" / "à"); ICU4X uses a comma. (de-DE, ja-JP match.)
-//!   3. format_list(Or) — ALL locales. `NSListFormatter` has no disjunction
-//!      form, so the macOS backend returns the conjunction ("and") output.
-//!   4. plural(1) — ja-JP. ICU4X returns Other (Japanese has no plural class);
-//!      the macOS/Windows shared `plural_for` table has no `ja` rule and falls
-//!      back to the English default (n==1 => One).
+//!   1. format_time(include_seconds = FALSE) — ALL locales. ICU4X still emits seconds (icu 2.1
+//!      `fieldsets::T::short()` resolves to H:mm:ss); the Foundation/NLS backends correctly honor
+//!      the flag. Looks like an ICU4X *backend* bug — flagged for maintainer review.
+//!   2. format_datetime — en-US, fr-FR. Foundation joins date+time with a locale connector ("at" /
+//!      "à"); ICU4X uses a comma. (de-DE, ja-JP match.)
+//!   3. format_list(Or) — ALL locales. `NSListFormatter` has no disjunction form, so the macOS
+//!      backend returns the conjunction ("and") output.
+//!   4. plural(1) — ja-JP. ICU4X returns Other (Japanese has no plural class); the macOS/Windows
+//!      shared `plural_for` table has no `ja` rule and falls back to the English default (n==1 =>
+//!      One).
 //!
 //! The Windows NLS backend cannot run on the macOS dev host (its divergent
 //! values are therefore NOT pinned here — that job is compile-only in CI; see
@@ -85,8 +84,8 @@ fn ok(res: IcuResult) -> String {
 /// Assert a KNOWN-DIVERGENT case (see the four classes in the module header).
 ///
 /// * ICU4X  — strict equality with the `reference` (the parity contract).
-/// * macOS  — strict equality with the locally-verified `macos` value, so the
-///   documented divergence is itself pinned and a future drift is caught.
+/// * macOS  — strict equality with the locally-verified `macos` value, so the documented divergence
+///   is itself pinned and a future drift is caught.
 /// * Windows — output is not verifiable off-Windows; smoke-check only.
 fn assert_divergent(case: &str, got: &str, reference: &str, macos: &str) {
     if IS_ICU4X {
@@ -94,8 +93,8 @@ fn assert_divergent(case: &str, got: &str, reference: &str, macos: &str) {
     } else if IS_MACOS {
         assert_eq!(
             got, macos,
-            "[{case}] macOS Foundation drifted from its documented divergent value \
-             (ICU4X reference is {reference:?})"
+            "[{case}] macOS Foundation drifted from its documented divergent value (ICU4X \
+             reference is {reference:?})"
         );
     } else {
         assert!(

@@ -606,7 +606,12 @@ impl Installation {
     pub fn variants_for(&self, lang: &str, os: &str) -> Vec<&InstallVariant> {
         self.languages
             .get(lang)
-            .map(|c| c.install.iter().filter(|v| v.os.iter().any(|o| o == os)).collect())
+            .map(|c| {
+                c.install
+                    .iter()
+                    .filter(|v| v.os.iter().any(|o| o == os))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -671,7 +676,11 @@ impl InstallationStep {
         };
 
         match self {
-            InstallationStep::Code { language, content, file } => InstallationStep::Code {
+            InstallationStep::Code {
+                language,
+                content,
+                file,
+            } => InstallationStep::Code {
                 file: file.clone(),
                 language: language.clone(),
                 content: do_interpolate(content),
@@ -903,9 +912,66 @@ impl Example {
                 extra: extra_code,
             },
             screenshot: OsDepFiles {
-                windows: load_screenshot(&self.screenshot.windows),
-                linux: load_screenshot(&self.screenshot.linux),
-                mac: load_screenshot(&self.screenshot.mac),
+                windows_light: {
+                    let path = self
+                        .screenshot
+                        .windows
+                        .replace(".windows.png", ".windows.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.windows)
+                    }
+                },
+                windows_dark: {
+                    let path = self
+                        .screenshot
+                        .windows
+                        .replace(".windows.png", ".windows.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.windows)
+                    }
+                },
+                linux_light: {
+                    let path = self
+                        .screenshot
+                        .linux
+                        .replace(".linux.png", ".linux.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.linux)
+                    }
+                },
+                linux_dark: {
+                    let path = self
+                        .screenshot
+                        .linux
+                        .replace(".linux.png", ".linux.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.linux)
+                    }
+                },
+                mac_light: {
+                    let path = self.screenshot.mac.replace(".mac.png", ".mac.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.mac)
+                    }
+                },
+                mac_dark: {
+                    let path = self.screenshot.mac.replace(".mac.png", ".mac.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.mac)
+                    }
+                },
             },
         })
     }
@@ -931,9 +997,12 @@ pub struct LoadedExample {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OsDepFiles {
-    pub windows: Vec<u8>,
-    pub linux: Vec<u8>,
-    pub mac: Vec<u8>,
+    pub windows_light: Vec<u8>,
+    pub windows_dark: Vec<u8>,
+    pub linux_light: Vec<u8>,
+    pub linux_dark: Vec<u8>,
+    pub mac_light: Vec<u8>,
+    pub mac_dark: Vec<u8>,
 }
 
 /// Code for each C++ standard version
@@ -1649,14 +1718,44 @@ pub fn is_behind_pointer(type_str: &str) -> bool {
 /// Primitive types that should never be added to the API as classes
 /// These are built-in language types that don't need Az prefix
 const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
-    "u32", "u64", "u8", "()", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
+    "bool",
+    "f32",
+    "f64",
+    "fn",
+    "i128",
+    "i16",
+    "i32",
+    "i64",
+    "i8",
+    "isize",
+    "slice",
+    "u128",
+    "u16",
+    "u32",
+    "u64",
+    "u8",
+    "()",
+    "usize",
+    "c_void",
+    "str",
+    "char",
+    "c_char",
+    "c_schar",
+    "c_uchar",
     // The rest of the `core::ffi` integer family. `c_int` was already USED by
     // api.json (the three `glGet*Location` return types) while missing from
     // this list, so it read as a class that does not exist; the others are
     // here so the next one to be used does not repeat that.
-    "c_int", "c_uint", "c_short", "c_ushort", "c_long", "c_ulong", "c_longlong", "c_ulonglong",
-    "c_float", "c_double",
+    "c_int",
+    "c_uint",
+    "c_short",
+    "c_ushort",
+    "c_long",
+    "c_ulong",
+    "c_longlong",
+    "c_ulonglong",
+    "c_float",
+    "c_double",
 ];
 
 /// Single-letter types are usually generic type parameters
@@ -1904,7 +2003,8 @@ pub fn collect_all_referenced_types_from_api_with_chains(
 /// Returns the set of type names that are defined but never reachable.
 pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
     let mut reachable_types: BTreeSet<String> = BTreeSet::new();
-    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new(); // type_name -> (module, version)
+    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new(); // type_name ->
+                                                                                     // (module, version)
 
     // Collect all defined types and build a lookup for their definitions
     // Important: Keep only the "most complete" definition (one with struct_fields or enum_fields)

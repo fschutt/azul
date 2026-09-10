@@ -8,8 +8,8 @@
 //! **Native-per-platform backend** (per the user directive + the vk-video
 //! research): the codec used is whatever is native to the platform -
 //!   - desktop Linux / Windows: **gpu-video** (Vulkan Video, H.264/H.265),
-//!   - Apple (macOS / iOS): **VideoToolbox** (Vulkan Video can't build on
-//!     Apple - no MoltenVK video),
+//!   - Apple (macOS / iOS): **VideoToolbox** (Vulkan Video can't build on Apple - no MoltenVK
+//!     video),
 //!   - Android: **MediaCodec**,
 //!   - anything else: none (encode/decode no-op).
 //! [`VideoEncoder::backend_name`] reports the selection. The codec FFI itself
@@ -18,11 +18,10 @@
 //! is exercisable + cross-compiles everywhere, with the real codec swapped in
 //! per OS.
 
-use azul_css::impl_option_inner;
 use core::ffi::c_void;
 
 use azul_core::video::{OptionVideoFrame, VideoFrame};
-use azul_css::{AzString, U8Vec};
+use azul_css::{impl_option_inner, AzString, U8Vec};
 
 // MP4 -> H.264 Annex-B demux (the elementary stream gpu-video needs). Behind
 // `video-native`; pure Rust + unit-tested, no GPU required.
@@ -84,10 +83,11 @@ fn backend() -> &'static str {
 /// handle still *opens* — `is_open()` is true — but `decode()` can never yield
 /// a frame, so `VideoDecoder::open` must say so.
 const fn decode_engine_compiled() -> bool {
-    cfg!(az_gpu_video) || cfg!(all(
-        any(target_os = "macos", target_os = "ios"),
-        feature = "libloading"
-    ))
+    cfg!(az_gpu_video)
+        || cfg!(all(
+            any(target_os = "macos", target_os = "ios"),
+            feature = "libloading"
+        ))
 }
 
 /// Whether this build contains a real ENCODE engine that `EncoderInner` can
@@ -110,12 +110,11 @@ fn decode_engine_missing_reason() -> String {
     if cfg!(target_os = "android") {
         "the MediaCodec backend is not implemented yet".to_string()
     } else if cfg!(any(target_os = "macos", target_os = "ios")) {
-        "this build has no `libloading` feature, so the VideoToolbox backend is \
-         compiled out"
+        "this build has no `libloading` feature, so the VideoToolbox backend is compiled out"
             .to_string()
     } else if !cfg!(feature = "video-native") {
-        "this build has no `video-native` feature. Rebuild with: cargo build -p \
-         azul-dll --features build-dll,video-native"
+        "this build has no `video-native` feature. Rebuild with: cargo build -p azul-dll \
+         --features build-dll,video-native"
             .to_string()
     } else {
         format!(
@@ -206,8 +205,8 @@ impl VideoEncoder {
             static NONE_ONCE: std::sync::Once = std::sync::Once::new();
             NONE_ONCE.call_once(|| {
                 eprintln!(
-                    "[azul][video] VideoEncoder::open: no native video backend on this \
-                     OS ({}) — handle is invalid (is_open() = false)",
+                    "[azul][video] VideoEncoder::open: no native video backend on this OS ({}) — \
+                     handle is invalid (is_open() = false)",
                     std::env::consts::OS
                 );
             });
@@ -222,26 +221,25 @@ impl VideoEncoder {
             static STUB_ONCE: std::sync::Once = std::sync::Once::new();
             STUB_ONCE.call_once(|| {
                 let reason = if cfg!(any(target_os = "macos", target_os = "ios")) {
-                    "this build has no `libloading` feature, so the VideoToolbox \
-                     backend is compiled out"
+                    "this build has no `libloading` feature, so the VideoToolbox backend is \
+                     compiled out"
                 } else if cfg!(target_os = "android") {
                     "the MediaCodec backend is not implemented yet"
                 } else {
                     "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
                 };
                 eprintln!(
-                    "[azul][video] VideoEncoder::open: hardware video encode is not \
-                     wired on this build ({reason}) — encode() will return EMPTY \
-                     chunks. For recording to MP4 use ScreenRecorder (software x264 \
-                     via gstreamer)"
+                    "[azul][video] VideoEncoder::open: hardware video encode is not wired on this \
+                     build ({reason}) — encode() will return EMPTY chunks. For recording to MP4 \
+                     use ScreenRecorder (software x264 via gstreamer)"
                 );
             });
         } else if h265 {
             static H265_ONCE: std::sync::Once = std::sync::Once::new();
             H265_ONCE.call_once(|| {
                 eprintln!(
-                    "[azul][video] VideoEncoder::open: H.265 encode is not wired yet \
-                     (H.264 only) — this encoder will return EMPTY chunks"
+                    "[azul][video] VideoEncoder::open: H.265 encode is not wired yet (H.264 only) \
+                     — this encoder will return EMPTY chunks"
                 );
             });
         }
@@ -415,10 +413,9 @@ impl ScreenRecorder {
             Ok(c) => c,
             Err(e) => {
                 eprintln!(
-                    "[azul][video] ScreenRecorder::start: failed to spawn \
-                     gst-launch-1.0 ({e}) — recording DISABLED (handle invalid, \
-                     is_recording() = false). Install gstreamer with the x264enc + \
-                     mp4mux plugins"
+                    "[azul][video] ScreenRecorder::start: failed to spawn gst-launch-1.0 ({e}) — \
+                     recording DISABLED (handle invalid, is_recording() = false). Install \
+                     gstreamer with the x264enc + mp4mux plugins"
                 );
                 return ScreenRecorder::default();
             }
@@ -486,7 +483,9 @@ impl ScreenRecorder {
         let error = if ok {
             None
         } else if was_recording {
-            Some(AzString::from_const_str("the encoder process did not exit cleanly"))
+            Some(AzString::from_const_str(
+                "the encoder process did not exit cleanly",
+            ))
         } else {
             Some(AzString::from_const_str("no recording in progress"))
         };
@@ -599,8 +598,8 @@ impl VideoDecoder {
             static NONE_ONCE: std::sync::Once = std::sync::Once::new();
             NONE_ONCE.call_once(|| {
                 eprintln!(
-                    "[azul][video] VideoDecoder::open: no native video backend on this \
-                     OS ({}) — handle is invalid (is_open() = false)",
+                    "[azul][video] VideoDecoder::open: no native video backend on this OS ({}) — \
+                     handle is invalid (is_open() = false)",
                     std::env::consts::OS
                 );
             });
@@ -614,8 +613,8 @@ impl VideoDecoder {
             static STUB_ONCE: std::sync::Once = std::sync::Once::new();
             STUB_ONCE.call_once(|| {
                 eprintln!(
-                    "[azul][video] VideoDecoder::open: {} — the handle opens but \
-                     decode() will NEVER produce a frame",
+                    "[azul][video] VideoDecoder::open: {} — the handle opens but decode() will \
+                     NEVER produce a frame",
                     decode_engine_missing_reason()
                 );
             });
@@ -623,8 +622,8 @@ impl VideoDecoder {
             static H265_ONCE: std::sync::Once = std::sync::Once::new();
             H265_ONCE.call_once(|| {
                 eprintln!(
-                    "[azul][video] VideoDecoder::open: H.265 decode is not wired yet \
-                     (H.264 only) — this decoder will produce no frames"
+                    "[azul][video] VideoDecoder::open: H.265 decode is not wired yet (H.264 only) \
+                     — this decoder will produce no frames"
                 );
             });
         }
@@ -778,8 +777,9 @@ impl Drop for VideoDecoder {
 
 #[cfg(test)]
 mod screenrec_tests {
-    use super::{ScreenRecorder, VideoFrame};
     use azul_css::{AzString, U8Vec};
+
+    use super::{ScreenRecorder, VideoFrame};
 
     // End-to-end: record synthetic RGBA frames → a real MP4 via the gst x264 sink.
     // Skips cleanly if gstreamer isn't installed (e.g. minimal CI).

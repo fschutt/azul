@@ -17,12 +17,11 @@
 //! configuration: the string API only) over a hand-rolled matcher that would
 //! accept and reject the wrong strings. HTML's rules, applied here:
 //!
-//! * the WHOLE value must match - the pattern is compiled as `^(?:p)$`, so
-//!   `pattern="[0-9]{3}"` rejects `1234` even though it contains three digits;
+//! * the WHOLE value must match - the pattern is compiled as `^(?:p)$`, so `pattern="[0-9]{3}"`
+//!   rejects `1234` even though it contains three digits;
 //! * an empty value is exempt (that is `required`'s job);
-//! * a pattern that does not compile is IGNORED, not treated as a mismatch - a
-//!   browser does the same, and failing every submit over a typo in an
-//!   attribute would be the worse behaviour.
+//! * a pattern that does not compile is IGNORED, not treated as a mismatch - a browser does the
+//!   same, and failing every submit over a typo in an attribute would be the worse behaviour.
 //!
 //! Known deviation: HTML compiles patterns with the `v` (unicode sets) flag.
 //! `regex-lite` is Unicode-aware for `.`, `\w` and classes but has no `\p{..}`
@@ -270,10 +269,7 @@ pub fn input_purpose(
 /// Android bridge hardcoded `MULTI_LINE` for every field, so a single-line input
 /// showed a newline key and had no way to dismiss the keyboard.
 #[must_use]
-pub fn is_multiline(
-    node: DomNodeId,
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-) -> bool {
+pub fn is_multiline(node: DomNodeId, layout_results: &BTreeMap<DomId, DomLayoutResult>) -> bool {
     let Some(layout) = layout_results.get(&node.dom) else {
         return false;
     };
@@ -304,7 +300,7 @@ pub fn is_multiline(
 /// Disabled and readonly controls are NOT skipped here, unlike in validation:
 /// a reset clears a readonly field in a browser, because the reset is the
 /// app's action rather than the user's.
-#[must_use] 
+#[must_use]
 pub fn default_values(
     form: DomNodeId,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -496,7 +492,11 @@ mod tests {
         ]]);
         // "99" is 2 characters (too short) AND numerically above 10.
         let got = validate_form(node(FORM), &layouts, &|_| Some("99".into()));
-        assert_eq!(got.len(), 1, "one control must produce one entry, got {got:?}");
+        assert_eq!(
+            got.len(),
+            1,
+            "one control must produce one entry, got {got:?}"
+        );
         assert!(got[0].state.has(ValidityReason::TooShort));
         assert!(got[0].state.has(ValidityReason::RangeOverflow));
         assert!(!got[0].state.has(ValidityReason::ValueMissing));
@@ -508,12 +508,16 @@ mod tests {
             AttributeType::Min("10".into()),
             AttributeType::Max("20".into()),
         ]]);
-        assert!(validate_form(node(FORM), &layouts, &|_| Some("9".into()))[0]
-            .state
-            .has(ValidityReason::RangeUnderflow));
-        assert!(validate_form(node(FORM), &layouts, &|_| Some("21".into()))[0]
-            .state
-            .has(ValidityReason::RangeOverflow));
+        assert!(
+            validate_form(node(FORM), &layouts, &|_| Some("9".into()))[0]
+                .state
+                .has(ValidityReason::RangeUnderflow)
+        );
+        assert!(
+            validate_form(node(FORM), &layouts, &|_| Some("21".into()))[0]
+                .state
+                .has(ValidityReason::RangeOverflow)
+        );
         assert!(validate_form(node(FORM), &layouts, &|_| Some("15".into())).is_empty());
         // STRING comparison would call "9" greater than "20"; the numeric one
         // is the whole point of parsing both sides.
@@ -631,8 +635,7 @@ mod tests {
     #[test]
     fn reset_does_not_skip_disabled_or_readonly_controls() {
         for barred in [AttributeType::Disabled, AttributeType::Readonly] {
-            let layouts =
-                form_with(vec![vec![AttributeType::Value("v".into()), barred.clone()]]);
+            let layouts = form_with(vec![vec![AttributeType::Value("v".into()), barred.clone()]]);
             assert_eq!(
                 default_values(node(FORM), &layouts).len(),
                 1,
@@ -655,7 +658,11 @@ mod tests {
         assert!(validate_form(node(FORM), &layouts, &|_| Some("123".into())).is_empty());
         for bad in ["1234", "12", "x123", "123x"] {
             let got = validate_form(node(FORM), &layouts, &|_| Some(bad.into()));
-            assert_eq!(got.len(), 1, "{bad:?} must not match an anchored [0-9]{{3}}");
+            assert_eq!(
+                got.len(),
+                1,
+                "{bad:?} must not match an anchored [0-9]{{3}}"
+            );
             assert!(got[0].state.has(ValidityReason::PatternMismatch));
         }
     }

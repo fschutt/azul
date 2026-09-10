@@ -8,18 +8,20 @@
 //! placeholders. Auto-joins a fake session (a generated "meeting link" hash).
 //! A settings strip lists the real audio devices (`AudioDeviceList::enumerate`).
 
-use azul::audio::AudioConfig;
-use azul::audio::{AudioDeviceList, AudioDeviceListResult, AudioFrame};
-use azul::callbacks::CallbackInfo;
-use azul::camera::CameraConfig;
-use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
-use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
-use azul::option::OptionRefAny;
-use azul::prelude::*;
-use azul::screen::ScreenCaptureConfig;
-use azul::str::String as AzString;
-use azul::widgets::{
-    CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar, ScreenCaptureWidget,
+use azul::{
+    audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame},
+    callbacks::CallbackInfo,
+    camera::CameraConfig,
+    css::{CssProperty, LayoutWidth, LogicalSize, PixelValue},
+    dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback},
+    option::OptionRefAny,
+    prelude::*,
+    screen::ScreenCaptureConfig,
+    str::String as AzString,
+    widgets::{
+        CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
+        ScreenCaptureWidget,
+    },
 };
 
 struct MeetState {
@@ -76,19 +78,17 @@ fn mic_level_percent(samples: &[f32]) -> f32 {
     ((db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100.0).clamp(0.0, 100.0)
 }
 
-const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; \
-    background: #2b2b38; display: flex; align-items: center; justify-content: center; \
-    color: #99a; font-size: 17px; overflow: hidden;";
+const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; background: \
+                    #2b2b38; display: flex; align-items: center; justify-content: center; color: \
+                    #99a; font-size: 17px; overflow: hidden;";
 // `white-space: nowrap` + `flex-shrink: 0`: without them the toolbar's flex
 // line shrinks the buttons below their label width and the text breaks
 // mid-phrase — "Unmute" on one line, "mic" on the next. A control's label is
 // not prose; it must never wrap.
-const BTN: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; \
-    background: #3a3a4a; color: #e6e6f0; font-size: 14px; \
-    white-space: nowrap; flex-shrink: 0;";
-const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; \
-    background: #2f6db0; color: #ffffff; font-size: 14px; \
-    white-space: nowrap; flex-shrink: 0;";
+const BTN: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; background: #3a3a4a; \
+                   color: #e6e6f0; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
+const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; background: #2f6db0; \
+                      color: #ffffff; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
 
 fn participant(name: &str) -> Dom {
     Dom::create_div()
@@ -265,8 +265,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // --- settings strip: the real enumerated audio devices ---
     let devices_panel = Dom::create_div()
         .with_css(
-            "display: flex; justify-content: center; padding: 10px 12px 16px 12px; \
-             background: #0e0e14; border-top: 1px solid #222;",
+            "display: flex; justify-content: center; padding: 10px 12px 16px 12px; background: \
+             #0e0e14; border-top: 1px solid #222;",
         )
         .with_child(device_col("Microphones", &mics))
         .with_child(device_col("Speakers", &speakers))
@@ -282,8 +282,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         ));
 
     let mut body = Dom::create_body().with_css(
-        "display: flex; flex-direction: column; height: 100%; margin: 0; \
-         background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
+        "display: flex; flex-direction: column; height: 100%; margin: 0; background: #0e0e14; \
+         font-family: sans-serif; color: #e6e6f0;",
     );
     body = body.with_child(
         Dom::create_span_with_text(format!("AzMeet · meeting {}", link).as_str())
@@ -316,8 +316,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         body = body.with_child(
             Dom::create_div()
                 .with_css(
-                    "display: flex; flex-direction: row; align-items: center; \
-                     padding: 6px 12px; background: #15151c;",
+                    "display: flex; flex-direction: row; align-items: center; padding: 6px 12px; \
+                     background: #15151c;",
                 )
                 .with_child(Dom::create_span_with_text("Mic level").with_css(
                     "font-size: 13px; color: #8890a8; margin-right: 10px; white-space: nowrap;",

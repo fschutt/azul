@@ -7,14 +7,13 @@
 //! `Data.Map`).
 //!
 //! Notes:
-//! - We declare `extra-libraries: azul` so GHC links the prebuilt
-//!   `libazul.so` / `libazul.dylib` / `azul.dll`. The user is expected
-//!   to place that artifact in a discoverable directory; the
+//! - We declare `extra-libraries: azul` so GHC links the prebuilt `libazul.so` / `libazul.dylib` /
+//!   `azul.dll`. The user is expected to place that artifact in a discoverable directory; the
 //!   `extra-lib-dirs` field below allows customising the search path.
-//! - All `Storable` instances are hand-rolled in `Azul.Types`, so we
-//!   don't need any Storable-deriving extensions or template Haskell.
-//! - `cabal-version: 2.4` gives us the modern field set without
-//!   requiring any GHC features that aren't in the latest LTS Stackage.
+//! - All `Storable` instances are hand-rolled in `Azul.Types`, so we don't need any
+//!   Storable-deriving extensions or template Haskell.
+//! - `cabal-version: 2.4` gives us the modern field set without requiring any GHC features that
+//!   aren't in the latest LTS Stackage.
 
 /// Single deterministic Cabal manifest string.
 pub fn generate_cabal(version: &str) -> String {

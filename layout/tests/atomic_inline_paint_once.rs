@@ -6,11 +6,10 @@
 //! it and the parent paints it from there. Two places have to agree on that set,
 //! and they sit on opposite sides of the same seam:
 //!
-//!   * `display_list.rs` must SKIP painting the box itself (the parent already
-//!     did it) — otherwise the box appears twice, once at the shape's position
-//!     and once at the parent's content origin;
-//!   * `getters.rs::get_style_properties_for_state` must SUPPLY the background
-//!     and border to the shape — otherwise the box appears not at all.
+//!   * `display_list.rs` must SKIP painting the box itself (the parent already did it) — otherwise
+//!     the box appears twice, once at the shape's position and once at the parent's content origin;
+//!   * `getters.rs::get_style_properties_for_state` must SUPPLY the background and border to the
+//!     shape — otherwise the box appears not at all.
 //!
 //! Both used to name `InlineBlock` alone, so `inline-flex` (which is what every
 //! `Button` is) fell through them in opposite directions. Found on the frontpage
@@ -100,9 +99,9 @@ fn every_atomic_inline_paints_its_background_exactly_once() {
         assert_eq!(
             hits.len(),
             1,
-            "an atomic inline with `display: {display}` painted its background \
-             {} time(s), at {hits:?}. 0 = both the display-list guard and the \
-             inline-shape style lookup skipped it; 2 = neither did.",
+            "an atomic inline with `display: {display}` painted its background {} time(s), at \
+             {hits:?}. 0 = both the display-list guard and the inline-shape style lookup skipped \
+             it; 2 = neither did.",
             hits.len()
         );
     }
@@ -126,12 +125,17 @@ fn every_atomic_inline_over_an_image_paints_exactly_once() {
         );
 
         let dom = Dom::create_body().with_child(
-            Dom::create_image(ImageRef::null_image(0, 0, RawImageFormat::RGBA8, Vec::new()))
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("mk".into())].into())
-                        .with_child(Dom::create_span_with_text("x")),
-                ),
+            Dom::create_image(ImageRef::null_image(
+                0,
+                0,
+                RawImageFormat::RGBA8,
+                Vec::new(),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("mk".into())].into())
+                    .with_child(Dom::create_span_with_text("x")),
+            ),
         );
 
         let hits = count_rects(&layout(&css, dom), *rgb);
@@ -200,12 +204,17 @@ fn an_overlay_child_is_painted_once_whether_or_not_the_image_is_a_flex_item() {
         );
 
         let dom = Dom::create_body().with_child(
-            Dom::create_image(ImageRef::null_image(0, 0, RawImageFormat::RGBA8, Vec::new()))
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("mk".into())].into())
-                        .with_child(Dom::create_span_with_text("x")),
-                ),
+            Dom::create_image(ImageRef::null_image(
+                0,
+                0,
+                RawImageFormat::RGBA8,
+                Vec::new(),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("mk".into())].into())
+                    .with_child(Dom::create_span_with_text("x")),
+            ),
         );
 
         let hits = count_rects(&layout(&css, dom), (0xff, 0x00, 0x00));
@@ -220,8 +229,8 @@ fn an_overlay_child_is_painted_once_whether_or_not_the_image_is_a_flex_item() {
         let (ex, ey) = *expected;
         assert!(
             (x - ex).abs() < 0.5 && (y - ey).abs() < 0.5,
-            "with the {name}, the overlay child painted at ({x}, {y}), expected \
-             ({ex}, {ey}) — its 50px margins were dropped by the interior run"
+            "with the {name}, the overlay child painted at ({x}, {y}), expected ({ex}, {ey}) — \
+             its 50px margins were dropped by the interior run"
         );
     }
 }

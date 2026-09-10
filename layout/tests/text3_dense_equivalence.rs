@@ -5,23 +5,24 @@
 //! totals, and the T1 invariant one level up: concatenating the dense
 //! runs' texts in run order reproduces the input.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_core::dom::NodeId;
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontStack, InlineBorderInfo, InlineContent,
-    LoadedFonts, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::{
+        cache::{
+            create_logical_items, perform_fragment_layout, reorder_logical_items,
+            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontStack,
+            InlineBorderInfo, InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun,
+            UnicodeBidi, UnifiedConstraints, UnifiedLayout,
+        },
+        dense::{get_glyph_positions_dense, get_glyph_runs_simple_dense, DenseText},
+        glyphs::{get_glyph_positions, get_glyph_runs_simple},
+    },
 };
-use azul_layout::text3::dense::{
-    get_glyph_positions_dense, get_glyph_runs_simple_dense, DenseText,
-};
-use azul_layout::text3::glyphs::{get_glyph_positions, get_glyph_runs_simple};
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
 use crate::fakefont;
@@ -198,8 +199,8 @@ fn dense_view_agrees_with_the_current_model() {
             let start = c.source_cluster_id.start_byte_in_run as usize;
             assert!(
                 text[start..].starts_with(c.text()),
-                "cluster {i} claims byte {start} but the input there does not \
-                 start with {:?} ({text:?})",
+                "cluster {i} claims byte {start} but the input there does not start with {:?} \
+                 ({text:?})",
                 c.text()
             );
         }
@@ -429,8 +430,7 @@ fn dense_glyph_positions_agree_with_the_reference_walker() {
 /// the painted advance (simple clusters) — the fold is documented.
 #[test]
 fn dense_pdf_runs_agree_with_the_reference_walker() {
-    use azul_layout::text3::dense::get_glyph_runs_pdf_dense;
-    use azul_layout::text3::glyphs::get_glyph_runs_pdf;
+    use azul_layout::text3::{dense::get_glyph_runs_pdf_dense, glyphs::get_glyph_runs_pdf};
 
     let font_ref = test_font_ref();
     let red = azul_css::props::basic::ColorU {
@@ -998,15 +998,14 @@ fn constant_item_index_coalesces_and_roundtrips() {
     assert_eq!(
         dense.runs.len(),
         baseline_runs,
-        "constant item_index must coalesce exactly like the linear shape \
-         (pre-#25b this was one run per cluster: {} runs for {} clusters)",
+        "constant item_index must coalesce exactly like the linear shape (pre-#25b this was one \
+         run per cluster: {} runs for {} clusters)",
         dense.runs.len(),
         dense.clusters.len(),
     );
     assert!(
         dense.runs.iter().any(|r| !r.item_linear),
-        "the constant model must actually have engaged (guard against the \
-         mutation not sticking)"
+        "the constant model must actually have engaged (guard against the mutation not sticking)"
     );
 
     // Exact reconstruction of the constant index through the expander.
@@ -1025,8 +1024,7 @@ fn constant_item_index_coalesces_and_roundtrips() {
     let dense_lin = DenseText::from_unified_with_content(&layout, &content);
     assert!(
         dense_lin.runs.len() < dense_lin.clusters.len(),
-        "a plain sentence must not degenerate to one run per cluster \
-         ({} runs / {} clusters)",
+        "a plain sentence must not degenerate to one run per cluster ({} runs / {} clusters)",
         dense_lin.runs.len(),
         dense_lin.clusters.len(),
     );
@@ -1231,11 +1229,13 @@ fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
 #[test]
 fn ligature_cluster_records_its_full_byte_length() {
     use azul_core::selection::{ContentIndex, GraphemeClusterId};
-    use azul_layout::text3::cache::{
-        ClusterFlags, GlyphKind, LayoutFontMetrics, OverflowInfo, Point, PositionedItem,
-        ShapedCluster, ShapedGlyph,
+    use azul_layout::text3::{
+        cache::{
+            ClusterFlags, GlyphKind, LayoutFontMetrics, OverflowInfo, Point, PositionedItem,
+            ShapedCluster, ShapedGlyph,
+        },
+        script::Script,
     };
-    use azul_layout::text3::script::Script;
 
     let text: Arc<str> = Arc::from("fine");
     let style = Arc::new(StyleProperties::default());

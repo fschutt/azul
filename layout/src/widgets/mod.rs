@@ -154,7 +154,8 @@ pub mod backstage;
 pub mod badge;
 /// Breadcrumb widget.
 ///
-/// A horizontal trail of clickable crumb links separated by "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
+/// A horizontal trail of clickable crumb links separated by "/", ending in the current
+/// (non-clickable) page; see `breadcrumb.rs`.
 pub mod breadcrumb;
 /// Button widget
 pub mod button;
@@ -178,17 +179,22 @@ pub mod card;
 pub mod check_box;
 /// Chip / tag widget.
 ///
-/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors
+/// alert's dismiss); see `chip.rs`.
 pub mod chip;
 /// Box displaying a color with a callback for value changes
 pub mod color_input;
 /// Combobox widget.
 ///
-/// An editable text field with a click-toggled drop-down list of options (drop_down's select + text_input's editable field); see `combobox.rs`.
+/// An editable text field with a click-toggled drop-down list of options (drop_down's select +
+/// text_input's editable field); see `combobox.rs`.
 pub mod combobox;
 /// Calendar date picker widget.
 ///
-/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid in-widget (prominent module TODO2); see `date_picker.rs`.
+/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from
+/// real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day
+/// number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid
+/// in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
 /// Divider / separator rule widget (horizontal or vertical).
 ///
@@ -224,7 +230,8 @@ pub mod menubar;
 pub mod microphone;
 /// Modal / dialog widget.
 ///
-/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state toggle; see `modal.rs`.
+/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state
+/// toggle; see `modal.rs`.
 pub mod modal;
 /// Node graph widget
 pub mod node_graph;
@@ -232,11 +239,13 @@ pub mod node_graph;
 pub mod number_input;
 /// Pagination widget.
 ///
-/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style); see `pagination.rs`.
+/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style);
+/// see `pagination.rs`.
 pub mod pagination;
 /// Popover widget.
 ///
-/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
+/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the
+/// click-toggled sibling of tooltip); see `popover.rs`.
 pub mod popover;
 /// Progress bar widget
 pub mod progressbar;
@@ -247,7 +256,8 @@ pub mod progressbar;
 pub mod quick_access;
 /// Radio-group widget.
 ///
-/// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular indicator; see `radio_group.rs`.
+/// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular
+/// indicator; see `radio_group.rs`.
 pub mod radio_group;
 /// Ribbon widget
 pub mod ribbon;
@@ -266,18 +276,22 @@ pub mod segmented;
 pub mod slider;
 /// Spinner / activity widget.
 ///
-/// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
+/// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note);
+/// see `spinner.rs`.
 pub mod spinner;
 /// Split-pane / splitter widget.
 ///
-/// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine); see `split_pane.rs`.
+/// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes
+/// via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine);
+/// see `split_pane.rs`.
 pub mod split_pane;
 /// Office-style status bar: left text segments, view switcher, zoom cluster
 /// (embeds the `slider` widget). the Office-2013-era look look by default. See `statusbar.rs`.
 pub mod statusbar;
 /// Stepper / wizard widget.
 ///
-/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
+/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle
+/// on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
 pub mod stepper;
 /// Switch / toggle widget.
 ///
@@ -293,13 +307,17 @@ pub mod text_area;
 pub mod text_input;
 /// Time picker widget.
 ///
-/// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation); see `time_picker.rs`.
+/// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle
+/// for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation);
+/// see `time_picker.rs`.
 pub mod time_picker;
 /// Titlebar widget for custom window chrome
 pub mod titlebar;
 /// Toast / snackbar widget.
 ///
-/// A transient floating notification banner pinned to a corner, manually dismissed via "x" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
+/// A transient floating notification banner pinned to a corner, manually dismissed via "x"
+/// (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned
+/// as an overlay; see `toast.rs`.
 pub mod toast;
 /// Tooltip widget.
 ///
@@ -398,14 +416,13 @@ pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_c
 ///
 /// Two warnings exist for accessibility and they are deliberately different:
 ///
-/// * **This one, from the widget.** A widget knows its own type and its own
-///   builder API, so it can name the exact call — "Slider has no accessible
-///   name; use `.with_accessibility_name(..)`". It fires at BUILD time, from
-///   inside the widget, and it can be specific in a way nothing downstream can.
-/// * **`dom_lint::warn_a11y_shape`, from the framework.** That one sees only
-///   nodes, long after any widget has finished, and speaks in terms of the DOM:
-///   "node 40 has role Slider and no value". It catches hand-built DOMs and
-///   third-party widgets the engine has never heard of.
+/// * **This one, from the widget.** A widget knows its own type and its own builder API, so it can
+///   name the exact call — "Slider has no accessible name; use `.with_accessibility_name(..)`". It
+///   fires at BUILD time, from inside the widget, and it can be specific in a way nothing
+///   downstream can.
+/// * **`dom_lint::warn_a11y_shape`, from the framework.** That one sees only nodes, long after any
+///   widget has finished, and speaks in terms of the DOM: "node 40 has role Slider and no value".
+///   It catches hand-built DOMs and third-party widgets the engine has never heard of.
 ///
 /// Neither subsumes the other. The widget's warning is actionable and narrow;
 /// the framework's is universal and structural.
@@ -418,14 +435,12 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
         return;
     }
     azul_core::diagnostics::emit(alloc::format!(
-        "[azul][a11y-widget] {widget_type} was built without an accessible name. \
-         It has no text of its own to derive one from, so a screen reader \
-         announces its ROLE and nothing else. Only the caller knows what this \
-         control is called — add it at the call site with \
-         `.with_accessibility_name(\"…\")`, which MERGES and leaves the \
-         {widget_type}'s own role, value and state intact, or point at an \
-         existing label with `.with_accessibility_labelled_by(node)`. \
-         (suppress with AZ_SUPPRESS=a11y_widget)"
+        "[azul][a11y-widget] {widget_type} was built without an accessible name. It has no text \
+         of its own to derive one from, so a screen reader announces its ROLE and nothing else. \
+         Only the caller knows what this control is called — add it at the call site with \
+         `.with_accessibility_name(\"…\")`, which MERGES and leaves the {widget_type}'s own role, \
+         value and state intact, or point at an existing label with \
+         `.with_accessibility_labelled_by(node)`. (suppress with AZ_SUPPRESS=a11y_widget)"
     ));
 }
 
@@ -495,8 +510,8 @@ mod ua_paragraph_margin {
                     })
                     .unwrap_or_default();
                 bad.push(format!(
-                    "{widget}: <p> at {path} ({text:?}) inherits the UA `margin: 1em 0` — build it \
-                     with widgets::widget_p_with_text / widget_p, or set margin-top AND \
+                    "{widget}: <p> at {path} ({text:?}) inherits the UA `margin: 1em 0` — build \
+                     it with widgets::widget_p_with_text / widget_p, or set margin-top AND \
                      margin-bottom inline"
                 ));
             }
@@ -565,9 +580,9 @@ mod label_convention {
     //! no hit area, and a dataset has no node to be found on.
     //!
     //! The canonical shape is `Dom::create_p_with_text(label)` (or
-    //! `create_p().with_children([create_text_do_not_use_without_block_level_wrapper(label)])`) with every property on
-    //! the `<p>`, or — where a dedicated styled `<div>` already is the box — a
-    //! bare `create_text` leaf with the properties on that `<div>`.
+    //! `create_p().with_children([create_text_do_not_use_without_block_level_wrapper(label)])`)
+    //! with every property on the `<p>`, or — where a dedicated styled `<div>` already is the
+    //! box — a bare `create_text` leaf with the properties on that `<div>`.
     //!
     //! This generalises `ribbon`'s per-widget invariant test to every widget in
     //! the crate. Widgets that emit no text at all are still instantiated, so
@@ -609,8 +624,8 @@ mod label_convention {
             let found = inert_state_on(node);
             if !found.is_empty() {
                 bad.push(format!(
-                    "{widget}: text node {:?} carries {} — move it onto a wrapping <p> \
-                     (or onto the styled <div> that already boxes it)",
+                    "{widget}: text node {:?} carries {} — move it onto a wrapping <p> (or onto \
+                     the styled <div> that already boxes it)",
                     text.as_ref().as_str(),
                     found.join(" + "),
                 ));
@@ -690,15 +705,14 @@ mod label_convention {
     /// its label paths (a widget with no labels proves nothing).
     ///
     /// NOT in this list, and why:
-    /// * `camera` / `microphone` / `screencap` / `video` — each `dom()` emits a
-    ///   single replaced `<img>` (or nothing) fed by a background worker and
-    ///   needs a device/GL config to construct; they contain no text node at
-    ///   all, so there is nothing for this convention to govern.
-    /// * `menubar` — a free function over a window `Menu`, not a `dom()` widget;
-    ///   its bar items are already `div > bare text`.
-    /// * `map`'s tile labels — emitted from the `VirtualView` render callback,
-    ///   not from `dom()`, so the walk cannot reach them; they were converted by
-    ///   hand and are pinned by the map widget's own tests.
+    /// * `camera` / `microphone` / `screencap` / `video` — each `dom()` emits a single replaced
+    ///   `<img>` (or nothing) fed by a background worker and needs a device/GL config to construct;
+    ///   they contain no text node at all, so there is nothing for this convention to govern.
+    /// * `menubar` — a free function over a window `Menu`, not a `dom()` widget; its bar items are
+    ///   already `div > bare text`.
+    /// * `map`'s tile labels — emitted from the `VirtualView` render callback, not from `dom()`, so
+    ///   the walk cannot reach them; they were converted by hand and are pinned by the map widget's
+    ///   own tests.
     pub(super) fn every_widget_dom() -> Vec<(&'static str, Dom)> {
         use super::{
             accordion::{Accordion, AccordionSection, AccordionSectionVec},
@@ -954,3 +968,4 @@ mod label_convention {
         assert!(bad[0].contains("tab_index"), "{}", bad[0]);
     }
 }
+pub mod themes;

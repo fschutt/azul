@@ -1494,8 +1494,8 @@ mod size_query_tests {
         assert_eq!(recorded.len(), size_query_recorder::SIZE_QUERY_CAP);
         assert!(
             overflowed,
-            "past the cap the drain MUST say the list is incomplete — silence \
-             here is a resize skipping a layout() that would have branched"
+            "past the cap the drain MUST say the list is incomplete — silence here is a resize \
+             skipping a layout() that would have branched"
         );
         // And the latch itself resets with the drain.
         let (_, overflowed2) = drain();

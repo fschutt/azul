@@ -64,10 +64,12 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{ArgRefKind, CodegenIR, EnumDef, FunctionDef, StructDef, TypeCategory};
-use super::managed_host_invoker::{has_return, host_invoker_kinds, managed_c_symbol, wrapper_name};
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FunctionDef, StructDef, TypeCategory},
+    managed_host_invoker::{has_return, host_invoker_kinds, managed_c_symbol, wrapper_name},
+};
 
 /// Base library name (without extension). Resolved per-platform to
 /// `azul.dll` / `libazul.dylib` / `libazul.so` by the `#either OS` block.
@@ -238,7 +240,7 @@ fn field_type_token(type_name: &str, ref_kind: super::ir::FieldRefKind, ir: &Cod
         | FieldRefKind::PtrMut
         | FieldRefKind::Boxed
         | FieldRefKind::OptionBoxed => "byte-ptr!".to_string(),
-        FieldRefKind::Owned => map_owned_type(type_name, ir, /*as_field=*/ true),
+        FieldRefKind::Owned => map_owned_type(type_name, ir, /* as_field= */ true),
     }
 }
 

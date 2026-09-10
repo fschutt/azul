@@ -194,11 +194,13 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             ));
             out.push(Strategy::new(
                 "garbage",
-                "garbage / malformed input (random non-grammar bytes) returns Err/None, never panics",
+                "garbage / malformed input (random non-grammar bytes) returns Err/None, never \
+                 panics",
             ));
             out.push(Strategy::new(
                 "extremely_long",
-                "extremely long input (e.g. 1_000_000 chars / repeated token) does not panic or hang",
+                "extremely long input (e.g. 1_000_000 chars / repeated token) does not panic or \
+                 hang",
             ));
             if takes_bytes {
                 out.push(Strategy::new(
@@ -208,19 +210,23 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             }
             out.push(Strategy::new(
                 "boundary_numbers",
-                "boundary numeric strings (\"0\", \"-0\", i64::MAX, f64 huge/tiny, \"NaN\", \"inf\")",
+                "boundary numeric strings (\"0\", \"-0\", i64::MAX, f64 huge/tiny, \"NaN\", \
+                 \"inf\")",
             ));
             out.push(Strategy::new(
                 "leading_trailing_junk",
-                "leading/trailing junk (\"  valid  \", \"valid;garbage\") is rejected or trimmed deterministically",
+                "leading/trailing junk (\"  valid  \", \"valid;garbage\") is rejected or trimmed \
+                 deterministically",
             ));
             out.push(Strategy::new(
                 "unicode",
-                "non-ASCII / multibyte unicode input (e.g. \"\\u{1F600}\", combining marks) does not panic",
+                "non-ASCII / multibyte unicode input (e.g. \"\\u{1F600}\", combining marks) does \
+                 not panic",
             ));
             out.push(Strategy::new(
                 "nested_recursion",
-                "deeply nested / recursive input (e.g. 10_000 nested brackets) does not stack-overflow",
+                "deeply nested / recursive input (e.g. 10_000 nested brackets) does not \
+                 stack-overflow",
             ));
             out.push(Strategy::new(
                 "valid_minimal",
@@ -267,7 +273,8 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             if f.name == "default" || f.name == "empty" || f.name == "zero" {
                 out.push(Strategy::new(
                     "default_is_neutral",
-                    "default/empty/zero value behaves as a neutral element (is_empty()/len()==0 where applicable)",
+                    "default/empty/zero value behaves as a neutral element (is_empty()/len()==0 \
+                     where applicable)",
                 ));
             }
         }
@@ -278,7 +285,8 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             ));
             out.push(Strategy::new(
                 "edge_inputs",
-                "edge inputs (empty, default, boundary) return a deterministic bool without panicking",
+                "edge inputs (empty, default, boundary) return a deterministic bool without \
+                 panicking",
             ));
         }
         Category::Getter => {
@@ -303,7 +311,8 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             ));
             out.push(Strategy::new(
                 "overflow",
-                "saturating/wrapping behavior at overflow is as documented (no debug-panic surprises)",
+                "saturating/wrapping behavior at overflow is as documented (no debug-panic \
+                 surprises)",
             ));
             if has_float_arg(f) {
                 out.push(Strategy::new(

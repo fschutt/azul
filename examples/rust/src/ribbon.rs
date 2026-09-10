@@ -8,14 +8,16 @@
 // restyled through its public style fields (`RibbonStyle::styled_combo_box`).
 // Icons come from the builtin Material Icons pack via `<icon>` nodes.
 
-use azul::css::ColorU;
-use azul::dialog::{
-    ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult, MsgBox, MsgBoxIcon, YesNo,
+use azul::{
+    css::ColorU,
+    dialog::{
+        ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult, MsgBox, MsgBoxIcon, YesNo,
+    },
+    dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback},
+    option::{OptionColorU, OptionFileTypeList, OptionString},
+    prelude::*,
+    widgets::*,
 };
-use azul::dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback};
-use azul::option::{OptionColorU, OptionFileTypeList, OptionString};
-use azul::prelude::*;
-use azul::widgets::*;
 
 #[derive(Clone)]
 struct DocState {
@@ -489,8 +491,8 @@ fn qat_icon(name: &str) -> Dom {
 fn title_bar() -> Dom {
     let word_logo = Dom::create_div()
         .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 22px; \
-             height: 22px; background: #2b579a; margin-right: 10px;",
+            "display: flex; align-items: center; justify-content: center; width: 22px; height: \
+             22px; background: #2b579a; margin-right: 10px;",
         )
         .with_child(Dom::create_div_with_text("W").with_css("font-size: 13px; color: white;"));
 
@@ -525,8 +527,8 @@ fn title_bar() -> Dom {
 
     Dom::create_div()
         .with_css(
-            "display: flex; flex-direction: row; align-items: center; height: 30px; \
-             background: white; padding-left: 8px; padding-right: 8px; flex-grow: 0;",
+            "display: flex; flex-direction: row; align-items: center; height: 30px; background: \
+             white; padding-left: 8px; padding-right: 8px; flex-grow: 0;",
         )
         .with_child(left)
         .with_child(title)
@@ -564,8 +566,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     Dom::create_body()
         .with_css(
-            "display: flex; flex-direction: column; background: white; margin: 0; \
-             padding: 0; font-family: system:ui; font-size: 12px; color: #444444;",
+            "display: flex; flex-direction: column; background: white; margin: 0; padding: 0; \
+             font-family: system:ui; font-size: 12px; color: #444444;",
         )
         .with_child(title_bar())
         .with_child(if info.viewport_bigger_than(720.0) {

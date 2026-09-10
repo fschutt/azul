@@ -25,9 +25,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::CssPropertyWithConditions;
-use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -415,7 +414,8 @@ impl TimePicker {
 
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
     /// re-clamping the hour into the new range.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render
+                                                                       // numeric cast
     pub fn set_24h(&mut self, is_24h: bool) {
         self.state.inner.is_24h = is_24h;
         let (lo, hi) = self.state.inner.hour_bounds();
@@ -620,7 +620,8 @@ fn build_spinner(
 /// Shared spinner logic: clamps the targeted field, re-texts the display node
 /// (the middle child of the clicked arrow's parent spinner), and fires the
 /// optional `on_change`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 fn adjust_spinner(data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
     // The clicked node is an arrow `<p>`; its parent is the spinner.
     let hit = info.get_hit_node();

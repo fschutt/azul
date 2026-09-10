@@ -10,23 +10,27 @@
 //! - `GET /az/font/{id}` — collected fonts
 //! - `POST /az/exec/{node_id}` — server-side callback execution (Phase 0)
 
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader, Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use azul_core::callbacks::{CoreCallback, LayoutCallback};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
+use azul_core::{
+    callbacks::{CoreCallback, LayoutCallback},
+    refany::RefAny,
+    resources::AppConfig,
+};
 use azul_layout::window_state::FullWindowState;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::config::WebConfig;
-use super::html_render::{CollectedFont, CollectedImage};
-use super::loader_js;
-use super::{BoundaryWasm, CallbackWasm, LayoutWasm};
+use super::{
+    config::WebConfig,
+    html_render::{CollectedFont, CollectedImage},
+    loader_js, BoundaryWasm, CallbackWasm, LayoutWasm,
+};
 
 /// Pre-rendered route data.
 pub struct RenderedRoute {
@@ -347,12 +351,10 @@ fn handle_connection(
         //
         // Pipeline:
         //   1. Parse `node_id` from `/az/exec/{node_id}`.
-        //   2. Locate the source route via the `Referer` header so we can
-        //      pick the right per-route `callback_index` (different routes
-        //      reuse the same `az_N` IDs).
-        //   3. Look up the user `Callback`. If found, invoke it with a
-        //      Phase 0 `CallbackInfo` skeleton — enough plumbing to mutate
-        //      `RefAny` app state, which is the common case.
+        //   2. Locate the source route via the `Referer` header so we can pick the right per-route
+        //      `callback_index` (different routes reuse the same `az_N` IDs).
+        //   3. Look up the user `Callback`. If found, invoke it with a Phase 0 `CallbackInfo`
+        //      skeleton — enough plumbing to mutate `RefAny` app state, which is the common case.
         //   4. Re-run layout via `re_render_body` and return the new HTML.
         ("POST", p) if p.starts_with("/az/exec/") => {
             // Auth check: when `auth_token` is configured, require a
@@ -534,19 +536,21 @@ fn try_invoke_callback(
 ) -> azul_core::callbacks::Update {
     use std::collections::BTreeMap;
 
-    use azul_core::callbacks::Update;
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::geom::OptionLogicalPosition;
-    use azul_core::gl::OptionGlContextPtr;
-    use azul_core::id::NodeId;
-    use azul_core::resources::RendererResources;
-    use azul_core::styled_dom::NodeHierarchyItemId;
-    use azul_core::window::{MonitorVec, RawWindowHandle, WebHandle};
-    use azul_css::system::SystemStyle;
-    use azul_layout::callbacks::{
-        Callback, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks,
+    use azul_core::{
+        callbacks::Update,
+        dom::{DomId, DomNodeId},
+        geom::OptionLogicalPosition,
+        gl::OptionGlContextPtr,
+        id::NodeId,
+        resources::RendererResources,
+        styled_dom::NodeHierarchyItemId,
+        window::{MonitorVec, RawWindowHandle, WebHandle},
     };
-    use azul_layout::window::LayoutWindow;
+    use azul_css::system::SystemStyle;
+    use azul_layout::{
+        callbacks::{Callback, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks},
+        window::LayoutWindow,
+    };
 
     let cb = Callback::from_core(core_cb.clone());
 
@@ -686,10 +690,13 @@ fn send_response_inner(
         ""
     };
 
-    let response =
-        format!(
+    let response = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n",
-        status, status_text, content_type, body.len(), cache_header
+        status,
+        status_text,
+        content_type,
+        body.len(),
+        cache_header
     );
 
     stream
@@ -796,8 +803,8 @@ fn send_response_encoded(
         None => String::new(),
     };
     let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
-         Cache-Control: public, max-age=31536000, immutable\r\n{}Connection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: public, \
+         max-age=31536000, immutable\r\n{}Connection: close\r\n\r\n",
         status,
         status_text,
         content_type,

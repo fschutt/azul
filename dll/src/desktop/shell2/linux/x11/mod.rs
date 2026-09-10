@@ -5,15 +5,15 @@
 //! EGL/WebRender or CPU fallback), IME, tooltips, and native GNOME menus.
 //!
 //! Event loop entry points:
-//! - [`X11Window::poll_event`] — non-blocking event poll used in the active
-//!   rendering loop.
-//! - [`X11Window::wait_for_events`] — blocking poll (via `poll(2)`) used when
-//!   idle, also watches timerfd file descriptors.
-//! - [`X11Window::render_and_present`] — full render cycle: layout
-//!   regeneration, WebRender update, and buffer swap (GPU) or XPutImage (CPU).
+//! - [`X11Window::poll_event`] — non-blocking event poll used in the active rendering loop.
+//! - [`X11Window::wait_for_events`] — blocking poll (via `poll(2)`) used when idle, also watches
+//!   timerfd file descriptors.
+//! - [`X11Window::render_and_present`] — full render cycle: layout regeneration, WebRender update,
+//!   and buffer swap (GPU) or XPutImage (CPU).
+
+use azul_layout::solver3::LayoutNodeId;
 
 use crate::impl_platform_window_getters;
-use azul_layout::solver3::LayoutNodeId;
 
 pub mod accessibility;
 pub mod clipboard;
@@ -69,16 +69,17 @@ use crate::desktop::shell2::common::debug_server::LogCategory;
 /// is done at frame rate.
 pub(super) static CONFIGURES_SEEN: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(0);
-use crate::desktop::{
-    shell2::common::{
-        event::{self, HitTestNode, PlatformWindow},
-        WindowError,
-    },
-    wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
-};
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
-
 use super::super::common::CSS_BREAKPOINTS;
+use crate::{
+    desktop::{
+        shell2::common::{
+            event::{self, HitTestNode, PlatformWindow},
+            WindowError,
+        },
+        wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
+    },
+    log_debug, log_error, log_info, log_trace, log_warn,
+};
 
 /// Fallback background color (blue) used when CPU rendering is not available.
 const CPU_FALLBACK_BG_COLOR: std::os::raw::c_ulong = 0x0000FF;
@@ -245,11 +246,11 @@ fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
 /// right physical window size.
 ///
 /// Priority:
-/// 1. `Xft.dpi` from the X resource database (the standard X11 UI-scale knob,
-///    set by GNOME/KDE/xrdb).
-/// 2. The monitor cache's `scale_factor` (XRandR/EDID mm-based estimate),
-///    quantized to 25% steps so measurement noise on ordinary monitors
-///    (e.g. a computed 1.04) stays exactly at scale 1.0 / dpi 96.
+/// 1. `Xft.dpi` from the X resource database (the standard X11 UI-scale knob, set by
+///    GNOME/KDE/xrdb).
+/// 2. The monitor cache's `scale_factor` (XRandR/EDID mm-based estimate), quantized to 25% steps so
+///    measurement noise on ordinary monitors (e.g. a computed 1.04) stays exactly at scale 1.0 /
+///    dpi 96.
 /// 3. 96 (scale 1.0).
 fn detect_initial_dpi(xlib: &Xlib, display: *mut Display) -> u32 {
     // 1. Xft.dpi from the RESOURCE_MANAGER property (xrdb database).
@@ -305,14 +306,13 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
 ///
 /// TWO traps, both of which produce silent garbage rather than an error:
 ///
-/// 1. **`format = 32` does NOT mean 4 bytes here.** Xlib's `XChangeProperty`
-///    reads `data` as an array of C `long`, which is EIGHT bytes on LP64. Passing
-///    a `&[u32]` makes the server read two pixels per element and render noise or
-///    nothing. Hence `c_ulong` and the zero-extend below. (XCB is exempt - it
-///    takes raw bytes - which is why ports between the two keep reintroducing
+/// 1. **`format = 32` does NOT mean 4 bytes here.** Xlib's `XChangeProperty` reads `data` as an
+///    array of C `long`, which is EIGHT bytes on LP64. Passing a `&[u32]` makes the server read two
+///    pixels per element and render noise or nothing. Hence `c_ulong` and the zero-extend below.
+///    (XCB is exempt - it takes raw bytes - which is why ports between the two keep reintroducing
 ///    this.) The same trap is noted on the `_NET_WM_WINDOW_TYPE` write.
-/// 2. **Channel order is ARGB packed into the word, not the RGBA byte order we
-///    are handed.** The alpha is straight, not premultiplied.
+/// 2. **Channel order is ARGB packed into the word, not the RGBA byte order we are handed.** The
+///    alpha is straight, not premultiplied.
 unsafe fn apply_net_wm_icon(
     xlib: &Xlib,
     display: *mut defines::Display,
@@ -891,8 +891,8 @@ fn init_xinput2(
                 // Only symptom otherwise: touchscreens and pens just don't
                 // work (mouse still does, via core events).
                 crate::plog_warn!(
-                    "[X11] libXi could not be loaded ({:?}) — XInput2 disabled, \
-                     touch/pen input will NOT work in this window",
+                    "[X11] libXi could not be loaded ({:?}) — XInput2 disabled, touch/pen input \
+                     will NOT work in this window",
                     e
                 );
                 return (
@@ -1181,7 +1181,11 @@ fn init_xinput2(
                             // by sourceid, which is this).
                             device_id: dev.deviceid as u64,
                             capabilities: caps,
-                            pressure_max: if pen.pressure >= 0 { pen.pressure_max as f32 } else { 0.0 },
+                            pressure_max: if pen.pressure >= 0 {
+                                pen.pressure_max as f32
+                            } else {
+                                0.0
+                            },
                             physical_width_mm: phys_w_mm,
                             physical_height_mm: phys_h_mm,
                             num_buttons,
@@ -1189,11 +1193,7 @@ fn init_xinput2(
                         });
                     }
                 }
-                if pen.pressure >= 0
-                    || pen.tilt_x >= 0
-                    || pen.tilt_y >= 0
-                    || pen.distance >= 0
-                {
+                if pen.pressure >= 0 || pen.tilt_x >= 0 || pen.tilt_y >= 0 || pen.distance >= 0 {
                     map.insert(dev.deviceid, pen);
                 }
                 if is_eraser {
@@ -1759,7 +1759,8 @@ impl X11Window {
             }
             (keymap, state)
         };
-        self.seat_keymaps.insert(deviceid, SeatXkb { keymap, state });
+        self.seat_keymaps
+            .insert(deviceid, SeatXkb { keymap, state });
         Some(state)
     }
 
@@ -1897,9 +1898,9 @@ impl X11Window {
                 };
                 let text = if is_down {
                     // `c_char` is `i8` on x86 and `u8` on arm, riscv and powerpc, and
-            // `XLookupString` takes `*mut c_char` — typed as `i8` this only
-            // compiles where the two happen to coincide.
-            let mut buffer = [0 as core::ffi::c_char; 32];
+                    // `XLookupString` takes `*mut c_char` — typed as `i8` this only
+                    // compiles where the two happen to coincide.
+                    let mut buffer = [0 as core::ffi::c_char; 32];
                     let len = (xkb.xkb_state_key_get_utf8)(
                         xkb_state,
                         keycode,
@@ -1923,52 +1924,53 @@ impl X11Window {
         let (vk, text) = if let Some(found) = per_device {
             found
         } else {
-        let vk = self
-            .unmodified_keysym(keycode)
-            .and_then(events::keysym_to_virtual_keycode);
+            let vk = self
+                .unmodified_keysym(keycode)
+                .and_then(events::keysym_to_virtual_keycode);
 
-        let text = if is_down {
-            let mut key_event = defines::XKeyEvent {
-                type_: defines::KeyPress,
-                serial: ev.serial,
-                send_event: 0,
-                display: self.display,
-                window: ev.event,
-                root: ev.root,
-                subwindow: 0,
-                time: ev.time,
-                x: ev.event_x as c_int,
-                y: ev.event_y as c_int,
-                x_root: ev.root_x as c_int,
-                y_root: ev.root_y as c_int,
-                state,
-                keycode,
-                same_screen: 1,
-            };
-            let mut keysym: defines::KeySym = 0;
-            // `c_char` is `i8` on x86 and `u8` on arm, riscv and powerpc, and
-            // `XLookupString` takes `*mut c_char` — typed as `i8` this only
-            // compiles where the two happen to coincide.
-            let mut buffer = [0 as core::ffi::c_char; 32];
-            let count = unsafe {
-                (self.xlib.XLookupString)(
-                    &mut key_event,
-                    buffer.as_mut_ptr(),
-                    buffer.len() as i32,
-                    &mut keysym,
-                    std::ptr::null_mut(),
-                )
-            };
-            if count > 0 {
-                let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
-                Some(String::from_utf8_lossy(&bytes).into_owned())
+            let text = if is_down {
+                let mut key_event = defines::XKeyEvent {
+                    type_: defines::KeyPress,
+                    serial: ev.serial,
+                    send_event: 0,
+                    display: self.display,
+                    window: ev.event,
+                    root: ev.root,
+                    subwindow: 0,
+                    time: ev.time,
+                    x: ev.event_x as c_int,
+                    y: ev.event_y as c_int,
+                    x_root: ev.root_x as c_int,
+                    y_root: ev.root_y as c_int,
+                    state,
+                    keycode,
+                    same_screen: 1,
+                };
+                let mut keysym: defines::KeySym = 0;
+                // `c_char` is `i8` on x86 and `u8` on arm, riscv and powerpc, and
+                // `XLookupString` takes `*mut c_char` — typed as `i8` this only
+                // compiles where the two happen to coincide.
+                let mut buffer = [0 as core::ffi::c_char; 32];
+                let count = unsafe {
+                    (self.xlib.XLookupString)(
+                        &mut key_event,
+                        buffer.as_mut_ptr(),
+                        buffer.len() as i32,
+                        &mut keysym,
+                        std::ptr::null_mut(),
+                    )
+                };
+                if count > 0 {
+                    let bytes: Vec<u8> =
+                        buffer[..count as usize].iter().map(|b| *b as u8).collect();
+                    Some(String::from_utf8_lossy(&bytes).into_owned())
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
-        (vk, text)
+            };
+            (vk, text)
         };
 
         let prev_snapshot = self.common.current_window_state().clone();
@@ -2018,7 +2020,9 @@ unsafe fn classify_xi_device(
             let d = &*info;
             if !d.name.is_null() {
                 if let Ok(name) = std::ffi::CStr::from_ptr(d.name).to_str() {
-                    kind = crate::desktop::shell2::common::event::pointer_source_from_device_name(name);
+                    kind = crate::desktop::shell2::common::event::pointer_source_from_device_name(
+                        name,
+                    );
                 }
             }
         }
@@ -2436,6 +2440,7 @@ fn handle_secondary_seat_pointer(
         events::{MouseButton, MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD},
         window::CursorPosition,
     };
+
     use crate::desktop::shell2::common::event::{apply_pointer_button_state, PlatformWindow};
 
     match ev.evtype {
@@ -2488,10 +2493,9 @@ fn handle_secondary_seat_pointer(
             // Smooth scroll rides on XI_Motion valuators for this seat's
             // device too (9b-ii-b); `decode_smooth_scroll` keys by sourceid,
             // so it answers for whichever device drove this seat.
-            let scrolled = unsafe { decode_smooth_scroll(win, ev) }
-                .map(|(dx, dy, continuous)| {
-                    win.handle_scroll_input_for_seat(seat_id, dx, dy, pos, continuous)
-                });
+            let scrolled = unsafe { decode_smooth_scroll(win, ev) }.map(|(dx, dy, continuous)| {
+                win.handle_scroll_input_for_seat(seat_id, dx, dy, pos, continuous)
+            });
             win.snapshot_window_state_baseline("x11.seat.motion");
             win.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
             win.update_seat_hit_test_at(seat_id, pos);
@@ -2672,8 +2676,10 @@ pub struct X11Window {
     master_keyboards: std::collections::HashMap<c_int, c_int>,
     /// Per-seat scancode -> keycode maps for the non-primary seats
     /// (`pressed_key_vks` is the primary's).
-    seat_pressed_key_vks:
-        std::collections::HashMap<u64, std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>>,
+    seat_pressed_key_vks: std::collections::HashMap<
+        u64,
+        std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+    >,
     /// deviceid -> smooth-scroll (XI2.1) axes of that device.
     scroll_valuators: std::collections::HashMap<c_int, ScrollAxes>,
     /// Slave device ids that are the ERASER end of a stylus, by device name.
@@ -3339,7 +3345,8 @@ impl X11Window {
         // keeps its hotplug-only invalidation.
         let xkb_event_base: c_int = match (xlib.XkbQueryExtension, xlib.XkbSelectEvents) {
             (Some(query), Some(select)) => {
-                let (mut opcode, mut event_base, mut error_base) = (0 as c_int, 0 as c_int, 0 as c_int);
+                let (mut opcode, mut event_base, mut error_base) =
+                    (0 as c_int, 0 as c_int, 0 as c_int);
                 let (mut major, mut minor) = (1 as c_int, 0 as c_int);
                 let ok = unsafe {
                     (query)(
@@ -3375,8 +3382,8 @@ impl X11Window {
                 // Only symptom otherwise: transparent windows silently render
                 // opaque (ARGB visual detection short-circuits on the None).
                 crate::plog_warn!(
-                    "[X11] libXrender could not be loaded ({:?}) — ARGB visual \
-                     detection disabled, transparent windows will render opaque",
+                    "[X11] libXrender could not be loaded ({:?}) — ARGB visual detection \
+                     disabled, transparent windows will render opaque",
                     e
                 );
                 None
@@ -3684,9 +3691,10 @@ impl X11Window {
                         Ok(f) => f,
                         Err(e) => {
                             crate::plog_warn!(
-                            "[X11] GL function loading failed: {:?} — falling back to CPU rendering",
-                            e
-                        );
+                                "[X11] GL function loading failed: {:?} — falling back to CPU \
+                                 rendering",
+                                e
+                            );
                             let gc = unsafe {
                                 (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
                             };
@@ -3804,9 +3812,9 @@ impl X11Window {
                     let gl_usable = gl_ptr.is_gl_usable();
                     if matches!(renderer_type, RendererType::Hardware) && !gl_usable {
                         crate::plog_warn!(
-                        "[X11] GL context unusable (shaders failed to compile at any GLSL version) \
-                         — falling back to CPU rendering for this window"
-                    );
+                            "[X11] GL context unusable (shaders failed to compile at any GLSL \
+                             version) — falling back to CPU rendering for this window"
+                        );
                         drop(gl_ptr);
                         let gc = unsafe {
                             (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
@@ -4464,8 +4472,9 @@ impl X11Window {
     /// Uses `poll(2)` to wait on both the X11 connection fd and any active
     /// timerfd file descriptors simultaneously.
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
-        use super::super::common::event::PlatformWindow;
         use std::mem;
+
+        use super::super::common::event::PlatformWindow;
 
         // Drain accessibility actions on EVERY loop wake-up, not just in the
         // render path — frames are skipped when nothing changed, so an action
@@ -4925,7 +4934,8 @@ impl X11Window {
                 let mtype = cm.message_type;
                 log_debug!(
                     LogCategory::Window,
-                    "[X11] handle_event: ClientMessage msg_atom={}, message_type={}, wm_delete_atom={}",
+                    "[X11] handle_event: ClientMessage msg_atom={}, message_type={}, \
+                     wm_delete_atom={}",
                     msg_atom,
                     mtype,
                     self.wm_delete_window_atom
@@ -5349,10 +5359,16 @@ impl X11Window {
                     // ConfigureNotify, so request a repaint explicitly (self-Expose,
                     // coalesced) — otherwise resize relayouts but never presents.
                     crate::plog_info!(
-                        "[X11] ConfigureNotify resize -> {}x{} (hidpi_factor={}): relayout + request_redraw",
+                        "[X11] ConfigureNotify resize -> {}x{} (hidpi_factor={}): relayout + \
+                         request_redraw",
                         new_width,
                         new_height,
-                        self.common.current_window_state().size.get_hidpi_factor().inner.get()
+                        self.common
+                            .current_window_state()
+                            .size
+                            .get_hidpi_factor()
+                            .inner
+                            .get()
                     );
                     self.request_redraw();
                 }
@@ -5501,7 +5517,8 @@ impl X11Window {
                     if other == event_base {
                         log_debug!(
                             LogCategory::Platform,
-                            "[X11] XRandR screen change detected (handle_event), refreshing monitor cache"
+                            "[X11] XRandR screen change detected (handle_event), refreshing \
+                             monitor cache"
                         );
                         // Refresh the cache AND report the hotplug. Only the
                         // cache was updated here, so `MonitorConnected` /
@@ -5974,8 +5991,8 @@ impl X11Window {
         // LogicalSize is already in scope (top-of-file `geom::{LogicalSize, ...}`).
         self.size_to_content_pending = false;
 
-        // 1. Lay out at a tiny viewport (narrower than any real menu) so block
-        //    children shrink to min/content width and the content overflows.
+        // 1. Lay out at a tiny viewport (narrower than any real menu) so block children shrink to
+        //    min/content width and the content overflows.
         let orig = self.common.current_window_state().size;
         let mut tiny = orig;
         tiny.dimensions = LogicalSize::new(16.0, 16.0);
@@ -6065,9 +6082,9 @@ impl X11Window {
                 (phys.width as u32).max(1),
                 (phys.height as u32).max(1),
             );
-            // 4. Map now (deferred from creation). The render_and_present that
-            //    follows in this same poll_event iteration lays out + presents at
-            //    final_size, so the popup never appears at the tiny measure size.
+            // 4. Map now (deferred from creation). The render_and_present that follows in this same
+            //    poll_event iteration lays out + presents at final_size, so the popup never appears
+            //    at the tiny measure size.
             (self.xlib.XMapWindow)(self.display, self.window);
             // XSync (not XFlush): block until the server has PROCESSED the map so the
             // window is viewable before we grab. XGrabPointer on a not-yet-viewable
@@ -6485,8 +6502,9 @@ impl X11Window {
             if let Some(gc) = gc {
                 #[cfg(feature = "cpurender")]
                 {
-                    use azul_core::dom::DomId;
                     use std::ffi::{c_char, c_uint};
+
+                    use azul_core::dom::DomId;
 
                     let mut rendered = false;
 
@@ -6616,8 +6634,12 @@ impl X11Window {
                                         self.common.current_window_state().size.get_physical_size();
                                     if pw != phys.width || ph != phys.height {
                                         crate::plog_warn!(
-                                            "[x11 cpu] pixmap {}x{} != window {}x{} — uncovered area will show black (R2)",
-                                            pw, ph, phys.width, phys.height
+                                            "[x11 cpu] pixmap {}x{} != window {}x{} — uncovered \
+                                             area will show black (R2)",
+                                            pw,
+                                            ph,
+                                            phys.width,
+                                            phys.height
                                         );
                                     }
 
@@ -6762,7 +6784,8 @@ impl X11Window {
                         // paint a solid fallback colour instead of the content,
                         // which flips with real frames as the black/white flicker.
                         crate::plog_warn!(
-                            "[x11 cpu] no rendered pixmap — painting solid fallback bg instead of content (R2 flicker suspect)"
+                            "[x11 cpu] no rendered pixmap — painting solid fallback bg instead of \
+                             content (R2 flicker suspect)"
                         );
                         // Fallback to solid rectangle if CPU rendering not yet available
                         unsafe {
@@ -6914,8 +6937,9 @@ impl X11Window {
                     }
                 }
 
-                // Process pending VirtualView updates (queued by ScrollTo -> check_and_queue_virtual_view_reinvoke).
-                // If present, we need a full display list rebuild rather than lightweight.
+                // Process pending VirtualView updates (queued by ScrollTo ->
+                // check_and_queue_virtual_view_reinvoke). If present, we need a
+                // full display list rebuild rather than lightweight.
                 let has_virtual_view_updates =
                     !layout_window.pending_virtual_view_updates.is_empty();
                 // display_list_dirty = the display list was regenerated
@@ -7046,7 +7070,8 @@ impl X11Window {
         }
 
         // Clean up old textures from previous epochs to prevent memory leak
-        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+        // This must happen AFTER render() and buffer swap when WebRender no longer needs the
+        // textures
         if let Some(ref layout_window) = self.common.layout_window {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
@@ -7100,8 +7125,9 @@ impl X11Window {
     /// This method applies the remaining fields and sets previous_window_state
     /// so that sync_window_state() works correctly for future changes.
     fn apply_initial_window_state(&mut self) {
-        use azul_core::window::WindowFrame;
         use std::ffi::CString;
+
+        use azul_core::window::WindowFrame;
 
         // Title — XStoreName is NOT called in new(), so we must apply it here
         {
@@ -7245,9 +7271,8 @@ impl X11Window {
                 display,
                 window,
                 1, // owner_events: ordinary events keep flowing to us
-                (defines::PointerMotionMask
-                    | defines::ButtonPressMask
-                    | defines::ButtonReleaseMask) as c_uint,
+                (defines::PointerMotionMask | defines::ButtonPressMask | defines::ButtonReleaseMask)
+                    as c_uint,
                 defines::GrabModeAsync,
                 defines::GrabModeAsync,
                 window, // confine_to — THE lock
@@ -7314,10 +7339,7 @@ impl X11Window {
     /// Reads the property back and applies it with `WindowStateSource::Os`, so
     /// the OS-sync baseline advances with it and `sync_window_state` does not
     /// echo the state straight back to the window manager.
-    fn handle_property_notify(
-        &mut self,
-        ev: &defines::XPropertyEvent,
-    ) -> ProcessEventResult {
+    fn handle_property_notify(&mut self, ev: &defines::XPropertyEvent) -> ProcessEventResult {
         let atoms = *self.net_wm_state_atoms.get_or_insert_with(|| {
             let intern = |name: &[u8]| -> Atom {
                 unsafe { (self.xlib.XInternAtom)(self.display, name.as_ptr().cast(), 0) }
@@ -7393,7 +7415,8 @@ impl X11Window {
             frame,
             self.common.current_window_state().flags.frame
         );
-        self.common.snapshot_window_state_baseline("x11.property_notify");
+        self.common
+            .snapshot_window_state_baseline("x11.property_notify");
         self.common.update_window_state(
             crate::desktop::shell2::common::event::WindowStateSource::Os,
             |ws| ws.flags.frame = frame,
@@ -7568,9 +7591,9 @@ impl X11Window {
     ///    transparent but rendered content stays fully opaque.
     ///    See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
     ///
-    /// 2. **Whole-window transparency** (if `has_argb_visual` is false):
-    ///    Uses `_NET_WM_WINDOW_OPACITY` which affects the entire window including
-    ///    rendered content. Useful for effects like fading tooltips in/out.
+    /// 2. **Whole-window transparency** (if `has_argb_visual` is false): Uses
+    ///    `_NET_WM_WINDOW_OPACITY` which affects the entire window including rendered content.
+    ///    Useful for effects like fading tooltips in/out.
     ///
     /// For blur effects: X11 has no standard blur protocol - depends on compositor
     /// (picom, compton, etc.). We use ~88% opacity as a fallback hint.
@@ -7589,13 +7612,20 @@ impl X11Window {
                     );
                 }
                 WindowBackgroundMaterial::Transparent => {
-                    log_debug!(LogCategory::Platform,
-                        "[X11/ARGB] Background material: Transparent (renderer should use alpha=0.0)");
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[X11/ARGB] Background material: Transparent (renderer should use \
+                         alpha=0.0)"
+                    );
                 }
                 _ => {
                     // For blur types, we could potentially set a hint opacity too
-                    log_debug!(LogCategory::Platform,
-                        "[X11/ARGB] Background material: {:?} (semi-transparent, renderer uses alpha<1.0)", material);
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[X11/ARGB] Background material: {:?} (semi-transparent, renderer uses \
+                         alpha<1.0)",
+                        material
+                    );
                 }
             }
             // Note: We don't set _NET_WM_WINDOW_OPACITY here because that would
@@ -7717,7 +7747,11 @@ impl PlatformWindow for X11Window {
             self.xext = match dlopen::Xext::new() {
                 Ok(x) => Some(x),
                 Err(e) => {
-                    crate::plog_warn!("[X11] libXext could not be loaded ({:?}) - shaped windows stay rectangular", e);
+                    crate::plog_warn!(
+                        "[X11] libXext could not be loaded ({:?}) - shaped windows stay \
+                         rectangular",
+                        e
+                    );
                     None
                 }
             };
@@ -8517,10 +8551,7 @@ impl X11Window {
             // breeze-dark as two directories, and the tint comes from the
             // palette. Re-read them BEFORE the relayout that repaints with
             // them, or the new palette is drawn around the old glyphs.
-            super::system_icons::refresh_system_icons(
-                &self.resources.icon_provider,
-                &new_style,
-            );
+            super::system_icons::refresh_system_icons(&self.resources.icon_provider, &new_style);
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);
@@ -9095,8 +9126,8 @@ mod map_and_configure_tests {
 
         assert_eq!(
             translations, 2,
-            "one round trip to seed the cache and one for the last configure \
-             of the burst — nothing in between"
+            "one round trip to seed the cache and one for the last configure of the burst — \
+             nothing in between"
         );
     }
 
@@ -9219,8 +9250,8 @@ mod x11_seam_tests {
         assert_ne!(
             X11_WINDOW_EVENT_MASK & defines::KeymapStateMask,
             0,
-            "without KeymapStateMask a key released while another window had \
-             focus stays held forever"
+            "without KeymapStateMask a key released while another window had focus stays held \
+             forever"
         );
         // The rest of the mask is what makes the window usable at all.
         for (bit, what) in [

@@ -13,12 +13,16 @@
 //! Every failure path returns `0` from `open()`, which makes the widget fall
 //! back to its test pattern — the backend can never take the app down.
 
-use std::collections::HashMap;
-use std::ffi::{c_char, c_int, c_void, CString};
-use std::os::fd::{IntoRawFd, OwnedFd};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    ffi::{c_char, c_int, c_void, CString},
+    os::fd::{IntoRawFd, OwnedFd},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+    },
+    time::Duration,
+};
 
 use super::dmabuf::{self, EglBackend, Plane};
 
@@ -219,8 +223,8 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
             // Most likely real-world total failure (headless session, root,
             // missing DBUS_SESSION_BUS_ADDRESS) — was completely silent.
             crate::plog_warn!(
-                "[screencap] no D-Bus session bus ({}) — the ScreenCast portal is \
-                 unreachable, screen capture cannot start",
+                "[screencap] no D-Bus session bus ({}) — the ScreenCast portal is unreachable, \
+                 screen capture cannot start",
                 e
             );
             return None;
@@ -295,8 +299,8 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
             // The portal GRANTED the stream and then refused the fd — without
             // this line the grant log above is the last thing ever printed.
             crate::plog_warn!(
-                "[screencap] OpenPipeWireRemote failed after the portal granted the \
-                 stream ({}) — screen capture cannot start",
+                "[screencap] OpenPipeWireRemote failed after the portal granted the stream ({}) — \
+                 screen capture cannot start",
                 e
             );
             return None;
@@ -963,9 +967,8 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         // This is THE line a user needs when the widget shows the test
         // pattern — it must not be gated on AZ_SCREENCAP_DEBUG.
         crate::plog_warn!(
-            "[screencap] xdg-desktop-portal ScreenCast handshake FAILED — falling \
-             back to the test pattern (details above; set AZ_SCREENCAP_DEBUG=1 for \
-             the full trace)"
+            "[screencap] xdg-desktop-portal ScreenCast handshake FAILED — falling back to the \
+             test pattern (details above; set AZ_SCREENCAP_DEBUG=1 for the full trace)"
         );
         scd!("portal handshake FAILED — falling back to test pattern");
         return 0;
@@ -974,8 +977,8 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
     // 2. PipeWire.
     let Some(pw) = PwLib::load() else {
         crate::plog_warn!(
-            "[screencap] libpipewire-0.3 could not be loaded — screen capture \
-             unavailable, falling back to the test pattern"
+            "[screencap] libpipewire-0.3 could not be loaded — screen capture unavailable, \
+             falling back to the test pattern"
         );
         scd!("libpipewire load FAILED");
         return 0;
@@ -996,10 +999,9 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         // without EGL every one of them is dropped and the stream stays
         // black — a fact that was previously visible only in scd!.
         crate::plog_warn!(
-            "[screencap] EGL dmabuf importer unavailable (libEGL/libGLESv2 or \
-             extensions missing) — offering shared-memory formats only; if the \
-             compositor insists on dmabuf, no frames will arrive (set \
-             AZ_SCREENCAP_DEBUG=1 for the EGL trace)"
+            "[screencap] EGL dmabuf importer unavailable (libEGL/libGLESv2 or extensions missing) \
+             — offering shared-memory formats only; if the compositor insists on dmabuf, no \
+             frames will arrive (set AZ_SCREENCAP_DEBUG=1 for the EGL trace)"
         );
     }
     scd!(
@@ -1214,11 +1216,10 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_com
         static NO_FRAME_YET: std::sync::Once = std::sync::Once::new();
         NO_FRAME_YET.call_once(|| {
             crate::plog_warn!(
-                "[screencap] no frame within 1s of the first read — idling \
-                 while the stream negotiates. If this persists, the compositor \
-                 granted the stream but is not delivering (e.g. dmabuf-only formats \
-                 with the EGL importer unavailable); set AZ_SCREENCAP_DEBUG=1 for the \
-                 negotiation trace"
+                "[screencap] no frame within 1s of the first read — idling while the stream \
+                 negotiates. If this persists, the compositor granted the stream but is not \
+                 delivering (e.g. dmabuf-only formats with the EGL importer unavailable); set \
+                 AZ_SCREENCAP_DEBUG=1 for the negotiation trace"
             );
         });
         return CaptureRead::Idle;

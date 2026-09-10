@@ -1754,9 +1754,9 @@ mod autotest_generated {
 
         assert!(
             panicked.is_empty(),
-            "typing a digit into a NumberInput whose [min, max] range is inverted or \
-             NaN-bounded panics (f32::clamp asserts min <= max) instead of rejecting \
-             the input; offending ranges: {panicked:?}",
+            "typing a digit into a NumberInput whose [min, max] range is inverted or NaN-bounded \
+             panics (f32::clamp asserts min <= max) instead of rejecting the input; offending \
+             ranges: {panicked:?}",
         );
     }
 

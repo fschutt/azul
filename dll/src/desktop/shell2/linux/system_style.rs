@@ -2,13 +2,13 @@
 //!
 //! Strategy (in order of preference):
 //!
-//! 1. **XDG Desktop Portal** via raw D-Bus (no external crates needed).
-//!    The portal method `org.freedesktop.portal.Settings.Read` is available
-//!    on GNOME 42+, KDE Plasma 6, Sway, Hyprland (via xdg-desktop-portal-gtk
-//!    or -wlr).  This gives us the colour-scheme, accent colour, and more.
+//! 1. **XDG Desktop Portal** via raw D-Bus (no external crates needed). The portal method
+//!    `org.freedesktop.portal.Settings.Read` is available on GNOME 42+, KDE Plasma 6, Sway,
+//!    Hyprland (via xdg-desktop-portal-gtk or -wlr).  This gives us the colour-scheme, accent
+//!    colour, and more.
 //!
-//! 2. **CLI discovery** — spawning `kreadconfig5` for KDE, `gsettings` for
-//!    GNOME, or parsing Hyprland/Sway/i3/pywal configs for riced desktops.
+//! 2. **CLI discovery** — spawning `kreadconfig5` for KDE, `gsettings` for GNOME, or parsing
+//!    Hyprland/Sway/i3/pywal configs for riced desktops.
 //!
 //! 3. **Hardcoded defaults** — `defaults::gnome_adwaita_light()`.
 //!
@@ -17,17 +17,21 @@
 //! implementation of the D-Bus wire protocol.  This avoids pulling in `zbus`
 //! or `dbus` as a dependency.
 
-use alloc::boxed::Box;
-use alloc::string::String;
-use azul_css::corety::{AzString, OptionF32, OptionString};
-use azul_css::css::Css;
-use azul_css::dynamic_selector::{BoolCondition, OsFamily, OsVersion};
-use azul_css::parser2::new_from_str;
-use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
-use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
-use azul_css::system::{
-    defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility, SubpixelType,
-    SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
+use alloc::{boxed::Box, string::String};
+
+use azul_css::{
+    corety::{AzString, OptionF32, OptionString},
+    css::Css,
+    dynamic_selector::{BoolCondition, OsFamily, OsVersion},
+    parser2::new_from_str,
+    props::basic::{
+        color::{parse_css_color, ColorU, OptionColorU},
+        pixel::{OptionPixelValue, PixelValue},
+    },
+    system::{
+        defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility,
+        SubpixelType, SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
+    },
 };
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -86,9 +90,7 @@ fn send_all_nosignal(
 ///   0 = no preference, 1 = dark, 2 = light.
 /// Returns `None` if the portal is unavailable.
 fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
-    use std::io::Read;
-    use std::os::unix::net::UnixStream;
-    use std::time::Duration;
+    use std::{io::Read, os::unix::net::UnixStream, time::Duration};
 
     // Connect to session D-Bus
     let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
@@ -582,8 +584,10 @@ fn discover_shared_behaviour(style: &mut SystemStyle) {
 /// Returns `Err(())` if the process fails to spawn, exits non-zero, or the
 /// timeout expires.
 fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Result<String, ()> {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
 
     let mut child = Command::new(program)
         .args(args)
@@ -821,14 +825,36 @@ pub(crate) enum LinuxSettingsSource {
 
 /// The desktops whose settings live in GNOME's schemas under another name.
 const GSETTINGS_DESKTOPS: &[&str] = &[
-    "cinnamon", "mate", "unity", "budgie", "gnome-classic", "gnome-flashback", "pantheon",
+    "cinnamon",
+    "mate",
+    "unity",
+    "budgie",
+    "gnome-classic",
+    "gnome-flashback",
+    "pantheon",
 ];
 
 /// Riced/tiling sessions - no settings daemon, so the GTK file and the
 /// environment are the whole story.
 const RICED_DESKTOPS: &[&str] = &[
-    "hyprland", "sway", "i3", "river", "wayfire", "awesome", "bspwm", "dwm", "qtile", "xmonad",
-    "openbox", "fluxbox", "icewm", "herbstluftwm", "spectrwm", "niri", "labwc", "none+i3",
+    "hyprland",
+    "sway",
+    "i3",
+    "river",
+    "wayfire",
+    "awesome",
+    "bspwm",
+    "dwm",
+    "qtile",
+    "xmonad",
+    "openbox",
+    "fluxbox",
+    "icewm",
+    "herbstluftwm",
+    "spectrwm",
+    "niri",
+    "labwc",
+    "none+i3",
 ];
 
 /// Resolve the store from the DESKTOP, not from whichever store happens to
@@ -2406,8 +2432,7 @@ fn publish_color_scheme(scheme: u32) {
     if color_scheme_to_theme(scheme).is_none() {
         return;
     }
-    let previous =
-        OBSERVED_COLOR_SCHEME.swap(scheme as u8, core::sync::atomic::Ordering::Relaxed);
+    let previous = OBSERVED_COLOR_SCHEME.swap(scheme as u8, core::sync::atomic::Ordering::Relaxed);
     if previous == scheme as u8 {
         return;
     }
@@ -2474,8 +2499,7 @@ const PORTAL_BACKSTOP_INTERVAL: core::time::Duration = core::time::Duration::fro
 /// portal went away" from "there is no session bus here" when choosing a
 /// backoff.
 fn watch_portal_color_scheme() -> Option<()> {
-    use std::io::Read;
-    use std::os::unix::net::UnixStream;
+    use std::{io::Read, os::unix::net::UnixStream};
 
     let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
     let path = bus_addr.strip_prefix("unix:path=")?.split(',').next()?;
@@ -2486,7 +2510,9 @@ fn watch_portal_color_scheme() -> Option<()> {
     // The read timeout IS the backstop interval: a wait that ends without a
     // message means "nothing happened for 30s", which is exactly when the
     // backstop `Read` should go out.
-    stream.set_read_timeout(Some(PORTAL_BACKSTOP_INTERVAL)).ok()?;
+    stream
+        .set_read_timeout(Some(PORTAL_BACKSTOP_INTERVAL))
+        .ok()?;
 
     let uid = unsafe { libc_getuid() };
     let auth_msg = alloc::format!("\0AUTH EXTERNAL {}\r\nBEGIN\r\n", hex_encode_uid(uid));
@@ -2742,10 +2768,10 @@ impl<'a> DbusMessage<'a> {
 /// The colour-scheme value carried by `msg`, if `msg` carries one.
 ///
 /// Two shapes reach here and both are accepted:
-///   * the SIGNAL `SettingChanged(s namespace, s key, v value)` — the change
-///     announcement this watcher subscribes to;
-///   * the METHOD_RETURN for `Settings.Read`, whose body is `v` wrapping the
-///     same `u` — the initial and backstop reads.
+///   * the SIGNAL `SettingChanged(s namespace, s key, v value)` — the change announcement this
+///     watcher subscribes to;
+///   * the METHOD_RETURN for `Settings.Read`, whose body is `v` wrapping the same `u` — the initial
+///     and backstop reads.
 ///
 /// `expect_reply_serial` is the serial of the `Read` currently in flight, and a
 /// METHOD_RETURN is only decoded when it answers exactly that. `Hello` and
@@ -3137,7 +3163,8 @@ mod kde_ini_tests {
     #[test]
     fn a_state_qualified_group_is_separate_but_reachable() {
         let ini = KdeIni::parse(
-            "[Colors:Window]\nBackgroundNormal=42,46,50\n\n[Colors:Window][Inactive]\nBackgroundNormal=1,2,3\n",
+            "[Colors:Window]\nBackgroundNormal=42,46,50\n\n[Colors:Window][Inactive]\\
+             nBackgroundNormal=1,2,3\n",
         );
         assert_eq!(
             ini.color("Colors:Window", "BackgroundNormal"),
@@ -3201,8 +3228,8 @@ mod kde_ini_tests {
     #[test]
     fn a_titlebar_carries_its_own_active_and_inactive_palette() {
         let ini = KdeIni::parse(
-            "[Colors:Header]\nBackgroundNormal=49,54,59\nForegroundNormal=252,252,252\n\n\
-             [Colors:Header][Inactive]\nBackgroundNormal=42,46,50\n",
+            "[Colors:Header]\nBackgroundNormal=49,54,59\nForegroundNormal=252,252,252\n\n[Colors:\
+             Header][Inactive]\nBackgroundNormal=42,46,50\n",
         );
         assert_eq!(
             ini.color("Colors:Header", "BackgroundNormal"),

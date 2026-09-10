@@ -24,10 +24,12 @@
 //! there a block-level child?", "how many items?") are answered once per
 //! parent instead of once per text child.
 
-use std::collections::BTreeSet;
-use std::hash::{Hash, Hasher};
-use std::mem::discriminant;
-use std::sync::Mutex;
+use std::{
+    collections::BTreeSet,
+    hash::{Hash, Hasher},
+    mem::discriminant,
+    sync::Mutex,
+};
 
 use azul_core::{
     dom::{AttributeType, NodeType},
@@ -348,34 +350,33 @@ fn render(data: &azul_core::dom::NodeData, idx: usize, finding: Finding) -> Stri
                 inert.push("element children");
             }
             format!(
-                "text node {idx} ({snippet}) carries {} — INERT: a text node has no box. \
-                 Move them onto a block wrapper (create_p_with_text / create_div_with_text) \
-                 instead of the raw text node.",
+                "text node {idx} ({snippet}) carries {} — INERT: a text node has no box. Move \
+                 them onto a block wrapper (create_p_with_text / create_div_with_text) instead of \
+                 the raw text node.",
                 inert.join(" + "),
             )
         }
         Finding::NoParent => format!(
-            "text node {idx} ({snippet}) has no parent — a raw text run needs a \
-             block-level container (p / div / ...) to own its box.",
+            "text node {idx} ({snippet}) has no parent — a raw text run needs a block-level \
+             container (p / div / ...) to own its box.",
         ),
         Finding::TextParent => format!(
-            "text node {idx} ({snippet}) is the child of another text node — \
-             wrap both in a block-level container (p / div / ...).",
+            "text node {idx} ({snippet}) is the child of another text node — wrap both in a \
+             block-level container (p / div / ...).",
         ),
         Finding::FlexItem {
             display,
             child_count,
         } => format!(
-            "text node {idx} ({snippet}) is one of {child_count} items in a \
-             {display:?} container — a raw text run competes in flex/grid \
-             layout with no box of its own (browsers auto-wrap it in an anonymous \
-             block; azul does not). Wrap it: create_p_with_text / \
+            "text node {idx} ({snippet}) is one of {child_count} items in a {display:?} container \
+             — a raw text run competes in flex/grid layout with no box of its own (browsers \
+             auto-wrap it in an anonymous block; azul does not). Wrap it: create_p_with_text / \
              create_div_with_text.",
         ),
         Finding::BlockSibling => format!(
-            "text node {idx} ({snippet}) sits NEXT TO block-level siblings — browsers \
-             would wrap it in an anonymous block, azul does not, so it has no line box \
-             of its own. Wrap it: create_p_with_text / create_div_with_text.",
+            "text node {idx} ({snippet}) sits NEXT TO block-level siblings — browsers would wrap \
+             it in an anonymous block, azul does not, so it has no line box of its own. Wrap it: \
+             create_p_with_text / create_div_with_text.",
         ),
     }
 }
@@ -460,15 +461,14 @@ pub fn warn_text_without_block_container(styled_dom: &StyledDom) {
         if emitted.keys.len() > MAX_DISTINCT_WARNINGS {
             emitted.capped = true;
             eprintln!(
-                "[azul][text-without-block] {MAX_DISTINCT_WARNINGS} distinct findings \
-                 reported — further warnings suppressed \
-                 (suppress the whole lint with AZ_SUPPRESS={SUPPRESS_TAG})"
+                "[azul][text-without-block] {MAX_DISTINCT_WARNINGS} distinct findings reported — \
+                 further warnings suppressed (suppress the whole lint with \
+                 AZ_SUPPRESS={SUPPRESS_TAG})"
             );
             return;
         }
         eprintln!(
-            "[azul][text-without-block] WARNING: {} \
-             (suppress with AZ_SUPPRESS={SUPPRESS_TAG})",
+            "[azul][text-without-block] WARNING: {} (suppress with AZ_SUPPRESS={SUPPRESS_TAG})",
             render(&node_data[node_id], idx, finding),
         );
     }
@@ -484,10 +484,12 @@ fn snippet_of(text: &str) -> String {
 
 #[cfg(test)]
 mod autotest_generated {
-    use azul_core::dom::{Dom, IdOrClass, IdOrClassVec, TabIndex};
-    use azul_core::events::{ComponentEventFilter, EventFilter, HoverEventFilter};
-    use azul_core::refany::RefAny;
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{
+        dom::{Dom, IdOrClass, IdOrClassVec, TabIndex},
+        events::{ComponentEventFilter, EventFilter, HoverEventFilter},
+        refany::RefAny,
+        styled_dom::StyledDom,
+    };
     use azul_css::css::Css;
 
     use super::collect_text_placement_warnings;
@@ -807,13 +809,11 @@ pub fn warn_div_used_as_text_container(styled_dom: &StyledDom) {
         }
         let preview: String = text.as_str().chars().take(24).collect();
         azul_core::diagnostics::emit(format!(
-            "[azul][div-as-text] node {} is a <div> whose only child is the text \
-             {preview:?}. A div is a generic container and says nothing about \
-             what the text IS. Use create_span_with_text for a label or a \
-             control's text (inline, stays inside its line box) or \
-             create_p_with_text for prose (block, announced as a paragraph). \
-             Assistive technology reads the element to decide what a thing is, \
-             and a div tells it nothing. \
+            "[azul][div-as-text] node {} is a <div> whose only child is the text {preview:?}. A \
+             div is a generic container and says nothing about what the text IS. Use \
+             create_span_with_text for a label or a control's text (inline, stays inside its line \
+             box) or create_p_with_text for prose (block, announced as a paragraph). Assistive \
+             technology reads the element to decide what a thing is, and a div tells it nothing. \
              (suppress with AZ_SUPPRESS={DIV_TEXT_SUPPRESS_TAG})",
             node_id.index()
         ));
@@ -923,12 +923,11 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
             break;
         }
         azul_core::diagnostics::emit(format!(
-            "[azul][a11y] node {} has a callback but no accessible name, and no \
-             text child that could serve as one — an icon-only control reads to \
-             a screen reader as a private-use codepoint, or as nothing. Add one: \
-             .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
-             Some(\"...\".into()).into(), ..Default::default() }}). \
-             (suppress with AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
+            "[azul][a11y] node {} has a callback but no accessible name, and no text child that \
+             could serve as one — an icon-only control reads to a screen reader as a private-use \
+             codepoint, or as nothing. Add one: .with_accessibility_info(AccessibilityInfo {{ \
+             accessibility_name: Some(\"...\".into()).into(), ..Default::default() }}). (suppress \
+             with AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
             node_id.index()
         ));
     }
@@ -936,8 +935,9 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
 
 #[cfg(all(test, feature = "std"))]
 mod semantic_and_a11y_lint_tests {
-    use super::*;
     use azul_core::dom::Dom;
+
+    use super::*;
 
     // The lints share the global diagnostics ring, so they must not run
     // concurrently. The lock is workspace-wide and lives beside the ring:
@@ -1186,23 +1186,21 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             if matches!(node.get_node_type(), NodeType::Image(_)) {
                 reported += 1;
                 azul_core::diagnostics::emit(format!(
-                    "[azul][a11y-shape] node {idx} is an IMAGE with no accessibility \
-                     info, so it is absent from the accessibility tree entirely — a \
-                     screen reader announces nothing where a sighted user sees a \
-                     picture. Give it .with_accessibility_info(AccessibilityInfo {{ \
-                     accessibility_name: Some(\"what it shows\".into()).into(), \
-                     role: AccessibilityRole::Graphic, ..Default::default() }}), or \
-                     mark it decorative by naming it explicitly as such. \
-                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                    "[azul][a11y-shape] node {idx} is an IMAGE with no accessibility info, so it \
+                     is absent from the accessibility tree entirely — a screen reader announces \
+                     nothing where a sighted user sees a picture. Give it \
+                     .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
+                     Some(\"what it shows\".into()).into(), role: AccessibilityRole::Graphic, \
+                     ..Default::default() }}), or mark it decorative by naming it explicitly as \
+                     such. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
                 ));
             } else if focusable {
                 reported += 1;
                 azul_core::diagnostics::emit(format!(
-                    "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a \
-                     tab_index) but declares no accessibility info, so tabbing lands \
-                     on something the screen reader cannot describe. At minimum give \
-                     it a `role` and an `accessibility_name`. \
-                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                    "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
+                     declares no accessibility info, so tabbing lands on something the screen \
+                     reader cannot describe. At minimum give it a `role` and an \
+                     `accessibility_name`. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
                 ));
             }
             continue;
@@ -1218,11 +1216,10 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         if matches!(role, AccessibilityRole::Unknown) && (interactive || focusable) {
             reported += 1;
             azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] node {idx} is interactive and declares \
-                 accessibility, but its `role` is Unknown — a screen reader can say \
-                 its name and not what it IS. Pick from AccessibilityRole \
-                 (PushButton, CheckBox, ComboBox, Slider, Link, Tab, MenuItem, …). \
-                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                "[azul][a11y-shape] node {idx} is interactive and declares accessibility, but its \
+                 `role` is Unknown — a screen reader can say its name and not what it IS. Pick \
+                 from AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, Tab, \
+                 MenuItem, …). (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
             ));
             continue;
         }
@@ -1236,11 +1233,10 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         {
             reported += 1;
             azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] node {idx} has role {role:?} but no \
-                 `accessibility_value`. The value IS the content of these controls \
-                 — without it a screen reader announces \"slider\" and never how far \
-                 along it is. Set accessibility_value on every change, not once. \
-                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                "[azul][a11y-shape] node {idx} has role {role:?} but no `accessibility_value`. \
+                 The value IS the content of these controls — without it a screen reader \
+                 announces \"slider\" and never how far along it is. Set accessibility_value on \
+                 every change, not once. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
             ));
             continue;
         }
@@ -1262,10 +1258,10 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 reported += 1;
                 azul_core::diagnostics::emit(format!(
                     "[azul][a11y-shape] node {idx} has role {role:?} but declares no \
-                     CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked no \
-                     matter what it renders. Push the state into \
-                     AccessibilityInfo::states when the control toggles. \
-                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                     CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked \
+                     no matter what it renders. Push the state into AccessibilityInfo::states \
+                     when the control toggles. (suppress with \
+                     AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
                 ));
                 continue;
             }
@@ -1286,16 +1282,14 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             let who = azul_widget_kind(node)
                 .map_or_else(|| format!("node {idx}"), |w| format!("node {idx} (a {w})"));
             azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] {who} declares accessibility (role \
-                 {role:?}) but has neither an `accessibility_name` nor a \
-                 `labelled_by`. It is in the tree and anonymous. This control has \
-                 no text of its own to derive a name from, and only the CALL SITE \
-                 knows what it is called: add \
-                 `.with_accessibility_name(\"…\")` there — it MERGES, so the \
-                 role, value and states above survive — or point at the label you \
-                 already render with `.with_accessibility_labelled_by(node)`, \
-                 which cannot drift out of sync the way a copied string does. \
-                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                "[azul][a11y-shape] {who} declares accessibility (role {role:?}) but has neither \
+                 an `accessibility_name` nor a `labelled_by`. It is in the tree and anonymous. \
+                 This control has no text of its own to derive a name from, and only the CALL \
+                 SITE knows what it is called: add `.with_accessibility_name(\"…\")` there — it \
+                 MERGES, so the role, value and states above survive — or point at the label you \
+                 already render with `.with_accessibility_labelled_by(node)`, which cannot drift \
+                 out of sync the way a copied string does. (suppress with \
+                 AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
             ));
         }
     }

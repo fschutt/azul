@@ -11,20 +11,25 @@
 
 use alloc::vec::Vec;
 
-use azul_core::callbacks::{Update, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter, OptionDom};
-use azul_core::geom::LogicalPosition;
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
-use azul_core::video::{VideoConfig, VideoFrame};
+use azul_core::{
+    callbacks::{Update, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter, OptionDom},
+    geom::LogicalPosition,
+    refany::{OptionRefAny, RefAny},
+    resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    task::{ThreadId, ThreadReceiver, ThreadSendMsg},
+    video::{VideoConfig, VideoFrame},
+};
 
 use super::capture_common::{
     invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
-use crate::callbacks::{Callback, CallbackInfo, CallbackType};
-use crate::thread::{
-    Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
+use crate::{
+    callbacks::{Callback, CallbackInfo, CallbackType},
+    thread::{
+        Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallback,
+    },
 };
 
 /// Default decode size for the test pattern (the real decoder reports the
@@ -236,8 +241,8 @@ extern "C" fn video_widget_render(
                         // azul-video "black frame" bug. A dead pipeline must be
                         // visibly dead.
                         OptionDom::Some(Dom::create_div().with_css(
-                            "width: 100%; height: 100%; background: #2a2a30; \
-                         border: 1px solid #44444c;",
+                            "width: 100%; height: 100%; background: #2a2a30; border: 1px solid \
+                             #44444c;",
                         ))
                     },
                     |img| {
@@ -467,7 +472,8 @@ pub extern "C" fn video_writeback(
 }
 
 /// Carry live state forward across relayout.
-#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path /
+                            // cache-key match
 extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     // Return the OLD allocation, adopting config forward — the same rule
     // `merge_map_tile_cache` documents. The decode worker holds a clone of
@@ -1504,8 +1510,7 @@ mod autotest_generated {
         });
         assert!(
             !rendered_nothing(&ret),
-            "no decoded frame yet -> a visible no-signal poster, NOT an \
-             invisible tile"
+            "no decoded frame yet -> a visible no-signal poster, NOT an invisible tile"
         );
     }
 
@@ -2196,8 +2201,8 @@ mod autotest_generated {
                 );
             }
             Err(_) => eprintln!(
-                "NOTE: video_writeback panicked (usize overflow of width*height*4) for a \
-                 2^31 x 2^31 frame - see the autotest report"
+                "NOTE: video_writeback panicked (usize overflow of width*height*4) for a 2^31 x \
+                 2^31 frame - see the autotest report"
             ),
         }
     }

@@ -6,14 +6,12 @@
 //! The layouts are the public ones the Linux `hid-playstation` driver
 //! documents (checked against the kernel source before this was written):
 //!
-//! * DualSense: USB report `0x01`, 64 bytes, the input struct at offset 1;
-//!   Bluetooth report `0x31`, 78 bytes, the same struct at offset 2 and a
-//!   CRC32 over everything before the last four bytes, seeded with `0xA1`.
-//!   Gyro is `raw / 1024` deg/s, accel `raw / 8192` g, the touch surface
-//!   1920 x 1080.
-//! * DualShock 4: USB report `0x01` (common struct at offset 1), Bluetooth
-//!   `0x11` (offset 3, CRC-tailed the same way). Same sensor resolutions,
-//!   touch surface 1920 x 942.
+//! * DualSense: USB report `0x01`, 64 bytes, the input struct at offset 1; Bluetooth report `0x31`,
+//!   78 bytes, the same struct at offset 2 and a CRC32 over everything before the last four bytes,
+//!   seeded with `0xA1`. Gyro is `raw / 1024` deg/s, accel `raw / 8192` g, the touch surface 1920 x
+//!   1080.
+//! * DualShock 4: USB report `0x01` (common struct at offset 1), Bluetooth `0x11` (offset 3,
+//!   CRC-tailed the same way). Same sensor resolutions, touch surface 1920 x 942.
 //!
 //! Pure functions over bytes, so every branch is unit-tested with synthetic
 //! reports; the platform-independent publish step lives in `mod.rs`.
@@ -27,8 +25,7 @@
 //! resolutions are what every user-space reader without that report uses;
 //! logged as 8f-i-a-i-b-i.
 
-use azul_core::gamepad::GamepadButton;
-use azul_core::hid::HidDevice;
+use azul_core::{gamepad::GamepadButton, hid::HidDevice};
 
 pub const SONY_VENDOR: u16 = 0x054c;
 pub const DUALSENSE: u16 = 0x0ce6;
@@ -165,9 +162,10 @@ pub struct PadCalibration {
 #[must_use]
 pub const fn calibration_report(pad: PlayStationPad, transport: Transport) -> (u8, usize) {
     match (pad, transport) {
-        (PlayStationPad::DualSense, _) => {
-            (DS_FEATURE_REPORT_CALIBRATION, DS_FEATURE_REPORT_CALIBRATION_SIZE)
-        }
+        (PlayStationPad::DualSense, _) => (
+            DS_FEATURE_REPORT_CALIBRATION,
+            DS_FEATURE_REPORT_CALIBRATION_SIZE,
+        ),
         (PlayStationPad::DualShock4, Transport::Usb) => (
             DS4_FEATURE_REPORT_CALIBRATION_USB,
             DS4_FEATURE_REPORT_CALIBRATION_USB_SIZE,
@@ -308,8 +306,14 @@ fn parse_dualsense(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pad
     // x y rx ry z rz seq buttons[4] reserved[4] gyro[3] accel[3] ts[4]
     // reserved2 points[2]
     let buttons = ps_buttons(p[7], p[8], p[9], true);
-    let gyro = calibrated([i16_at(p, 15), i16_at(p, 17), i16_at(p, 19)], calibration.map(|c| c.gyro));
-    let accel = calibrated([i16_at(p, 21), i16_at(p, 23), i16_at(p, 25)], calibration.map(|c| c.accel));
+    let gyro = calibrated(
+        [i16_at(p, 15), i16_at(p, 17), i16_at(p, 19)],
+        calibration.map(|c| c.gyro),
+    );
+    let accel = calibrated(
+        [i16_at(p, 21), i16_at(p, 23), i16_at(p, 25)],
+        calibration.map(|c| c.accel),
+    );
     let touch = touch_point(&p[32..36], DS_TOUCHPAD_WIDTH, DS_TOUCHPAD_HEIGHT);
     let touch2 = touch_point(&p[36..40], DS_TOUCHPAD_WIDTH, DS_TOUCHPAD_HEIGHT);
     Some(PadSample {
@@ -334,8 +338,14 @@ fn parse_dualshock4(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pa
     // x y rx ry buttons[3] z rz ts[2] temp gyro[3] accel[3] reserved2[5]
     // status[2] reserved3 | num_touch_reports | { timestamp, points[2] } ...
     let buttons = ps_buttons(p[4], p[5], p[6], false);
-    let gyro = calibrated([i16_at(p, 12), i16_at(p, 14), i16_at(p, 16)], calibration.map(|c| c.gyro));
-    let accel = calibrated([i16_at(p, 18), i16_at(p, 20), i16_at(p, 22)], calibration.map(|c| c.accel));
+    let gyro = calibrated(
+        [i16_at(p, 12), i16_at(p, 14), i16_at(p, 16)],
+        calibration.map(|c| c.gyro),
+    );
+    let accel = calibrated(
+        [i16_at(p, 18), i16_at(p, 20), i16_at(p, 22)],
+        calibration.map(|c| c.accel),
+    );
     let num_touch_reports = p[32];
     let (touch, touch2) = if num_touch_reports > 0 {
         (
@@ -532,9 +542,10 @@ mod tests {
     fn ds_calibration(bt: bool) -> Vec<u8> {
         let mut b = vec![0u8; DS_FEATURE_REPORT_CALIBRATION_SIZE];
         b[0] = DS_FEATURE_REPORT_CALIBRATION;
-        let put = |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        let put =
+            |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
         put(&mut b, 1, 24); // pitch bias
-        // gyro plus / minus: range 1000 per axis
+                            // gyro plus / minus: range 1000 per axis
         for at in [7usize, 11, 15] {
             put(&mut b, at, 500);
             put(&mut b, at + 2, -500);
@@ -558,8 +569,12 @@ mod tests {
 
     #[test]
     fn calibration_scales_and_biases_the_sensors_and_nominal_is_untouched() {
-        let cal = parse_calibration(PlayStationPad::DualSense, Transport::Usb, &ds_calibration(false))
-            .expect("a well-formed USB calibration report");
+        let cal = parse_calibration(
+            PlayStationPad::DualSense,
+            Transport::Usb,
+            &ds_calibration(false),
+        )
+        .expect("a well-formed USB calibration report");
         assert_eq!(cal.gyro[0].bias, 24);
         assert_eq!(cal.gyro[0].sens_numer, 2000 * 1024);
         assert_eq!(cal.gyro[0].sens_denom, 1000);
@@ -573,7 +588,11 @@ mod tests {
         let deg = |rad: f32| rad * 180.0 / core::f32::consts::PI;
         // nominal: 1048 raw = 1048/1024 deg/s; calibrated: (1048-24) * 2048 / 1024 = 2048 deg/s
         assert!((deg(nominal.gyro[0]) - 1048.0 / 1024.0).abs() < 1e-4);
-        assert!((deg(calibrated.gyro[0]) - 2048.0).abs() < 1e-2, "{}", deg(calibrated.gyro[0]));
+        assert!(
+            (deg(calibrated.gyro[0]) - 2048.0).abs() < 1e-2,
+            "{}",
+            deg(calibrated.gyro[0])
+        );
         // accel x: nominal 1 g; calibrated 8192 * 16384 / 10240 / 8192 = 1.6 g
         assert!((nominal.accel[0] / G_TO_MS2 - 1.0).abs() < 1e-5);
         assert!((calibrated.accel[0] / G_TO_MS2 - 1.6).abs() < 1e-4);
@@ -582,7 +601,9 @@ mod tests {
     #[test]
     fn a_bluetooth_calibration_report_needs_its_feature_crc() {
         let good = ds_calibration(true);
-        assert!(parse_calibration(PlayStationPad::DualSense, Transport::Bluetooth, &good).is_some());
+        assert!(
+            parse_calibration(PlayStationPad::DualSense, Transport::Bluetooth, &good).is_some()
+        );
         let mut bad = good.clone();
         bad[38] ^= 0x01;
         assert!(parse_calibration(PlayStationPad::DualSense, Transport::Bluetooth, &bad).is_none());
@@ -597,15 +618,22 @@ mod tests {
         let mut b = vec![0u8; DS_FEATURE_REPORT_CALIBRATION_SIZE];
         b[0] = DS_FEATURE_REPORT_CALIBRATION;
         assert!(parse_calibration(PlayStationPad::DualSense, Transport::Usb, &b).is_none());
-        assert_eq!(calibration_report(PlayStationPad::DualShock4, Transport::Usb), (0x02, 37));
-        assert_eq!(calibration_report(PlayStationPad::DualShock4, Transport::Bluetooth), (0x05, 41));
+        assert_eq!(
+            calibration_report(PlayStationPad::DualShock4, Transport::Usb),
+            (0x02, 37)
+        );
+        assert_eq!(
+            calibration_report(PlayStationPad::DualShock4, Transport::Bluetooth),
+            (0x05, 41)
+        );
     }
 
     #[test]
     fn ds4_over_bluetooth_interleaves_plus_then_minus() {
         let mut b = vec![0u8; DS4_FEATURE_REPORT_CALIBRATION_BT_SIZE];
         b[0] = DS4_FEATURE_REPORT_CALIBRATION_BT;
-        let put = |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        let put =
+            |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
         put(&mut b, 7, 500);
         put(&mut b, 9, 600);
         put(&mut b, 11, 700);
@@ -622,11 +650,21 @@ mod tests {
         b[37..41].copy_from_slice(&crc.to_le_bytes());
         let cal = parse_calibration(PlayStationPad::DualShock4, Transport::Bluetooth, &b).unwrap();
         assert_eq!(
-            [cal.gyro[0].sens_denom, cal.gyro[1].sens_denom, cal.gyro[2].sens_denom],
+            [
+                cal.gyro[0].sens_denom,
+                cal.gyro[1].sens_denom,
+                cal.gyro[2].sens_denom
+            ],
             [1000, 1200, 1400]
         );
-        assert_eq!(transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_BT]), Some(Transport::Bluetooth));
-        assert_eq!(transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_USB]), Some(Transport::Usb));
+        assert_eq!(
+            transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_BT]),
+            Some(Transport::Bluetooth)
+        );
+        assert_eq!(
+            transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_USB]),
+            Some(Transport::Usb)
+        );
         assert_eq!(transport_of(PlayStationPad::DualSense, &[0x7f]), None);
     }
 
@@ -635,7 +673,10 @@ mod tests {
         let r = dualsense_usb([1024, -2048, 512], [8192, 0, -8192], Some((960, 540)));
         let s = parse(PlayStationPad::DualSense, &r).expect("input report");
         assert!((s.left_stick.0 - 1.0).abs() < 1e-3);
-        assert!((s.left_stick.1 - 1.0).abs() < 1e-3, "HID y down becomes y up");
+        assert!(
+            (s.left_stick.1 - 1.0).abs() < 1e-3,
+            "HID y down becomes y up"
+        );
         assert!((s.right_stick.0).abs() < 0.01);
         assert!((s.left_trigger - 1.0).abs() < 1e-6);
         assert_eq!(s.right_trigger, 0.0);
@@ -778,12 +819,19 @@ mod tests {
             serial: "".into(),
             instance: 1,
         };
-        assert_eq!(PlayStationPad::of(&dev(SONY_VENDOR, DUALSENSE)), Some(PlayStationPad::DualSense));
+        assert_eq!(
+            PlayStationPad::of(&dev(SONY_VENDOR, DUALSENSE)),
+            Some(PlayStationPad::DualSense)
+        );
         assert_eq!(
             PlayStationPad::of(&dev(SONY_VENDOR, DUALSHOCK4_V2)),
             Some(PlayStationPad::DualShock4)
         );
-        assert_eq!(PlayStationPad::of(&dev(0x045e, DUALSENSE)), None, "not Sony");
+        assert_eq!(
+            PlayStationPad::of(&dev(0x045e, DUALSENSE)),
+            None,
+            "not Sony"
+        );
         assert_eq!(PlayStationPad::of(&dev(SONY_VENDOR, 0x1234)), None);
     }
 }

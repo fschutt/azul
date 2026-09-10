@@ -4,7 +4,11 @@
 //! emitter is not implemented; the dispatch path in [`super::backend_for`] is
 //! still wired so `?lang=cpp` produces a structured response instead of a 404.
 
-use alloc::{string::String, string::ToString, vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use super::{CodegenBackend, GeneratedFile};
 use crate::css::Css;

@@ -50,22 +50,20 @@ fn shaped_text_struct_sizes_are_pinned() {
     assert_size!(
         PositionedItem,
         192,
-        "Retained once per CHARACTER of laid-out text. +8 B here is +250 KB \
-         on a 31k-character document. 200 -> 192 on 2026-08-10: ShapedGlyph \
-         lost its per-glyph Arc<StyleProperties>. 192 -> 200 on 2026-08-11: \
-         ClusterFlags u16 added (transitional). 200 -> 192 on 2026-08-11 \
-         (section 3.2 step 3c): ShapedCluster::text (24-B String + one heap \
-         alloc PER CLUSTER) deleted — replaced by a 16-B shared Arc<str> of \
-         the logical item's text + a u16 slice length; the flags' \
-         transitional +8 refunded as promised."
+        "Retained once per CHARACTER of laid-out text. +8 B here is +250 KB on a 31k-character \
+         document. 200 -> 192 on 2026-08-10: ShapedGlyph lost its per-glyph Arc<StyleProperties>. \
+         192 -> 200 on 2026-08-11: ClusterFlags u16 added (transitional). 200 -> 192 on \
+         2026-08-11 (section 3.2 step 3c): ShapedCluster::text (24-B String + one heap alloc PER \
+         CLUSTER) deleted — replaced by a 16-B shared Arc<str> of the logical item's text + a u16 \
+         slice length; the flags' transitional +8 refunded as promised."
     );
 
     // The payload inside PositionedItem.
     assert_size!(
         ShapedItem,
         176,
-        "Enum over Cluster / CombinedBlock / Object; the Cluster arm is what \
-         nearly every entry is."
+        "Enum over Cluster / CombinedBlock / Object; the Cluster arm is what nearly every entry \
+         is."
     );
 
     // Holds a SHARED Arc<str> of its item's text (3c: the per-cluster
@@ -75,9 +73,8 @@ fn shaped_text_struct_sizes_are_pinned() {
     assert_size!(
         ShapedCluster,
         168,
-        "One per grapheme. The inline SmallVec slot means one ShapedGlyph is \
-         already inside this number - do not count it again (that bug \
-         inflated the memory report by ~3 MB)."
+        "One per grapheme. The inline SmallVec slot means one ShapedGlyph is already inside this \
+         number - do not count it again (that bug inflated the memory report by ~3 MB)."
     );
 
     // Inline in the cluster for the common single-glyph case, heap-spilled
@@ -85,18 +82,16 @@ fn shaped_text_struct_sizes_are_pinned() {
     assert_size!(
         ShapedGlyph,
         88,
-        "Carries a 32 B LayoutFontMetrics COPY per glyph, which is the same \
-         for every glyph of a font - the obvious next shrink candidate. \
-         96 -> 88 on 2026-08-10: the per-glyph Arc<StyleProperties> was \
-         deleted (uniform within a cluster by construction)."
+        "Carries a 32 B LayoutFontMetrics COPY per glyph, which is the same for every glyph of a \
+         font - the obvious next shrink candidate. 96 -> 88 on 2026-08-10: the per-glyph \
+         Arc<StyleProperties> was deleted (uniform within a cluster by construction)."
     );
 
     // Per-glyph font metrics, copied into every ShapedGlyph.
     assert_size!(
         LayoutFontMetrics,
         32,
-        "Duplicated into every glyph. Sharing it by font_hash would cut \
-         ShapedGlyph by a third."
+        "Duplicated into every glyph. Sharing it by font_hash would cut ShapedGlyph by a third."
     );
 
     assert_size!(UnifiedLayout, 64, "Per-IFC header; cheap, not a target.");
@@ -112,10 +107,9 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(
         StyledRun,
         48,
-        "Text + Arc<StyleProperties> + source ids. 56 -> 48 on 2026-08-11: \
-         text became Arc<str> (section 3.2 step 2) - THE single shared copy \
-         of a run's source text, which DenseRun.text now aliases instead of \
-         concatenating surviving clusters."
+        "Text + Arc<StyleProperties> + source ids. 56 -> 48 on 2026-08-11: text became Arc<str> \
+         (section 3.2 step 2) - THE single shared copy of a run's source text, which \
+         DenseRun.text now aliases instead of concatenating surviving clusters."
     );
     assert_size!(LogicalItem, 128, "Stage 1 output, cached by content hash.");
     assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
@@ -166,21 +160,19 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     assert_size!(
         LayoutNodeWarm,
         928,
-        "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes \
-         is 1.7 MB before a single glyph is shaped. Dominated by the taffy \
-         measurement cache and the inline Option<CachedInlineLayout>. \
-         GREW 1176 -> 1296 (2026-08-09, the resize measure-cache pair \
-         measured_content_sizes — a deliberate perf-for-memory trade that \
-         went unnoticed while this pin's target was silently broken). The \
-         planned rare-data split (memory batch item 2) targets exactly this \
-         struct; shrink it there, deliberately, not here."
+        "Per layout node, and the BIGGEST per-node struct by far - 1329 nodes is 1.7 MB before a \
+         single glyph is shaped. Dominated by the taffy measurement cache and the inline \
+         Option<CachedInlineLayout>. GREW 1176 -> 1296 (2026-08-09, the resize measure-cache pair \
+         measured_content_sizes — a deliberate perf-for-memory trade that went unnoticed while \
+         this pin's target was silently broken). The planned rare-data split (memory batch item \
+         2) targets exactly this struct; shrink it there, deliberately, not here."
     );
     assert_size!(
         LayoutNodeCold,
         288,
-        "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): \
-         NodeDataFingerprint gained `dataset_hash` so a dataset's allocation \
-         is no longer a LAYOUT change (the TextArea-over-Slider fix)."
+        "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
+         gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
+         TextArea-over-Slider fix)."
     );
 }
 
@@ -212,8 +204,8 @@ fn single_glyph_clusters_cost_no_extra_glyph_bytes() {
     assert_eq!(
         spill(1),
         0,
-        "a 1-glyph cluster stores its glyph INLINE; charging capacity()*96 \
-         counts it twice and doubles the reported glyph bytes on Latin text"
+        "a 1-glyph cluster stores its glyph INLINE; charging capacity()*96 counts it twice and \
+         doubles the reported glyph bytes on Latin text"
     );
     assert_eq!(
         spill(3),
@@ -235,8 +227,8 @@ fn shaped_item_arm_count_is_pinned_for_the_memory_walk() {
     const ARMS_ACCOUNTED_FOR_IN_MEMORY_REPORT: usize = 5;
     assert_eq!(
         ARMS_ACCOUNTED_FOR_IN_MEMORY_REPORT, 5,
-        "ShapedItem gained or lost an arm. text3/cache.rs memory_report() \
-         matches all five EXHAUSTIVELY (no wildcard) precisely so this shows \
-         up as a compile error there — update both together."
+        "ShapedItem gained or lost an arm. text3/cache.rs memory_report() matches all five \
+         EXHAUSTIVELY (no wildcard) precisely so this shows up as a compile error there — update \
+         both together."
     );
 }

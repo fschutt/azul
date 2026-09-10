@@ -6,8 +6,8 @@
 //! - `FontKey` / `FontInstanceKey` / `ImageKey`: renderer-scoped resource keys
 //! - `RendererResources`: per-window font/image registry with frame-based GC
 //! - `RawImage`: CPU-side pixel data with format conversion to BGRA8
-//! - `build_add_font_resource_updates` / `build_add_image_resource_updates`:
-//!   diff current frame against registered resources and produce WebRender updates
+//! - `build_add_font_resource_updates` / `build_add_image_resource_updates`: diff current frame
+//!   against registered resources and produce WebRender updates
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -20,11 +20,13 @@ use core::{
 
 use azul_css::{
     codegen::format::GetHash,
-    props::basic::{
-        pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
-        StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
+    props::{
+        basic::{
+            pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
+            StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
+        },
+        style::scrollbar::OptionScrollPhysics,
     },
-    props::style::scrollbar::OptionScrollPhysics,
     system::SystemStyle,
     AzString, F32Vec, LayoutDebugMessage, OptionI32, StringVec, U16Vec, U32Vec, U8Vec,
 };
@@ -311,7 +313,8 @@ impl_vec_ord!(LoadedFont, LoadedFontVec);
 impl_vec_hash!(LoadedFont, LoadedFontVec);
 impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Configuration for how fonts should be loaded at app startup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -337,8 +340,8 @@ pub enum FontLoadingConfig {
 /// ```rust
 /// # use azul_core::resources::CssMockEnvironment;
 /// use azul_css::dynamic_selector::{
-///     OsCondition, ThemeCondition, OsVersion,
-///     OptionOsCondition, OptionThemeCondition, OptionOsVersion,
+///     OptionOsCondition, OptionOsVersion, OptionThemeCondition, OsCondition, OsVersion,
+///     ThemeCondition,
 /// };
 ///
 /// // Mock a Linux dark theme environment on any platform
@@ -1766,7 +1769,8 @@ pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
 /// but should work).
 #[derive(Debug, Default)]
 pub struct ImageCache {
-    /// The `AzString` is the string used in the CSS, i.e. `url("my_image`") = "`my_image`" -> ImageId(4)
+    /// The `AzString` is the string used in the CSS, i.e. `url("my_image`") = "`my_image`" ->
+    /// ImageId(4)
     ///
     /// NOTE: This is the only map that is modifiable by the user and that has to be manually
     /// managed all other maps are library-internal only and automatically delete their
@@ -1936,7 +1940,8 @@ impl RendererResources {
             })
     }
 
-    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded
+                                               // pixel/colour/dimension/unit casts
     pub fn get_font_instance_key_for_text(
         &self,
         font_size_px: f32,
@@ -2003,18 +2008,17 @@ impl RendererResources {
     // To wire a real font GC mirroring the image GC (see `dll/.../wr_translate2.rs`
     // `garbage_collect_images` + `image_last_seen_epoch`), the following are needed
     // and MUST be done together (do not half-implement):
-    //   1. Add `font_last_seen_epoch: OrderedMap<FontKey, u32>` (and, if instance-
-    //      level GC is wanted, per-`FontInstanceKey` epochs) to `RendererResources`.
+    //   1. Add `font_last_seen_epoch: OrderedMap<FontKey, u32>` (and, if instance- level GC is
+    //      wanted, per-`FontInstanceKey` epochs) to `RendererResources`.
     //   2. In the display-list build (dll crate), after resolving each glyph run's
-    //      `FontInstanceKey`, mark the owning `FontKey` (and instance) seen at the
-    //      current epoch — exactly as images are marked in the image GC.
-    //   3. Add a `garbage_collect_fonts(&mut self, now, keep_epochs, updates)` that,
-    //      for every `FontKey` unseen for > keep_epochs frames, emits
-    //      `DeleteFontInstance` for each of its instances then `DeleteFont`, and
-    //      evicts the key from `currently_registered_fonts`, `font_hash_map`,
-    //      `last_frame_registered_fonts`, and `font_id_map`/`font_families_map`
-    //      (via this helper). Respect the "delete on current frame + 1" rule already
-    //      documented on `last_frame_registered_fonts`.
+    //      `FontInstanceKey`, mark the owning `FontKey` (and instance) seen at the current epoch —
+    //      exactly as images are marked in the image GC.
+    //   3. Add a `garbage_collect_fonts(&mut self, now, keep_epochs, updates)` that, for every
+    //      `FontKey` unseen for > keep_epochs frames, emits `DeleteFontInstance` for each of its
+    //      instances then `DeleteFont`, and evicts the key from `currently_registered_fonts`,
+    //      `font_hash_map`, `last_frame_registered_fonts`, and `font_id_map`/`font_families_map`
+    //      (via this helper). Respect the "delete on current frame + 1" rule already documented on
+    //      `last_frame_registered_fonts`.
     //   4. Call it once per frame from the same site as the image GC.
     // Left as a TODO because steps 2 and 4 are cross-crate (dll) and cannot be
     // implemented from `azul-core` alone; adding a GC method here without a caller
@@ -2387,7 +2391,9 @@ impl RawImage {
     /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
     /// current positions for a continuous line.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics:
+                                                                            // bounded pixel/colour/
+                                                                            // dimension/unit casts
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let dx = x1 - x0;
         let dy = y1 - y0;
@@ -2416,7 +2422,8 @@ impl RawImage {
 /// From webrender/wrench. These are slow. Gecko's gfx/2d/Swizzle.cpp has better
 /// versions.
 #[inline]
-#[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
+#[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit
+                                           // casts
 fn premultiply_alpha(array: &mut [u8]) {
     if array.len() != 4 {
         return;
@@ -2880,7 +2887,8 @@ impl RawImage {
 
     #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
-    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
+                                             // ownership-transfer convention)
     fn load_rgbf32(pixels: RawImageData, expected_len: usize) -> Option<(U8Vec, bool)> {
         let pixels = pixels.get_f32_vec_ref()?;
 
@@ -2907,7 +2915,8 @@ impl RawImage {
 
     #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
-    #[allow(clippy::needless_pass_by_value)] // owned RawImageData taken by value (image decode entry point)
+    #[allow(clippy::needless_pass_by_value)] // owned RawImageData taken by value (image decode
+                                             // entry point)
     fn load_rgbaf32(
         pixels: RawImageData,
         expected_len: usize,
@@ -3653,7 +3662,8 @@ pub const fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> External
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
 /// add-and-remove fonts after every `VirtualViewCallback`, which would cause a lot of
 /// I/O waiting.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
+                                 // branch per input variant)
 pub fn build_add_font_resource_updates(
     renderer_resources: &mut RendererResources,
     dpi: DpiScaleFactor,
@@ -3904,7 +3914,8 @@ pub fn build_add_image_resource_updates(
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
 /// what font and image keys are currently in the API.
-#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
+                                         // ownership-transfer convention)
 pub fn add_resources(
     renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,

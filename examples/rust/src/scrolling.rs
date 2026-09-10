@@ -14,8 +14,7 @@
 //! the working infinity example; if the plain side scrolls and the VV side
 //! does not, the delta is in the VirtualView wheel routing itself.
 
-use azul::option::OptionDom;
-use azul::prelude::*;
+use azul::{option::OptionDom, prelude::*};
 
 const ROWS: usize = 500;
 const ROW_H: f32 = 100.0;
@@ -27,8 +26,8 @@ fn row(i: usize) -> Dom {
     let mut item = Dom::create_div();
     item.set_css(
         format!(
-            "height: {ROW_H}px; background-color: {color}; \
-             border-bottom: 1px solid #90a4ae; padding-left: 8px;"
+            "height: {ROW_H}px; background-color: {color}; border-bottom: 1px solid #90a4ae; \
+             padding-left: 8px;"
         )
         .as_str(),
     );
@@ -72,8 +71,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     }
     let mut plain = Dom::create_div();
     plain.set_css(
-        "flex-grow: 1; height: 100%; overflow-y: auto; \
-         border: 2px solid #f44336; margin: 8px;",
+        "flex-grow: 1; height: 100%; overflow-y: auto; border: 2px solid #f44336; margin: 8px;",
     );
     plain.add_child(content);
 
@@ -82,8 +80,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .with_css("flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto;");
     let mut vv_wrap = Dom::create_div();
     vv_wrap.set_css(
-        "flex-grow: 1; height: 100%; border: 2px solid #4caf50; margin: 8px; \
-         display: flex; flex-direction: column;",
+        "flex-grow: 1; height: 100%; border: 2px solid #4caf50; margin: 8px; display: flex; \
+         flex-direction: column;",
     );
     vv_wrap.add_child(vview);
 

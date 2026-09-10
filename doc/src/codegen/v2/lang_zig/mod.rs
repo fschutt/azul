@@ -15,11 +15,10 @@
 //! Our job is therefore narrow: emit a tiny module that
 //!
 //! 1. imports the C header via `@cImport`,
-//! 2. re-exports the raw `C` namespace as `pub const C = ...;` for
-//!    power users who want direct access to the FFI surface,
-//! 3. provides idiomatic Zig wrapper structs with `deinit()` methods
-//!    around the heap-owning types so users can write
-//!    `defer app.deinit();` instead of `defer C.AzApp_delete(&app);`.
+//! 2. re-exports the raw `C` namespace as `pub const C = ...;` for power users who want direct
+//!    access to the FFI surface,
+//! 3. provides idiomatic Zig wrapper structs with `deinit()` methods around the heap-owning types
+//!    so users can write `defer app.deinit();` instead of `defer C.AzApp_delete(&app);`.
 //!
 //! That's it. No type emission, no preprocessor stripping, no manual
 //! `extern fn` redeclarations.
@@ -28,10 +27,9 @@
 //!
 //! Users must:
 //!
-//! 1. place `azul.h` somewhere on the C include path
-//!    (e.g. `exe.addIncludePath(.{ .path = "." });` in `build.zig`),
-//! 2. link the `azul` system library
-//!    (e.g. `exe.linkSystemLibrary("azul");` and
+//! 1. place `azul.h` somewhere on the C include path (e.g. `exe.addIncludePath(.{ .path = "." });`
+//!    in `build.zig`),
+//! 2. link the `azul` system library (e.g. `exe.linkSystemLibrary("azul");` and
 //!    `exe.addLibraryPath(.{ .path = "." });`),
 //! 3. link `libc` (`exe.linkLibC();`) — required for `@cImport`.
 //!
@@ -43,9 +41,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// The C library name used in `linkSystemLibrary("azul")` / `@cImport`.
 /// Must match the prebuilt artifact name (`libazul.so` / `libazul.dylib`
@@ -56,12 +52,12 @@ pub const LIB_NAME: &str = "azul";
 ///
 /// The output has three layers, top-to-bottom:
 ///
-/// 1. A doc-comment header explaining the `@cImport` strategy and the
-///    user-side build/link requirements.
-/// 2. `pub const C = @cImport({ @cInclude("azul.h"); });` — the entire
-///    FFI surface, transparently parsed from the C header.
-/// 3. Idiomatic wrapper structs with `deinit()` and method delegates
-///    (see [`wrappers::generate_wrappers`]).
+/// 1. A doc-comment header explaining the `@cImport` strategy and the user-side build/link
+///    requirements.
+/// 2. `pub const C = @cImport({ @cInclude("azul.h"); });` — the entire FFI surface, transparently
+///    parsed from the C header.
+/// 3. Idiomatic wrapper structs with `deinit()` and method delegates (see
+///    [`wrappers::generate_wrappers`]).
 ///
 /// `config` is currently unused (Zig bindings have no per-target
 /// dialects) but is taken by reference to match the signatures of

@@ -12,18 +12,22 @@
 //! 5px, line-height:normal = (800+200)*0.02 = 20px. So "aaaa" = 48px, the
 //! inter-word space = 5px, and "aaaa aaaa" max-content = 101px, min-content 48px.
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 
 use crate::fakefont::{simple_test_font, FAKE_FAMILY};
 
@@ -39,7 +43,8 @@ fn assert_px(actual: f32, expected: f32) {
     let delta = (actual - expected).abs();
     assert!(
         delta <= EPS,
-        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > {EPS}px)"
+        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > \
+         {EPS}px)"
     );
 }
 
@@ -203,9 +208,9 @@ fn div_60px_wraps_two_words_into_two_line_boxes() {
     // CSS Text/UAX#14: "aaaa aaaa" (101px) in a 60px box breaks at the space into
     // two 20px line boxes, so the block auto-heights to 40px.
     let html = format!(
-        "<html><head><style>\
-            .b {{ width: 60px; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+        "<html><head><style>.b {{ width: 60px; font-size: 20px; font-family: {FAKE_FAMILY}; \
+         margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa \
+         aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -220,9 +225,9 @@ fn inline_block_shrinks_to_max_content_90px() {
     // CSS Sizing §4: a shrink-to-fit inline-block sizes to max-content = 90px in
     // Azul Mock Mono ("aaaa" 40 + space 10 + "aaaa" 40).
     let html = format!(
-        "<html><head><style>\
-            .ib {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"ib\">aaaa aaaa</span></body></html>"
+        "<html><head><style>.ib {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; \
+         margin: 0; padding: 0; }}</style></head><body><span class=\"ib\">aaaa \
+         aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -237,10 +242,9 @@ fn flex_item_min_content_is_widest_word_40px() {
     // CSS Sizing §4: flex min-content = widest unbreakable unit = "aaaa" = 40px
     // in Azul Mock Mono (4 * 10px).
     let html = format!(
-        "<html><head><style>\
-            .row {{ display: flex; flex-direction: row; font-size: 20px; font-family: '{MONO}'; }}\
-            .row * {{ margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"row\"><div>aaaa aaaa</div></div></body></html>"
+        "<html><head><style>.row {{ display: flex; flex-direction: row; font-size: 20px; \
+         font-family: '{MONO}'; }}.row * {{ margin: 0; padding: 0; }}</style></head><body><div \
+         class=\"row\"><div>aaaa aaaa</div></div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -259,9 +263,9 @@ fn letter_spacing_half_px_must_not_be_quantized_away() {
     // computed at all: a plain inline span inside a definite-width block never needs
     // its intrinsic size, so no max-content is produced (correct lazy sizing).
     let base = format!(
-        "<html><head><style>\
-            .t {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; letter-spacing: {{LS}}; }}\
-         </style></head><body><span class=\"t\">aaaa</span></body></html>"
+        "<html><head><style>.t {{ display: inline-block; font-size: 20px; font-family: \
+         {FAKE_FAMILY}; margin: 0; padding: 0; letter-spacing: {{LS}}; \
+         }}</style></head><body><span class=\"t\">aaaa</span></body></html>"
     );
     let cache0 = run_layout(&base.replace("{LS}", "0px"));
     let cache_half = run_layout(&base.replace("{LS}", "0.5px"));
@@ -278,9 +282,9 @@ fn line_height_30px_makes_a_30px_line_box() {
     // FIXME(text3-review): the solver3 tree exposes box sizes, not the per-line
     // baseline, so the 21px baseline offset is not asserted here.
     let html = format!(
-        "<html><head><style>\
-            .b {{ width: 200px; line-height: 30px; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa</div></body></html>"
+        "<html><head><style>.b {{ width: 200px; line-height: 30px; font-size: 20px; font-family: \
+         {FAKE_FAMILY}; margin: 0; padding: 0; }}</style></head><body><div \
+         class=\"b\">aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -296,10 +300,9 @@ fn padding_reduces_content_width_and_forces_same_break() {
     // so "aaaa aaaa" wraps to 2 lines exactly as the bare 60px box does. The
     // border box is then 70 wide and 40 (2 lines) + 2*5 padding = 50 tall.
     let html = format!(
-        "<html><head><style>\
-            .b {{ width: 70px; padding: 5px; box-sizing: border-box; font-size: 20px; \
-                  font-family: {FAKE_FAMILY}; margin: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+        "<html><head><style>.b {{ width: 70px; padding: 5px; box-sizing: border-box; font-size: \
+         20px; font-family: {FAKE_FAMILY}; margin: 0; }}</style></head><body><div \
+         class=\"b\">aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -316,9 +319,9 @@ fn text_indent_shifts_first_line_only() {
     // only assert the block lays out without error under text-indent; the
     // first-line-only positional detail belongs to a display-list / glyph probe.
     let html = format!(
-        "<html><head><style>\
-            .b {{ width: 200px; text-indent: 10px; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+        "<html><head><style>.b {{ width: 200px; text-indent: 10px; font-size: 20px; font-family: \
+         {FAKE_FAMILY}; margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa \
+         aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -337,9 +340,9 @@ fn white_space_pre_preserves_spaces_and_newline_without_wrapping() {
     // at all (correct lazy sizing) — inline-block forces the measurement.
     // pins spec: pre keeps collapsible spaces; max-content = widest line between LFs.
     let html = format!(
-        "<html><head><style>\
-            .p {{ white-space: pre; display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"p\">aa  aa\naa</div></body></html>"
+        "<html><head><style>.p {{ white-space: pre; display: inline-block; font-size: 20px; \
+         font-family: '{MONO}'; margin: 0; padding: 0; }}</style></head><body><div class=\"p\">aa  \
+         aa\naa</div></body></html>"
     );
     let cache = run_layout(&html);
     // max-content of a pre block = widest preserved line = "aa  aa" = 60px.
@@ -360,9 +363,9 @@ fn double_space_collapses_to_one_gap() {
     // (The raw text3 pipeline operates on already-collapsed runs and does NOT
     // re-collapse — see shaping::raw_pipeline_preserves_internal_double_space.)
     let html = format!(
-        "<html><head><style>\
-            .b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"b\">aa  aa</span></body></html>"
+        "<html><head><style>.b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; \
+         margin: 0; padding: 0; }}</style></head><body><span class=\"b\">aa  \
+         aa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -378,10 +381,9 @@ fn nested_span_split_keeps_total_width_40px() {
     // "aa" + <span>"aa"</span> coalesces to 40px max-content (no phantom break)
     // in Azul Mock Mono (4 * 10px).
     let html = format!(
-        "<html><head><style>\
-            .b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
-            .b span {{ font-size: 20px; font-family: '{MONO}'; }}\
-         </style></head><body><span class=\"b\">aa<span>aa</span></span></body></html>"
+        "<html><head><style>.b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; \
+         margin: 0; padding: 0; }}.b span {{ font-size: 20px; font-family: '{MONO}'; \
+         }}</style></head><body><span class=\"b\">aa<span>aa</span></span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -396,9 +398,8 @@ fn font_size_zero_does_not_panic() {
     // Degenerate CSS: font-size:0 collapses text to zero advances; layout must
     // still complete without panicking.
     let html = format!(
-        "<html><head><style>\
-            .b {{ font-size: 0px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+        "<html><head><style>.b {{ font-size: 0px; font-family: {FAKE_FAMILY}; margin: 0; padding: \
+         0; }}</style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(

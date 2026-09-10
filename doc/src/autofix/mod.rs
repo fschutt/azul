@@ -808,7 +808,8 @@ pub fn autofix_api(
     // This happens AFTER patches are written, so they can still be applied
     if critical_error_count > 0 {
         return Err(anyhow::anyhow!(
-            "Found {} critical FFI safety issues in API types. Patches were generated but fix the errors before proceeding with codegen.",
+            "Found {} critical FFI safety issues in API types. Patches were generated but fix the \
+             errors before proceeding with codegen.",
             critical_error_count
         ));
     }
@@ -2665,8 +2666,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             println!("      api.json order: [{}]", api_order.join(", "));
             println!("      Rust order:     [{}]", rust_order.join(", "));
             println!(
-                "      FIX: reorder the api.json struct_fields to match the Rust \
-                declaration (the transmute size guard cannot catch same-size swaps)."
+                "      FIX: reorder the api.json struct_fields to match the Rust declaration (the \
+                 transmute size guard cannot catch same-size swaps)."
             );
             println!("      FILE: {}", warning.file_path);
         }
@@ -2697,7 +2698,7 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Use #[repr(C)] for enums without data, remove explicit discriminant \
-                     values.",
+                 values.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2772,8 +2773,7 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             println!("    {} Location: {}", "AT:".magenta(), location.yellow());
             println!("    {} \"{}\"", "CONTEXT:".dimmed(), context.dimmed());
             println!(
-                "    {} Use ASCII-only characters in documentation. Replace with text \
-                     equivalent.",
+                "    {} Use ASCII-only characters in documentation. Replace with text equivalent.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2838,7 +2838,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 "REASON:".magenta()
             );
             println!(
-                "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), Error>`.",
+                "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), \
+                 Error>`.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2915,7 +2916,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 raw_type.yellow()
             );
             println!(
-                "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put generic args in the 'generic_args' field.",
+                "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put \
+                 generic args in the 'generic_args' field.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2962,14 +2964,16 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 );
                 if !target_in_api {
                     println!(
-                        "    {} Target type '{}' is not defined in api.json. Use impl_vec!/impl_option! to generate a concrete type.",
+                        "    {} Target type '{}' is not defined in api.json. Use \
+                         impl_vec!/impl_option! to generate a concrete type.",
                         "FIX:".cyan(),
                         target
                     );
                 }
                 if !all_args_in_api {
                     println!(
-                        "    {} Some generic args are not defined in api.json. Ensure all arg types are in api.json or use concrete types.",
+                        "    {} Some generic args are not defined in api.json. Ensure all arg \
+                         types are in api.json or use concrete types.",
                         "FIX:".cyan()
                     );
                 }
@@ -3006,7 +3010,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 println!("    {} from: {}", "ORIGIN:".cyan(), orig.cyan());
             }
             println!(
-                "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref counting).",
+                "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref \
+                 counting).",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -3025,11 +3030,13 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 variant_name.cyan()
             );
             println!(
-                "    {} PHP refuses the duplicate method (case-insensitive); other languages produce ambiguous dispatch.",
+                "    {} PHP refuses the duplicate method (case-insensitive); other languages \
+                 produce ambiguous dispatch.",
                 "NOTE:".magenta()
             );
             println!(
-                "    {} Either remove the explicit api.json `functions:` entry (the auto-emitted predicate already does the same job) or rename the function.",
+                "    {} Either remove the explicit api.json `functions:` entry (the auto-emitted \
+                 predicate already does the same job) or rename the function.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -4867,14 +4874,21 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                 // Check constructor names
                 if let Some(constructors) = &class_data.constructors {
                     for (ctor_name, _ctor_data) in constructors {
-                        // Special case: "default" constructor should use custom_impls: ["Default"] instead
+                        // Special case: "default" constructor should use custom_impls: ["Default"]
+                        // instead
                         if ctor_name == "default" {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
-                                file_path: format!("api.json - {}.{}::{}", module_name, class_name, ctor_name),
+                                file_path: format!(
+                                    "api.json - {}.{}::{}",
+                                    module_name, class_name, ctor_name
+                                ),
                                 kind: FfiSafetyWarningKind::BadConstructorName {
                                     name: ctor_name.clone(),
-                                    suggestion: "Use custom_impls: [\"Default\"] or derive: [\"Default\"] instead. The codegen will automatically generate a _default() function.".to_string(),
+                                    suggestion: "Use custom_impls: [\"Default\"] or derive: \
+                                                 [\"Default\"] instead. The codegen will \
+                                                 automatically generate a _default() function."
+                                        .to_string(),
                                 },
                             });
                             continue;

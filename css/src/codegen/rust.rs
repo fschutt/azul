@@ -3,7 +3,12 @@
 //! Produces a `const CSS: Css = ...;` literal plus a minimal `Cargo.toml` and
 //! `src/main.rs` skeleton suitable for `cargo build` against `azul`.
 
-use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::fmt::Write;
 
 use super::{CodegenBackend, GeneratedFile};
@@ -36,13 +41,9 @@ impl CodegenBackend for RustBackend {
              println!(\"Generated stylesheet contains {{}} rule(s)\", \
              CSS.rules.as_ref().len());\r\n}}\r\n",
         );
-        let cargo_toml = "[package]\r\n\
-            name = \"azul-generated-app\"\r\n\
-            version = \"0.1.0\"\r\n\
-            edition = \"2021\"\r\n\
-            \r\n\
-            [dependencies]\r\n\
-            azul = \"0.0.7\"\r\n"
+        let cargo_toml = "[package]\r\nname = \"azul-generated-app\"\r\nversion = \
+                          \"0.1.0\"\r\nedition = \"2021\"\r\n\r\n[dependencies]\r\nazul = \
+                          \"0.0.7\"\r\n"
             .to_string();
         vec![
             GeneratedFile {
@@ -90,7 +91,8 @@ pub fn css_to_rust_code(css: &Css) -> String {
 }
 
 #[allow(clippy::too_many_lines)]
-// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+// property/variant)
 #[must_use]
 pub const fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
@@ -442,7 +444,8 @@ pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
             pattern_repeat,
             offset,
         }) => format!(
-            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {pattern_repeat}, offset: {offset} }})"
+            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {pattern_repeat}, \
+             offset: {offset} }})"
         ),
     }
 }

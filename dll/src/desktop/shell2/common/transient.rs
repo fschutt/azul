@@ -31,14 +31,13 @@
 //!
 //! # Dismiss, once, for every platform
 //!
-//! - In the popup: Escape (`dismiss=outside|escape`), or losing window focus
-//!   (`dismiss=outside`) → it closes itself and posts `dismissed`.
-//! - In the parent: any fresh mouse press while popups are open
-//!   (`dismiss=outside`) → it closes them. The parent KNOWS such a press is
-//!   outside, because the popup is a different window.
-//! - The parent then marks the node dismissed (edge-triggered, so the node's
-//!   still-`open` attribute cannot reopen it), and fires
-//!   `ComponentEventFilter::Dismissed` on the node so the app drops its flag.
+//! - In the popup: Escape (`dismiss=outside|escape`), or losing window focus (`dismiss=outside`) →
+//!   it closes itself and posts `dismissed`.
+//! - In the parent: any fresh mouse press while popups are open (`dismiss=outside`) → it closes
+//!   them. The parent KNOWS such a press is outside, because the popup is a different window.
+//! - The parent then marks the node dismissed (edge-triggered, so the node's still-`open` attribute
+//!   cannot reopen it), and fires `ComponentEventFilter::Dismissed` on the node so the app drops
+//!   its flag.
 //!
 //! # Tear-off
 //!
@@ -436,11 +435,10 @@ impl SyncOutcome {
 
 /// The parent side: reconcile the engine's popup set with real windows.
 ///
-/// 1. Popups that posted `dismissed` are closed in the manager (edge-triggered)
-///    and their `Dismissed` event is queued.
+/// 1. Popups that posted `dismissed` are closed in the manager (edge-triggered) and their
+///    `Dismissed` event is queued.
 /// 2. Newly opened popups get a window each.
-/// 3. Still-open popups whose content or placement changed get the new
-///    content pushed.
+/// 3. Still-open popups whose content or placement changed get the new content pushed.
 /// 4. Closed popups' mailboxes get `closed`.
 ///
 /// Runs after every layout pass of a window that has — or had — popups, and is
@@ -453,8 +451,8 @@ pub fn sync_parent(
 ) -> SyncOutcome {
     let mut out = SyncOutcome::default();
 
-    // 0. Tear-off drags that ended: the engine decides what the drop meant
-    //    (dock / zone / tear off) and queues the surface changes + event.
+    // 0. Tear-off drags that ended: the engine decides what the drop meant (dock / zone / tear off)
+    //    and queues the surface changes + event.
     let drops: Vec<(NodeId, TearDropReport)> = lw
         .transient_windows
         .open_windows()
@@ -636,8 +634,8 @@ pub fn sync_parent(
         }
     }
 
-    // 4. Closed by the app (`open=false`) or by a node going away: the
-    //    manager already dropped them; their mailboxes are handed over here.
+    // 4. Closed by the app (`open=false`) or by a node going away: the manager already dropped
+    //    them; their mailboxes are handed over here.
     for m in lw.transient_windows.take_closed_surfaces() {
         if let OptionRefAny::Some(m) = m {
             if write(&m, |d| d.closed = true) {
@@ -1098,9 +1096,10 @@ pub fn dismiss_outside_on_press(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::{geom::LogicalRect, transient::TransientAnchor};
     use azul_layout::transient::placement_for;
+
+    use super::*;
 
     fn open_window(dom: usize) -> OpenTransientWindow {
         let cfg = azul_core::transient::TransientWindowConfig::opened();

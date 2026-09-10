@@ -7,28 +7,31 @@
 //! `open()` returns `0`, and the widget keeps its test pattern.
 //!
 //! Flow (the same push → pull seam as `camera/avfoundation.rs`):
-//!   1. `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess`
-//!      (dlsym'd from CoreGraphics, 10.15+) trigger the Screen-Recording TCC
-//!      prompt. For a terminal-launched binary the grant is attributed to the
-//!      *responsible process* (Terminal); detached launches are denied.
+//!   1. `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess` (dlsym'd from
+//!      CoreGraphics, 10.15+) trigger the Screen-Recording TCC prompt. For a terminal-launched
+//!      binary the grant is attributed to the *responsible process* (Terminal); detached launches
+//!      are denied.
 //!   2. `SCShareableContent` enumerates displays (completion-handler block).
-//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (BGRA,
-//!      ~30 fps) + `SCStream` + an `SCStreamOutput` delegate registered via
-//!      `define_class!` (protocol added dynamically — it only exists once the
-//!      framework is loaded).
-//!   4. The delegate parks BGRA→RGBA frames in a shared slot; `read` drains
-//!      it. Screens only produce frames ON CHANGE, so `read` re-returns the
-//!      last frame on timeout instead of `(0,0)` (which would stop the worker).
+//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (BGRA, ~30 fps) + `SCStream` +
+//!      an `SCStreamOutput` delegate registered via `define_class!` (protocol added dynamically —
+//!      it only exists once the framework is loaded).
+//!   4. The delegate parks BGRA→RGBA frames in a shared slot; `read` drains it. Screens only
+//!      produce frames ON CHANGE, so `read` re-returns the last frame on timeout instead of `(0,0)`
+//!      (which would stop the worker).
 
-use std::ffi::c_void;
-use std::sync::mpsc;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    ffi::c_void,
+    sync::{mpsc, Arc, OnceLock},
+    time::Duration,
+};
 
 use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, AnyProtocol};
-use objc2::{define_class, msg_send, AllocAnyThread, ClassType, DefinedClass};
+use objc2::{
+    define_class, msg_send,
+    rc::Retained,
+    runtime::{AnyClass, AnyObject, AnyProtocol},
+    AllocAnyThread, ClassType, DefinedClass,
+};
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
     CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
@@ -406,7 +409,8 @@ pub fn open(request: &CaptureRequest) -> u64 {
             }
             if filter.is_null() {
                 crate::plog_warn!(
-                    "[screencap] window {} not shareable (closed / off-screen?) — capturing the display instead",
+                    "[screencap] window {} not shareable (closed / off-screen?) — capturing the \
+                     display instead",
                     request.window
                 );
             }

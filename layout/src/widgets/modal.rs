@@ -15,20 +15,19 @@
 //!
 //! TODO2 — several "real modal" behaviours are NOT reachable from a widget
 //! handler and are deliberately omitted (be honest rather than fake them):
-//!   * **Focus-trap** (confining keyboard focus to the dialog while open) depends
-//!     on the focus model and is not controllable from a widget handler.
-//!   * **Escape-to-close** depends on a global key handler the widget does not own
-//!     (the panel/backdrop are not keyboard-focused), so it is not wired.
-//!   * **Backdrop-click-to-close** is NOT wired: with `currentTarget` hit
-//!     semantics (see `popover`), a click handler on the backdrop reports the
-//!     backdrop as the hit node even when the *panel* (a descendant) was clicked,
-//!     so it cannot distinguish an outside click from an inside click — wiring it
-//!     would close the dialog when clicking its own content. Only the explicit "x"
-//!     closes it.
-//!   * **Covering sibling widgets**: the backdrop is `position: absolute` and
-//!     relies on paint order (being a later sibling) to overlay other content;
-//!     there is no real stacking-context / z-index. Place the modal as the LAST
-//!     child of a positioned, full-size container for a correct overlay.
+//!   * **Focus-trap** (confining keyboard focus to the dialog while open) depends on the focus
+//!     model and is not controllable from a widget handler.
+//!   * **Escape-to-close** depends on a global key handler the widget does not own (the
+//!     panel/backdrop are not keyboard-focused), so it is not wired.
+//!   * **Backdrop-click-to-close** is NOT wired: with `currentTarget` hit semantics (see
+//!     `popover`), a click handler on the backdrop reports the backdrop as the hit node even when
+//!     the *panel* (a descendant) was clicked, so it cannot distinguish an outside click from an
+//!     inside click — wiring it would close the dialog when clicking its own content. Only the
+//!     explicit "x" closes it.
+//!   * **Covering sibling widgets**: the backdrop is `position: absolute` and relies on paint order
+//!     (being a later sibling) to overlay other content; there is no real stacking-context /
+//!     z-index. Place the modal as the LAST child of a positioned, full-size container for a
+//!     correct overlay.
 //!   * The `display:none/flex` relayout itself is not GUI-verified in this build.
 //!
 //! Key types: [`Modal`], [`ModalState`], [`ModalOnClose`].
@@ -38,8 +37,8 @@ use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{

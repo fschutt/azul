@@ -3,16 +3,14 @@
 //! This module provides the unified code generator that takes an IR
 //! and a configuration to produce output code.
 
-use anyhow::Result;
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
-use super::config::*;
-use super::ir::*;
-use super::lang_c::CGenerator;
+use anyhow::Result;
+
 use super::lang_cpp; // Use new dialect-based module
-use super::lang_python::PythonGenerator;
-use super::lang_rust::RustGenerator;
+use super::{
+    config::*, ir::*, lang_c::CGenerator, lang_python::PythonGenerator, lang_rust::RustGenerator,
+};
 
 // ============================================================================
 // Code Generator Trait
@@ -106,8 +104,8 @@ impl GenerationTargets {
         }
         fs::create_dir_all(&codegen_dir)?;
 
-        // 1. DLL internal API (types + C-ABI function bodies, #[no_mangle] gated via cfg_attr)
-        //    Used by both build-dll (with cabi_export) and link-static (without cabi_export)
+        // 1. DLL internal API (types + C-ABI function bodies, #[no_mangle] gated via cfg_attr) Used
+        //    by both build-dll (with cabi_export) and link-static (without cabi_export)
         println!("[1/35] Generating DLL internal API...");
         CodeGenerator::generate_to_file(
             ir,
@@ -171,11 +169,13 @@ impl GenerationTargets {
             &codegen_dir.join("azul.rs"),
         )?;
 
-        // 12. Python extension (separate from C-API!) - goes to target/codegen/ for include!() in dll
+        // 12. Python extension (separate from C-API!) - goes to target/codegen/ for include!() in
+        //     dll
         println!("[12/35] Generating Python extension...");
         Self::generate_python(ir, &codegen_dir.join("python_api.rs"))?;
 
-        // 12b. PHP extension (Zend engine via ext-php-rs) - goes to target/codegen/ for include!() in dll
+        // 12b. PHP extension (Zend engine via ext-php-rs) - goes to target/codegen/ for include!()
+        // in dll
         println!("[12b/35] Generating PHP extension...");
         let php_api_code = super::lang_php_ext::generate(ir)?;
         let php_api_path = codegen_dir.join("php_api.rs");
@@ -274,8 +274,8 @@ impl GenerationTargets {
             &codegen_dir.join("azul.bi"),
         )?;
 
-        // 20. Zig bindings — consumes the C header via @cImport, generator only
-        //     emits idiomatic wrappers + a build.zig manifest.
+        // 20. Zig bindings — consumes the C header via @cImport, generator only emits idiomatic
+        //     wrappers + a build.zig manifest.
         println!("[20/35] Generating Zig bindings...");
         Self::write_string(
             super::lang_zig::generate(ir, &CodegenConfig::c_header())?,
@@ -381,8 +381,8 @@ impl GenerationTargets {
             &codegen_dir.join("cpanfile"),
         )?;
 
-        // 24. OCaml bindings — generator emits .mli + .ml in one String,
-        //     plus dune + dune-project manifests.
+        // 24. OCaml bindings — generator emits .mli + .ml in one String, plus dune + dune-project
+        //     manifests.
         println!("[24/35] Generating OCaml bindings...");
         let ocaml_combined = super::lang_ocaml::generate(ir, &CodegenConfig::c_header())?;
         let (ocaml_mli, ocaml_ml) = ocaml_combined
@@ -421,8 +421,8 @@ impl GenerationTargets {
             &codegen_dir.join("haskell"),
         )?;
 
-        // 26. Java (JNA) bindings — multi-file: src/main/java/com/azul/*.java +
-        //     pom.xml emitted separately.
+        // 26. Java (JNA) bindings — multi-file: src/main/java/com/azul/*.java + pom.xml emitted
+        //     separately.
         println!("[26/35] Generating Java bindings...");
         let java_combined = super::lang_java::generate(ir, &CodegenConfig::c_header())?;
         Self::write_multifile(
@@ -512,8 +512,8 @@ impl GenerationTargets {
             &codegen_dir.join("azul.cpy"),
         )?;
 
-        // 34. Visual Basic 6 (32-bit, Windows) bindings — multi-file: Azul.bas
-        //     plus one .cls per disposable type plus Azul.vbp project file.
+        // 34. Visual Basic 6 (32-bit, Windows) bindings — multi-file: Azul.bas plus one .cls per
+        //     disposable type plus Azul.vbp project file.
         println!("[34/35] Generating Visual Basic 6 bindings...");
         let vb6_combined = super::lang_vb6::generate(ir, &CodegenConfig::c_header())?;
         Self::write_multifile(
@@ -523,8 +523,8 @@ impl GenerationTargets {
             &codegen_dir.join("vb6"),
         )?;
 
-        // 35. Node.js / Bun / Deno bindings — multi-file (single output file
-        //     with runtime detection for the FFI loader, plus package.json).
+        // 35. Node.js / Bun / Deno bindings — multi-file (single output file with runtime detection
+        //     for the FFI loader, plus package.json).
         println!("[35/35] Generating Node bindings...");
         let node_combined = super::lang_node::generate(ir, &CodegenConfig::c_header())?;
         Self::write_multifile(

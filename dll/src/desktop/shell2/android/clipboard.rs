@@ -31,15 +31,13 @@
 //!
 //! # Two platform limits worth knowing
 //!
-//! * **Reading is focus-gated.** Since Android 10 (API 29) `getPrimaryClip`
-//!   returns `null` for an app that does not hold focus, and since Android
-//!   12 a read raises a system toast. Both are the platform's choice; a
-//!   `None` here can therefore mean "not focused" as well as "empty".
-//! * **Writes are silently size-capped.** The system clipboard is a Binder
-//!   transaction; a very large clip throws `TransactionTooLargeException` in
-//!   the system server rather than at the call site. The Java side catches
-//!   `Throwable` and answers `false`, so a failed copy never reports success
-//!   and `CutToClipboard` will not delete the selection.
+//! * **Reading is focus-gated.** Since Android 10 (API 29) `getPrimaryClip` returns `null` for an
+//!   app that does not hold focus, and since Android 12 a read raises a system toast. Both are the
+//!   platform's choice; a `None` here can therefore mean "not focused" as well as "empty".
+//! * **Writes are silently size-capped.** The system clipboard is a Binder transaction; a very
+//!   large clip throws `TransactionTooLargeException` in the system server rather than at the call
+//!   site. The Java side catches `Throwable` and answers `false`, so a failed copy never reports
+//!   success and `CutToClipboard` will not delete the selection.
 
 use rich_clipboard::{ClipboardPayload, Platform};
 

@@ -8,13 +8,15 @@
 
 use core::ffi::c_void;
 
-use azul_css::corety::AzString;
-use azul_css::css::Css;
-use azul_css::dynamic_selector::{BoolCondition, OsVersion};
-use azul_css::props::basic::color::{ColorU, OptionColorU};
-use azul_css::system::{
-    defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
-    ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, Theme,
+use azul_css::{
+    corety::AzString,
+    css::Css,
+    dynamic_selector::{BoolCondition, OsVersion},
+    props::basic::color::{ColorU, OptionColorU},
+    system::{
+        defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
+        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, Theme,
+    },
 };
 
 // ── Raw dlopen / dlsym (provided by libSystem, always available) ─────────
@@ -940,13 +942,15 @@ fn adopt_probed_theme(
 /// the window count for an identical answer. Cached against the theme it was
 /// discovered for, so a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(
-    theme: azul_core::window::WindowTheme,
-) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
-    static CACHE: Mutex<Option<(azul_core::window::WindowTheme, alloc::sync::Arc<SystemStyle>)>> =
-        Mutex::new(None);
+    static CACHE: Mutex<
+        Option<(
+            azul_core::window::WindowTheme,
+            alloc::sync::Arc<SystemStyle>,
+        )>,
+    > = Mutex::new(None);
 
     let mut guard = CACHE
         .lock()

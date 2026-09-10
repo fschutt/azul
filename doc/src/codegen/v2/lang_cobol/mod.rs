@@ -4,23 +4,19 @@
 //! `COPY "azul.cpy".` from inside their `WORKING-STORAGE SECTION`. The
 //! copybook contains:
 //!
-//! 1. A header banner pinning the GnuCOBOL dialect (>= 3.0) and recording
-//!    that the example must be compiled with `cobc -x` (executable, not a
-//!    callable subprogram).
-//! 2. A block of level-78 constants for every unit-only enum variant
-//!    (`78 AZ-BUTTON-TYPE-PRIMARY VALUE 0.`).
-//! 3. A block of level-78 constants holding the canonical, case-sensitive
-//!    C symbol name for every C-ABI function (`78 FN-AZ-APP-CREATE
-//!    VALUE "AzApp_create".`). The user calls `CALL FN-AZ-APP-CREATE
-//!    USING ... RETURNING ...` rather than typing the literal C symbol —
-//!    this preserves the case the C linker expects without forcing the
-//!    COBOL author to remember it.
-//! 4. A block of level-01 typedef records for every plain struct and
-//!    every tagged union. Tagged unions use `REDEFINES` to overlay each
-//!    variant payload on the same memory after the discriminant tag, so
-//!    the COBOL record matches the Rust `#[repr(C)]` enum layout.
-//! 5. A block of level-01 typedef records for callback function-pointer
-//!    typedefs, declared as `USAGE PROGRAM-POINTER`.
+//! 1. A header banner pinning the GnuCOBOL dialect (>= 3.0) and recording that the example must be
+//!    compiled with `cobc -x` (executable, not a callable subprogram).
+//! 2. A block of level-78 constants for every unit-only enum variant (`78 AZ-BUTTON-TYPE-PRIMARY
+//!    VALUE 0.`).
+//! 3. A block of level-78 constants holding the canonical, case-sensitive C symbol name for every
+//!    C-ABI function (`78 FN-AZ-APP-CREATE VALUE "AzApp_create".`). The user calls `CALL
+//!    FN-AZ-APP-CREATE USING ... RETURNING ...` rather than typing the literal C symbol — this
+//!    preserves the case the C linker expects without forcing the COBOL author to remember it.
+//! 4. A block of level-01 typedef records for every plain struct and every tagged union. Tagged
+//!    unions use `REDEFINES` to overlay each variant payload on the same memory after the
+//!    discriminant tag, so the COBOL record matches the Rust `#[repr(C)]` enum layout.
+//! 5. A block of level-01 typedef records for callback function-pointer typedefs, declared as
+//!    `USAGE PROGRAM-POINTER`.
 //!
 //! No procedure-division code is emitted: COBOL has no native concept of
 //! a class with a destructor, and OO-COBOL is too rare to target. Users
@@ -36,11 +32,10 @@
 //! respectively. We therefore:
 //!
 //! - Convert `Az_App_create` -> `AZ-APP-CREATE` ([`to_cobol_case`]).
-//! - Truncate names longer than 30 chars to 30, with collisions resolved
-//!   by appending a 4-char hex suffix derived from a stable hash
-//!   ([`mangle_identifier`]). The original C symbol is still preserved
-//!   verbatim inside the level-78 string literal so the linker can find
-//!   it; only the COBOL-side identifier is shortened.
+//! - Truncate names longer than 30 chars to 30, with collisions resolved by appending a 4-char hex
+//!   suffix derived from a stable hash ([`mangle_identifier`]). The original C symbol is still
+//!   preserved verbatim inside the level-78 string literal so the linker can find it; only the
+//!   COBOL-side identifier is shortened.
 //!
 //! # Wiring
 //!
@@ -54,9 +49,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod managed;

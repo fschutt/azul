@@ -1,20 +1,22 @@
 #![cfg(feature = "serde")]
 
-use azul::callbacks::RenderImageCallbackInfo;
-use azul::css::{
-    AngleValue, ColorU, PhysicalSizeU32, PixelValue, StyleTransform, StyleTransformTranslate2D,
-    SvgFillStyle,
+use azul::{
+    callbacks::RenderImageCallbackInfo,
+    css::{
+        AngleValue, ColorU, PhysicalSizeU32, PixelValue, StyleTransform, StyleTransformTranslate2D,
+        SvgFillStyle,
+    },
+    dom::RenderImageCallback,
+    gl::Texture,
+    image::{ImageRef, RawImageFormat},
+    option::OptionRefAny,
+    prelude::*,
+    svg::*,
+    task::TerminateTimer,
+    vec::U8VecRef,
+    widgets::Button,
+    window::WindowFrame,
 };
-use azul::dom::RenderImageCallback;
-use azul::gl::Texture;
-use azul::image::{ImageRef, RawImageFormat};
-use azul::option::OptionRefAny;
-use azul::svg::*;
-use azul::task::TerminateTimer;
-use azul::vec::U8VecRef;
-use azul::window::WindowFrame;
-use azul::{prelude::*, widgets::Button};
-
 use serde::Deserialize;
 
 static DATA: &str = include_str!(concat!(

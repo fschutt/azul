@@ -3,11 +3,10 @@
 //! Uses `FontContext` to share font data across tests without sharing
 //! layout state. Each test gets a fresh `LayoutWindow`.
 
-use std::path::Path;
-use std::time::Instant;
+use std::{path::Path, time::Instant};
 
-use super::autodebug::cdp::{ChromeCdp, ChromePerformanceTiming};
 use super::{
+    autodebug::cdp::{ChromeCdp, ChromePerformanceTiming},
     compare_images, generate_chrome_screenshot_with_debug, DebugData, TestMetadata,
     PASS_THRESHOLD_PIXELS,
 };
@@ -354,9 +353,16 @@ impl ReftestPipeline {
         if let Some(ref ct) = chrome_timing {
             println!("  Chrome: {}", ct);
         }
-        println!("  Azul:   parse={:.0}us layout={:.0}us render={:.0}us save={:.0}us total={:.0}us ({:.2}ms)",
-            azul_timing.parse_us, azul_timing.layout_us, azul_timing.render_us,
-            azul_timing.save_us, azul_timing.total_us, azul_timing.total_us / 1000.0);
+        println!(
+            "  Azul:   parse={:.0}us layout={:.0}us render={:.0}us save={:.0}us total={:.0}us \
+             ({:.2}ms)",
+            azul_timing.parse_us,
+            azul_timing.layout_us,
+            azul_timing.render_us,
+            azul_timing.save_us,
+            azul_timing.total_us,
+            azul_timing.total_us / 1000.0
+        );
         println!(
             "  Diff:   {} pixels ({})",
             diff_pixels,
@@ -385,10 +391,8 @@ pub fn render_xhtml_to_webp(
     height: u32,
     collect_debug: bool,
 ) -> Result<(DebugData, AzulTiming), String> {
-    use azul_core::dom::DomId;
-    use azul_core::geom::LogicalSize;
-    use azul_layout::callbacks::ExternalSystemCallbacks;
-    use azul_layout::window_state::FullWindowState;
+    use azul_core::{dom::DomId, geom::LogicalSize};
+    use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
 
     let t_parse = Instant::now();
     let xml_content = std::fs::read_to_string(test_file).map_err(|e| format!("read: {}", e))?;

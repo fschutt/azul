@@ -2,12 +2,11 @@
 //! across successive frames produces the correct resource updates.
 //!
 //! The goal of `ImageKey` being derived from `ImageRefHash` is that:
-//!   - Frame N uses an image  → `collect_image_resource_updates` yields an
-//!     `AddImage` whose `ImageKey` can be round-tripped back to the source
-//!     `ImageRefHash` losslessly (no folding / no truncation).
-//!   - Frame N+1 no longer references the image → `scan_used_images` no
-//!     longer contains that hash (input to the GC path that would emit
-//!     `DeleteImage`).
+//!   - Frame N uses an image  → `collect_image_resource_updates` yields an `AddImage` whose
+//!     `ImageKey` can be round-tripped back to the source `ImageRefHash` losslessly (no folding /
+//!     no truncation).
+//!   - Frame N+1 no longer references the image → `scan_used_images` no longer contains that hash
+//!     (input to the GC path that would emit `DeleteImage`).
 //!
 //! At the time of writing, the `DeleteImage` emission path on the dll side
 //! has not been wired into `HeadlessWindow::regenerate_layout`; the test
@@ -19,24 +18,30 @@
 //! driving a `HeadlessWindow` with a layout callback that returns different
 //! DOMs on successive frames.
 
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
-use azul_core::dom::{Dom, NodeData};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::{
-    image_ref_hash_to_image_key, AppConfig, ImageRef, ImageRefHash, RawImage, RawImageData,
-    RawImageFormat,
+use azul::desktop::{
+    shell2::{common::PlatformWindow, headless::HeadlessWindow},
+    wr_translate2::collect_image_resource_updates,
+};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    dom::{Dom, NodeData},
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::{
+        image_ref_hash_to_image_key, AppConfig, ImageRef, ImageRefHash, RawImage, RawImageData,
+        RawImageFormat,
+    },
 };
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
-use azul::desktop::wr_translate2::collect_image_resource_updates;
 
 #[derive(Clone)]
 struct Ctx {
@@ -115,8 +120,8 @@ fn image_ref_hash_round_trips_losslessly() {
     assert_eq!(key.namespace, namespace);
     assert_eq!(
         key.key, hash.inner,
-        "ImageKey.key must preserve every bit of ImageRefHash.inner \
-         (both u64, no folding/truncation)"
+        "ImageKey.key must preserve every bit of ImageRefHash.inner (both u64, no \
+         folding/truncation)"
     );
 }
 
@@ -149,8 +154,8 @@ fn image_lifecycle_produces_add_then_disappears_from_scan() {
     let used_frame0 = layout_window.scan_used_images(&azul_core::resources::ImageCache::new());
     assert!(
         used_frame0.contains(&expected_hash),
-        "frame 0: the image we placed in the DOM must appear in scan_used_images \
-         (hash={:?}, scanned={:?})",
+        "frame 0: the image we placed in the DOM must appear in scan_used_images (hash={:?}, \
+         scanned={:?})",
         expected_hash,
         used_frame0,
     );
@@ -192,9 +197,9 @@ fn image_lifecycle_produces_add_then_disappears_from_scan() {
     let used_frame1 = layout_window.scan_used_images(&azul_core::resources::ImageCache::new());
     assert!(
         !used_frame1.contains(&expected_hash),
-        "frame 1: image is no longer referenced by the DOM, so scan_used_images \
-         must NOT contain its hash (this is the input the GC path uses to emit \
-         ResourceUpdate::DeleteImage) — scanned={:?}",
+        "frame 1: image is no longer referenced by the DOM, so scan_used_images must NOT contain \
+         its hash (this is the input the GC path uses to emit ResourceUpdate::DeleteImage) — \
+         scanned={:?}",
         used_frame1,
     );
 

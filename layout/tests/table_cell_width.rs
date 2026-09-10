@@ -256,8 +256,8 @@ fn test_single_table_cell_nonzero_width() {
     );
 }
 
-/// Even simpler: just a div with display:table > div with display:table-row > div with display:table-cell
-/// No text at all — pure block sizing.
+/// Even simpler: just a div with display:table > div with display:table-row > div with
+/// display:table-cell No text at all — pure block sizing.
 #[test]
 fn test_table_cell_with_explicit_css_gets_width() {
     let dom =
@@ -450,6 +450,9 @@ fn test_hn_header_three_cells_all_nonzero() {
         }
     }
 
-    assert!(min_cell_width > 20.0,
-        "Narrowest cell should be > 20px (for 'login' text), got {min_cell_width:.1}px at node[{min_cell_idx}]");
+    assert!(
+        min_cell_width > 20.0,
+        "Narrowest cell should be > 20px (for 'login' text), got {min_cell_width:.1}px at \
+         node[{min_cell_idx}]"
+    );
 }

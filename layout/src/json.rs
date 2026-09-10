@@ -6,9 +6,9 @@
 //! types (`RefAnySerializeFnType`, `RefAnyDeserializeFnType`).
 
 // Re-export all data types and methods from core
-pub use azul_core::json::*;
-
 use alloc::string::String;
+
+pub use azul_core::json::*;
 use azul_css::AzString;
 
 // ============================================================================

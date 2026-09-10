@@ -65,8 +65,8 @@ fn main() {
         // Keep in step with dll/Cargo.toml's `[target.'cfg(...)'.dependencies]`
         // for `gpu-video`: x86_64 desktop, and on Linux only glibc (no musl C++
         // toolchain in the cross-compile checks).
-        let dep_present = arch == "x86_64"
-            && ((os == "linux" && target_env == "gnu") || os == "windows");
+        let dep_present =
+            arch == "x86_64" && ((os == "linux" && target_env == "gnu") || os == "windows");
         if env::var("CARGO_FEATURE_VIDEO_NATIVE").is_ok() && dep_present {
             println!("cargo:rustc-cfg=az_gpu_video");
         }
@@ -96,9 +96,9 @@ fn main() {
         && env::var("CARGO_FEATURE_ALLOCATOR_JEMALLOC").is_ok()
     {
         panic!(
-            "azul-dll: features `allocator_mimalloc` and `allocator_jemalloc` are \
-             mutually exclusive — enable at most one global allocator (and do not \
-             use `--all-features`, which turns on both)."
+            "azul-dll: features `allocator_mimalloc` and `allocator_jemalloc` are mutually \
+             exclusive — enable at most one global allocator (and do not use `--all-features`, \
+             which turns on both)."
         );
     }
 
@@ -212,9 +212,8 @@ fn restrict_cdylib_exports(target: &str) {
         // and are fully hidden on Linux, where the version-script below IS
         // authoritative over dep `#[no_mangle]`. The CI export gate allows
         // exactly this family set on macOS and demands zero strays on Linux.
-        let patterns = "_Az*\n_az_*\n_PyInit_*\n\
-                        *_CLASS_Azul*\n*_IVAR_OFFSET_Azul*\n\
-                        *_DROP_FLAG_OFFSET_Azul*\n*_REGISTER_CLASS_Azul*\n";
+        let patterns = "_Az*\n_az_*\n_PyInit_*\n*_CLASS_Azul*\n*_IVAR_OFFSET_Azul*\n*\
+                        _DROP_FLAG_OFFSET_Azul*\n*_REGISTER_CLASS_Azul*\n";
         let path = format!("{}/azul_exported_symbols.txt", out);
         fs::write(&path, patterns).expect("write exported symbols list");
         println!("cargo:rustc-cdylib-link-arg=-Wl,-exported_symbols_list,{path}");
@@ -223,15 +222,13 @@ fn restrict_cdylib_exports(target: &str) {
         // version node that exports the reachable `#[no_mangle]`/`#[export_name]`
         // symbols and hides mangled Rust symbols). We must NOT add our own
         // export restriction here:
-        //   * a second `--version-script` fails — GNU ld rejects "anonymous
-        //     version tag cannot be combined with other version tags".
-        //   * `--exclude-libs,ALL` localizes ALL static-archive symbols, which
-        //     hides azul's C-ABI exports that live in the azul-core/azul-layout
-        //     rlibs — most importantly the host-invoker surface
-        //     (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`, …) that
-        //     every scripting binding (python/lua/ruby/…) needs. Hiding those
-        //     breaks the whole host-invoker family at runtime with
-        //     "undefined symbol".
+        //   * a second `--version-script` fails — GNU ld rejects "anonymous version tag cannot be
+        //     combined with other version tags".
+        //   * `--exclude-libs,ALL` localizes ALL static-archive symbols, which hides azul's C-ABI
+        //     exports that live in the azul-core/azul-layout rlibs — most importantly the
+        //     host-invoker surface (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`, …)
+        //     that every scripting binding (python/lua/ruby/…) needs. Hiding those breaks the whole
+        //     host-invoker family at runtime with "undefined symbol".
         // So rustc's default is authoritative: it exports azul's `Az*`/`az_*`/
         // `PyInit_*` (wherever they are defined) plus a handful of dependency
         // `#[no_mangle]` strays (turso/limbo SQLite entry points, material-icons
@@ -269,9 +266,8 @@ fn configure_android() {
 
     if env::var("ANDROID_NDK_HOME").is_err() && env::var("ANDROID_HOME").is_err() {
         println!(
-            "cargo:warning=ANDROID_NDK_HOME / ANDROID_HOME not set. Install with: \
-             brew install --cask android-commandlinetools && \
-             sdkmanager 'ndk;27.0.12077973'"
+            "cargo:warning=ANDROID_NDK_HOME / ANDROID_HOME not set. Install with: brew install \
+             --cask android-commandlinetools && sdkmanager 'ndk;27.0.12077973'"
         );
     }
 }
@@ -305,8 +301,8 @@ fn build_in_process_remill(target: &str) {
     // build_remill.sh picks it up at bootstrap time.
     let vcpkg_base = if is_apple {
         workspace_root.join(
-            "third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64\
-             /installed/arm64-osx-rel",
+            "third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64/\
+             installed/arm64-osx-rel",
         )
     } else {
         // Linux x86_64: vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_x64-linux.
@@ -318,8 +314,8 @@ fn build_in_process_remill(target: &str) {
             "x64-linux"
         };
         let bundle = format!(
-            "third_party/cxx-common/vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_{arch}\
-             /installed/{arch}-rel"
+            "third_party/cxx-common/vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_{arch}/installed/\
+             {arch}-rel"
         );
         workspace_root.join(bundle)
     };
@@ -327,8 +323,8 @@ fn build_in_process_remill(target: &str) {
     for p in [&remill_install, &remill_build, &vcpkg_base] {
         if !p.exists() {
             panic!(
-                "web-transpiler-static requires {} — run `bash scripts/build_remill.sh` \
-                 from the workspace root to bootstrap",
+                "web-transpiler-static requires {} — run `bash scripts/build_remill.sh` from the \
+                 workspace root to bootstrap",
                 p.display()
             );
         }
@@ -633,13 +629,12 @@ fn check_generated_files() {
             let path = codegen_dir.join(filename);
             if !path.exists() {
                 panic!(
-                    "\nMissing generated file: {}\n\
-                     In a checkout of the azul repo, run:\n\
-                     \x20 cargo run --release -p azul-doc codegen all\n\
-                     Depending on azul-dll as a bare `--git` dependency cannot work\n\
-                     (these sources are generated, not committed) — clone the repo,\n\
-                     run the codegen line above, then depend on it by `--path`,\n\
-                     or set AZ_CODEGEN_DIR to a directory holding the generated files.\n",
+                    "\nMissing generated file: {}\nIn a checkout of the azul repo, run:\n\x20 \
+                     cargo run --release -p azul-doc codegen all\nDepending on azul-dll as a bare \
+                     `--git` dependency cannot work\n(these sources are generated, not committed) \
+                     — clone the repo,\nrun the codegen line above, then depend on it by \
+                     `--path`,\nor set AZ_CODEGEN_DIR to a directory holding the generated \
+                     files.\n",
                     filename,
                 );
             }
@@ -652,9 +647,9 @@ fn check_generated_files() {
         let path = codegen_dir.join("reexports.rs");
         if !path.exists() {
             panic!(
-                "\nMissing generated file: reexports.rs\n\
-                 Run: cargo run --release -p azul-doc codegen all\n\
-                 (or set AZ_CODEGEN_DIR — see the note above about git dependencies)\n",
+                "\nMissing generated file: reexports.rs\nRun: cargo run --release -p azul-doc \
+                 codegen all\n(or set AZ_CODEGEN_DIR — see the note above about git \
+                 dependencies)\n",
             );
         }
         println!("cargo:rerun-if-changed={}", path.display());
@@ -683,8 +678,8 @@ fn configure_ios() {
     warn_if_tool_missing(
         "ios-deploy",
         &["--version"],
-        "Run 'brew install ios-deploy' to deploy to a physical iPhone. \
-         Simulator deploys via 'xcrun simctl' do not need it.",
+        "Run 'brew install ios-deploy' to deploy to a physical iPhone. Simulator deploys via \
+         'xcrun simctl' do not need it.",
     );
 }
 
@@ -744,14 +739,18 @@ fn bundle_e2e_web_runner() {
         return;
     }
     let out_dir = env::var("OUT_DIR").unwrap_or_default();
-    if out_dir.is_empty() { return; }
+    if out_dir.is_empty() {
+        return;
+    }
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let src_root = Path::new(&manifest_dir).join("../scripts/e2e-web");
 
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut collect = |rel_dir: &str| {
         let dir = src_root.join(rel_dir);
-        let Ok(entries) = fs::read_dir(&dir) else { return; };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return;
+        };
         let mut names: Vec<_> = entries
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map_or(false, |x| x == "mjs"))
@@ -761,14 +760,21 @@ fn bundle_e2e_web_runner() {
         for name in names {
             let p = dir.join(&name);
             println!("cargo:rerun-if-changed={}", p.display());
-            let rel = if rel_dir.is_empty() { name.clone() } else { format!("{rel_dir}/{name}") };
+            let rel = if rel_dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel_dir}/{name}")
+            };
             files.push((rel, fs::read(&p).unwrap()));
         }
     };
     collect("");
     collect("lib");
     if files.is_empty() {
-        panic!("azul-dll: feature web-e2e-runner is enabled but no .mjs files found in {}", src_root.display());
+        panic!(
+            "azul-dll: feature web-e2e-runner is enabled but no .mjs files found in {}",
+            src_root.display()
+        );
     }
     println!("cargo:rerun-if-changed={}", src_root.display());
 
@@ -780,7 +786,10 @@ fn bundle_e2e_web_runner() {
         tlv.extend_from_slice(content);
     }
     let mut compressed = Vec::new();
-    let params = brotli::enc::BrotliEncoderParams { quality: 11, ..Default::default() };
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 11,
+        ..Default::default()
+    };
     brotli::BrotliCompress(&mut &tlv[..], &mut compressed, &params).unwrap();
     fs::write(Path::new(&out_dir).join("e2e_web_bundle.br"), &compressed).unwrap();
 }

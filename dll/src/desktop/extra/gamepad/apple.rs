@@ -14,23 +14,20 @@
 //! all, and the Game Controller framework hands both over directly. Two traps
 //! made this more than a property read:
 //!
-//! - **THE SENSORS ARE OFF UNTIL ASKED.** A DualSense reports
-//!   `sensorsRequireManualActivation`, and until `sensorsActive` is set every
-//!   read returns zeroes forever — which is indistinguishable from a pad with
-//!   no gyro.
-//! - **The vectors are STRUCT RETURNS**, and a 24-byte struct of three doubles
-//!   comes back in registers on arm64 (an HFA) but through a hidden pointer
-//!   on x86_64 (`objc_msgSend_stret`). The device target is arm64 and the
-//!   SIMULATOR is x86_64, so both paths are live here. That is why those two
-//!   reads go through `objc2`, which picks the right variant from the type's
-//!   encoding, while the rest of the file stays on the `objc` 0.2 calls
-//!   around it.
+//! - **THE SENSORS ARE OFF UNTIL ASKED.** A DualSense reports `sensorsRequireManualActivation`, and
+//!   until `sensorsActive` is set every read returns zeroes forever — which is indistinguishable
+//!   from a pad with no gyro.
+//! - **The vectors are STRUCT RETURNS**, and a 24-byte struct of three doubles comes back in
+//!   registers on arm64 (an HFA) but through a hidden pointer on x86_64 (`objc_msgSend_stret`). The
+//!   device target is arm64 and the SIMULATOR is x86_64, so both paths are live here. That is why
+//!   those two reads go through `objc2`, which picks the right variant from the type's encoding,
+//!   while the rest of the file stays on the `objc` 0.2 calls around it.
+
+use core::ptr;
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
-use core::ptr;
-use objc::runtime::Object;
-use objc::{class, msg_send, sel, sel_impl};
+use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 
 use super::{apply_axial_deadzone, apply_radial_deadzone};
 
@@ -285,20 +282,16 @@ pub fn poll() {
                 }
 
                 if motion_responds(sel!(acceleration)) {
-                    accel = objc2::msg_send![
-                        motion as *mut objc2::runtime::AnyObject,
-                        acceleration
-                    ];
+                    accel =
+                        objc2::msg_send![motion as *mut objc2::runtime::AnyObject, acceleration];
                 } else if motion_responds(sel!(hasGravityAndUserAcceleration)) {
                     // Pre-iOS-14 fallback. `acceleration` is exactly gravity
                     // plus user acceleration, so summing the two older
                     // properties reconstructs it rather than approximating it.
                     let has: bool = msg_send![motion, hasGravityAndUserAcceleration];
                     if has {
-                        let g: GcVector3 = objc2::msg_send![
-                            motion as *mut objc2::runtime::AnyObject,
-                            gravity
-                        ];
+                        let g: GcVector3 =
+                            objc2::msg_send![motion as *mut objc2::runtime::AnyObject, gravity];
                         let u: GcVector3 = objc2::msg_send![
                             motion as *mut objc2::runtime::AnyObject,
                             userAcceleration
@@ -394,7 +387,6 @@ pub fn poll() {
         }
     }
 }
-
 
 // ─── Rumble through CoreHaptics (9g-i-d-a-i) ───────────────────────────
 //
@@ -522,7 +514,10 @@ unsafe fn controller_for_pad(pad: u32) -> Option<*mut Object> {
 /// the framework guarantees.
 unsafe fn engine_for(pad: u32, locality: RumbleLocality) -> Option<*mut Object> {
     if let Ok(cache) = ENGINES.lock() {
-        if let Some(e) = cache.iter().find(|e| e.pad == pad && e.locality == locality) {
+        if let Some(e) = cache
+            .iter()
+            .find(|e| e.pad == pad && e.locality == locality)
+        {
             return Some(e.engine);
         }
     }
@@ -655,8 +650,7 @@ unsafe fn play_on(engine: *mut Object, plan: RumblePlan) -> bool {
     if pattern.is_null() {
         return false;
     }
-    let player: *mut Object =
-        msg_send![engine, createPlayerWithPattern: pattern error: &mut error];
+    let player: *mut Object = msg_send![engine, createPlayerWithPattern: pattern error: &mut error];
     if player.is_null() {
         return false;
     }
@@ -664,8 +658,7 @@ unsafe fn play_on(engine: *mut Object, plan: RumblePlan) -> bool {
     swap_player(engine, player);
     // 0.0 is `CHHapticTimeImmediate`: the macro's value in CHHapticEngine.h,
     // spelled out because a macro has no symbol to dlsym.
-    let started: bool =
-        msg_send![player, startAtTime: 0.0f64 error: &mut error];
+    let started: bool = msg_send![player, startAtTime: 0.0f64 error: &mut error];
     started
 }
 
@@ -682,12 +675,8 @@ pub fn rumble(pad: u32, intensity: f32, duration_ms: u32, strong: bool) -> bool 
         return false;
     };
     unsafe {
-        let engine = engine_for(pad, plan.locality).or_else(|| {
-            engine_for(
-                pad,
-                RumbleLocality::Default,
-            )
-        });
+        let engine =
+            engine_for(pad, plan.locality).or_else(|| engine_for(pad, RumbleLocality::Default));
         let Some(engine) = engine else {
             return false;
         };
@@ -698,7 +687,12 @@ pub fn rumble(pad: u32, intensity: f32, duration_ms: u32, strong: bool) -> bool 
 fn stop_pad(pad: u32) {
     let engines: Vec<*mut Object> = ENGINES
         .lock()
-        .map(|c| c.iter().filter(|e| e.pad == pad).map(|e| e.engine).collect())
+        .map(|c| {
+            c.iter()
+                .filter(|e| e.pad == pad)
+                .map(|e| e.engine)
+                .collect()
+        })
         .unwrap_or_default();
     for engine in engines {
         unsafe { swap_player(engine, ptr::null_mut()) };

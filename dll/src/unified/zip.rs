@@ -1,13 +1,13 @@
 //! Unified `Zip` handle. See [`crate::unified`].
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::extra::zip::*;
-
 #[cfg(target_arch = "wasm32")]
 use core::ffi::c_void;
 
 #[cfg(target_arch = "wasm32")]
 use azul_css::{AzString, U8Vec};
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::extra::zip::*;
 
 /// wasm stub of the desktop `Zip` handle (no compressor on wasm).
 /// Identical `#[repr(C)]` layout to the real type — the C-ABI transmutes

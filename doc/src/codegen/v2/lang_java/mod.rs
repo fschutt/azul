@@ -10,19 +10,16 @@
 //!
 //! The high-level layout of the output is:
 //!
-//! 1. `AzulNative.java`   — `interface AzulNative extends Library` with
-//!    every C-ABI symbol declared verbatim. Uses
-//!    [`net.java.dev.jna.Native.load`] to bind to the prebuilt
+//! 1. `AzulNative.java`   — `interface AzulNative extends Library` with every C-ABI symbol declared
+//!    verbatim. Uses [`net.java.dev.jna.Native.load`] to bind to the prebuilt
 //!    `azul.{dll,so,dylib}`.
-//! 2. `<Type>.java` per FFI struct — a JNA `Structure` subclass with
-//!    public fields, a `getFieldOrder()` override, and `ByValue` /
-//!    `ByReference` inner classes for pass-by-value vs pointer
-//!    parameters.
-//! 3. `<Type>_Tag.java` per tagged-union enum — a Java `enum` for the
-//!    discriminator and `<Type>.java` for the outer payload `Union`
-//!    helper structure.
-//! 4. `<Type>.java` wrapper class for every type that has a matching
-//!    `_delete` C function. Implements `AutoCloseable`.
+//! 2. `<Type>.java` per FFI struct — a JNA `Structure` subclass with public fields, a
+//!    `getFieldOrder()` override, and `ByValue` / `ByReference` inner classes for pass-by-value vs
+//!    pointer parameters.
+//! 3. `<Type>_Tag.java` per tagged-union enum — a Java `enum` for the discriminator and
+//!    `<Type>.java` for the outer payload `Union` helper structure.
+//! 4. `<Type>.java` wrapper class for every type that has a matching `_delete` C function.
+//!    Implements `AutoCloseable`.
 //!
 //! All of the JNA boilerplate (Structure subclass, ByValue, ByReference,
 //! Union, Pointer) is dropped in by [`types`] and [`wrappers`]; this
@@ -50,9 +47,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Library name that JNA passes to `Native.load(...)`. Resolves to
 /// `azul.dll` on Windows, `libazul.so` on Linux, `libazul.dylib` on
@@ -88,23 +83,21 @@ pub const END_LINE: &str = "// ==END==";
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut out = String::new();
 
-    // 1. Native FFI interface — emitted as one file per api.json
-    //    module: AzulNativeApp.java, AzulNativeDom.java, ... Each is
-    //    a `public final class AzulNative<Module>` with the methods
-    //    of that module. See `functions::generate_native_module_files`
-    //    for the rationale (JVM 64KB <clinit> limit on JNA Proxy
-    //    bytecode + idiomatic per-module structure).
+    // 1. Native FFI interface — emitted as one file per api.json module: AzulNativeApp.java,
+    //    AzulNativeDom.java, ... Each is a `public final class AzulNative<Module>` with the methods
+    //    of that module. See `functions::generate_native_module_files` for the rationale (JVM 64KB
+    //    <clinit> limit on JNA Proxy bytecode + idiomatic per-module structure).
     functions::generate_native_module_files(&mut out, ir, config)?;
 
-    // 2. POD/struct types — one file per type. Tagged-union enums are
-    //    flattened into `<Type>_Tag.java` + `<Type>.java`.
+    // 2. POD/struct types — one file per type. Tagged-union enums are flattened into
+    //    `<Type>_Tag.java` + `<Type>.java`.
     types::emit_all_type_files(&mut out, ir, config)?;
 
     // 3. Idiomatic AutoCloseable wrappers — one file per wrapped type.
     wrappers::emit_all_wrapper_files(&mut out, ir, config)?;
 
-    // 4. Managed-FFI runtime helpers (host-invoker pattern). Two extra
-    //    Java source files: AzulNativeManaged.java + AzulHostInvoker.java.
+    // 4. Managed-FFI runtime helpers (host-invoker pattern). Two extra Java source files:
+    //    AzulNativeManaged.java + AzulHostInvoker.java.
     managed::emit_files(&mut out, ir, config)?;
 
     Ok(out)

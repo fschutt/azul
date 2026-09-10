@@ -8,21 +8,18 @@
 //!
 //! The pattern this module implements:
 //!
-//! 1. The user-facing resumable `FileDialog::open_file(...)` in
-//!    `layout/src/desktop/dialogs.rs` returns a [`FilePickerHandle`]. The
-//!    handle holds an `Arc<Mutex<…>>` slot the OS callback writes into when
-//!    the picker dismisses. azul-layout cannot call into this crate, so the
-//!    dispatchers below are REGISTERED with it at startup
-//!    ([`ensure_file_picker_backend`]), the way the camera and microphone
-//!    capture backends are.
+//! 1. The user-facing resumable `FileDialog::open_file(...)` in `layout/src/desktop/dialogs.rs`
+//!    returns a [`FilePickerHandle`]. The handle holds an `Arc<Mutex<…>>` slot the OS callback
+//!    writes into when the picker dismisses. azul-layout cannot call into this crate, so the
+//!    dispatchers below are REGISTERED with it at startup ([`ensure_file_picker_backend`]), the way
+//!    the camera and microphone capture backends are.
 //!
 //! 2. The user's layout / event callbacks poll the handle each frame via
-//!    [`FilePickerHandle::poll`]. The first frame after the user picks /
-//!    cancels, the poll returns a non-`Pending` status.
+//!    [`FilePickerHandle::poll`]. The first frame after the user picks / cancels, the poll returns
+//!    a non-`Pending` status.
 //!
-//! 3. The platform backend's `apply_open_file` (iOS:
-//!    `UIDocumentPickerViewController` with `asCopy=YES`; Android: an
-//!    `Intent.ACTION_OPEN_DOCUMENT` round-trip via the JNI bridge) writes
+//! 3. The platform backend's `apply_open_file` (iOS: `UIDocumentPickerViewController` with
+//!    `asCopy=YES`; Android: an `Intent.ACTION_OPEN_DOCUMENT` round-trip via the JNI bridge) writes
 //!    into the handle's slot when its delegate fires.
 //!
 //! This module owns the `apply_open_file` / `apply_save_file` /
@@ -30,7 +27,6 @@
 //! submodule owns the actual OS plumbing; the handle type is azul-layout's.
 
 use azul_css::{corety::OptionString, AzString, OptionStringVec};
-
 // The handle and status types live in azul-layout (`desktop::dialogs`) so
 // `FileDialog::open_file` — the user-facing entry point, which sits
 // below this crate — can return them. Re-exported here so the platform

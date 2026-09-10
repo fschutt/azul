@@ -4,11 +4,14 @@
 //! the standard-aware helpers (template reflection, includes) emit C++14
 //! features — most notably `azul::type_id_v<T>`.
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::cpp11::emit_class_declaration_cpp11_or_later;
-use super::{common::*, Cpp11Generator, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    cpp11::emit_class_declaration_cpp11_or_later,
+    Cpp11Generator, CppDialect,
+};
 
 pub struct Cpp14Generator;
 
@@ -22,7 +25,10 @@ impl CppDialect for Cpp14Generator {
         let std = self.standard();
 
         code.push_str(&generate_header_comment(std));
-        code.push_str("// =============================================================================\r\n\r\n");
+        code.push_str(
+            "// =============================================================================\r\n\\
+             r\n",
+        );
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
         if !std.has_move_semantics() {
@@ -82,7 +88,10 @@ impl CppDialect for Cpp14Generator {
         }
 
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {

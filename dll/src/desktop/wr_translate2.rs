@@ -58,8 +58,7 @@ pub use webrender::{
     Renderer as WrRenderer,
 };
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::{log_debug, log_info};
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug, log_info};
 
 /// Asynchronous hit tester that can be in "requested" or "resolved" state
 pub enum AsyncHitTester {
@@ -315,7 +314,19 @@ pub fn default_renderer_options(
             .background_color
             .as_option()
             .copied()
-            .unwrap_or(ColorU::WHITE)
+            .unwrap_or_else(|| {
+                use azul_core::window::WindowTheme;
+                if options.window_state.theme == WindowTheme::DarkMode {
+                    ColorU {
+                        r: 42,
+                        g: 46,
+                        b: 50,
+                        a: 255,
+                    }
+                } else {
+                    ColorU::WHITE
+                }
+            })
     };
 
     WrRendererOptions {
@@ -953,9 +964,8 @@ pub fn collect_font_resource_updates(
             } else {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[collect_font_resource_updates] BUG: layout emitted font hash {} \
-                     that its own FontManager cannot resolve — text using it cannot be \
-                     drawn",
+                    "[collect_font_resource_updates] BUG: layout emitted font hash {} that its \
+                     own FontManager cannot resolve — text using it cannot be drawn",
                     font_hash
                 );
                 continue;
@@ -1612,7 +1622,9 @@ pub fn generate_frame(
 
     // A full frame rebuilds the scene, so "identical to what I sent last time"
     // is the wrong question: everything has to go across again regardless.
-    layout_window.gpu_state_manager.invalidate_submitted_digests();
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
 
     // Process image callback updates (invoke callbacks and register textures)
     let _ = process_image_callback_updates(layout_window, gl_context, txn);
@@ -2378,7 +2390,9 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 1.6: Processing image callback updates"
     );
-    layout_window.gpu_state_manager.invalidate_submitted_digests();
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
     let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
@@ -2674,7 +2688,11 @@ pub fn build_image_only_transaction(
         images_changed,
         scroll_changed,
         gpu_values_changed,
-        if changed { "frame requested" } else { "idle, no frame" }
+        if changed {
+            "frame requested"
+        } else {
+            "idle, no frame"
+        }
     );
 
     Ok(LightweightFrame { changed })
@@ -2821,9 +2839,10 @@ fn process_image_callback_updates(
 
 /// Process VirtualView updates requested by callbacks
 ///
-/// This function handles manual VirtualView re-rendering triggered by `trigger_virtual_view_rerender()`.
-/// It rebuilds display lists for VirtualViews that were already re-rendered during layout,
-/// then submits only those pipelines to WebRender without rebuilding the entire scene.
+/// This function handles manual VirtualView re-rendering triggered by
+/// `trigger_virtual_view_rerender()`. It rebuilds display lists for VirtualViews that were already
+/// re-rendered during layout, then submits only those pipelines to WebRender without rebuilding the
+/// entire scene.
 ///
 /// # Architecture
 ///
@@ -2884,10 +2903,13 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         let layout_result = match layout_window.layout_results.get(&child_dom_id) {
             Some(lr) => lr,
             None => {
-                log_debug!(LogCategory::Rendering,
-                    "[process_virtual_view_updates] No layout result for child DOM {:?} (parent {:?}, \
-                     node {:?})",
-                    child_dom_id, parent_dom_id, node_id
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[process_virtual_view_updates] No layout result for child DOM {:?} (parent \
+                     {:?}, node {:?})",
+                    child_dom_id,
+                    parent_dom_id,
+                    node_id
                 );
                 continue;
             }
@@ -2913,8 +2935,8 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             Ok((_, built_display_list, nested_pipelines)) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtual_view_updates] Submitting display list for VirtualView DOM {} (pipeline \
-                     {:?})",
+                    "[process_virtual_view_updates] Submitting display list for VirtualView DOM \
+                     {} (pipeline {:?})",
                     child_dom_id.inner,
                     pipeline_id
                 );
@@ -2941,7 +2963,8 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             Err(e) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtual_view_updates] Error building display list for VirtualView DOM {}: {}",
+                    "[process_virtual_view_updates] Error building display list for VirtualView \
+                     DOM {}: {}",
                     child_dom_id.inner,
                     e
                 );

@@ -75,8 +75,7 @@ pub fn request(req: &KeyringRequest) {
 /// MWA-C-keyring: deterministic in-memory secret store for headless / E2E
 /// runs (see [`request`]). Process-lifetime only, never persisted.
 fn e2e_memory_store(req: &KeyringRequest) {
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
+    use std::{collections::BTreeMap, sync::Mutex};
 
     use azul_core::keyring::KeyringResult;
     use azul_layout::managers::keyring::push_keyring_result;

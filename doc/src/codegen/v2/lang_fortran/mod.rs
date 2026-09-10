@@ -2,33 +2,25 @@
 //!
 //! Generates a single `azul.f90` module file that:
 //!
-//! 1. Declares all C-ABI types as Fortran `type, bind(C)` derived types
-//!    (the Fortran spelling of a C struct), unit-only enums as
-//!    `enum, bind(C)` blocks (F2008) plus a matching `integer(c_int)`
-//!    type alias, and tagged unions as ABI-opaque blob types with the
-//!    exact C size/alignment (Fortran has no native `union`; the blob
-//!    keeps every embedding struct layout-identical to `azul.h` — see
-//!    [`layout`]).
-//! 2. Declares every C-API function inside an `interface ... end interface`
-//!    block, each with the verbatim C symbol carried via
-//!    `bind(C, name="AzFoo_create")`. Fortran is case-insensitive for
-//!    its own identifiers, but the `name="..."` argument is case-sensitive
-//!    so the linker matches the same exported symbols as the C/C++/Pascal
-//!    bindings.
-//! 3. Wraps every class in an idiomatic `<snake>_t` derived type
-//!    (`dom_t`, `button_t`, `app_t`) whose methods are type-bound
-//!    procedures (`call app%run(window)`), whose `String` arguments are
-//!    `character(len=*)`, whose unit enums are plain `integer`, and
-//!    whose callbacks are ordinary Fortran procedures matching a typed
-//!    abstract interface. There is deliberately NO `final ::`
-//!    subroutine: gfortran finalizes a function result after the
-//!    assignment that consumed it, so a finalizer would `_delete`
-//!    everything a factory ever returned. Cleanup is the explicit
-//!    `delete` type-bound procedure, guarded by an `owned` flag.
-//! 4. Adds the host-invoker runtime (see [`managed`]): one handle table
-//!    that owns both `RefAny` payloads and registered user procedures,
-//!    installed lazily on the first handle so user code never calls an
-//!    `init` function.
+//! 1. Declares all C-ABI types as Fortran `type, bind(C)` derived types (the Fortran spelling of a
+//!    C struct), unit-only enums as `enum, bind(C)` blocks (F2008) plus a matching `integer(c_int)`
+//!    type alias, and tagged unions as ABI-opaque blob types with the exact C size/alignment
+//!    (Fortran has no native `union`; the blob keeps every embedding struct layout-identical to
+//!    `azul.h` — see [`layout`]).
+//! 2. Declares every C-API function inside an `interface ... end interface` block, each with the
+//!    verbatim C symbol carried via `bind(C, name="AzFoo_create")`. Fortran is case-insensitive for
+//!    its own identifiers, but the `name="..."` argument is case-sensitive so the linker matches
+//!    the same exported symbols as the C/C++/Pascal bindings.
+//! 3. Wraps every class in an idiomatic `<snake>_t` derived type (`dom_t`, `button_t`, `app_t`)
+//!    whose methods are type-bound procedures (`call app%run(window)`), whose `String` arguments
+//!    are `character(len=*)`, whose unit enums are plain `integer`, and whose callbacks are
+//!    ordinary Fortran procedures matching a typed abstract interface. There is deliberately NO
+//!    `final ::` subroutine: gfortran finalizes a function result after the assignment that
+//!    consumed it, so a finalizer would `_delete` everything a factory ever returned. Cleanup is
+//!    the explicit `delete` type-bound procedure, guarded by an `owned` flag.
+//! 4. Adds the host-invoker runtime (see [`managed`]): one handle table that owns both `RefAny`
+//!    payloads and registered user procedures, installed lazily on the first handle so user code
+//!    never calls an `init` function.
 //!
 //! # Output structure (high-level)
 //!
@@ -111,9 +103,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub(crate) mod layout;
@@ -168,11 +158,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 2. C-ABI interface block.
     functions::generate_externals(&mut builder, ir, config)?;
 
-    // 3. Idiomatic wrapper type declarations (still inside the module
-    //    decl section — Fortran modules separate type declarations from
-    //    procedure bodies via the `contains` keyword below). The plan is
-    //    built once and shared with the managed layer: both claim
-    //    module-wide (case-folded) identifiers from the same table.
+    // 3. Idiomatic wrapper type declarations (still inside the module decl section — Fortran
+    //    modules separate type declarations from procedure bodies via the `contains` keyword
+    //    below). The plan is built once and shared with the managed layer: both claim module-wide
+    //    (case-folded) identifiers from the same table.
     let ctx = wrappers::Ctx::new(ir, config);
     wrappers::generate_wrapper_decls(&mut builder, &ctx)?;
 
@@ -422,8 +411,7 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
 ///
 /// - Reserved keywords get a trailing underscore.
 /// - Names longer than [`MAX_IDENT_LEN`] are truncated.
-/// - Leading underscores (illegal in Fortran identifiers) get prefixed
-///   with `f_`.
+/// - Leading underscores (illegal in Fortran identifiers) get prefixed with `f_`.
 pub fn sanitize_identifier(name: &str) -> String {
     let mut out = if is_fortran_reserved(name) {
         format!("{}_", name)

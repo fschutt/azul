@@ -30,18 +30,15 @@
 //!
 //! # Notes
 //!
-//! - The Ruby generator emits a free function `generate(ir, config)` instead of
-//!   implementing the `LanguageGenerator` trait. The trait is shaped for
-//!   Rust/C/C++/Python output formats; Ruby (like Lua, C#, etc.) doesn't fit
-//!   that interface cleanly.
-//! - Skipped types (Recursive, VecRef, GenericTemplate, DestructorOrClone,
-//!   CallbackTypedef) get `# SKIPPED:` comments rather than `# TODO`.
+//! - The Ruby generator emits a free function `generate(ir, config)` instead of implementing the
+//!   `LanguageGenerator` trait. The trait is shaped for Rust/C/C++/Python output formats; Ruby
+//!   (like Lua, C#, etc.) doesn't fit that interface cleanly.
+//! - Skipped types (Recursive, VecRef, GenericTemplate, DestructorOrClone, CallbackTypedef) get `#
+//!   SKIPPED:` comments rather than `# TODO`.
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod gemspec;

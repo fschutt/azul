@@ -33,8 +33,8 @@ fn html_root_matches_site_and_ui() {
 /// Generate all documentation files
 ///
 /// # Arguments
-/// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC.
-///                  If false, only a link to main.css is used (faster for development).
+/// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC. If false, only a
+///   link to main.css is used (faster for development).
 /// * `hostname` - Base URL used to interpolate `$HOSTNAME` markers inside
 ///                installation commands. Production: `https://azul.rs`;
 ///                debug deploy: `http://localhost:8000`.
@@ -157,8 +157,8 @@ const PRIMARY_LANGUAGES: &[&str] = &[
 /// Languages NOT here still get codegen, a bundle and a release-page tile —
 /// labelled experimental — so nothing is hidden, and nothing is claimed.
 pub const SHIPPED_LANGUAGES: &[&str] = &[
-    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
-    "zig", "go", "pascal", "scala", "fortran", "haskell", "python",
+    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
+    "pascal", "scala", "fortran", "haskell", "python",
 ];
 
 /// True if `lang` (an api.json language or dialect-group key) is shipped.
@@ -183,8 +183,8 @@ pub fn is_shipped_language(lang: &str) -> bool {
 /// `tabOrder` drifts to include another language, the frontpage stays
 /// restricted to this set.
 const FRONTPAGE_LANGUAGES: &[&str] = &[
-    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
-    "zig", "go", "pascal", "scala", "fortran", "haskell", "python",
+    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
+    "pascal", "scala", "fortran", "haskell", "python",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
@@ -310,11 +310,17 @@ struct ExampleRendered {
     #[serde(rename = "showOnIndex")]
     show_on_index: bool,
     #[serde(skip)]
-    screenshot_windows: String,
+    screenshot_windows_light: String,
     #[serde(skip)]
-    screenshot_linux: String,
+    screenshot_windows_dark: String,
     #[serde(skip)]
-    screenshot_mac: String,
+    screenshot_linux_light: String,
+    #[serde(skip)]
+    screenshot_linux_dark: String,
+    #[serde(skip)]
+    screenshot_mac_light: String,
+    #[serde(skip)]
+    screenshot_mac_dark: String,
     code_c: String,
     code_cpp: String,
     code_cpp03: String,
@@ -337,16 +343,28 @@ impl ExampleRendered {
 
         // Write screenshot files
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.windows.png")),
-            &e.screenshot.windows,
+            imageoutput_path.join(&format!("{name}.windows.light.png")),
+            &e.screenshot.windows_light,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.linux.png")),
-            &e.screenshot.linux,
+            imageoutput_path.join(&format!("{name}.windows.dark.png")),
+            &e.screenshot.windows_dark,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.mac.png")),
-            &e.screenshot.mac,
+            imageoutput_path.join(&format!("{name}.linux.light.png")),
+            &e.screenshot.linux_light,
+        );
+        let _ = std::fs::write(
+            imageoutput_path.join(&format!("{name}.linux.dark.png")),
+            &e.screenshot.linux_dark,
+        );
+        let _ = std::fs::write(
+            imageoutput_path.join(&format!("{name}.mac.light.png")),
+            &e.screenshot.mac_light,
+        );
+        let _ = std::fs::write(
+            imageoutput_path.join(&format!("{name}.mac.dark.png")),
+            &e.screenshot.mac_dark,
         );
 
         // Get C++ code for each version (fall back to legacy cpp if not available)
@@ -381,9 +399,12 @@ impl ExampleRendered {
             ),
             alt: e.alt.clone(),
             show_on_index: e.show_on_index,
-            screenshot_windows: format!("{imageoutput_url}/{name}.windows.png"),
-            screenshot_linux: format!("{imageoutput_url}/{name}.linux.png"),
-            screenshot_mac: format!("{imageoutput_url}/{name}.mac.png"),
+            screenshot_windows_light: format!("{imageoutput_url}/{name}.windows.light.png"),
+            screenshot_windows_dark: format!("{imageoutput_url}/{name}.windows.dark.png"),
+            screenshot_linux_light: format!("{imageoutput_url}/{name}.linux.light.png"),
+            screenshot_linux_dark: format!("{imageoutput_url}/{name}.linux.dark.png"),
+            screenshot_mac_light: format!("{imageoutput_url}/{name}.mac.light.png"),
+            screenshot_mac_dark: format!("{imageoutput_url}/{name}.mac.dark.png"),
             code_c: String::from_utf8_lossy(&e.code.c).to_string(),
             code_cpp: String::from_utf8_lossy(e.code.get_cpp()).to_string(),
             code_cpp03: get_cpp_code(Language::Cpp03),
@@ -402,8 +423,8 @@ impl ExampleRendered {
 /// Generate the main index.html page - imageoutput_path is the folder where all the screenshots go
 ///
 /// # Arguments
-/// * `inline_css` - If true, CSS from main.css will be inlined into a <style> tag.
-///                  If false, only a <link> to main.css is used.
+/// * `inline_css` - If true, CSS from main.css will be inlined into a <style> tag. If false, only a
+///   <link> to main.css is used.
 fn generate_index_html(
     api_data: &ApiData,
     imageoutput_path: &Path,
@@ -478,9 +499,27 @@ fn generate_index_html(
                 .replace("$$EXAMPLE_ID$$", &ex.id)
                 .replace("$$EXAMPLE_CODE$$", &escape_code(&ex.code_python))
                 .replace("$$EXAMPLE_IMAGE_ALT$$", &ex.alt)
-                .replace("$$EXAMPLE_IMAGE_SOURCE_LINUX$$", &ex.screenshot_linux)
-                .replace("$$EXAMPLE_IMAGE_SOURCE_MAC$$", &ex.screenshot_mac)
-                .replace("$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$", &ex.screenshot_windows)
+                .replace(
+                    "$$EXAMPLE_IMAGE_SOURCE_LINUX_LIGHT$$",
+                    &ex.screenshot_linux_light,
+                )
+                .replace(
+                    "$$EXAMPLE_IMAGE_SOURCE_LINUX_DARK$$",
+                    &ex.screenshot_linux_dark,
+                )
+                .replace(
+                    "$$EXAMPLE_IMAGE_SOURCE_MAC_LIGHT$$",
+                    &ex.screenshot_mac_light,
+                )
+                .replace("$$EXAMPLE_IMAGE_SOURCE_MAC_DARK$$", &ex.screenshot_mac_dark)
+                .replace(
+                    "$$EXAMPLE_IMAGE_SOURCE_WINDOWS_LIGHT$$",
+                    &ex.screenshot_windows_light,
+                )
+                .replace(
+                    "$$EXAMPLE_IMAGE_SOURCE_WINDOWS_DARK$$",
+                    &ex.screenshot_windows_dark,
+                )
                 .replace("$$IS_FIRST$$", if is_first { "true" } else { "false" })
                 .replace(
                     "$$INSTALL_DISPLAY$$",
@@ -582,7 +621,9 @@ fn generate_installation_json(
             .map(|step| {
                 let interpolated = step.interpolate(hostname, version);
                 match interpolated {
-                    InstallationStep::Code { language, content, .. } => StepJson {
+                    InstallationStep::Code {
+                        language, content, ..
+                    } => StepJson {
                         step_type: "code".to_string(),
                         language: Some(language),
                         content,
@@ -859,21 +900,26 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
         format!("<style>\n{}\n{}\n</style>", flora_css, landing_css)
     } else {
         // Both files are copied to the deploy root (next to /foam.svg).
-        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
-         <link rel='stylesheet' type='text/css' href='/ui-landing.css'>"
+        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      <link rel='stylesheet' \
+         type='text/css' href='/ui-landing.css'>"
             .to_string()
     };
 
-    format!("
+    format!(
+        "
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms \
+         (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) \
+         and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
-      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' \
+         type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' \
+         type='font/woff2' crossorigin='anonymous'>
       <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
@@ -881,17 +927,20 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       {css_tag}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag, theme_boot=get_theme_boot_script())
+    ",
+        base_url = base_url,
+        css_tag = css_tag,
+        theme_boot = get_theme_boot_script()
+    )
 }
 
 /// Script tag + init for the search panel.
 ///
 /// `page_kind` controls behavior the JS layer can't infer:
-///   - `Api`     — clicking a result stays on the same page (anchor jump).
-///                 Searches the API index only.
-///   - `Guide`   — pagefind-only search over guide content. Defaults are
-///                 frontmatter-driven entries shown when the input is empty.
-///                 Clicking opens the api page in a new tab.
+///   - `Api`     — clicking a result stays on the same page (anchor jump). Searches the API index
+///     only.
+///   - `Guide`   — pagefind-only search over guide content. Defaults are frontmatter-driven entries
+///     shown when the input is empty. Clicking opens the api page in a new tab.
 ///   - `Other`   — clicking navigates the same tab. Searches the API index.
 ///
 /// The panel renders ONLY into an element with id `azul-search-mount`. A page
@@ -989,13 +1038,17 @@ pub fn get_sidebar() -> String {
         "
         <nav>
         <ul class='nav-grid'>
-          <li><a href='https://azul.rs/ui'>overview</a></li>
+          <li><a href='https://azul.rs/ui'>overview</a></li>\
+         
           <li><a href='https://azul.rs/ui/releases'>releases</a></li>
-          <li><a href='https://github.com/fschutt/azul'>code</a></li>
+          <li><a href='https://github.com/fschutt/azul'>code</a></li>\
+         
           <li><a href='https://azul.rs/ui/guide'>guide</a></li>
-          <li><a href='https://azul.rs/ui/api'>api</a></li>
+          <li><a href='https://azul.rs/ui/api'>api</a></li>\
+         
           <li><a href='https://azul.rs/ui/reftest'>reftests</a></li>
-          <li><a href='https://azul.rs/ui/blog'>blog</a></li>
+          <li><a href='https://azul.rs/ui/blog'>blog</a></li>\
+         
           <li><a href='https://azul.rs/ui/donate'>donate</a></li>
         </ul>
       </nav>
@@ -1079,24 +1132,29 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
         );
         format!("<style>\n{}\n{}\n</style>", flora_css, docs_css)
     } else {
-        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
-         <link rel='stylesheet' type='text/css' href='/azul-docs.css'>"
+        "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      <link rel='stylesheet' \
+         type='text/css' href='/azul-docs.css'>"
             .to_string()
     };
     if let Some(family) = page_css {
         css_tag.push_str(&format!("\n      <style>\n{}\n</style>", family));
     }
 
-    format!("
+    format!(
+        "
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms \
+         (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) \
+         and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
-      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' \
+         type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' \
+         type='font/woff2' crossorigin='anonymous'>
       <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
@@ -1105,8 +1163,12 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
       {anchor_link}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script(),
-       theme_boot=get_theme_boot_script())
+    ",
+        base_url = base_url,
+        css_tag = css_tag,
+        anchor_link = get_anchor_link_script(),
+        theme_boot = get_theme_boot_script()
+    )
 }
 
 /// The floating nav strip + mobile menu, identical to the /ui landing's
@@ -1117,7 +1179,12 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
 /// and the foot, on each side. Order matters - the cove's outer antialias has
 /// to land over the flare, not under it. See `.fl-tab-flare` in flora.css.
 pub const AZLIN_TAB_SHOULDERS: &str =
-    "<span class=\"fl-tab-flare fl-tab-flare-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-flare fl-tab-flare-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove fl-tab-cove-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove fl-tab-cove-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>";
+    "<span class=\"fl-tab-flare fl-tab-flare-l\" aria-hidden=\"true\"></span><span \
+     class=\"fl-tab-flare fl-tab-flare-r\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove \
+     fl-tab-cove-l\" aria-hidden=\"true\"></span><span class=\"fl-tab-cove fl-tab-cove-r\" \
+     aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-l\" \
+     aria-hidden=\"true\"></span><span class=\"fl-tab-runout fl-tab-runout-r\" \
+     aria-hidden=\"true\"></span><span class=\"fl-tab-foot\" aria-hidden=\"true\"></span>";
 
 /// The docs strip: everything under /ui.
 pub fn azlin_nav(active: &str) -> String {
@@ -1459,9 +1526,9 @@ mod stylesheet_contract {
         let missing: Vec<_> = required.iter().filter(|s| !css.contains(**s)).collect();
         assert!(
             missing.is_empty(),
-            "{name} lost {} section(s): {missing:?}\n\
-             A rule that is gone still compiles - it just never matches. If you \
-             removed one on purpose, drop it from the list in the same commit.",
+            "{name} lost {} section(s): {missing:?}\nA rule that is gone still compiles - it just \
+             never matches. If you removed one on purpose, drop it from the list in the same \
+             commit.",
             missing.len()
         );
         let open = css.matches('{').count();
@@ -1505,11 +1572,13 @@ mod stylesheet_contract {
         for (name, html) in TEMPLATES {
             assert!(
                 !html.contains("<nav class=\"navbar\""),
-                "{name} carries its own nav strip - use <!-- NAV --> and let                  docgen::azlin_nav / azlin_root_nav render it"
+                "{name} carries its own nav strip - use <!-- NAV --> and let                  \
+                 docgen::azlin_nav / azlin_root_nav render it"
             );
             assert!(
                 !html.contains("class=\"docs-footer\""),
-                "{name} carries its own footer - use <!-- FOOTER --> and let                  docgen::azlin_footer render it"
+                "{name} carries its own footer - use <!-- FOOTER --> and let                  \
+                 docgen::azlin_footer render it"
             );
             assert!(
                 html.contains("<!-- NAV -->") && html.contains("<!-- FOOTER -->"),
@@ -1551,8 +1620,8 @@ mod stylesheet_contract {
         let b = tokens(attr.split("\n}").next().unwrap());
         assert_eq!(
             a, b,
-            "the two dark blocks define different tokens - an explicit theme \
-             choice would not match the system one"
+            "the two dark blocks define different tokens - an explicit theme choice would not \
+             match the system one"
         );
     }
 }
@@ -1565,11 +1634,14 @@ mod shipped_tier_tests {
     /// SHIPPED_LANGUAGES is what the site claims. They must be the same set.
     #[test]
     fn the_site_ships_exactly_what_the_e2e_gate_gates() {
-        let script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/e2e_language_matrix.sh"),
-        )
+        let script = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/e2e_language_matrix.sh"
+        ))
         .expect("scripts/e2e_language_matrix.sh next to the doc crate");
-        let start = script.find("SHIPPED_LANGS=(").expect("SHIPPED_LANGS=( in the script");
+        let start = script
+            .find("SHIPPED_LANGS=(")
+            .expect("SHIPPED_LANGS=( in the script");
         let end = script[start..].find("\n)").expect("closing paren") + start;
         let mut gated: Vec<&str> = script[start + "SHIPPED_LANGS=(".len()..end]
             .lines()

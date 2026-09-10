@@ -7,9 +7,11 @@
 
 use anyhow::Result;
 
-use super::config::*;
-use super::generator::{CodeBuilder, LanguageGenerator};
-use super::ir::*;
+use super::{
+    config::*,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::*,
+};
 
 /// C++ reserved keywords that need to be escaped in C headers for C++ compatibility
 const CPP_RESERVED_KEYWORDS: &[&str] = &[
@@ -929,7 +931,14 @@ impl CGenerator {
                 }
             ));
 
-            self.emit_c_byref_twin(builder, &func.c_name, &return_type, func.return_type.is_some(), &func.args, config);
+            self.emit_c_byref_twin(
+                builder,
+                &func.c_name,
+                &return_type,
+                func.return_type.is_some(),
+                &func.args,
+                config,
+            );
             return;
         }
 
@@ -1005,7 +1014,8 @@ impl CGenerator {
             })
             .collect();
         builder.line(
-            "/* Struct variant — whole callback-wrapper struct by value (cb + ctx); managed-FFI hosts bind this. */",
+            "/* Struct variant — whole callback-wrapper struct by value (cb + ctx); managed-FFI \
+             hosts bind this. */",
         );
         builder.line(&format!(
             "extern DLLIMPORT {} {}Struct({});",
@@ -1040,9 +1050,30 @@ impl CGenerator {
             }
         }
         let has_ret = func.return_type.is_some();
-        self.emit_c_byref_twin(builder, &func.c_name, &return_type, has_ret, &raw_args, config);
-        self.emit_c_byref_twin(builder, &format!("{}WithCtx", func.c_name), &return_type, has_ret, &ctx_args, config);
-        self.emit_c_byref_twin(builder, &format!("{}Struct", func.c_name), &return_type, has_ret, &func.args, config);
+        self.emit_c_byref_twin(
+            builder,
+            &func.c_name,
+            &return_type,
+            has_ret,
+            &raw_args,
+            config,
+        );
+        self.emit_c_byref_twin(
+            builder,
+            &format!("{}WithCtx", func.c_name),
+            &return_type,
+            has_ret,
+            &ctx_args,
+            config,
+        );
+        self.emit_c_byref_twin(
+            builder,
+            &format!("{}Struct", func.c_name),
+            &return_type,
+            has_ret,
+            &func.args,
+            config,
+        );
     }
 
     /// `<c_name>Byref`: owned aggregates by pointer (CONSUMED, like the
@@ -1095,7 +1126,8 @@ impl CGenerator {
             }
         }
         builder.line(
-            "/* Byref twin: owned aggregates by pointer (CONSUMED, like the by-value call); return via out-pointer. */",
+            "/* Byref twin: owned aggregates by pointer (CONSUMED, like the by-value call); \
+             return via out-pointer. */",
         );
         builder.line(&format!(
             "extern DLLIMPORT void {}Byref({});",
@@ -1404,7 +1436,8 @@ impl CGenerator {
                 // Generate matchMut helper (mutable). Same rationale for
                 // `static inline` as matchRef above.
                 builder.line(&format!(
-                    "static inline bool {}_matchMut{}({}* restrict value, {}* restrict * restrict out) {{",
+                    "static inline bool {}_matchMut{}({}* restrict value, {}* restrict * restrict \
+                     out) {{",
                     name, variant.name, name, c_payload_type
                 ));
                 builder.line(&format!(
@@ -1448,7 +1481,8 @@ impl CGenerator {
 
             // Find the destructor field to get its type
             let destructor_field = struct_def.fields.iter().find(|f| f.name == "destructor");
-            let has_run_destructor = false; // run_destructor field has been removed, destructor enum now uses AlreadyDestroyed variant
+            let has_run_destructor = false; // run_destructor field has been removed, destructor
+                                            // enum now uses AlreadyDestroyed variant
 
             if let Some(destr_field) = destructor_field {
                 let prefixed_name = config.apply_prefix(&struct_def.name);
@@ -1461,7 +1495,8 @@ impl CGenerator {
                     builder.line("    .len = 0, \\");
                     builder.line("    .cap = 0, \\");
                     builder.line(&format!(
-                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }}, \\",
+                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} \
+                         }}, \\",
                         destructor_type
                     ));
                     builder.line("    .run_destructor = false \\");
@@ -1473,7 +1508,8 @@ impl CGenerator {
                     builder.line("    .len = 0, \\");
                     builder.line("    .cap = 0, \\");
                     builder.line(&format!(
-                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }} \\",
+                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }} \
+                         \\",
                         destructor_type
                     ));
                     builder.line("}");
@@ -1519,7 +1555,10 @@ impl CGenerator {
         builder.line("        .ptr = (const uint8_t*)(s), \\");
         builder.line("        .len = sizeof(s) - 1, \\");
         builder.line("        .cap = sizeof(s) - 1, \\");
-        builder.line("        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor } }, \\");
+        builder.line(
+            "        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor \
+             } }, \\",
+        );
         builder.line("    } \\");
         builder.line("}");
         builder.blank();
@@ -1558,7 +1597,10 @@ impl CGenerator {
         builder.line("#ifndef __cplusplus");
         builder.blank();
 
-        builder.line("/* Macro to generate reflection metadata for a given struct - for a \"structName\" of \"foo\", generates:");
+        builder.line(
+            "/* Macro to generate reflection metadata for a given struct - for a \"structName\" \
+             of \"foo\", generates:",
+        );
         builder.line(" *");
         builder.line(" * constants:");
         builder.line(" * - a foo_RttiTypeId, which serves as the \"type ID\" for that struct");
@@ -1572,20 +1614,47 @@ impl CGenerator {
         builder
             .line(" * - AzRefAny foo_upcast(myStructInstance): upcasts a #structName to a RefAny");
         builder.line(" *");
-        builder.line(" * - fooRef_create(AzRefAny): creates a new fooRef, but does not yet downcast it (.ptr is set to nullptr)");
-        builder.line(" * - fooRefMut_create(AzRefAny): creates a new fooRefMut, but does not yet downcast it (.ptr is set to nullptr)");
+        builder.line(
+            " * - fooRef_create(AzRefAny): creates a new fooRef, but does not yet downcast it \
+             (.ptr is set to nullptr)",
+        );
+        builder.line(
+            " * - fooRefMut_create(AzRefAny): creates a new fooRefMut, but does not yet downcast \
+             it (.ptr is set to nullptr)",
+        );
         builder.line(" *");
-        builder.line(" * - bool foo_downcastRef(AzRefAny, fooRef* restrict): downcasts the RefAny immutably, if true is returned then the fooRef is properly initialized");
-        builder.line(" * - bool foo_downcastMut(AzRefAny, fooRefMut* restrict): downcasts the RefAny mutably, if true is returned then the fooRef is properly initialized");
+        builder.line(
+            " * - bool foo_downcastRef(AzRefAny, fooRef* restrict): downcasts the RefAny \
+             immutably, if true is returned then the fooRef is properly initialized",
+        );
+        builder.line(
+            " * - bool foo_downcastMut(AzRefAny, fooRefMut* restrict): downcasts the RefAny \
+             mutably, if true is returned then the fooRef is properly initialized",
+        );
         builder.line(" *");
-        builder.line(" * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count.");
-        builder.line(" *   Safe to call even if the downcast FAILED: when .ptr is still 0 the refcount decrease is skipped,");
+        builder.line(
+            " * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable \
+             reference count.",
+        );
+        builder.line(
+            " *   Safe to call even if the downcast FAILED: when .ptr is still 0 the refcount \
+             decrease is skipped,",
+        );
         builder.line(
             " *   so always pair every fooRef_create with a fooRef_delete on every code path.",
         );
-        builder.line(" * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference");
-        builder.line(" *   count. Like fooRef_delete, this is safe to call after a failed downcast (no-op on the refcount).");
-        builder.line(" * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false if the AzRefAny is not of type RefAny<foo>");
+        builder.line(
+            " * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the \
+             mutable reference",
+        );
+        builder.line(
+            " *   count. Like fooRef_delete, this is safe to call after a failed downcast (no-op \
+             on the refcount).",
+        );
+        builder.line(
+            " * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false \
+             if the AzRefAny is not of type RefAny<foo>",
+        );
         builder.line(" *");
         builder.line(" * USAGE:");
         builder.line(" *");
@@ -1608,42 +1677,79 @@ impl CGenerator {
         // Full macro with JSON support
         builder.line("/* Full reflection with optional JSON support */");
         builder.line("#define AZ_REFLECT_JSON(structName, destructor, toJsonFn, fromJsonFn) \\");
-        builder.line("    AZ_REFLECT_FULL(structName, destructor, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))");
+        builder.line(
+            "    AZ_REFLECT_FULL(structName, destructor, (uintptr_t)(toJsonFn), \
+             (uintptr_t)(fromJsonFn))",
+        );
         builder.line("");
 
         // Internal macro with all parameters
         builder.line("/* Internal macro with all parameters */");
         builder
             .line("#define AZ_REFLECT_FULL(structName, destructor, serializeFn, deserializeFn) \\");
-        builder.line("    /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \\");
+        builder.line(
+            "    /* in C all statics are guaranteed to have a unique address, use that address as \
+             a TypeId */ \\",
+        );
         builder.line("    static uint64_t const structName##_RttiTypePtrId = 0; \\");
-        builder.line("    static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \\");
-        builder.line("    static AzString const structName##_Type_RttiString = AzString_fromConstStr(#structName); \\");
+        builder.line(
+            "    static uint64_t const structName##_RttiTypeId = \
+             (uint64_t)(&structName##_RttiTypePtrId); \\",
+        );
+        builder.line(
+            "    static AzString const structName##_Type_RttiString = \
+             AzString_fromConstStr(#structName); \\",
+        );
         builder.line("    \\");
         builder.line("    AzRefAny structName##_upcast(structName const s) { \\");
         builder.line("        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s }; \\");
-        builder.line("        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor, serializeFn, deserializeFn); \\");
+        builder.line(
+            "        return AzRefAny_newC(ptr_wrapper, sizeof(structName), \
+             AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, \
+             destructor, serializeFn, deserializeFn); \\",
+        );
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* generate structNameRef and structNameRefMut structs*/ \\");
-        builder.line("    typedef struct { const structName* ptr; AzRefCount sharing_info; } structName##Ref; \\");
-        builder.line("    typedef struct { structName* restrict ptr; AzRefCount sharing_info; } structName##RefMut; \\");
+        builder.line(
+            "    typedef struct { const structName* ptr; AzRefCount sharing_info; } \
+             structName##Ref; \\",
+        );
+        builder.line(
+            "    typedef struct { structName* restrict ptr; AzRefCount sharing_info; } \
+             structName##RefMut; \\",
+        );
         builder.line("    \\");
         builder.line("    structName##Ref structName##Ref_create(AzRefAny* const refany) { \\");
-        builder.line("        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info) };    \\");
+        builder.line(
+            "        structName##Ref val = { .ptr = 0, .sharing_info = \
+             AzRefCount_clone(&refany->sharing_info) };    \\",
+        );
         builder.line("        return val;    \\");
         builder.line("    } \\");
         builder.line("    \\");
         builder
             .line("    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \\");
-        builder.line("        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info), };    \\");
+        builder.line(
+            "        structName##RefMut val = { .ptr = 0, .sharing_info = \
+             AzRefCount_clone(&refany->sharing_info), };    \\",
+        );
         builder.line("        return val;    \\");
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* if downcastRef returns true, the downcast worked */ \\");
-        builder.line("    bool structName##_downcastRef(AzRefAny* restrict refany, structName##Ref * restrict result) { \\");
-        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
-        builder.line("            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\\");
+        builder.line(
+            "    bool structName##_downcastRef(AzRefAny* restrict refany, structName##Ref * \
+             restrict result) { \\",
+        );
+        builder.line(
+            "        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \
+             else { \\",
+        );
+        builder.line(
+            "            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } \
+             else {\\",
+        );
         builder.line("                AzRefCount_increaseRef(&refany->sharing_info); \\");
         builder.line(
             "                result->ptr = (structName* const)(AzRefAny_getDataPtr(refany)); \\",
@@ -1654,8 +1760,14 @@ impl CGenerator {
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* if downcastRefMut returns true, the mutable downcast worked */ \\");
-        builder.line("    bool structName##_downcastMut(AzRefAny* restrict refany, structName##RefMut * restrict result) { \\");
-        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
+        builder.line(
+            "    bool structName##_downcastMut(AzRefAny* restrict refany, structName##RefMut * \
+             restrict result) { \\",
+        );
+        builder.line(
+            "        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \
+             else { \\",
+        );
         builder.line("            if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\\");
         builder.line("                AzRefCount_increaseRefmut(&refany->sharing_info); \\");
         builder.line(
@@ -1692,7 +1804,10 @@ impl CGenerator {
         builder.line("        AzRefCount_delete(&value->sharing_info); \\");
         builder.line("        value->ptr = 0; \\");
         builder.line("    }\\");
-        builder.line("    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \\");
+        builder.line(
+            "    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the \
+             destructor) */ \\",
+        );
         builder.line("    bool structName##RefAny_delete(AzRefAny* restrict refany) { \\");
         builder.line(
             "        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \\",

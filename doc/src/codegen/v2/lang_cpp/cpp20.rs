@@ -10,10 +10,13 @@
 //! C++23:
 //! - std::expected support for Result types
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::{common::*, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    CppDialect,
+};
 
 /// C++20 dialect generator
 pub struct Cpp20Generator;
@@ -37,7 +40,10 @@ impl CppDialect for Cpp20Generator {
         // Header comment
         code.push_str(&generate_header_comment(std));
         code.push_str(&generate_feature_docs(std));
-        code.push_str("// =============================================================================\r\n\r\n");
+        code.push_str(
+            "// =============================================================================\r\n\\
+             r\n",
+        );
 
         // Include guards
         code.push_str(&generate_include_guards_begin(std));
@@ -109,7 +115,10 @@ impl CppDialect for Cpp20Generator {
 
         // Method implementations
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -187,7 +196,8 @@ impl CppDialect for Cpp20Generator {
                 class_name, class_name
             ));
             code.push_str(&format!(
-                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return *this; }}\r\n",
+                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return \
+                 *this; }}\r\n",
                 class_name, class_name
             ));
         } else if needs_destructor {
@@ -285,12 +295,14 @@ impl CppDialect for Cpp20Generator {
             c_elem_type, c_elem_type
         ));
         code.push_str(&format!(
-            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); }}\r\n",
+            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); \
+             }}\r\n",
             c_elem_type, c_elem_type
         ));
         // C++20: std::span
         code.push_str(&format!(
-            "    std::span<const {}> toSpan() const {{ return std::span<const {}>(begin(), size()); }}\r\n",
+            "    std::span<const {}> toSpan() const {{ return std::span<const {}>(begin(), \
+             size()); }}\r\n",
             c_elem_type, c_elem_type
         ));
         code.push_str(&format!(
@@ -310,16 +322,33 @@ impl CppDialect for Cpp20Generator {
         _config: &CodegenConfig,
     ) {
         code.push_str("\r\n    // String methods\r\n");
-        code.push_str("    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
-        code.push_str("    String(const std::string& s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, s.size())) {}\r\n");
-        code.push_str("    String(std::string_view sv) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(sv.data()), 0, sv.size())) {}\r\n");
-        code.push_str("    const char* c_str() const { return reinterpret_cast<const char*>(inner_.vec.ptr); }\r\n");
+        code.push_str(
+            "    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const \
+             uint8_t*>(s), 0, std::strlen(s))) {}\r\n",
+        );
+        code.push_str(
+            "    String(const std::string& s) : \
+             inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, \
+             s.size())) {}\r\n",
+        );
+        code.push_str(
+            "    String(std::string_view sv) : \
+             inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(sv.data()), 0, \
+             sv.size())) {}\r\n",
+        );
+        code.push_str(
+            "    const char* c_str() const { return reinterpret_cast<const \
+             char*>(inner_.vec.ptr); }\r\n",
+        );
         code.push_str("    size_t length() const { return inner_.vec.len; }\r\n");
         code.push_str(
             "    std::string toStdString() const { return std::string(c_str(), length()); }\r\n",
         );
         code.push_str("    operator std::string() const { return toStdString(); }\r\n");
-        code.push_str("    std::string_view toStringView() const { return std::string_view(c_str(), length()); }\r\n");
+        code.push_str(
+            "    std::string_view toStringView() const { return std::string_view(c_str(), \
+             length()); }\r\n",
+        );
         code.push_str("    operator std::string_view() const { return toStringView(); }\r\n");
     }
 
@@ -358,7 +387,8 @@ impl CppDialect for Cpp20Generator {
             c_inner_type
         ));
         code.push_str(&format!(
-            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
+            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; \
+             }}\r\n",
             c_inner_type, c_inner_type
         ));
         // toStdOptional: yields std::optional<Wrapper> when the payload has a
@@ -404,7 +434,10 @@ impl CppDialect for Cpp23Generator {
 
         code.push_str(&generate_header_comment(std));
         code.push_str(&generate_feature_docs(std));
-        code.push_str("// =============================================================================\r\n\r\n");
+        code.push_str(
+            "// =============================================================================\r\n\\
+             r\n",
+        );
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
         // C++11+ uses template-reflection helpers instead of AZ_REFLECT.
@@ -463,7 +496,10 @@ impl CppDialect for Cpp23Generator {
         }
 
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -674,7 +710,8 @@ fn emit_class_declaration_cpp20_or_later(
             c_type_name, c_type_name
         ));
         code.push_str(&format!(
-            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; \
+             }}\r\n",
             c_type_name, c_type_name
         ));
     }
@@ -775,7 +812,8 @@ fn emit_cpp23_result_extras(
         erre = err_expr,
     ));
     code.push_str(&format!(
-        "    operator std::expected<{okt}, {errt}>() && {{ return std::move(*this).toStdExpected(); }}\r\n",
+        "    operator std::expected<{okt}, {errt}>() && {{ return \
+         std::move(*this).toStdExpected(); }}\r\n",
         okt = ok_ty,
         errt = err_ty,
     ));

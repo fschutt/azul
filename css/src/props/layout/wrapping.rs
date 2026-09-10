@@ -7,23 +7,24 @@
 //! Parse functions are gated behind the `parser` feature and are consumed
 //! by the CSS property system in `property.rs`.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
-use crate::props::formatter::PrintAsCssValue;
+use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
 // --- writing-mode (LayoutWritingMode) ---
 
-// +spec:writing-modes:ec496c - writing-mode property: horizontal-tb, vertical-rl, vertical-lr block flow directions
-// +spec:writing-modes:fdc4cc - writing-mode property: horizontal-tb | vertical-rl | vertical-lr
-// +spec:writing-modes:aeb9bb - writing-mode property determines block flow direction
+// +spec:writing-modes:ec496c - writing-mode property: horizontal-tb, vertical-rl, vertical-lr block
+// flow directions +spec:writing-modes:fdc4cc - writing-mode property: horizontal-tb | vertical-rl |
+// vertical-lr +spec:writing-modes:aeb9bb - writing-mode property determines block flow direction
 /// Represents a `writing-mode` attribute
-// +spec:writing-modes:a7f174 - line orientation: in vertical-lr the line-over (ascender) side is block-end, not block-start
+// +spec:writing-modes:a7f174 - line orientation: in vertical-lr the line-over (ascender) side is
+// block-end, not block-start
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-// +spec:block-formatting-context:387117 - writing-mode specifies horizontal/vertical line layout and block progression direction
-// +spec:block-formatting-context:3815e7 - vertical-rl writing mode supported via VerticalRl variant
-// +spec:block-formatting-context:9d7cd4 - vertical writing mode support (VerticalRl, VerticalLr)
+// +spec:block-formatting-context:387117 - writing-mode specifies horizontal/vertical line layout
+// and block progression direction +spec:block-formatting-context:3815e7 - vertical-rl writing mode
+// supported via VerticalRl variant +spec:block-formatting-context:9d7cd4 - vertical writing mode
+// support (VerticalRl, VerticalLr)
 #[derive(Default)]
 pub enum LayoutWritingMode {
     /// Top-to-bottom block flow, left-to-right inline direction (Latin, etc.).
@@ -31,7 +32,8 @@ pub enum LayoutWritingMode {
     HorizontalTb,
     /// Right-to-left block flow, top-to-bottom inline direction (CJK vertical).
     VerticalRl,
-    // +spec:writing-modes:f35728 - vertical-lr writing mode for left-to-right block flow (Manchu, Mongolian)
+    // +spec:writing-modes:f35728 - vertical-lr writing mode for left-to-right block flow (Manchu,
+    // Mongolian)
     /// Left-to-right block flow, top-to-bottom inline direction (Mongolian).
     VerticalLr,
 }

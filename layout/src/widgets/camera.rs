@@ -25,13 +25,15 @@
 
 use alloc::vec::Vec;
 
-use azul_core::callbacks::Update;
-use azul_core::camera::CameraConfig;
-use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::{ImageRef, RawImageFormat};
-use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
-use azul_core::video::{FrameConsumer, FrameConsumerVec};
+use azul_core::{
+    callbacks::Update,
+    camera::CameraConfig,
+    dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter},
+    refany::{OptionRefAny, RefAny},
+    resources::{ImageRef, RawImageFormat},
+    task::{ThreadId, ThreadReceiver, ThreadSendMsg},
+    video::{FrameConsumer, FrameConsumerVec},
+};
 use azul_css::AzString;
 
 use super::capture_common::{
@@ -40,8 +42,10 @@ use super::capture_common::{
     CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
     OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
-use crate::callbacks::{Callback, CallbackInfo, CallbackType};
-use crate::thread::{Thread, ThreadCallback, ThreadSender};
+use crate::{
+    callbacks::{Callback, CallbackInfo, CallbackType},
+    thread::{Thread, ThreadCallback, ThreadSender},
+};
 
 /// Init data handed to the capture worker thread.
 struct CameraThreadInit {
@@ -415,7 +419,13 @@ extern "C" fn camera_writeback(
                     AzString::from_const_str(""),
                 )
             },
-            |s| (s.on_frame.clone(), s.on_consumer_frame.clone(), s.marker.clone()),
+            |s| {
+                (
+                    s.on_frame.clone(),
+                    s.on_consumer_frame.clone(),
+                    s.marker.clone(),
+                )
+            },
         );
     let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
         return Update::DoNothing;
@@ -501,12 +511,11 @@ mod autotest_generated {
             OptionThreadSendMsg, ThreadReceiverDestructorCallback, ThreadReceiverInner,
             ThreadRecvCallback, ThreadSendMsg,
         },
+        video::{ConsumerFrame, VideoFrame},
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::system::SystemStyle;
     use rust_fontconfig::FcFontCache;
-
-    use azul_core::video::{ConsumerFrame, VideoFrame};
 
     use super::*;
     #[cfg(feature = "icu")]

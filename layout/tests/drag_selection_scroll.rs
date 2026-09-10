@@ -7,11 +7,13 @@
 //! held past the container edge resolved the SAME endpoint on every autoscroll
 //! tick while the view moved underneath it (the selection appeared to freeze).
 
-use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_core::selection::Selection;
-use azul_core::styled_dom::StyledDom;
+use azul_core::{
+    dom::{Dom, DomId, IdOrClass, NodeId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+    selection::Selection,
+    styled_dom::StyledDom,
+};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -21,10 +23,9 @@ use rust_fontconfig::FcFontCache;
 const LINES: usize = 40;
 
 fn scroller() -> LayoutWindow {
-    let css_src = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .box { display: block; width: 600px; height: 100px; overflow-y: scroll; } \
-                   .line { display: block; }";
+    let css_src = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .box { \
+                   display: block; width: 600px; height: 100px; overflow-y: scroll; } .line { \
+                   display: block; }";
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("box".into())].into();
     let mut box_dom = Dom::create_div().with_ids_and_classes(class);
     for i in 0..LINES {

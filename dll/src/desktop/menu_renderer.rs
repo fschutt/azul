@@ -19,9 +19,10 @@ use azul_core::{
 use azul_css::{css::Css, props::basic::pixel::DEFAULT_FONT_SIZE, system::SystemStyle, AzString};
 use azul_layout::callbacks::CallbackInfo;
 
-use crate::desktop::menu::MenuWindowData;
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{
+    desktop::{menu::MenuWindowData, shell2::common::debug_server::LogCategory},
+    log_debug,
+};
 
 /// Data structure for menu item click callbacks
 #[derive(Debug, Clone)]
@@ -455,8 +456,7 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
                     // engine's Material glyph otherwise (an icon spec is a
                     // fallback chain; an unresolved icon renders as an empty
                     // div, so the tail is what keeps the mark visible).
-                    icon_dom =
-                        icon_dom.with_child(Dom::create_icon("system:checkmark,check"));
+                    icon_dom = icon_dom.with_child(Dom::create_icon("system:checkmark,check"));
                 }
             }
             MenuItemIcon::Image(image_ref) => {
@@ -840,9 +840,12 @@ impl SystemStyleMenuExt for SystemStyle {
 
 #[cfg(test)]
 mod menu_icon_tests {
+    use azul_core::{
+        dom::NodeType,
+        resources::{ImageRef, RawImageFormat},
+    };
+
     use super::*;
-    use azul_core::dom::NodeType;
-    use azul_core::resources::{ImageRef, RawImageFormat};
 
     /// A menu item's Image icon must render as a real image node. Previously the
     /// `MenuItemIcon::Image` arm dropped the `ImageRef` (a TODO) and only added a
@@ -871,9 +874,11 @@ mod menu_icon_tests {
 /// UA margins its own label wrapper brings in.
 #[cfg(test)]
 mod menu_stylesheet_tests {
-    use azul_css::corety::{OptionF32, OptionString};
-    use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
-    use azul_css::system::defaults;
+    use azul_css::{
+        corety::{OptionF32, OptionString},
+        props::basic::pixel::{OptionPixelValue, PixelValue},
+        system::defaults,
+    };
 
     use super::*;
 
@@ -899,8 +904,8 @@ mod menu_stylesheet_tests {
         let css = css_text(&defaults::kde_breeze_dark());
         assert!(
             css.contains("MarginTop") && css.contains("MarginBottom"),
-            "the menu stylesheet must zero the <p> margins its labels inherit \
-             from the UA stylesheet, or every item is ~2em too tall"
+            "the menu stylesheet must zero the <p> margins its labels inherit from the UA \
+             stylesheet, or every item is ~2em too tall"
         );
     }
 

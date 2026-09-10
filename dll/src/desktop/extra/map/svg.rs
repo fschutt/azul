@@ -28,9 +28,11 @@
 
 #![cfg(feature = "map-tiles")]
 
-use alloc::collections::BTreeMap;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use azul_layout::widgets::map::MapTileId;
 
@@ -207,8 +209,8 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
     let style_sheet = MapCss::parse(mapcss);
     let mut out = String::with_capacity(features.len().saturating_mul(96) + 256);
     out.push_str(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" \
-         viewBox=\"0 0 256 256\" width=\"256\" height=\"256\">",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\" width=\"256\" \
+         height=\"256\">",
     );
     // Opaque base layer covering the whole tile. MVT encodes islands/lakes as
     // EVEN-ODD HOLES in a larger polygon (e.g. arctic islands are holes in the
@@ -357,7 +359,8 @@ fn emit_polygon<F: Fn(f64, f64) -> (f64, f64)>(
         if ring.len() < 3 {
             continue;
         }
-        let cmd = if ring_idx == 0 { 'M' } else { 'M' }; // SVG fills holes via even-odd; both rings start with M.
+        let cmd = if ring_idx == 0 { 'M' } else { 'M' }; // SVG fills holes via even-odd; both rings
+                                                         // start with M.
         for (i, p) in ring.iter().enumerate() {
             if p.len() < 2 {
                 continue;

@@ -20,9 +20,8 @@ use std::{
 use super::{
     device::{boot_emulator, boot_simulator, Device, Driver, Platform},
     e2e::{replay_scenario, DeviceVerdict, HostReplayReport},
-    E2eDriver,
     toolchain::{Cmd, Toolchain},
-    Opts,
+    E2eDriver, Opts,
 };
 
 /// What we know about the crate being deployed.
@@ -59,8 +58,8 @@ impl Target {
         .find(|p| p.is_file())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "cannot find a crate for '{spec}': not a Cargo.toml, not a directory \
-                 with one, and no examples/{spec}/Cargo.toml"
+                "cannot find a crate for '{spec}': not a Cargo.toml, not a directory with one, \
+                 and no examples/{spec}/Cargo.toml"
             )
         })?;
 
@@ -119,7 +118,10 @@ fn find_workspace_root(from: &Path) -> PathBuf {
     while let Some(d) = dir {
         let manifest = d.join("Cargo.toml");
         if let Ok(text) = std::fs::read_to_string(&manifest) {
-            if text.lines().any(|l| l.trim_start().starts_with("[workspace]")) {
+            if text
+                .lines()
+                .any(|l| l.trim_start().starts_with("[workspace]"))
+            {
                 best = d.to_path_buf();
             }
         }
@@ -178,15 +180,18 @@ pub fn build(
                 && std::env::var_os("AZ_ANDROID_EXTRA_FEATURES").is_none()
             {
                 println!(
-                    "  \x1b[90m--e2e: adding azul/debug-server so the APK carries the \
-                     op dispatcher\x1b[0m"
+                    "  \x1b[90m--e2e: adding azul/debug-server so the APK carries the op \
+                     dispatcher\x1b[0m"
                 );
                 env.push((
                     "AZ_ANDROID_EXTRA_FEATURES".into(),
                     "azul/debug-server".into(),
                 ));
             }
-            println!("\n\x1b[1m==> building {} for {triple}\x1b[0m", target.crate_name);
+            println!(
+                "\n\x1b[1m==> building {} for {triple}\x1b[0m",
+                target.crate_name
+            );
             env.push((
                 "AZ_WORKSPACE_ROOT".into(),
                 target.workspace_root.display().to_string(),
@@ -226,7 +231,10 @@ pub fn build(
                 } else {
                     "x86_64-apple-ios"
                 });
-            println!("\n\x1b[1m==> building {} for {triple}\x1b[0m", target.crate_name);
+            println!(
+                "\n\x1b[1m==> building {} for {triple}\x1b[0m",
+                target.crate_name
+            );
             Cmd::new("bash")
                 .arg(
                     assets
@@ -263,11 +271,7 @@ pub fn build(
 
 /// Acquire a device: reuse one that is already up, else boot the emulator or
 /// simulator.
-pub fn acquire_device(
-    tc: &Toolchain,
-    platform: Platform,
-    opts: &Opts,
-) -> anyhow::Result<Device> {
+pub fn acquire_device(tc: &Toolchain, platform: Platform, opts: &Opts) -> anyhow::Result<Device> {
     let timeout = Duration::from_secs(opts.boot_timeout);
     match platform {
         Platform::Android => {
@@ -382,9 +386,8 @@ pub fn deploy_and_run(
         if device_verdict.is_none() {
             if opts.driver == E2eDriver::Device {
                 anyhow::bail!(
-                    "--driver device, but the app never ran the scenario. Build the APK \
-                     with the op dispatcher compiled in:\n  \
-                     AZ_ANDROID_EXTRA_FEATURES=azul/debug-server"
+                    "--driver device, but the app never ran the scenario. Build the APK with the \
+                     op dispatcher compiled in:\n  AZ_ANDROID_EXTRA_FEATURES=azul/debug-server"
                 );
             }
             println!(
@@ -399,9 +402,7 @@ pub fn deploy_and_run(
     // anything.
     let e2e = match (&opts.e2e, device_verdict.is_some(), opts.driver) {
         (Some(_), true, _) | (Some(_), _, E2eDriver::Device) | (None, _, _) => None,
-        (Some(scenario), false, _) => {
-            Some(replay_scenario(device, scenario, &out_dir, opts)?)
-        }
+        (Some(scenario), false, _) => Some(replay_scenario(device, scenario, &out_dir, opts)?),
     };
     let _ = device.clear_e2e_scenario();
 

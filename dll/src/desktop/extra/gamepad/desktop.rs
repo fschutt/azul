@@ -16,13 +16,13 @@
 //! the analog triggers (L2/R2). [`BUTTON_MAP`] translates to azul-core's
 //! `LeftBumper`/`RightBumper` + `LeftTrigger`/`RightTrigger`.
 
-use super::{apply_axial_deadzone, apply_radial_deadzone};
 use std::cell::RefCell;
-
-use gilrs::{Axis, Button, EventType, Gilrs, PowerInfo};
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
+use gilrs::{Axis, Button, EventType, Gilrs, PowerInfo};
+
+use super::{apply_axial_deadzone, apply_radial_deadzone};
 
 thread_local! {
     /// The process's gilrs context (per the layout thread). `None` until the
@@ -96,8 +96,7 @@ pub fn poll() {
                 Ok(g) => Some(g),
                 Err(e) => {
                     crate::plog_warn!(
-                        "[gamepad] gilrs failed to initialise ({}) — gamepad input \
-                         unavailable",
+                        "[gamepad] gilrs failed to initialise ({}) — gamepad input unavailable",
                         e
                     );
                     None
@@ -401,10 +400,7 @@ static PAD_IDENTITIES: std::sync::Mutex<Vec<PadIdentity>> = std::sync::Mutex::ne
 
 /// Snapshot of [`PAD_IDENTITIES`].
 pub fn pad_identities() -> Vec<PadIdentity> {
-    PAD_IDENTITIES
-        .lock()
-        .map(|v| v.clone())
-        .unwrap_or_default()
+    PAD_IDENTITIES.lock().map(|v| v.clone()).unwrap_or_default()
 }
 
 /// The sysfs `uniq` attribute behind an evdev node: `/dev/input/eventN` ->

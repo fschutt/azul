@@ -14,18 +14,12 @@
 //! UIKit SDK). The SDK is only needed at link time, which lives in
 //! `dll/build.rs::configure_ios`.
 
-use crate::impl_platform_window_getters;
 use std::{
     cell::RefCell,
     ffi::c_void,
     ptr,
     sync::{Arc, Once},
 };
-
-use objc::declare::ClassDecl;
-use objc::runtime::{Class, Object, Protocol, Sel};
-use objc::{class, msg_send, sel, sel_impl, Encode, Encoding};
-use objc_id::Id;
 
 use azul_core::{
     callbacks::RelayoutReason,
@@ -40,21 +34,36 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions},
 };
+use objc::{
+    class,
+    declare::ClassDecl,
+    msg_send,
+    runtime::{Class, Object, Protocol, Sel},
+    sel, sel_impl, Encode, Encoding,
+};
+use objc_id::Id;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use crate::desktop::shell2::common::{
-    debug_server::LogCategory,
-    event::{self, CommonWindowState, HitTestNode, PlatformWindow},
-    WindowError,
+use crate::{
+    desktop::shell2::{
+        common::{
+            debug_server::LogCategory,
+            event::{self, CommonWindowState, HitTestNode, PlatformWindow},
+            WindowError,
+        },
+        headless::CpuBackend,
+    },
+    impl_platform_window_getters,
 };
-use crate::desktop::shell2::headless::CpuBackend;
 
 pub mod accessibility;
-mod text_input;
 pub mod clipboard;
+mod text_input;
 
-use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
-use crate::{log_debug, log_error, log_info};
+use crate::{
+    desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
+    log_debug, log_error, log_info,
+};
 
 // ─── Core Graphics geometry types (FFI-safe; `Encode` impls let them
 //     traverse `msg_send!` without depending on `core_graphics_sys`) ────
@@ -320,9 +329,11 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
 ///   2 = ended    (left_down=false)
 ///   3 = cancelled
 fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: u8) {
-    use azul_core::events::ProcessEventResult;
-    use azul_core::geom::LogicalPosition;
-    use azul_core::window::{CursorPosition, TouchPoint, TouchPointVec};
+    use azul_core::{
+        events::ProcessEventResult,
+        geom::LogicalPosition,
+        window::{CursorPosition, TouchPoint, TouchPointVec},
+    };
 
     let window = match unsafe { azul_ios_window() } {
         Some(w) => w,
@@ -499,7 +510,9 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     if phase == 0 && window.primary_touch_id.is_none() {
         window.primary_touch_id = points.first().map(|p| p.id);
     }
-    let primary_in_set = window.primary_touch_id.is_some_and(|id| position_of(id).is_some());
+    let primary_in_set = window
+        .primary_touch_id
+        .is_some_and(|id| position_of(id).is_some());
     let pos: Option<LogicalPosition> = window.primary_touch_id.and_then(position_of);
 
     // Snapshot previous state for the diff pipeline; mirrors Android.
@@ -1349,8 +1362,8 @@ extern "C" fn did_finish_launching(
                 None => {
                     log_error!(
                         LogCategory::EventLoop,
-                        "[iOS] did_finish_launching: INITIAL_OPTIONS unset — \
-                         azul_run() must run before UIApplicationMain"
+                        "[iOS] did_finish_launching: INITIAL_OPTIONS unset — azul_run() must run \
+                         before UIApplicationMain"
                     );
                     return false;
                 }
@@ -1699,10 +1712,8 @@ impl IOSWindow {
             // `None`, so an app could not tell that the keyboard it just
             // raised was covering the field.
             {
-                let center: *mut Object =
-                    msg_send![class!(NSNotificationCenter), defaultCenter];
-                let name_cstr =
-                    b"UIKeyboardWillChangeFrameNotification\0".as_ptr() as *const i8;
+                let center: *mut Object = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let name_cstr = b"UIKeyboardWillChangeFrameNotification\0".as_ptr() as *const i8;
                 let name: *mut Object =
                     msg_send![class!(NSString), stringWithUTF8String: name_cstr];
                 let _: () = msg_send![
@@ -2090,11 +2101,11 @@ impl PlatformWindow for IOSWindow {
 // UIKit will not send a view text unless the view says it wants it. Two
 // protocols do that, at very different costs:
 //
-// - `UIKeyInput` is three methods (`hasText`, `insertText:`, `deleteBackward`)
-//   and is enough to make the soft keyboard appear and deliver typed
-//   characters, including from an IME's candidate bar once committed.
-// - `UITextInput` is ~25 methods over `UITextPosition` / `UITextRange` object
-//   graphs, and buys marked-text (live preedit), the edit menu, and dictation.
+// - `UIKeyInput` is three methods (`hasText`, `insertText:`, `deleteBackward`) and is enough to
+//   make the soft keyboard appear and deliver typed characters, including from an IME's candidate
+//   bar once committed.
+// - `UITextInput` is ~25 methods over `UITextPosition` / `UITextRange` object graphs, and buys
+//   marked-text (live preedit), the edit menu, and dictation.
 //
 // This implements `UIKeyInput`, which closes "the shell cannot type at all",
 // and leaves the full protocol as a follow-up. That order matters: a partial
@@ -2373,7 +2384,8 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         // intersecting is the only way to learn how much of THIS view is
         // actually covered; using the raw height over-insets a split-view app
         // by however much of the keyboard lies outside it.
-        let frame_local: CGRect = msg_send![view, convertRect: frame_screen fromView: ptr::null_mut::<Object>()];
+        let frame_local: CGRect =
+            msg_send![view, convertRect: frame_screen fromView: ptr::null_mut::<Object>()];
         let bounds: CGRect = msg_send![view, bounds];
 
         let view_bottom = bounds.origin.y + bounds.size.height;
@@ -2389,7 +2401,10 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
     if let Some(lw) = window.common.layout_window.as_mut() {
         let previous = lw.safe_area_insets.keyboard;
         lw.safe_area_insets.keyboard = if covered > 0.5 {
-            Some(azul_css::props::basic::pixel::PixelValue::px(covered as f32)).into()
+            Some(azul_css::props::basic::pixel::PixelValue::px(
+                covered as f32,
+            ))
+            .into()
         } else {
             // `None`, not `Some(0)`: the field's own docs distinguish "no
             // keyboard" from "a keyboard covering nothing", and an app that

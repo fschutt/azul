@@ -12,11 +12,11 @@
 //! This is intentional because:
 //!
 //! 1. **Different attributes**: Python uses `#[pyclass]`, C-API uses `#[repr(C)]`
-//! 2. **Different trait implementations**: Python uses transmute to azul_core,
-//!    C-API generates C-ABI functions
+//! 2. **Different trait implementations**: Python uses transmute to azul_core, C-API generates
+//!    C-ABI functions
 //! 3. **Type filtering**: Python skips recursive types and VecRef types
-//! 4. **Callback handling**: Python needs trampolines to route Python callables
-//!    to Rust callbacks, which C doesn't need
+//! 4. **Callback handling**: Python needs trampolines to route Python callables to Rust callbacks,
+//!    which C doesn't need
 //!
 //! The Python generator does NOT share any generated code with the C-API generator.
 //! They both read from the same IR but produce completely independent output.
@@ -26,17 +26,19 @@
 //! Types are now classified via TypeCategory in the IR, not ad-hoc constants here.
 //! See ir.rs TypeCategory enum for the central classification system.
 
-use anyhow::Result;
 use std::collections::BTreeSet;
 
-use super::config::{CodegenConfig, PythonConfig};
-use super::generator::CodeBuilder;
-use super::generator::LanguageGenerator;
-use super::ir::{
-    ArgRefKind, CallbackArgInfo, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind,
-    FunctionDef, FunctionKind, StructDef, TypeCategory,
+use anyhow::Result;
+
+use super::{
+    config::{CodegenConfig, PythonConfig},
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::{
+        ArgRefKind, CallbackArgInfo, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind,
+        FunctionDef, FunctionKind, StructDef, TypeCategory,
+    },
+    lang_rust::RustGenerator,
 };
-use super::lang_rust::RustGenerator;
 use crate::utils::analyze::analyze_type;
 
 // ============================================================================
@@ -166,7 +168,10 @@ impl PythonGenerator {
         builder.line("use core::mem;");
         builder.line("use pyo3::{pyclass, pymethods, pymodule, Bound, Py, PyResult};");
         builder.line("use pyo3::{Python, PyErr, FromPyObject};");
-        builder.line("use pyo3::types::{PyAny, PyAnyMethods, PyBytes, PyList, PyModule, PyModuleMethods, PyString};");
+        builder.line(
+            "use pyo3::types::{PyAny, PyAnyMethods, PyBytes, PyList, PyModule, PyModuleMethods, \
+             PyString};",
+        );
         builder.line("use pyo3::exceptions::PyException;");
         builder.line("use pyo3::gc::{PyVisit, PyTraverseError};");
         builder.line("use pyo3::conversion::IntoPyObject;");
@@ -763,7 +768,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             "()" => "()".to_string(),
             "Update" => format!("{}::DoNothing", return_type_external),
             "OnTextInputReturn" => format!(
-                "{} {{ update: azul_core::callbacks::Update::DoNothing, valid: azul_layout::widgets::text_input::TextInputValid::Yes }}",
+                "{} {{ update: azul_core::callbacks::Update::DoNothing, valid: \
+                 azul_layout::widgets::text_input::TextInputValid::Yes }}",
                 return_type_external
             ),
             _ => format!("{}::default()", return_type_external),
@@ -811,7 +817,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 .find_external_path(&ctx_source_type, ir)
                 .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, ctx_source_type));
             // Clone the source to avoid move issues when it's also used for Python wrapper
-            builder.line(&format!("let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}.clone()) }};", prefix, ctx_source_type, ctx_source_arg_name));
+            builder.line(&format!(
+                "let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ \
+                 mem::transmute({}.clone()) }};",
+                prefix, ctx_source_type, ctx_source_arg_name
+            ));
             builder.line(&format!(
                 "let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};",
                 ctx_external
@@ -822,7 +832,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.line("    azul_core::refany::OptionRefAny::None => return default,");
             builder.line("};");
             builder.line("let mut callable_core = callable_refany;");
-            builder.line("let py_callable_wrapper = match callable_core.downcast_ref::<PyCallableWrapper>() {");
+            builder.line(
+                "let py_callable_wrapper = match \
+                 callable_core.downcast_ref::<PyCallableWrapper>() {",
+            );
             builder.line("    Some(s) => s,");
             builder.line("    None => return default,");
             builder.line("};");
@@ -893,7 +906,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.line("        // stderr, not silently swallowed.");
             builder.line("        if !result.is_none(py) {");
             builder.line(&format!(
-                "            eprintln!(\"azul: {} callback returned an unexpected type (expected {}), using default return value:\");",
+                "            eprintln!(\"azul: {} callback returned an unexpected type (expected \
+                 {}), using default return value:\");",
                 callback.name, return_type
             ));
             // pyo3 0.27: extract() on a pyclass fails with PyClassGuardError
@@ -1232,7 +1246,6 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         Ok(())
     }
 
-
     /// The Python-visible forms of the api.json `derive` list.
     ///
     /// WHY THIS IS NEEDED AT ALL
@@ -1455,10 +1468,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                             ));
                         } else if ty == "String" {
                             // String needs to be converted to AzString and transmuted
-                            builder.line(&format!("    unsafe {{ Self {{ inner: {}::{}(core::mem::transmute(azul_css::corety::AzString::from(v))) }} }}", c_api_type, variant.name));
+                            builder.line(&format!(
+                                "    unsafe {{ Self {{ inner: \
+                                 {}::{}(core::mem::transmute(azul_css::corety::AzString::from(v))) \
+                                 }} }}",
+                                c_api_type, variant.name
+                            ));
                         } else if is_callback_wrapper_type(ty, ir) {
                             // Callback types use Py<PyAny> which has no .inner field
-                            // For now, skip these - callbacks in Option<Callback> require more complex handling
+                            // For now, skip these - callbacks in Option<Callback> require more
+                            // complex handling
                             builder.line("    // TODO: callback type conversion");
                             builder.line(&format!(
                                 "    unimplemented!(\"Option<{}> not yet supported in Python\")",
@@ -1486,11 +1505,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             // `fn Default()`, which does NOT collide with `fn default()` in
             // either Rust or Python -- lowercasing here would suppress the
             // `Default` derive on the six enums that have such a variant.
-            let taken: BTreeSet<String> = enum_def
-                .variants
-                .iter()
-                .map(|v| v.name.clone())
-                .collect();
+            let taken: BTreeSet<String> =
+                enum_def.variants.iter().map(|v| v.name.clone()).collect();
             self.generate_derive_dunders(builder, &enum_def.traits, &taken);
         }
 
@@ -1696,14 +1712,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         // Transform the fn_body for Python bindings:
         // 1. Replace "azul_dll::" with "crate::" (we're in azul-dll crate)
-        // 2. Replace "Self " and "Self::" with the external path (since Self in Python wrapper is AzXxx)
+        // 2. Replace "Self " and "Self::" with the external path (since Self in Python wrapper is
+        //    AzXxx)
         // 3. Replace self references with transmuted variable
         // 4. Replace parameter names with transmuted versions
         // 5. Replace type constructors (TypeName::method) with fully qualified paths
         let mut transformed_body = fn_body.replace("azul_dll::", "crate::");
 
-        // Replace Self with external path (Self in fn_body refers to the Rust type, not the Python wrapper)
-        // Handle both "Self::" (associated functions) and "Self {" or "Self " (struct construction)
+        // Replace Self with external path (Self in fn_body refers to the Rust type, not the Python
+        // wrapper) Handle both "Self::" (associated functions) and "Self {" or "Self "
+        // (struct construction)
         transformed_body = transformed_body
             .replace("Self::", &format!("{}::", external_path))
             .replace("Self {", &format!("{} {{", external_path))
@@ -1861,7 +1879,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     arg.name, arg.name
                 ));
                 builder.line(&format!(
-                    "let {}: azul_core::refany::RefAny = create_py_refany_with_json(__py_{}_wrapper);",
+                    "let {}: azul_core::refany::RefAny = \
+                     create_py_refany_with_json(__py_{}_wrapper);",
                     arg.name, arg.name
                 ));
                 // No fn_body replacement needed - we used the same variable name as the parameter
@@ -1881,7 +1900,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 // downcast fail and EVERY Python callback silently degrades to its
                 // default return value: blank window, dead buttons, no traceback.
                 builder.line(&format!(
-                    "let __py_{}_wrapper = PyCallableWrapper {{ _py_callable: Some({}.clone_ref(py)) }};",
+                    "let __py_{}_wrapper = PyCallableWrapper {{ _py_callable: \
+                     Some({}.clone_ref(py)) }};",
                     arg.name, arg.name
                 ));
                 builder.line(&format!(
@@ -2234,18 +2254,19 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
             "VirtualViewCallbackInfo",      // wraps &VirtualViewCallbackInfoInternal
-            "VirtualViewReturn", // contains OptionDom which may have callbacks with raw pointers
-            "StyledDom",         // contains CssPropertyCachePtr
-            "LayoutCallbackInfo", // wraps & to internal data
-            "CallbackInfo",      // wraps & to internal data
-            "RenderImageCallbackInfo", // wraps & to internal data
-            "RefCount",          // refcounted pointer, semantically Send
-            "OptionRefAny",      // Option<RefAny>
-            "GlVoidPtrMut",      // GL pointer wrapper
-            "ParsedSvg",         // SVG data structure
+            "VirtualViewReturn",            /* contains OptionDom which may have callbacks with
+                                             * raw pointers */
+            "StyledDom",                    // contains CssPropertyCachePtr
+            "LayoutCallbackInfo",           // wraps & to internal data
+            "CallbackInfo",                 // wraps & to internal data
+            "RenderImageCallbackInfo",      // wraps & to internal data
+            "RefCount",                     // refcounted pointer, semantically Send
+            "OptionRefAny",                 // Option<RefAny>
+            "GlVoidPtrMut",                 // GL pointer wrapper
+            "ParsedSvg",                    // SVG data structure
             "ResultParsedSvgSvgParseError", // Result type containing ParsedSvg
-            "GridMinMax",        // CSS grid layout type
-            "GridTrackSizing",   // CSS grid layout type
+            "GridMinMax",                   // CSS grid layout type
+            "GridTrackSizing",              // CSS grid layout type
             // Window/Thread types - Send but not Sync
             "RawWindowHandle",
             "OptionThread",
@@ -2639,10 +2660,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
     /// Returns true if a Python callable passed for this callback arg can be
     /// bridged to Rust. This requires BOTH:
-    /// 1. A trampoline `extern "C"` fn is generated for the callback typedef
-    ///    (mirrors the gating in `generate_callback_trampolines`), and
-    /// 2. The wrapper struct exists and has an `OptionRefAny` field to store the
-    ///    Python callable.
+    /// 1. A trampoline `extern "C"` fn is generated for the callback typedef (mirrors the gating in
+    ///    `generate_callback_trampolines`), and
+    /// 2. The wrapper struct exists and has an `OptionRefAny` field to store the Python callable.
     /// When either is false there is no way to store/invoke the Python callable,
     /// so the consuming method must be skipped.
     fn callback_arg_is_bridgeable(&self, cb_info: &CallbackArgInfo, ir: &CodegenIR) -> bool {
@@ -2892,8 +2912,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             }
         }
 
-        // Skip type aliases for CssPropertyValue<T> (they end with "Value" and are not "PixelValue")
-        // These can't be used as Python arguments because they resolve to generic types
+        // Skip type aliases for CssPropertyValue<T> (they end with "Value" and are not
+        // "PixelValue") These can't be used as Python arguments because they resolve to
+        // generic types
         if type_name.ends_with("Value")
             && ![
                 "PixelValue",

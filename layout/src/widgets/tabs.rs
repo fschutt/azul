@@ -2863,8 +2863,8 @@ mod autotest_generated {
         assert_eq!(
             [first, second, third],
             [Update::RefreshDom; 3],
-            "a leaked RefMut would turn later clicks into the RefreshDom fallback \
-             without ever reaching the user callback"
+            "a leaked RefMut would turn later clicks into the RefreshDom fallback without ever \
+             reaching the user callback"
         );
         assert_eq!(
             logged(&mut user),

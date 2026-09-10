@@ -67,9 +67,6 @@ use super::common::debug_server::LogCategory;
 /// resize census — see the Wayland `CONFIGURES_SEEN` for why the count matters.
 pub(super) static WINDOW_DID_RESIZE_SEEN: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(0);
-use crate::impl_platform_window_getters;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
-
 use crate::desktop::{
     shell2::common::{
         self,
@@ -84,6 +81,7 @@ use crate::desktop::{
         AsyncHitTester, Compositor as WrCompositor, Notifier, WrRenderApi, WrTransaction,
     },
 };
+use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
 pub mod accessibility;
 pub mod clipboard;
@@ -3427,12 +3425,11 @@ fn create_opengl_pixel_format(
 /// `&mut` to the same window, which is aliasing UB on top of plain re-entrancy.
 /// Both routes into a native menu park here and neither presents:
 ///
-///   * a right-click — `handle_mouse_up` builds it, `right_mouse_up` drains it
-///     with `take_pending_context_menu()` once its own borrow has ended;
-///   * `info.open_menu()` from a callback — `show_menu_from_callback` builds it
-///     mid-pass and asks the view for a `presentPendingMenu:` on a LATER
-///     run-loop turn, because there is no point in this call stack where the
-///     borrow is not live.
+///   * a right-click — `handle_mouse_up` builds it, `right_mouse_up` drains it with
+///     `take_pending_context_menu()` once its own borrow has ended;
+///   * `info.open_menu()` from a callback — `show_menu_from_callback` builds it mid-pass and asks
+///     the view for a `presentPendingMenu:` on a LATER run-loop turn, because there is no point in
+///     this call stack where the borrow is not live.
 pub(crate) struct PendingContextMenu {
     menu: Retained<NSMenu>,
     view: Retained<NSView>,
@@ -3450,13 +3447,13 @@ pub(crate) struct PendingContextMenu {
 /// `flags.frame` (a maximize would otherwise trip the unconsumed-delta guard on
 /// every window). What this function IS for:
 ///
-///   * it advances `current_window_state.flags.frame` — what the app reads back
-///     from the window state, and what the CSD titlebar widget reads to draw
-///     its maximize/restore button and to decide what a double-click does;
-///   * it advances `os_synced_state` in lockstep (source = `Os` below), which
-///     is what kills the fullscreen flap described further down;
-///   * the pass consumes whatever ELSE the delta held (the size and position an
-///     OS-driven frame change arrives with), and THOSE do reach callbacks.
+///   * it advances `current_window_state.flags.frame` — what the app reads back from the window
+///     state, and what the CSD titlebar widget reads to draw its maximize/restore button and to
+///     decide what a double-click does;
+///   * it advances `os_synced_state` in lockstep (source = `Os` below), which is what kills the
+///     fullscreen flap described further down;
+///   * the pass consumes whatever ELSE the delta held (the size and position an OS-driven frame
+///     change arrives with), and THOSE do reach callbacks.
 ///
 /// The four delegate methods used to assign `flags.frame` in place with no
 /// snapshot and no pass, so both baselines drifted from the OS and the next
@@ -3623,8 +3620,9 @@ unsafe fn ime_set_marked_text(
                 }
                 // No composition open and a live selection: the composition
                 // replaces it, whether the IME named it or not.
-                azul_layout::window::ImeReplacement::Implicit => selection
-                    .filter(|(a, b)| a != b && marked.is_none()),
+                azul_layout::window::ImeReplacement::Implicit => {
+                    selection.filter(|(a, b)| a != b && marked.is_none())
+                }
                 azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
                     // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
                     // document WITH the preedit spliced in, so: (a) un-shape
@@ -3649,8 +3647,8 @@ unsafe fn ime_set_marked_text(
                         .filter(|(a, b)| a != b);
                     log_debug!(
                         LogCategory::Input,
-                        "[IME setMarkedText] replacementRange {}..{} (bytes) during a \
-                         composition rebased onto the committed text as {:?} (10b-i-b-i-b)",
+                        "[IME setMarkedText] replacementRange {}..{} (bytes) during a composition \
+                         rebased onto the committed text as {:?} (10b-i-b-i-b)",
                         start,
                         end,
                         rebased
@@ -3780,7 +3778,11 @@ unsafe fn ime_attributed_substring(
 
 unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replacement_range: NSRange) {
     let committed_text = ns_object_to_string(string);
-    log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
+    log_trace!(
+        LogCategory::Input,
+        "[IME insertText] text='{}'",
+        committed_text
+    );
     if committed_text.is_empty() {
         return;
     }
@@ -3820,14 +3822,14 @@ unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replaceme
                 // before the text lands. A range overlapping the preedit
                 // rebases to the composition's own place, an empty span, and
                 // so inserts at the caret (see the rebase function).
-                lw.text_edit_manager.commit_composition(committed_text.clone());
+                lw.text_edit_manager
+                    .commit_composition(committed_text.clone());
                 lw.end_preedit_shaping();
-                let rebased =
-                    azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
-                        Some((start, end)),
-                        marked,
-                    )
-                    .filter(|(a, b)| a != b);
+                let rebased = azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
+                    Some((start, end)),
+                    marked,
+                )
+                .filter(|(a, b)| a != b);
                 log_debug!(
                     LogCategory::Input,
                     "[IME insertText] replacementRange {}..{} (bytes) during a composition \
@@ -3861,7 +3863,8 @@ unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replaceme
         // Commit rather than a bare clear, so `CompositionEnd` carries the
         // committed string. macOS is the one backend that hands it to us
         // directly, on `insertText:`.
-        lw.text_edit_manager.commit_composition(committed_text.clone());
+        lw.text_edit_manager
+            .commit_composition(committed_text.clone());
         lw.end_preedit_shaping();
     }
     macos_window.handle_text_input(&committed_text);
@@ -4118,7 +4121,6 @@ pub struct MacOSWindow {
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
-
 
 // CoreGraphics pointer-lock primitives. AppKit has no equivalent: hiding and
 // freezing the cursor are CG-level operations, and `NSCursor.hide` alone
@@ -4676,8 +4678,8 @@ impl MacOSWindow {
                 let Some(index) = index else {
                     log_warn!(
                         LogCategory::Window,
-                        "[MacOSWindow] display_id={} not found in NSScreen::screens; \
-                         leaving monitor_id unchanged",
+                        "[MacOSWindow] display_id={} not found in NSScreen::screens; leaving \
+                         monitor_id unchanged",
                         display_id
                     );
                     return;
@@ -5071,8 +5073,12 @@ impl MacOSWindow {
                         crate::desktop::shell2::common::GpuCheckResult::Ok(info) => {
                             log_debug!(
                                 LogCategory::Rendering,
-                                "[MacOSWindow::new] GPU OK: vendor={:?} renderer={:?} version={:?} glsl={:?}",
-                                info.vendor, info.renderer, info.version, info.glsl_version
+                                "[MacOSWindow::new] GPU OK: vendor={:?} renderer={:?} \
+                                 version={:?} glsl={:?}",
+                                info.vendor,
+                                info.renderer,
+                                info.version,
+                                info.glsl_version
                             );
                             let vsync = options.window_state.renderer_options.vsync;
                             Self::configure_vsync(&ctx, vsync);
@@ -5090,8 +5096,11 @@ impl MacOSWindow {
                         } => {
                             log_warn!(
                                 LogCategory::Rendering,
-                                "[MacOSWindow::new] GPU blacklisted (vendor={:?} renderer={:?}): {} — falling back to CPU",
-                                info.vendor, info.renderer, reason
+                                "[MacOSWindow::new] GPU blacklisted (vendor={:?} renderer={:?}): \
+                                 {} — falling back to CPU",
+                                info.vendor,
+                                info.renderer,
+                                reason
                             );
                             // Drop the GL context/view/functions to tear down the GL state.
                             drop(funcs);
@@ -5366,8 +5375,8 @@ impl MacOSWindow {
 
         // Apply initial background material from options
         // Note: We can't call self.apply_background_material() yet because the window struct
-        // isn't created yet. We'll apply it after the struct is built and stored in its final location.
-        // Store the initial material to apply later.
+        // isn't created yet. We'll apply it after the struct is built and stored in its final
+        // location. Store the initial material to apply later.
         let initial_background_material = options.window_state.flags.background_material;
 
         // Create and set window delegate for handling window events
@@ -5432,7 +5441,8 @@ impl MacOSWindow {
                     // Defensive: OpenGL backend selected but GL functions missing.
                     // Never dead-end to no-window — fall back to CPU rendering.
                     crate::plog_warn!(
-                        "[macOS] OpenGL backend but no GL functions — falling back to CPU rendering"
+                        "[macOS] OpenGL backend but no GL functions — falling back to CPU \
+                         rendering"
                     );
                     break 'gpu (
                         None,
@@ -5526,8 +5536,8 @@ impl MacOSWindow {
                 )
             } else {
                 crate::plog_warn!(
-                    "[macOS] GL context unusable (azul shaders failed to compile at any \
-                     GLSL version) -- falling back to CPU rendering for this window"
+                    "[macOS] GL context unusable (azul shaders failed to compile at any GLSL \
+                     version) -- falling back to CPU rendering for this window"
                 );
                 (
                     None,
@@ -5782,8 +5792,9 @@ impl MacOSWindow {
                 "[Window Init] Invoking create_callback..."
             );
 
-            use azul_core::window::RawWindowHandle;
             use std::ptr;
+
+            use azul_core::window::RawWindowHandle;
 
             let raw_handle = RawWindowHandle::MacOS(azul_core::window::MacOSHandle {
                 ns_window: Retained::as_ptr(&window.window) as *mut _,
@@ -6216,8 +6227,7 @@ impl MacOSWindow {
     /// This method applies the remaining fields and sets previous_window_state
     /// so that sync_window_state() works correctly for future changes.
     fn apply_initial_window_state(&mut self) {
-        use azul_core::geom::OptionLogicalSize;
-        use azul_core::window::WindowPosition;
+        use azul_core::{geom::OptionLogicalSize, window::WindowPosition};
 
         // Min dimensions
         if let OptionLogicalSize::Some(dims) =
@@ -7032,8 +7042,9 @@ impl MacOSWindow {
     }
 
     fn handle_menu_action(&mut self, tag: isize) {
-        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::ProcessEventResult;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
 
         log_trace!(
             LogCategory::Callbacks,
@@ -7833,8 +7844,8 @@ impl MacOSWindow {
             ) {
                 log_error!(
                     LogCategory::Layout,
-                    "[macOS] resize fast-path relayout failed: {e} — falling back to a \
-                     full regeneration"
+                    "[macOS] resize fast-path relayout failed: {e} — falling back to a full \
+                     regeneration"
                 );
                 resize_relayout_failed = true;
             }
@@ -8036,11 +8047,12 @@ impl MacOSWindow {
             "[build_atomic_txn] Building transaction"
         );
 
-        // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).
-        // This re-invokes VirtualView callbacks whose scroll position crossed an edge threshold,
-        // producing new child DOMs in layout_results. Must happen BEFORE building the
-        // display list so the new child content is included.
-        // NOTE: has_virtual_view_updates was already computed above for the early-return check.
+        // Process pending VirtualView updates (queued by ScrollTo →
+        // check_and_queue_virtual_view_reinvoke). This re-invokes VirtualView callbacks
+        // whose scroll position crossed an edge threshold, producing new child DOMs in
+        // layout_results. Must happen BEFORE building the display list so the new child
+        // content is included. NOTE: has_virtual_view_updates was already computed above
+        // for the early-return check.
         if has_virtual_view_updates {
             log_trace!(
                 LogCategory::Rendering,
@@ -8386,7 +8398,8 @@ impl MacOSWindow {
         }
 
         // Clean up old textures from previous epochs to prevent memory leak
-        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+        // This must happen AFTER render() and buffer swap when WebRender no longer needs the
+        // textures
         if let Some(ref layout_window) = self.common.layout_window {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
@@ -8765,7 +8778,8 @@ impl MacOSWindow {
         }
 
         // Tell macOS to schedule a drawRect: call (full surface)
-        // Use the GL view directly if available (when using materials, contentView is the effect view)
+        // Use the GL view directly if available (when using materials, contentView is the effect
+        // view)
         if let Some(ref gl_view) = self.gl_view {
             unsafe {
                 let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
@@ -8869,8 +8883,9 @@ impl MacOSWindow {
         // had already drifted (no styled-snapshot restore, no selection
         // restore, redo re-entered the recording pipeline). One
         // implementation, zero drift.
-        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::SystemChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
         let target = match self
             .common
             .layout_window
@@ -8889,8 +8904,9 @@ impl MacOSWindow {
     /// Perform redo operation (called by NSResponder redo: selector)
     pub fn perform_redo(&mut self) {
         // MWA-C-undo_redo: shared RedoTextEdit arm (see perform_undo).
-        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::SystemChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
         let target = match self
             .common
             .layout_window

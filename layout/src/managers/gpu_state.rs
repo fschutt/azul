@@ -5,17 +5,14 @@
 //! for scrollbar opacity - as a single source of truth for
 //! the GPU cache.
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::collections::BTreeMap;
-
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeMap as HashMap;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
 use azul_core::{
-    dom::ScrollbarOrientation,
-    dom::{DomId, NodeId},
+    dom::{DomId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
     resources::TransformKey,
@@ -26,7 +23,8 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
-        fc::DEFAULT_SCROLLBAR_WIDTH_PX, layout_tree::LayoutTree,
+        fc::DEFAULT_SCROLLBAR_WIDTH_PX,
+        layout_tree::{LayoutNodeId, LayoutTree},
         scrollbar::compute_scrollbar_geometry_with_button_size,
     },
 };
@@ -148,7 +146,11 @@ impl GpuStateManager {
     ///
     /// Returns `true` the first time (nothing to compare against) and whenever
     /// the set genuinely differs — a changed value, a new key, or a lost one.
-    pub fn gpu_values_changed(&mut self, floats: &[(u64, f32)], transforms: &[(u64, [f32; 16])]) -> bool {
+    pub fn gpu_values_changed(
+        &mut self,
+        floats: &[(u64, f32)],
+        transforms: &[(u64, [f32; 16])],
+    ) -> bool {
         // Sorted by key before digesting. The caller collects these out of
         // `HashMap`s, whose iteration order is not a promise; an order that
         // flapped while the values stayed the same would report a change on a
@@ -597,8 +599,8 @@ mod redundant_frame_tests {
 
         assert!(
             m.gpu_values_changed(&[(1, 1.0)], &[]),
-            "after a scene rebuild the property bindings start over - unchanged \
-             values still have to reach the renderer"
+            "after a scene rebuild the property bindings start over - unchanged values still have \
+             to reach the renderer"
         );
         assert!(m.submitted_digest_changed(SubmittedDigest::Images, 7));
         assert!(m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 9));
@@ -621,15 +623,9 @@ mod redundant_frame_tests {
     #[test]
     fn the_order_the_values_arrive_in_is_not_a_change() {
         let mut m = GpuStateManager::default();
-        assert!(m.gpu_values_changed(
-            &[(1, 1.0), (2, 0.25)],
-            &[(7, [1.0; 16]), (8, [2.0; 16])]
-        ));
+        assert!(m.gpu_values_changed(&[(1, 1.0), (2, 0.25)], &[(7, [1.0; 16]), (8, [2.0; 16])]));
         assert!(
-            !m.gpu_values_changed(
-                &[(2, 0.25), (1, 1.0)],
-                &[(8, [2.0; 16]), (7, [1.0; 16])]
-            ),
+            !m.gpu_values_changed(&[(2, 0.25), (1, 1.0)], &[(8, [2.0; 16]), (7, [1.0; 16])]),
             "the same set in a different order is the same set"
         );
     }
@@ -1653,19 +1649,18 @@ mod autotest_generated {
         const NODE: NodeId = NodeId::new(1);
         let styled_dom = auto_virtual_view_dom();
 
-        // 1. Layout ran: the VirtualView's box is 100x100 and its laid-out
-        //    content is the same 100x100, so no bar is warranted yet.
+        // 1. Layout ran: the VirtualView's box is 100x100 and its laid-out content is the same
+        //    100x100, so no bar is warranted yet.
         let mut t = one_node_tree(auto_no_scrollbar(), LogicalSize::new(100.0, 100.0));
 
         // 2. The VirtualView callback published a 100x1000 document.
         let mut sm = ScrollManager::new();
         sm.update_virtual_scroll_bounds(dom(0), NODE, LogicalSize::new(100.0, 1000.0), None);
 
-        // 3. What `register_scroll_nodes` then does: amend the flags from the
-        //    virtual size and store the answer back on the node, which is what
-        //    makes the node registrable at all (the old gate skipped it, so its
-        //    container_rect stayed zero and its clamp bound was the whole
-        //    virtual size).
+        // 3. What `register_scroll_nodes` then does: amend the flags from the virtual size and
+        //    store the answer back on the node, which is what makes the node registrable at all
+        //    (the old gate skipped it, so its container_rect stayed zero and its clamp bound was
+        //    the whole virtual size).
         let states = sm.get_scroll_states_for_dom(dom(0));
         let pos = states
             .get(&NODE)

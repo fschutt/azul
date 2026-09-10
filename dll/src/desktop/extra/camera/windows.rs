@@ -2,14 +2,14 @@
 //!
 //! Two implementations behind the `capture_common` seam (open/read/close):
 //!
-//! - **`camera-native` feature ON** → the real `nokhwa` (Media Foundation)
-//!   backend with RGBA decode. nokhwa's `decoding` feature pulls `mozjpeg-sys`,
-//!   whose build script C-compiles libjpeg-turbo, so this needs a Windows/mingw
-//!   C toolchain and does NOT `cargo check --target *-windows-gnu` without one.
+//! - **`camera-native` feature ON** → the real `nokhwa` (Media Foundation) backend with RGBA
+//!   decode. nokhwa's `decoding` feature pulls `mozjpeg-sys`, whose build script C-compiles
+//!   libjpeg-turbo, so this needs a Windows/mingw C toolchain and does NOT `cargo check --target
+//!   *-windows-gnu` without one.
 //!
-//! - **`camera-native` feature OFF** (default) → a pure-Rust STUB: `open` fails,
-//!   so the capture worker falls back to its test pattern. No `nokhwa` dep, so
-//!   Windows CROSS-COMPILES with no C toolchain ("everything pure-Rust / dlopen").
+//! - **`camera-native` feature OFF** (default) → a pure-Rust STUB: `open` fails, so the capture
+//!   worker falls back to its test pattern. No `nokhwa` dep, so Windows CROSS-COMPILES with no C
+//!   toolchain ("everything pure-Rust / dlopen").
 //!
 //! Keep the real backend (it's correct) and flip `camera-native` on once a
 //! pure-Rust Media-Foundation + JPEG/YUYV decode path replaces mozjpeg.
@@ -101,8 +101,8 @@ mod stub {
     /// Stub: always fails to open (`0`) → the worker uses the test pattern.
     pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
         crate::plog_warn!(
-            "[camera] Windows camera is the pure-Rust stub (build with feature \
-             `camera-native` for the nokhwa backend) — using the test pattern"
+            "[camera] Windows camera is the pure-Rust stub (build with feature `camera-native` \
+             for the nokhwa backend) — using the test pattern"
         );
         0
     }

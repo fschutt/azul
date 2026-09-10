@@ -144,7 +144,8 @@ impl Default for SpringCurve {
 }
 
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents an animation timing function.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -2444,9 +2445,9 @@ pub struct AnimationTimingBezier {
 /// The CSS keywords, the engine's spring presets, and a custom
 /// `cubic-bezier(...)` point list — permille-encoded (see
 /// [`AnimationTimingBezier`]) because this enum lives inside `CssProperty`,
-/// which derives `Eq + Hash + Ord`, and raw f32 control points cannot. Converted via [`Self::to_interpolation`] at the engine
-/// boundary; native animation functions receive the DECLARED timing on
-/// `ZombieAnimInfo` together with raw linear progress, so a callback can
+/// which derives `Eq + Hash + Ord`, and raw f32 control points cannot. Converted via
+/// [`Self::to_interpolation`] at the engine boundary; native animation functions receive the
+/// DECLARED timing on `ZombieAnimInfo` together with raw linear progress, so a callback can
 /// apply this math — or its own — via [`Self::evaluate`].
 // `CubicBezier` carries 8 bytes vs the unit variants — boxing is not an
 // option: `repr(C, u8)` ABI enum whose layout the C bindings depend on.
@@ -2879,7 +2880,8 @@ impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;
         alloc::format!(
-            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?}, clip: {} }}",
+            "StyleAnimation {{ name: AzString::from_const_str({:?}), duration: {}, delay: {}, \
+             iterations: AnimationIterationCount::{:?}, timing: AnimationTiming::{:?}, clip: {} }}",
             self.name.as_str(),
             self.duration.format_as_rust_code(0),
             self.delay.format_as_rust_code(0),

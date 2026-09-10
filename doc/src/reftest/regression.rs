@@ -284,7 +284,8 @@ fn resolve_refs(config: &RegressionConfig) -> anyhow::Result<Vec<CommitInfo>> {
 
 /// Parse a git log line into CommitInfo
 fn parse_commit_line(line: &str) -> Option<CommitInfo> {
-    // Try new format with null separator first (6 parts: hash, short_hash, subject, body, date, author)
+    // Try new format with null separator first (6 parts: hash, short_hash, subject, body, date,
+    // author)
     let parts: Vec<&str> = line.splitn(6, '\0').collect();
     if parts.len() == 6 {
         return Some(CommitInfo {
@@ -780,7 +781,8 @@ fn generate_html_report(
                 let percentage = (*diff_chrome as f64 / (1920.0 * 1080.0)) * 100.0;
 
                 html.push_str(&format!(
-                    "            <tr><td><span class=\"commit-hash\">{}</span></td><td>{}</td><td class=\"{}\">{}px ({:.2}%)</td></tr>\n",
+                    "            <tr><td><span class=\"commit-hash\">{}</span></td><td>{}</td><td \
+                     class=\"{}\">{}px ({:.2}%)</td></tr>\n",
                     hash,
                     msg.chars().take(50).collect::<String>(),
                     diff_class,
@@ -864,7 +866,8 @@ fn generate_html_report(
 
         if let CommitStatus::BuildFailed(err) = status {
             html.push_str(&format!(
-                "        <details><summary>View Error</summary><div class=\"build-error\">{}</div></details>\n",
+                "        <details><summary>View Error</summary><div \
+                 class=\"build-error\">{}</div></details>\n",
                 err.replace('<', "&lt;").replace('>', "&gt;")
             ));
         }
@@ -1668,7 +1671,8 @@ pub fn run_statistics_send(
     Ok(())
 }
 
-/// Generate the full prompt as a String (used by both run_statistics_prompt and run_statistics_send)
+/// Generate the full prompt as a String (used by both run_statistics_prompt and
+/// run_statistics_send)
 fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
     let regression_dir = config.output_dir.join("regression");
     let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
@@ -1877,7 +1881,10 @@ fn generate_diff_report_string(
                 "REGRESSION: {} -> {}\n",
                 prev_c.short_hash, curr_c.short_hash
             ));
-            output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+            output.push_str(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\
+                 n\n",
+            );
             output.push_str(&format!(
                 "BEFORE ({}, {}):\n",
                 prev_c.short_hash,

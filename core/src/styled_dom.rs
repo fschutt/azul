@@ -9,7 +9,10 @@
 //! `StyledDom` is the primary input to the layout engine.
 
 use alloc::{
-    boxed::Box, collections::btree_map::BTreeMap, string::String, string::ToString, vec::Vec,
+    boxed::Box,
+    collections::btree_map::BTreeMap,
+    string::{String, ToString},
+    vec::Vec,
 };
 use core::{
     fmt,
@@ -153,7 +156,8 @@ pub struct RestyleResult {
     /// Whether display list needs regeneration (visual properties changed)
     pub needs_display_list: bool,
     /// Whether only GPU-level properties changed (opacity, transform)
-    /// If true and `needs_display_list` is false, we can update via GPU without display list rebuild
+    /// If true and `needs_display_list` is false, we can update via GPU without display list
+    /// rebuild
     pub gpu_only_changes: bool,
     /// The highest `RelayoutScope` seen across all property changes.
     ///
@@ -409,7 +413,8 @@ impl StyledNodeVec {
 }
 
 #[test]
-#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or
+                                          // cfg-gated binding); access is deliberate
 fn test_css_styling_with_nested_divs() {
     let s = "
         html, body, p {
@@ -495,11 +500,10 @@ fn test_recompute_preserves_hot_flag_has_background() {
     };
     assert!(
         any_bg_frame2,
-        "frame ≥2 after recompute_inheritance_and_compact_cache: \
-         HOT_FLAG_HAS_BACKGROUND disappeared. The recompute path must \
-         use build_compact_cache_with_inheritance (not plain \
-         build_compact_cache) so apply_css_property_to_compact runs and \
-         populates hot_flags for the renderer's negative fast-paths.",
+        "frame ≥2 after recompute_inheritance_and_compact_cache: HOT_FLAG_HAS_BACKGROUND \
+         disappeared. The recompute path must use build_compact_cache_with_inheritance (not plain \
+         build_compact_cache) so apply_css_property_to_compact runs and populates hot_flags for \
+         the renderer's negative fast-paths.",
     );
 }
 
@@ -564,12 +568,12 @@ impl StyleFontFamiliesHash {
 ///
 /// # Difference from `NodeId`
 ///
-/// - **`NodeId`**: A 0-based array index. `NodeId::new(0)` refers to the first node.
-///   Use directly for array indexing: `nodes[node_id.index()]`.
+/// - **`NodeId`**: A 0-based array index. `NodeId::new(0)` refers to the first node. Use directly
+///   for array indexing: `nodes[node_id.index()]`.
 ///
-/// - **`NodeHierarchyItemId`**: A 1-based encoded `Option<NodeId>`.
-///   `inner = 0` means `None`, `inner = 1` means `Some(NodeId(0))`.
-///   **Never use `inner` as an array index!** Always decode first.
+/// - **`NodeHierarchyItemId`**: A 1-based encoded `Option<NodeId>`. `inner = 0` means `None`,
+///   `inner = 1` means `Some(NodeId(0))`. **Never use `inner` as an array index!** Always decode
+///   first.
 ///
 /// # Warning
 ///
@@ -1081,12 +1085,18 @@ impl StyledDomMemoryReport {
 /// tested there. Run a real app with this dial to settle it.
 #[cfg(feature = "std")]
 pub(crate) fn cascade_trace(msg: impl FnOnce() -> String) {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::OnceLock;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        OnceLock,
+    };
     static ON: OnceLock<bool> = OnceLock::new();
     static N: AtomicUsize = AtomicUsize::new(0);
     if *ON.get_or_init(|| std::env::var("AZ_CASCADE_TRACE").is_ok()) {
-        eprintln!("[cascade #{}] {}", N.fetch_add(1, Ordering::Relaxed) + 1, msg());
+        eprintln!(
+            "[cascade #{}] {}",
+            N.fetch_add(1, Ordering::Relaxed) + 1,
+            msg()
+        );
     }
 }
 
@@ -1108,8 +1118,10 @@ impl StyledDom {
                 let mut inner = 0usize;
                 for nd in self.node_data.as_ref() {
                     inner += nd.get_callbacks().len() * 64; // rough per-callback
-                                                            // Each rule = path + decls Vec + conditions Vec + priority byte.
-                                                            // Approximate at 64 bytes per rule + the heap for declarations.
+                                                            // Each rule = path + decls Vec +
+                                                            // conditions Vec + priority byte.
+                                                            // Approximate at 64 bytes per rule +
+                                                            // the heap for declarations.
                     inner += nd.style.rules.as_ref().len() * 64;
                 }
                 base + inner
@@ -1188,11 +1200,11 @@ impl StyledDom {
     pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
         use azul_css::css::Css;
 
-        // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each
-        //    node-attached stylesheet to its owner's subtree (#47): push_front a
-        //    Root([owner, owner+subtree_len]) selector so inline/XML css can't leak
-        //    globally — the same scoping the recursive create_from_dom path applies
-        //    via scope_inline_css. `node_id` is the owner's flat id (0 = root).
+        // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each node-attached
+        //    stylesheet to its owner's subtree (#47): push_front a Root([owner, owner+subtree_len])
+        //    selector so inline/XML css can't leak globally — the same scoping the recursive
+        //    create_from_dom path applies via scope_inline_css. `node_id` is the owner's flat id (0
+        //    = root).
         let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
         let mut combined_keyframes: Vec<azul_css::css::Keyframes> = Vec::new();
         let css_entries = fast_dom.css.into_library_owned_vec();
@@ -1229,8 +1241,7 @@ impl StyledDom {
             css
         };
 
-        // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
-        //    for cascade tree computation
+        // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>) for cascade tree computation
         let node_hierarchy_items = fast_dom.node_hierarchy;
         let nodes: Vec<Node> = node_hierarchy_items
             .as_ref()
@@ -1254,9 +1265,9 @@ impl StyledDom {
             root: NodeId::ZERO,
         };
 
-        // 4. Delegate to create() which handles cascade, UA CSS, etc.
-        //    We need a mutable Dom to pass to create(), but we already have CompactDom.
-        //    Instead, inline the cascade logic from create() with our CompactDom.
+        // 4. Delegate to create() which handles cascade, UA CSS, etc. We need a mutable Dom to pass
+        //    to create(), but we already have CompactDom. Instead, inline the cascade logic from
+        //    create() with our CompactDom.
         Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items)
     }
 
@@ -1264,7 +1275,8 @@ impl StyledDom {
     /// Shared by both the Slow path (create -> `convert_dom_into_compact_dom` -> this)
     /// and the Fast path (`create_from_fast_dom` -> this).
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     fn create_from_compact_dom(
         compact_dom: CompactDom,
         mut css: Css,
@@ -1372,11 +1384,16 @@ impl StyledDom {
         if cascade_dbg {
             let bd = css_property_cache.memory_breakdown();
             #[cfg(feature = "std")]
-            eprintln!("[CASCADE] {} nodes  cascaded_props={} KiB  css_props={} KiB  compact={} KiB  computed={} KiB  total={} KiB",
+            eprintln!(
+                "[CASCADE] {} nodes  cascaded_props={} KiB  css_props={} KiB  compact={} KiB  \
+                 computed={} KiB  total={} KiB",
                 node_count,
-                bd.cascaded_props_bytes / 1024, bd.css_props_bytes / 1024,
-                bd.compact_cache_bytes / 1024, bd.computed_values_bytes / 1024,
-                bd.total_bytes() / 1024);
+                bd.cascaded_props_bytes / 1024,
+                bd.css_props_bytes / 1024,
+                bd.compact_cache_bytes / 1024,
+                bd.computed_values_bytes / 1024,
+                bd.total_bytes() / 1024
+            );
             #[cfg(not(feature = "std"))]
             let _ = bd;
         }
@@ -1474,8 +1491,8 @@ impl StyledDom {
             css
         };
 
-        // 3. Strip CSS from all Dom nodes before flattening
-        //    (CSS is already collected, don't need it in the flat tree)
+        // 3. Strip CSS from all Dom nodes before flattening (CSS is already collected, don't need
+        //    it in the flat tree)
         strip_css_from_dom(&mut dom);
 
         // 4. Use existing StyledDom::create to flatten + cascade
@@ -1631,10 +1648,10 @@ impl StyledDom {
     /// `append_child()` concatenates the CSS property caches but does NOT
     /// re-run inheritance or rebuild the compact cache. This means:
     ///
-    /// 1. **Broken inheritance**: Inherited properties (`color`, `font-size`,
-    ///    `direction`) from the parent DOM do not flow into appended subtrees.
-    /// 2. **Stale compact cache**: The child's tier 1/2/2b entries still reflect
-    ///    the child's isolated cascade, not the composed tree.
+    /// 1. **Broken inheritance**: Inherited properties (`color`, `font-size`, `direction`) from the
+    ///    parent DOM do not flow into appended subtrees.
+    /// 2. **Stale compact cache**: The child's tier 1/2/2b entries still reflect the child's
+    ///    isolated cascade, not the composed tree.
     ///
     /// Calling this method after all `append_child()` calls fixes both issues
     /// by re-running a full depth-first inheritance pass and rebuilding the
@@ -1675,7 +1692,8 @@ impl StyledDom {
     /// only, so subtrees stay contiguous in the flat arena) grows `parent`'s and its
     /// ancestors' subtrees; bump the inclusive `end` of every scope that already
     /// covers `parent` out to the new node.
-    #[allow(clippy::similar_names)] // new_node/parent and the p/n index locals read clearly in context
+    #[allow(clippy::similar_names)] // new_node/parent and the p/n index locals read clearly in
+                                    // context
     pub fn extend_author_scopes_for_appended(&mut self, new_node: NodeId, parent: NodeId) {
         use azul_css::css::CssPathSelector;
         let p = parent.index();
@@ -1917,7 +1935,11 @@ impl StyledDom {
                     }
                     result.needs_display_list = true;
                 }
-                result.changed_nodes.entry(node_id).or_default().extend(props);
+                result
+                    .changed_nodes
+                    .entry(node_id)
+                    .or_default()
+                    .extend(props);
             }
         };
         if let Some(old) = lost {
@@ -2771,14 +2793,16 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead of relying on
         // copy_special's `self.style.clone()` / `self.extra.clone()`. Both derived Clones lower to
         // indirect-jump jump tables that remill mis-lifts on the web backend: CssProperty's clone
-        // comes back with discriminant 0 (drops simple inline CSS) and for COMPLEX values (AzButton's
-        // gradient; the NodeDataExt attributes Vec) the mis-lifted clone reads/writes wrong-sized data,
-        // which clobbers the adjacent `style` temporary → "memory access out of bounds" later in the
-        // cascade (StyledDom::create → restyle's inheritance loop reads the corrupted style). 2026-06-02:
-        // copy_special_moving_complex mem::takes BOTH style+extra before copy_special, so copy_special
-        // clones an EMPTY style + None extra (no broken clone runs) and restores them after. (Extra was
-        // added after the AzButton ids/classes node — which lazily allocates NodeDataExt — OOB'd even
-        // with the style-only take.) The Dom is consumed here, so the move is correct.
+        // comes back with discriminant 0 (drops simple inline CSS) and for COMPLEX values
+        // (AzButton's gradient; the NodeDataExt attributes Vec) the mis-lifted clone
+        // reads/writes wrong-sized data, which clobbers the adjacent `style` temporary →
+        // "memory access out of bounds" later in the cascade (StyledDom::create → restyle's
+        // inheritance loop reads the corrupted style). 2026-06-02:
+        // copy_special_moving_complex mem::takes BOTH style+extra before copy_special, so
+        // copy_special clones an EMPTY style + None extra (no broken clone runs) and
+        // restores them after. (Extra was added after the AzButton ids/classes node — which
+        // lazily allocates NodeDataExt — OOB'd even with the style-only take.) The Dom is
+        // consumed here, so the move is correct.
         let copy = dom.root.copy_special_moving_complex();
 
         node_data[parent_node_id.index()] = copy;
@@ -3163,8 +3187,7 @@ pub fn collect_nodes_in_document_order(
 /// texture content changed, not the DOM structure).
 #[must_use]
 pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
-    use crate::dom::NodeType;
-    use crate::resources::DecodedImage;
+    use crate::{dom::NodeType, resources::DecodedImage};
 
     // Quick check: node count must match
     let old_nodes = old.node_data.as_ref();

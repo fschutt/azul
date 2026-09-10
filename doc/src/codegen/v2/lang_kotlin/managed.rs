@@ -13,10 +13,14 @@
 //! Java module just for the host-invoker would be a worse experience
 //! than emitting a small Kotlin object.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::{ffi_type_name, user_enum_type_name, LIBRARY_NAME};
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::CodegenIR,
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    ffi_type_name, user_enum_type_name, LIBRARY_NAME,
+};
 
 /// Append the host-invoker block to the existing `Azul.kt` body.
 pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
@@ -33,7 +37,8 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("companion object {");
     builder.indent();
     builder.line(&format!(
-        "@JvmField val INSTANCE: AzulNativeManaged = Native.load(\"{}\", AzulNativeManaged::class.java)",
+        "@JvmField val INSTANCE: AzulNativeManaged = Native.load(\"{}\", \
+         AzulNativeManaged::class.java)",
         LIBRARY_NAME
     ));
     builder.dedent();
@@ -364,7 +369,8 @@ fn emit_kt_typed_invoker_sam(
         typed_args.join(", ")
     ));
     builder.line(&format!(
-        "val rawStruct = Structure.newInstance({}.ByValue::class.java, result.rawPointer()) as {}.ByValue",
+        "val rawStruct = Structure.newInstance({}.ByValue::class.java, result.rawPointer()) as \
+         {}.ByValue",
         ffi_ret, ffi_ret
     ));
     builder.line("rawStruct.read()");
@@ -568,7 +574,8 @@ fn emit_kt_data_typed_invoker_sam(
                 call_args.join(", ")
             ));
             builder.line(&format!(
-                "val __raw = Structure.newInstance({}.ByValue::class.java, __result.rawPointer()) as {}.ByValue",
+                "val __raw = Structure.newInstance({}.ByValue::class.java, __result.rawPointer()) \
+                 as {}.ByValue",
                 ffi_ret, ffi_ret
             ));
             builder.line("__raw.read()");

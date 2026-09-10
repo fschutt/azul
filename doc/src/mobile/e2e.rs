@@ -59,9 +59,7 @@ impl HostReplayReport {
         }
         if !self.unsupported.is_empty() {
             let dropped: usize = self.unsupported.values().sum();
-            println!(
-                "  \x1b[33m{dropped} op(s) a host driver cannot express:\x1b[0m"
-            );
+            println!("  \x1b[33m{dropped} op(s) a host driver cannot express:\x1b[0m");
             for (op, n) in &self.unsupported {
                 println!("    - {op} x{n}");
             }
@@ -69,11 +67,10 @@ impl HostReplayReport {
                 "    \x1b[90mThese are engine-internal ops (DOM mounting, frame/damage \x1b[0m"
             );
             println!(
-                "    \x1b[90minspection, dispatcher replies). Run them with `azul-doc e2e`, \x1b[0m"
+                "    \x1b[90minspection, dispatcher replies). Run them with `azul-doc e2e`, \
+                 \x1b[0m"
             );
-            println!(
-                "    \x1b[90mwhich drives the same dispatcher in-process.\x1b[0m"
-            );
+            println!("    \x1b[90mwhich drives the same dispatcher in-process.\x1b[0m");
         }
         let verdict = if self.complete() {
             "\x1b[32mCOMPLETE\x1b[0m"
@@ -216,15 +213,13 @@ pub fn replay_scenario(
                     None => false,
                 },
                 "key_up" => true,
-                "set_node_text" | "type_text" => {
-                    match step.get("text").and_then(|v| v.as_str()) {
-                        Some(t) if op == "type_text" => {
-                            device.type_text(t)?;
-                            true
-                        }
-                        _ => false,
+                "set_node_text" | "type_text" => match step.get("text").and_then(|v| v.as_str()) {
+                    Some(t) if op == "type_text" => {
+                        device.type_text(t)?;
+                        true
                     }
-                }
+                    _ => false,
+                },
                 "scroll_node_by" => {
                     let dx = num(step, "delta_x").unwrap_or(0.0);
                     let dy = num(step, "delta_y").unwrap_or(0.0);
@@ -374,7 +369,11 @@ pub fn parse_device_verdict(log: &str) -> Option<DeviceVerdict> {
         })
         .map(|l| {
             // logcat prefixes every line with "I/RustStdoutStderr(pid): ".
-            l.split_once("): ").map(|(_, t)| t).unwrap_or(l).trim().to_string()
+            l.split_once("): ")
+                .map(|(_, t)| t)
+                .unwrap_or(l)
+                .trim()
+                .to_string()
         })
         .collect();
 

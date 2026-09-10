@@ -3,10 +3,10 @@
 //! Every interactive Dom element that takes accessibility info has two
 //! constructors:
 //!
-//! - `Dom::create_X(<a11y_struct>)` — the primary form; the required
-//!   argument soft-forces the developer to supply a11y at the call site.
-//! - `Dom::create_X_no_a11y(...)` — explicit opt-out; the longer name
-//!   signals that the omission was intentional.
+//! - `Dom::create_X(<a11y_struct>)` — the primary form; the required argument soft-forces the
+//!   developer to supply a11y at the call site.
+//! - `Dom::create_X_no_a11y(...)` — explicit opt-out; the longer name signals that the omission was
+//!   intentional.
 //!
 //! For elements with type-specific a11y semantics there's a tailored
 //! struct (`ProgressAriaInfo`, `MeterAriaInfo`, `DialogAriaInfo`). Other
@@ -18,8 +18,10 @@
 
 #![allow(unused_imports, dead_code, unused_variables, clippy::all)]
 
-use azul_core::a11y::{DialogAriaInfo, MeterAriaInfo, ProgressAriaInfo, SmallAriaInfo};
-use azul_core::dom::Dom;
+use azul_core::{
+    a11y::{DialogAriaInfo, MeterAriaInfo, ProgressAriaInfo, SmallAriaInfo},
+    dom::Dom,
+};
 use azul_css::{AzString, OptionString};
 
 // ---------------------------------------------------------------------------

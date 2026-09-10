@@ -10,18 +10,22 @@
 //! - CSS 2.2 §9.4.1: Block formatting contexts (BFC establishes new margins)
 //! - CSS 2.2 §9.5: Float margins never collapse
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 /// Helper: run layout and return the layout cache
 fn run_layout(html: &str) -> Solver3LayoutCache {

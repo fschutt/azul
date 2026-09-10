@@ -35,9 +35,11 @@ use core::marker::PhantomData;
     not(feature = "web_lift")
 ))]
 mod imp {
-    use std::cell::RefCell;
-    use std::sync::atomic::{AtomicU8, Ordering};
-    use std::time::Instant;
+    use std::{
+        cell::RefCell,
+        sync::atomic::{AtomicU8, Ordering},
+        time::Instant,
+    };
 
     thread_local! {
         static EVENTS: RefCell<Vec<super::Event>> = const { RefCell::new(Vec::new()) };
@@ -182,8 +184,10 @@ mod imp {
     /// the real symbol once the subprocess returns).
     fn fn_name_cache() -> &'static std::sync::Mutex<std::collections::HashMap<usize, &'static str>>
     {
-        use std::collections::HashMap;
-        use std::sync::{Mutex, OnceLock};
+        use std::{
+            collections::HashMap,
+            sync::{Mutex, OnceLock},
+        };
         static CACHE: OnceLock<Mutex<HashMap<usize, &'static str>>> = OnceLock::new();
         CACHE.get_or_init(|| Mutex::new(HashMap::new()))
     }
@@ -282,8 +286,7 @@ mod imp {
             .name("azul-addr2line".into())
             .spawn(move || {
                 if let Some(sym) = addr2line_name(module.as_deref(), offset, fn_ptr) {
-                    let pretty: &'static str =
-                        Box::leak(format!("cb:{sym}").into_boxed_str());
+                    let pretty: &'static str = Box::leak(format!("cb:{sym}").into_boxed_str());
                     if let Ok(mut map) = fn_name_cache().lock() {
                         map.insert(fn_ptr, pretty);
                     }
@@ -621,10 +624,10 @@ impl Probe {
 /// LRU stamping. Re-exported here so any caller that wants raw nanos
 /// without going through a span guard has one source of truth.
 #[inline]
-#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker
+                                           // cast
 pub fn monotonic_now_nanos() -> u64 {
-    use std::sync::OnceLock;
-    use std::time::Instant;
+    use std::{sync::OnceLock, time::Instant};
     static LAUNCH: OnceLock<Instant> = OnceLock::new();
     let start = LAUNCH.get_or_init(Instant::now);
     start.elapsed().as_nanos() as u64
@@ -793,12 +796,12 @@ fn peak_rss_bytes_self() -> u64 {
 
 /// Ask the active global allocator to return freed pages to the OS.
 ///
-/// - With `allocator_mimalloc` feature: calls `mi_collect(true)`, which
-///   aggressively returns pages (matches `az_purge_allocator` in azul-dll).
+/// - With `allocator_mimalloc` feature: calls `mi_collect(true)`, which aggressively returns pages
+///   (matches `az_purge_allocator` in azul-dll).
 /// - With `allocator_jemalloc` feature: calls `mallctl("arena.0.purge")`.
-/// - Otherwise on macOS: falls back to `malloc_zone_pressure_relief`
-///   which drains the system zone (no-op when a third-party allocator
-///   is the global one — hence the explicit feature flags above).
+/// - Otherwise on macOS: falls back to `malloc_zone_pressure_relief` which drains the system zone
+///   (no-op when a third-party allocator is the global one — hence the explicit feature flags
+///   above).
 /// - Other platforms with default allocator: no-op.
 ///
 /// Call after major allocations are freed (e.g. after a layout pass).
@@ -1045,12 +1048,11 @@ pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
 /// chain never dropped, a Vec never shrunk, a `Box<T>` forgotten).
 ///
 /// - **macOS**: `mstats().bytes_used`.
-/// - **Linux/glibc**: `mallinfo2().uordblks` — the same quantity, total
-///   bytes currently handed out by malloc. Resolved with `dlsym` rather
-///   than linked directly, because `mallinfo2` is glibc 2.33+ and a hard
-///   link reference would break the build on older distros for the sake of
-///   an opt-in diagnostic. Falls back to the `c_int`-based `mallinfo()`,
-///   which is exact below 2 GiB of live heap.
+/// - **Linux/glibc**: `mallinfo2().uordblks` — the same quantity, total bytes currently handed out
+///   by malloc. Resolved with `dlsym` rather than linked directly, because `mallinfo2` is glibc
+///   2.33+ and a hard link reference would break the build on older distros for the sake of an
+///   opt-in diagnostic. Falls back to the `c_int`-based `mallinfo()`, which is exact below 2 GiB of
+///   live heap.
 /// - Everything else: 0.
 ///
 /// CAVEAT (Linux): glibc accounts the **main arena only**. Allocations made
@@ -1062,7 +1064,7 @@ pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
 /// only reason `dll/tests/leak_regression.rs` is `cfg(target_os = "macos")`:
 /// the leak was never macOS-specific, the *instrument* was.
 #[cfg(feature = "probe")]
-#[must_use] 
+#[must_use]
 pub fn malloc_heap_bytes() -> u64 {
     #[cfg(target_os = "macos")]
     {
@@ -1472,8 +1474,8 @@ mod autotest_generated {
         drop(imp::open_for_fn_gated(false, a));
         assert!(
             !imp::fn_name_cache_contains(a),
-            "recording OFF must not resolve the callback name (that is where \
-             the synchronous addr2line jank lived)",
+            "recording OFF must not resolve the callback name (that is where the synchronous \
+             addr2line jank lived)",
         );
 
         drop(imp::open_for_fn_gated(true, b));
@@ -2110,9 +2112,8 @@ mod autotest_generated {
 
         let (before, during, after) = last;
         panic!(
-            "in {ATTEMPTS} attempts the probe never tracked a {TOTAL} B allocate-and-free \
-             (last: before={before}, during={during}, after={after}) — it is not measuring the \
-             heap"
+            "in {ATTEMPTS} attempts the probe never tracked a {TOTAL} B allocate-and-free (last: \
+             before={before}, during={during}, after={after}) — it is not measuring the heap"
         );
     }
 
@@ -2446,8 +2447,7 @@ mod rss_census_tests {
         assert_eq!(
             c.categorised_kib(),
             c.total_kib,
-            "every counted page must land in exactly one category — \
-             {} KiB of {} KiB did not",
+            "every counted page must land in exactly one category — {} KiB of {} KiB did not",
             c.total_kib - c.categorised_kib(),
             c.total_kib
         );
@@ -2645,8 +2645,8 @@ mod allocator_stats_tests {
         };
         assert!(
             a.live_bytes > 0,
-            "a running test process has live allocations; 0 means the \
-             mallinfo2 struct layout is wrong"
+            "a running test process has live allocations; 0 means the mallinfo2 struct layout is \
+             wrong"
         );
         assert!(
             a.arena_bytes >= a.free_in_arena_bytes,
@@ -2708,8 +2708,8 @@ mod allocator_stats_tests {
         }
         assert!(
             arena_ok,
-            "in {ATTEMPTS} attempts, 32 MiB of arena allocations never raised \
-             live_bytes by well over 16 MiB (last: {} -> {})",
+            "in {ATTEMPTS} attempts, 32 MiB of arena allocations never raised live_bytes by well \
+             over 16 MiB (last: {} -> {})",
             last.0, last.1
         );
 
@@ -2825,10 +2825,9 @@ mod allocator_stats_tests {
                 // Deadline, not a verdict. Loud on purpose: a silent skip here
                 // would be indistinguishable from a pass.
                 eprintln!(
-                    "[azul][probe] SKIPPING the addr2line upgrade check: after \
-                     {}s f_one is still the placeholder {latest:?}, i.e. the \
-                     detached symbolication thread never finished. That measures \
-                     this runner, not the code. The `cb:?` law above was \
+                    "[azul][probe] SKIPPING the addr2line upgrade check: after {}s f_one is still \
+                     the placeholder {latest:?}, i.e. the detached symbolication thread never \
+                     finished. That measures this runner, not the code. The `cb:?` law above was \
                      asserted unconditionally and still holds.",
                     UPGRADE_DEADLINE.as_secs()
                 );

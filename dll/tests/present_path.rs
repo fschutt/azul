@@ -4,18 +4,16 @@
 //! backend, and that absence is why seven redraw bugs accumulated unnoticed and
 //! were all found in a single evening by reading code rather than by running it:
 //!
-//!   * an occluded Wayland window blocked FOREVER inside eglSwapBuffers,
-//!     because Mesa's own throttle waits on a frame callback the compositor is
-//!     entitled to withhold (b94eeb146);
-//!   * azul's own frame-callback latch had no watchdog and was armed even on
-//!     frames that committed no buffer (dc4ab4ebb, 4b98281e4);
-//!   * a Mount/AfterMount callback returning Update::RefreshDom was ignored on
-//!     ALL SEVEN backends (bdc595c62);
-//!   * a redraw request raised DURING a render was erased by the clear that
-//!     followed it (fac29bb28);
-//!   * macOS cleared the regeneration flag after an async setNeedsDisplay that
-//!     performed no layout, so drawRect: blitted a STALE frame — in the DEFAULT
-//!     configuration (1e0998b48);
+//!   * an occluded Wayland window blocked FOREVER inside eglSwapBuffers, because Mesa's own
+//!     throttle waits on a frame callback the compositor is entitled to withhold (b94eeb146);
+//!   * azul's own frame-callback latch had no watchdog and was armed even on frames that committed
+//!     no buffer (dc4ab4ebb, 4b98281e4);
+//!   * a Mount/AfterMount callback returning Update::RefreshDom was ignored on ALL SEVEN backends
+//!     (bdc595c62);
+//!   * a redraw request raised DURING a render was erased by the clear that followed it
+//!     (fac29bb28);
+//!   * macOS cleared the regeneration flag after an async setNeedsDisplay that performed no layout,
+//!     so drawRect: blitted a STALE frame — in the DEFAULT configuration (1e0998b48);
 //!   * an X11 window that had just been mapped stayed BLANK (d12847735);
 //!   * a Wayland popup painted once and could never repaint (9ba9745d0).
 //!
@@ -33,19 +31,18 @@
 //! ceiling — the real fix is a per-backend present harness. Treat a failure here
 //! as "the compositor-independent half is broken too".
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
-use azul_core::dom::{Dom, NodeData};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
+use azul::desktop::shell2::{common::PlatformWindow, headless::HeadlessWindow};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    dom::{Dom, NodeData},
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
 
 /// A body with one opaque child, so a correct render cannot produce a uniformly
 /// blank framebuffer.

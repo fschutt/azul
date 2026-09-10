@@ -1,30 +1,29 @@
 //! Media keys that do not arrive through the keyboard.
 //!
-//! - **Linux**: MPRIS over D-Bus, for the (usual) case where the desktop has
-//!   grabbed the media row. Opt-in via `AppConfig::expose_mpris_media_controls`.
-//! - **Android**: `MediaSession`, which is BOTH halves at once - the same
-//!   object receives the transport buttons and carries the metadata.
-//! - **Windows**: `WM_APPCOMMAND` delivers the keys, and SMTC
-//!   (`SystemMediaTransportControls`) is what the app publishes INTO. Both can
-//!   report the same press; see `windows.rs` for why that is safe.
-//! - **macOS and iOS**: `MPRemoteCommandCenter` plus `MPNowPlayingInfoCenter`,
-//!   one file for both because the API is the same one - it needs NO
-//!   permission (unlike a CGEventTap) but does require becoming the "now
-//!   playing" app. Same opt-in flag as Linux.
+//! - **Linux**: MPRIS over D-Bus, for the (usual) case where the desktop has grabbed the media row.
+//!   Opt-in via `AppConfig::expose_mpris_media_controls`.
+//! - **Android**: `MediaSession`, which is BOTH halves at once - the same object receives the
+//!   transport buttons and carries the metadata.
+//! - **Windows**: `WM_APPCOMMAND` delivers the keys, and SMTC (`SystemMediaTransportControls`) is
+//!   what the app publishes INTO. Both can report the same press; see `windows.rs` for why that is
+//!   safe.
+//! - **macOS and iOS**: `MPRemoteCommandCenter` plus `MPNowPlayingInfoCenter`, one file for both
+//!   because the API is the same one - it needs NO permission (unlike a CGEventTap) but does
+//!   require becoming the "now playing" app. Same opt-in flag as Linux.
 //!
 //! The transport is only half of it. The same platform object also PUBLISHES
 //! what the app is playing - `publish_now_playing` below - because on Linux and
 //! macOS alike an app becomes eligible to receive the keys by declaring a
 //! session. See `azul_core::media_session`.
 
-#[cfg(target_os = "linux")]
-pub mod linux;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub mod apple;
-#[cfg(target_os = "windows")]
-pub mod windows;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod apple;
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Start any out-of-band media-key transport this platform has.
 ///
@@ -96,9 +95,8 @@ pub fn publish_now_playing(
         static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         if WARNED.set(()).is_ok() {
             crate::plog_info!(
-                "[media-session] set_now_playing ignored: \
-                 AppConfig::expose_system_media_controls is off, so this app is \
-                 not registered as a media player"
+                "[media-session] set_now_playing ignored: AppConfig::expose_system_media_controls \
+                 is off, so this app is not registered as a media player"
             );
         }
         return;

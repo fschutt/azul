@@ -1,11 +1,14 @@
-use azul_core::dom::{Dom, NodeType, TabIndex, IdOrClass, IdOrClassVec, IdOrClass::Class};
-use azul_core::callbacks::{CoreCallbackData, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{EventFilter, HoverEventFilter};
-use azul_core::a11y::{AccessibilityInfo, AccessibilityRole};
-use azul_core::geom::{LogicalPosition, LogicalRect};
-use azul_core::refany::RefAny;
-use azul_css::AzString;
-use azul_css::css::BoxOrStatic;
+use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
+    callbacks::{CoreCallbackData, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{
+        Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeType,
+        TabIndex,
+    },
+    geom::{LogicalPosition, LogicalRect},
+    refany::RefAny,
+};
+use azul_css::{css::BoxOrStatic, AzString};
 #[allow(clippy::wildcard_imports)]
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
@@ -17,13 +20,34 @@ use azul_css::{
     },
     *,
 };
+
 use crate::widgets::button::{Button, ButtonOnClick};
 
 // Flat theme colors
-pub const LIGHT_BG: ColorU = ColorU { r: 248, g: 249, b: 250, a: 255 };
-pub const LIGHT_FG: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
-pub const DARK_BG: ColorU = ColorU { r: 52, g: 58, b: 64, a: 255 };
-pub const DARK_FG: ColorU = ColorU { r: 248, g: 249, b: 250, a: 255 };
+pub const LIGHT_BG: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
+pub const LIGHT_FG: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+pub const DARK_BG: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+pub const DARK_FG: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
 
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -102,15 +126,19 @@ pub fn button(btn: Button) -> Dom {
     }
 
     // Add dark mode colors to container style
-    let mut container_style: Vec<CssPropertyWithConditions> = btn.container_style.as_slice().to_vec();
-    
+    let mut container_style: Vec<CssPropertyWithConditions> =
+        btn.container_style.as_slice().to_vec();
+
     // In a flat theme we just override the background and text color for dark mode
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)]).into()
-    )));
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::TextColor(
-        StyleTextColor { inner: DARK_FG }.into()
-    )));
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                .into(),
+        ),
+    ));
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+    ));
 
     button
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))
@@ -133,21 +161,47 @@ pub fn check_box(cb: CheckBox) -> Dom {
         dom::{EventFilter, HoverEventFilter},
     };
 
-    let mut container_style: Vec<CssPropertyWithConditions> = match cb.container_style { azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => style.as_slice().to_vec(), azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::check_box::DEFAULT_CHECKBOX_CONTAINER_STYLE.to_vec() };
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)]).into()
-    )));
+    let mut container_style: Vec<CssPropertyWithConditions> = match cb.container_style {
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
+            style.as_slice().to_vec()
+        }
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+            crate::widgets::check_box::DEFAULT_CHECKBOX_CONTAINER_STYLE.to_vec()
+        }
+    };
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                .into(),
+        ),
+    ));
     // Flat checkmark background in dark mode
     let is_checked = cb.check_box_state.inner.checked;
-    let mut content_style: Vec<CssPropertyWithConditions> = match cb.content_style { azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => style.as_slice().to_vec(), azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => if is_checked { crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED.to_vec() } else { crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED.to_vec() } };
+    let mut content_style: Vec<CssPropertyWithConditions> = match cb.content_style {
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
+            style.as_slice().to_vec()
+        }
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+            if is_checked {
+                crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED.to_vec()
+            } else {
+                crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED.to_vec()
+            }
+        }
+    };
     if checked_now {
-        content_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)]).into()
-        )));
+        content_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
+                    .into(),
+            ),
+        ));
     }
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from(crate::widgets::check_box::CHECKBOX_CONTAINER_CLASS))
+        .with_ids_and_classes(IdOrClassVec::from(
+            crate::widgets::check_box::CHECKBOX_CONTAINER_CLASS,
+        ))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))
         .with_callbacks(
             vec![CoreCallbackData {
@@ -165,24 +219,26 @@ pub fn check_box(cb: CheckBox) -> Dom {
             role: azul_core::a11y::AccessibilityRole::CheckButton,
             accessibility_name: cb_name,
             states: azul_core::a11y::AccessibilityStateVec::from_const_slice(if checked_now {
-                    &[azul_core::a11y::AccessibilityState::CheckedTrue]
-                } else {
-                    &[azul_core::a11y::AccessibilityState::CheckedFalse]
-                }),
+                &[azul_core::a11y::AccessibilityState::CheckedTrue]
+            } else {
+                &[azul_core::a11y::AccessibilityState::CheckedFalse]
+            }),
             ..Default::default()
         })
         .with_children(
             vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from(crate::widgets::check_box::CHECKBOX_CONTENT_CLASS))
+                .with_ids_and_classes(IdOrClassVec::from(
+                    crate::widgets::check_box::CHECKBOX_CONTENT_CLASS,
+                ))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(content_style))]
             .into(),
         )
 }
 
-use crate::widgets::text_input::{TextInput, TEXT_INPUT_CONTAINER_CLASS, TEXT_INPUT_LABEL_CLASS};
 use crate::widgets::text_input::{
-    default_on_focus_received, default_on_focus_lost, default_on_text_input, 
-    default_on_virtual_key_down, default_on_mouse_hover
+    default_on_focus_lost, default_on_focus_received, default_on_mouse_hover,
+    default_on_text_input, default_on_virtual_key_down, TextInput, TEXT_INPUT_CONTAINER_CLASS,
+    TEXT_INPUT_LABEL_CLASS,
 };
 
 pub fn text_input(mut ti: TextInput) -> Dom {
@@ -224,18 +280,22 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     let state_ref = RefAny::new(ti.text_input_state);
 
-    let mut container_style: Vec<CssPropertyWithConditions> = ti.container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)]).into()
-    )));
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::TextColor(
-        StyleTextColor { inner: DARK_FG }.into()
-    )));
-    
+    let mut container_style: Vec<CssPropertyWithConditions> =
+        ti.container_style.as_slice().to_vec();
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                .into(),
+        ),
+    ));
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+    ));
+
     let mut label_style: Vec<CssPropertyWithConditions> = ti.label_style.as_slice().to_vec();
-    label_style.push(CssPropertyWithConditions::dark_theme(CssProperty::TextColor(
-        StyleTextColor { inner: DARK_FG }.into()
-    )));
+    label_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+    ));
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())
@@ -295,15 +355,13 @@ pub fn text_input(mut ti: TextInput) -> Dom {
             .into(),
         )
         .with_children(
-            vec![
-                crate::widgets::widget_p()
-                    .with_ids_and_classes(
-                        vec![Class(TEXT_INPUT_LABEL_CLASS.into())].into(),
-                    )
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
-                    .with_attribute(AttributeType::Placeholder(placeholder.into()))
-                    .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
-            ]
+            vec![crate::widgets::widget_p()
+                .with_ids_and_classes(vec![Class(TEXT_INPUT_LABEL_CLASS.into())].into())
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
+                .with_attribute(AttributeType::Placeholder(placeholder.into()))
+                .with_children(DomVec::from_vec(vec![
+                    Dom::create_text_do_not_use_without_block_level_wrapper(label_text),
+                ]))]
             .into(),
         )
 }
@@ -322,8 +380,10 @@ pub fn label(l: crate::widgets::label::Label) -> Dom {
 
 pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let is_checked = s.switch_state.inner.checked;
-    use azul_core::callbacks::{CoreCallback, CoreCallbackData};
-    use azul_core::dom::{Dom, EventFilter, HoverEventFilter, TabIndex, IdOrClassVec};
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{Dom, EventFilter, HoverEventFilter, IdOrClassVec, TabIndex},
+    };
 
     let sw_name = s.accessibility_name.clone();
     crate::widgets::warn_widget_needs_a_name("switch", sw_name.is_some());
@@ -331,8 +391,22 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let switch_checked = s.switch_state.inner.checked;
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from(crate::widgets::switch::SWITCH_TRACK_CLASS))
-        .with_css_props(match s.track_style { azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => style.as_slice().to_vec(), azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::switch::build_track_style(is_checked).as_slice().to_vec() }.into())
+        .with_ids_and_classes(IdOrClassVec::from(
+            crate::widgets::switch::SWITCH_TRACK_CLASS,
+        ))
+        .with_css_props(
+            match s.track_style {
+                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
+                    style.as_slice().to_vec()
+                }
+                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+                    crate::widgets::switch::build_track_style(is_checked)
+                        .as_slice()
+                        .to_vec()
+                }
+            }
+            .into(),
+        )
         .with_callbacks(
             alloc::vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -359,12 +433,24 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
         })
         .with_children(
             alloc::vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from(crate::widgets::switch::SWITCH_KNOB_CLASS))
-                .with_css_props(match s.knob_style { azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => style.as_slice().to_vec(), azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::switch::build_knob_style(is_checked).as_slice().to_vec() }.into())]
+                .with_ids_and_classes(IdOrClassVec::from(
+                    crate::widgets::switch::SWITCH_KNOB_CLASS
+                ))
+                .with_css_props(
+                    match s.knob_style {
+                        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+                            style,
+                        ) => style.as_slice().to_vec(),
+                        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None =>
+                            crate::widgets::switch::build_knob_style(is_checked)
+                                .as_slice()
+                                .to_vec(),
+                    }
+                    .into()
+                )]
             .into(),
         )
 }
-
 
 // -----------------------------------------------------------------------------
 // PROGRESSBAR
@@ -373,32 +459,37 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 #[must_use]
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
     let height = bar.height;
-    let dataset = azul_core::refany::RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset { bar });
+    let dataset =
+        azul_core::refany::RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset {
+            bar,
+        });
     Dom::create_virtual_view(
         dataset.clone(),
         azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
     )
-        .with_dataset(Some(dataset).into())
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                LayoutHeight::Px(height),
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-                LayoutWidth::Px(PixelValue::percent(100.0)),
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::OverflowX(
-                LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::OverflowY(
-                LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
-            )),
-        ]))
+    .with_dataset(Some(dataset).into())
+    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+            LayoutHeight::Px(height),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+            LayoutWidth::Px(PixelValue::percent(100.0)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+    ]))
 }
 
 #[allow(clippy::too_many_lines)]
 #[must_use]
-pub fn progressbar_render_bar_impl(bar: crate::widgets::progressbar::ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
-
+pub fn progressbar_render_bar_impl(
+    bar: crate::widgets::progressbar::ProgressBar,
+    bounds_px: Option<(f32, f32)>,
+) -> Dom {
     {
         use azul_core::dom::DomVec;
 
@@ -424,129 +515,125 @@ pub fn progressbar_render_bar_impl(bar: crate::widgets::progressbar::ProgressBar
         };
 
         let mut container_props = vec![
-                // .__azul-native-progress-bar-container
-                CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight::Px(container_height),
-                ))),
-                // `display: flex` is LOAD-BEARING: azul's default display is
-                // BLOCK, so `flex-direction: row` alone stacks the two
-                // children as full-width, zero-height block boxes - the fill
-                // never painted anywhere the widget was used (found 2026-08-29
-                // via the azpaint pressure meter; also the real culprit behind
-                // the "inline-width meter never repaints" ledger entry).
-                CssPropertyWithConditions::simple(CssProperty::Display(
-                    LayoutDisplayValue::Exact(LayoutDisplay::Flex),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::FlexDirection(
-                    LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
-                )),
-
-
-
-
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-                    StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-                    StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-                    StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-                    StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-                    LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-                    LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-                    LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-                    LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-                    StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-                    StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-                    StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-                    StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-                    StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-                    StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-                    StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-                    StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                    StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
-                )),
+            // .__azul-native-progress-bar-container
+            CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+                LayoutHeight::Px(container_height),
+            ))),
+            // `display: flex` is LOAD-BEARING: azul's default display is
+            // BLOCK, so `flex-direction: row` alone stacks the two
+            // children as full-width, zero-height block boxes - the fill
+            // never painted anywhere the widget was used (found 2026-08-29
+            // via the azpaint pressure meter; also the real culprit behind
+            // the "inline-width meter never repaints" ledger entry).
+            CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+                LayoutDisplay::Flex,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
+                StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
+                StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
+                StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
+                StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+                LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+                LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+                LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+                LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+                StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+                StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+                StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+                StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+                StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                    inner: ColorU {
+                        r: 178,
+                        g: 178,
+                        b: 178,
+                        a: 255,
+                    },
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+                StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+                    inner: ColorU {
+                        r: 178,
+                        g: 178,
+                        b: 178,
+                        a: 255,
+                    },
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+                StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                    inner: ColorU {
+                        r: 178,
+                        g: 178,
+                        b: 178,
+                        a: 255,
+                    },
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+                StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+                    inner: ColorU {
+                        r: 178,
+                        g: 178,
+                        b: 178,
+                        a: 255,
+                    },
+                }),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+                StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
+            )),
         ];
         if let Some((w, _)) = bounds_px {
             container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
@@ -738,7 +825,8 @@ pub extern "C" fn progressbar_render_virtual_view(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
-    let Some(state) = data.downcast_ref::<crate::widgets::progressbar::ProgressBarLocalDataset>() else {
+    let Some(state) = data.downcast_ref::<crate::widgets::progressbar::ProgressBarLocalDataset>()
+    else {
         // Foreign payload: render nothing rather than lying about bounds.
         return VirtualViewReturn::default();
     };
@@ -814,17 +902,24 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let mut track_style = slider.track_style.as_slice().to_vec();
     let mut thumb_style = slider.thumb_style.as_slice().to_vec();
 
-
     // Flat specific:
-    track_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)]).into()
-    )));
-    thumb_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)]).into()
-    )));
+    track_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                .into(),
+        ),
+    ));
+    thumb_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
+                .into(),
+        ),
+    ));
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(AzString::from_const_str("__azul-native-slider"))]))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            AzString::from_const_str("__azul-native-slider"),
+        )]))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(track_style))
         .with_callbacks(callbacks.into())
         .with_dataset(OptionRefAny::Some(state))
@@ -835,20 +930,18 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
             role: azul_core::a11y::AccessibilityRole::Slider,
             accessibility_name: a11y_name,
-            accessibility_value: Some(AzString::from(
-                alloc::format!("{value_now}"),
-            ))
-            .into(),
+            accessibility_value: Some(AzString::from(alloc::format!("{value_now}"))).into(),
             ..Default::default()
         })
         .with_children(
             vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(AzString::from_const_str("__azul-native-slider-thumb"))]))
+                .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                    AzString::from_const_str("__azul-native-slider-thumb"),
+                )]))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_style))]
             .into(),
         )
 }
-
 
 pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     let ta_name: Option<AzString> = ta.text_area_state.inner.placeholder.as_ref().cloned();
@@ -878,17 +971,34 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     let state_ref = RefAny::new(ta.text_area_state);
 
     let mut container_style: Vec<CssPropertyWithConditions> = match &ta.container_style {
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => s.as_slice().to_vec(),
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::text_area::TEXT_AREA_CONTAINER_PROPS.to_vec(),
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
+            s.as_slice().to_vec()
+        }
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+            crate::widgets::text_area::TEXT_AREA_CONTAINER_PROPS.to_vec()
+        }
     };
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)]).into())));
-    container_style.push(CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into())));
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                .into(),
+        ),
+    ));
+    container_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+    ));
 
     let mut label_style: Vec<CssPropertyWithConditions> = match &ta.label_style {
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => s.as_slice().to_vec(),
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec(),
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
+            s.as_slice().to_vec()
+        }
+        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+            crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
+        }
     };
-    label_style.push(CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into())));
+    label_style.push(CssPropertyWithConditions::dark_theme(
+        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+    ));
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
@@ -939,24 +1049,28 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             .into(),
         )
         .with_children(
-            vec![
-                crate::widgets::widget_p()
-                    .with_ids_and_classes(
-                        vec![Class("__azul-native-text-area-label".into())].into(),
-                    )
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
-                    .with_attribute(AttributeType::Placeholder(placeholder.into()))
-                    .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
-            ]
+            vec![crate::widgets::widget_p()
+                .with_ids_and_classes(vec![Class("__azul-native-text-area-label".into())].into())
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
+                .with_attribute(AttributeType::Placeholder(placeholder.into()))
+                .with_children(DomVec::from_vec(vec![
+                    Dom::create_text_do_not_use_without_block_level_wrapper(label_text),
+                ]))]
             .into(),
         )
 }
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
-const SYSTEM_UI_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
+const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-const FLAT_BORDER_NORMAL: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
+const FLAT_BORDER_NORMAL: ColorU = ColorU {
+    r: 172,
+    g: 172,
+    b: 172,
+    a: 255,
+};
 
 const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
@@ -966,46 +1080,106 @@ const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(LIGHT_BG)]))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: LIGHT_FG })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: FLAT_BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: FLAT_BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: FLAT_BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: FLAT_BORDER_NORMAL })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_BG)]))),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor { inner: DARK_FG })),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(LIGHT_BG)]),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_FG,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: FLAT_BORDER_NORMAL,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: FLAT_BORDER_NORMAL,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: FLAT_BORDER_NORMAL,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: FLAT_BORDER_NORMAL,
+        },
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_BG)]),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_FG,
+    })),
 ];
 
 const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(8))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: LIGHT_FG })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor { inner: DARK_FG })),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(8),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_FG,
+    })),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_FG,
+    })),
 ];
 
 const FLAT_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: LIGHT_FG })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor { inner: DARK_FG })),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_FG,
+    })),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_FG,
+    })),
 ];
 
 pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
-        dom::{Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass::Class, IdOrClassVec, TabIndex},
+        dom::{
+            Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass::Class, IdOrClassVec, TabIndex,
+        },
         refany::RefAny,
     };
     use azul_css::AzString;
@@ -1029,7 +1203,9 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
     let refany = RefAny::new(dd);
 
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_WRAPPER_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            FLAT_DROPDOWN_WRAPPER_STYLE,
+        ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -1050,12 +1226,15 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         )
         .with_children(DomVec::from_vec(vec![
             crate::widgets::widget_p()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_LABEL_STYLE))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    FLAT_DROPDOWN_LABEL_STYLE,
+                ))
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
                 ])),
-            Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_ARROW_STYLE)),
+            Dom::create_icon(AzString::from_const_str("arrow_drop_down")).with_css_props(
+                CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_ARROW_STYLE),
+            ),
         ]))
 }
 
@@ -1064,17 +1243,31 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
     let size = a.size;
     let child = match a.image.into_option() {
         Some(image) => Dom::create_image(image)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(crate::widgets::avatar::AVATAR_IMAGE_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                crate::widgets::avatar::AVATAR_IMAGE_CLASS,
+            ))
             .with_css_props(crate::widgets::avatar::build_image_style(size).into()),
-        None => crate::widgets::widget_p_with_text(a.initials)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(crate::widgets::avatar::AVATAR_INITIALS_CLASS)),
+        None => crate::widgets::widget_p_with_text(a.initials).with_ids_and_classes(
+            IdOrClassVec::from_const_slice(crate::widgets::avatar::AVATAR_INITIALS_CLASS),
+        ),
     };
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(crate::widgets::avatar::AVATAR_CLASS))
-        .with_css_props(match a.avatar_style {
-            azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => style.as_slice().to_vec(),
-            azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => crate::widgets::avatar::build_avatar_style(size).as_slice().to_vec()
-        }.into())
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::avatar::AVATAR_CLASS,
+        ))
+        .with_css_props(
+            match a.avatar_style {
+                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
+                    style.as_slice().to_vec()
+                }
+                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
+                    crate::widgets::avatar::build_avatar_style(size)
+                        .as_slice()
+                        .to_vec()
+                }
+            }
+            .into(),
+        )
         .with_children(alloc::vec![child].into())
 }

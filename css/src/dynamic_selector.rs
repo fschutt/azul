@@ -1,10 +1,13 @@
 //! Dynamic CSS selectors for runtime evaluation based on OS, media queries, container queries, etc.
 
-use crate::corety::{AzString, OptionString};
-use crate::props::property::CssProperty;
+use crate::{
+    corety::{AzString, OptionString},
+    props::property::CssProperty,
+};
 
 /// State flags for pseudo-classes (used in `DynamicSelectorContext`)
-/// Note: This is a CSS-only version. See `azul_core::styled_dom::StyledNodeState` for the main type.
+/// Note: This is a CSS-only version. See `azul_core::styled_dom::StyledNodeState` for the main
+/// type.
 //
 // TODO(superplan g8 item 3): unify with `azul_core::styled_dom::StyledNodeState`
 // (core/src/styled_dom.rs:190). The two structs now carry the *identical* 10 fields
@@ -404,7 +407,8 @@ pub enum OsVersionCondition {
 }
 
 /// A desktop environment together with a numeric version (e.g. GNOME 40).
-/// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style selectors.
+/// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style
+/// selectors.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DesktopEnvVersion {
@@ -802,7 +806,8 @@ pub enum MediaType {
     All,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
@@ -819,7 +824,6 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, Hash]
 );
-
 
 /// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
 /// CI). Returns `None` when unset or unrecognised.
@@ -1401,7 +1405,8 @@ impl DynamicSelector {
 /// - `(linux)`                     → `[Os(Linux)]`
 /// - `(linux:gnome)`               → `[Os(Linux), OsVersion(DesktopEnvironment(Gnome))]`
 /// - `(windows >= win-11)`         → `[Os(Windows), OsVersion(Min(WIN_11))]`
-/// - `(linux:gnome > 40)`          → `[Os(Linux), OsVersion(DesktopEnvMin{ env: Gnome, version_id: 40 })]`
+/// - `(linux:gnome > 40)`          → `[Os(Linux), OsVersion(DesktopEnvMin{ env: Gnome, version_id:
+///   40 })]`
 /// - `(any)` / `(*)` / `(all)`     → `[]` (always-match, no conditions emitted)
 ///
 /// Returns `None` only when the content is a parse error.
@@ -1503,7 +1508,8 @@ enum VersionOp {
 /// `>` and `<` are treated as `>=` / `<=` because version IDs are discrete integers.
 #[cfg(feature = "parser")]
 fn split_op_and_version(s: &str) -> (&str, Option<(VersionOp, &str)>) {
-    // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same position).
+    // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same
+    // position).
     let candidates: &[(&str, VersionOp)] = &[
         (">=", VersionOp::Min),
         ("<=", VersionOp::Max),
@@ -1818,6 +1824,13 @@ impl_vec_clone!(
     CssPropertyWithConditions,
     CssPropertyWithConditionsVec,
     CssPropertyWithConditionsVecDestructor
+);
+
+impl_option!(
+    CssPropertyWithConditionsVec,
+    OptionCssPropertyWithConditionsVec,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
 );
 
 // Manual implementations for Eq and Ord (required for NodeData derives)
@@ -2161,7 +2174,8 @@ impl CssPropertyWithConditionsVec {
                     let px_value = value
                         .strip_suffix("px")
                         .and_then(|v| v.trim().parse::<f32>().ok())
-                        .filter(|px| !px.is_nan()); // reject NaN (sentinel); keep inf (never-matching)
+                        .filter(|px| !px.is_nan()); // reject NaN (sentinel); keep inf
+                                                    // (never-matching)
                     match key {
                         "min-width" => {
                             if let Some(px) = px_value {
@@ -2421,7 +2435,8 @@ mod tests {
 
     #[test]
     fn test_inline_combined_style_with_overflow() {
-        let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: #222;overflow: scroll;";
+        let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: \
+                     #222;overflow: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
         // padding:20px expands to 4, background:1, font-size:1, color:1, overflow:2 = 10
@@ -2471,8 +2486,10 @@ mod tests {
 )]
 mod autotest_generated {
     use core::cmp::Ordering;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        hash::{Hash, Hasher},
+    };
 
     use super::*;
     use crate::props::property::CssPropertyType;

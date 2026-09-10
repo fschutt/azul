@@ -27,11 +27,11 @@
 
 use anyhow::Result;
 
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::{
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
 };
-use super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
 
 /// Allowlist of struct names the IR-driven emitter wraps as `Azul\<Name>`
 /// PHP classes. Each entry produces a `#[php_class]` wrapper around
@@ -41,11 +41,10 @@ use super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
 /// We start narrow (Phase 52: Dom only) and widen as the marshalling
 /// table grows. Adding a new class:
 /// 1. Append its bare name to this slice.
-/// 2. Confirm `marshal_arg_type` handles every arg type used by the
-///    `Az<Name>_*` IR functions, and `marshal_return_type` handles
-///    every return shape. Methods whose arg/return types fall outside
-///    the table are silently skipped — so the build always succeeds,
-///    even when widening exposes new marshalling gaps.
+/// 2. Confirm `marshal_arg_type` handles every arg type used by the `Az<Name>_*` IR functions, and
+///    `marshal_return_type` handles every return shape. Methods whose arg/return types fall outside
+///    the table are silently skipped — so the build always succeeds, even when widening exposes new
+///    marshalling gaps.
 const PHP_CLASS_ALLOWLIST: &[&str] = &["Dom", "App", "AppConfig", "WindowCreateOptions", "Button"];
 
 /// Header banner emitted at the top of `php_api.rs`. Marks the file
@@ -102,13 +101,21 @@ fn emit_handle_table(builder: &mut CodeBuilder) {
     builder.line("// PHP function names (callbacks). Phase 50 swaps callable names for");
     builder.line("// refcount-rooted closures.");
     builder.line("// ------------------------------------------------------------------------");
-    builder.line("static HANDLES: ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =");
     builder.line(
-        "    ::once_cell::sync::Lazy::new(|| ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
+        "static HANDLES: \
+         ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =",
     );
-    builder.line("static CALLBACKS: ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =");
     builder.line(
-        "    ::once_cell::sync::Lazy::new(|| ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
+        "    ::once_cell::sync::Lazy::new(|| \
+         ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
+    );
+    builder.line(
+        "static CALLBACKS: \
+         ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =",
+    );
+    builder.line(
+        "    ::once_cell::sync::Lazy::new(|| \
+         ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
     );
     builder.line("static NEXT_HANDLE_ID: ::once_cell::sync::Lazy<::std::sync::Mutex<u64>> =");
     builder.line("    ::once_cell::sync::Lazy::new(|| ::std::sync::Mutex::new(0));");
@@ -148,12 +155,10 @@ fn emit_releaser(builder: &mut CodeBuilder) {
 /// the generic dispatch path. The trampoline:
 /// 1. Reads `kind` as a C string.
 /// 2. Looks up the PHP function name in `CALLBACKS` by `handle`.
-/// 3. Calls via `ZendCallable::try_from_name` with `kind` as a
-///    single string argument (the smoke layer passes the kind name;
-///    real args marshalling lands per-kind in Phase 51).
-/// 4. Writes nothing to `ret` — for non-void return kinds the per-
-///    kind thunk already pre-filled `ret` with the default; we
-///    don't override it here. Phase 51 adds per-kind return shape.
+/// 3. Calls via `ZendCallable::try_from_name` with `kind` as a single string argument (the smoke
+///    layer passes the kind name; real args marshalling lands per-kind in Phase 51).
+/// 4. Writes nothing to `ret` — for non-void return kinds the per- kind thunk already pre-filled
+///    `ret` with the default; we don't override it here. Phase 51 adds per-kind return shape.
 fn emit_generic_invoker(builder: &mut CodeBuilder) {
     builder.line("/// libazul generic-invoker trampoline. See module-level docs.");
     builder.line("///");
@@ -504,7 +509,8 @@ fn emit_get_module(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("/// registered here via wrap_function!.");
     builder.line("#[::ext_php_rs::prelude::php_module]");
     builder.line(
-        "pub fn get_module(module: ::ext_php_rs::builders::ModuleBuilder) -> ::ext_php_rs::builders::ModuleBuilder {",
+        "pub fn get_module(module: ::ext_php_rs::builders::ModuleBuilder) -> \
+         ::ext_php_rs::builders::ModuleBuilder {",
     );
     builder.indent();
     builder.line("module");
@@ -642,7 +648,8 @@ fn emit_class(builder: &mut CodeBuilder, struct_def: &StructDef, ir: &CodegenIR)
     }
 
     builder.line(&format!(
-        "// ir-driven emit summary: {emitted} method(s) emitted, {skipped} skipped (unsupported arg/return shape).",
+        "// ir-driven emit summary: {emitted} method(s) emitted, {skipped} skipped (unsupported \
+         arg/return shape).",
         emitted = emitted,
         skipped = skipped,
     ));
@@ -657,11 +664,10 @@ fn emit_class(builder: &mut CodeBuilder, struct_def: &StructDef, ir: &CodegenIR)
 }
 
 /// Emit the hand-written counter methods for specific classes:
-/// * `Azul\Dom::on_click(data_handle, cb_handle)` — attach a Hover
-///   left-mouse-up callback (generic `Callback` kind) to a plain DOM node.
-/// * `Azul\WindowCreateOptions::create(cb_handle)` — build window options
-///   whose `window_state.layout_callback` is the LayoutCallback wrapper for
-///   `cb_handle`.
+/// * `Azul\Dom::on_click(data_handle, cb_handle)` — attach a Hover left-mouse-up callback (generic
+///   `Callback` kind) to a plain DOM node.
+/// * `Azul\WindowCreateOptions::create(cb_handle)` — build window options whose
+///   `window_state.layout_callback` is the LayoutCallback wrapper for `cb_handle`.
 /// Emitted INSIDE the class's `#[php_impl]` block (caller is at method indent).
 fn emit_class_extras(builder: &mut CodeBuilder, bare: &str) {
     match bare {
@@ -803,8 +809,8 @@ fn render_method(
     }
 
     // Build the receiver portion of the C-ABI call.
-    // - consumes_self  → `__self_clone` (a freshly-cloned owned struct,
-    //                     bound in the body before the call).
+    // - consumes_self  → `__self_clone` (a freshly-cloned owned struct, bound in the body before
+    //   the call).
     // - MethodMut      → `&mut self.inner`
     // - Method (ref)   → `&self.inner`
     let self_arg = if consumes_self {
@@ -892,9 +898,9 @@ struct MarshalledArg {
 /// we pass into the C-ABI call. Returns `None` if we don't (yet) know
 /// how to marshal this type — the method will be skipped.
 fn marshal_arg(arg: &FunctionArg, receiver_class: &str) -> Option<MarshalledArg> {
-    // 1. Same-class owned argument → accept `&AzulX` and clone the inner
-    //    via the C-ABI clone fn. This is the `add_child(child: AzDom)`
-    //    case where libazul consumes the child but PHP holds it by-ref.
+    // 1. Same-class owned argument → accept `&AzulX` and clone the inner via the C-ABI clone fn.
+    //    This is the `add_child(child: AzDom)` case where libazul consumes the child but PHP holds
+    //    it by-ref.
     if arg.type_name == receiver_class && arg.ref_kind == ArgRefKind::Owned {
         return Some(MarshalledArg {
             php_param_type: format!("&Azul{}", receiver_class),
@@ -927,12 +933,10 @@ fn marshal_arg(arg: &FunctionArg, receiver_class: &str) -> Option<MarshalledArg>
         });
     }
 
-    // 4. Cross-class wrapper argument (Owned, by value). Accept the
-    //    `&AzulOther` PHP class and clone its inner via `Az<X>_clone`.
-    //    Mirrors the same-class path above; libazul consumes the arg
-    //    but PHP holds the wrapper by-ref. Only allowlisted classes
-    //    are valid here so the `_clone` symbol is guaranteed to exist
-    //    in the codegen-emitted set.
+    // 4. Cross-class wrapper argument (Owned, by value). Accept the `&AzulOther` PHP class and
+    //    clone its inner via `Az<X>_clone`. Mirrors the same-class path above; libazul consumes the
+    //    arg but PHP holds the wrapper by-ref. Only allowlisted classes are valid here so the
+    //    `_clone` symbol is guaranteed to exist in the codegen-emitted set.
     if PHP_CLASS_ALLOWLIST.contains(&arg.type_name.as_str()) && arg.ref_kind == ArgRefKind::Owned {
         return Some(MarshalledArg {
             php_param_type: format!("&Azul{}", arg.type_name),
@@ -944,20 +948,19 @@ fn marshal_arg(arg: &FunctionArg, receiver_class: &str) -> Option<MarshalledArg>
         });
     }
 
-    // 5. RefAny owned arg. AzRefAny is a 24-byte struct holding a
-    //    refcounted host-handle id. PHP exposes it as `i64` (the host
-    //    handle id) so the caller can pass the result of
-    //    `azul_refany_create($value)`; the marshalling reconstitutes
-    //    the AzRefAny via `AzRefAny_newHostHandle`. The symbol lives
-    //    in `azul_core::host_invoker` and returns `azul_core::RefAny`,
-    //    which is layout-compatible with `crate::dll::AzRefAny` but
-    //    Rust treats them as distinct types — transmute across the
-    //    boundary.
+    // 5. RefAny owned arg. AzRefAny is a 24-byte struct holding a refcounted host-handle id. PHP
+    //    exposes it as `i64` (the host handle id) so the caller can pass the result of
+    //    `azul_refany_create($value)`; the marshalling reconstitutes the AzRefAny via
+    //    `AzRefAny_newHostHandle`. The symbol lives in `azul_core::host_invoker` and returns
+    //    `azul_core::RefAny`, which is layout-compatible with `crate::dll::AzRefAny` but Rust
+    //    treats them as distinct types — transmute across the boundary.
     if arg.type_name == "RefAny" && arg.ref_kind == ArgRefKind::Owned {
         return Some(MarshalledArg {
             php_param_type: "i64".to_string(),
             c_call_expr: format!(
-                "unsafe {{ ::core::mem::transmute::<_, crate::dll::AzRefAny>(::azul_core::host_invoker::AzRefAny_newHostHandle({} as u64)) }}",
+                "unsafe {{ ::core::mem::transmute::<_, \
+                 crate::dll::AzRefAny>(::azul_core::host_invoker::AzRefAny_newHostHandle({} as \
+                 u64)) }}",
                 arg.name
             ),
         });
@@ -1012,11 +1015,17 @@ fn marshal_return(
         // on `dll_api_external.rs` and handles non-UTF8 by taking the longest
         // valid prefix - then frees the string, which owns a heap buffer and
         // has no Drop impl of its own.
-        Some("String") => Some(MarshalledReturn {
-            rust_return_type: "String".to_string(),
-            wrap_call: "unsafe { let mut __s = __CALL__; let __r = __s.as_str().to_string();                         crate::dll::AzString_delete(&mut __s); __r }"
-                .to_string(),
-        }),
+        Some("String") => {
+            Some(
+                MarshalledReturn {
+                    rust_return_type: "String".to_string(),
+                    wrap_call: "unsafe { let mut __s = __CALL__; let __r = \
+                                __s.as_str().to_string();                         \
+                                crate::dll::AzString_delete(&mut __s); __r }"
+                        .to_string(),
+                },
+            )
+        }
         Some(t) => primitive_php_type(t).map(|rust_t| MarshalledReturn {
             rust_return_type: primitive_return_rust(rust_t).to_string(),
             wrap_call: primitive_return_wrap(rust_t),

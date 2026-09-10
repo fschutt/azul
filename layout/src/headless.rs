@@ -17,7 +17,6 @@
 //!
 //! Activated with `AZUL_HEADLESS=1` (optionally `AZ_DEBUG=1` for the debug server).
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -28,12 +27,14 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 
-use crate::solver3::{
-    getters::{get_overflow_x, get_overflow_y},
-    layout_tree::LayoutNodeHot,
-    PositionVec,
+use crate::{
+    solver3::{
+        getters::{get_overflow_x, get_overflow_y},
+        layout_tree::{LayoutNodeHot, LayoutNodeId},
+        PositionVec,
+    },
+    window::DomLayoutResult,
 };
-use crate::window::DomLayoutResult;
 
 /// Large finite half-extent used in place of `f32::INFINITY` for clip axes that
 /// are not constrained by any ancestor. Keeping it finite avoids `NaN` in
@@ -79,7 +80,10 @@ pub struct CpuHitTester {
 /// Deliberately NOT called `ClipPath`: `azul_css` already exports a
 /// `ClipPath` (the CSS property), and the C-API safety scanner rejects two
 /// types of the same name in different files as a collision.
-type HitClipGeometry = (azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>);
+type HitClipGeometry = (
+    azul_core::svg::SvgMultiPolygon,
+    Option<(f32, f32, f32, f32)>,
+);
 
 /// A single entry in the CPU hit test acceleration structure.
 #[derive(Debug, Clone)]
@@ -227,7 +231,8 @@ impl ScreenMapAffine {
     }
 
     #[allow(clippy::float_cmp)]
-    // exact equality is correct here: identity is a fast-path gate; a near-identity matrix must still be applied
+    // exact equality is correct here: identity is a fast-path gate; a near-identity matrix must
+    // still be applied
     #[must_use]
     pub fn is_identity(&self) -> bool {
         self.sx == 1.0
@@ -500,11 +505,11 @@ fn compute_node_chains(
 ///
 /// TWO rectangles, and they are not the same one:
 ///
-/// * `rect` — where the child dom's 0-relative boxes LAND, i.e.
-///   `bounds.origin + content_offset`. Scrolling moves this.
-/// * `clips` — the VIEWPORTS the child is visible through: every enclosing
-///   `VirtualView`'s own `bounds`, each paired with the host-side chain
-///   active where that viewport lives. Scrolling does NOT move these.
+/// * `rect` — where the child dom's 0-relative boxes LAND, i.e. `bounds.origin + content_offset`.
+///   Scrolling moves this.
+/// * `clips` — the VIEWPORTS the child is visible through: every enclosing `VirtualView`'s own
+///   `bounds`, each paired with the host-side chain active where that viewport lives. Scrolling
+///   does NOT move these.
 ///
 /// Plus the host-side chain (scroll frames AND reference frames) active at
 /// the innermost `VirtualView` item.
@@ -782,13 +787,7 @@ impl CpuHitTester {
             .into_iter()
             .flatten()
             .filter(|e| e.node_id == node)
-            .map(|e| {
-                (
-                    e.rect,
-                    e.chain,
-                    e.clips.iter().map(|(r, _)| *r).collect(),
-                )
-            })
+            .map(|e| (e.rect, e.chain, e.clips.iter().map(|(r, _)| *r).collect()))
             .collect()
     }
 
@@ -1047,10 +1046,7 @@ impl CpuHitTester {
 ///
 /// `None` for the overwhelming majority of nodes, which is why this is looked
 /// up once at build time rather than per hit test.
-fn node_clip_path(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-) -> Option<HitClipGeometry> {
+fn node_clip_path(styled_dom: &StyledDom, node_id: NodeId) -> Option<HitClipGeometry> {
     let node_data = styled_dom.node_data.as_container();
     let azul_core::dom::SvgNodeData::Path(path) = node_data.get(node_id)?.get_svg_data()? else {
         return None;
@@ -1067,12 +1063,16 @@ fn node_clip_path(
             min_y,
             width,
             height,
-        }) = node_data.get(id).and_then(azul_core::dom::NodeData::get_svg_data)
+        }) = node_data
+            .get(id)
+            .and_then(azul_core::dom::NodeData::get_svg_data)
         {
             view_box = Some((*min_x, *min_y, *width, *height));
             break;
         }
-        cursor = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        cursor = hierarchy
+            .get(id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     Some((path.clone(), view_box))
 }
@@ -1988,11 +1988,17 @@ mod autotest_generated {
             &|_, _| None,
             &|_, _| None,
         );
-        let depth = |d: usize| full.hovered_nodes[&dom(d)].regular_hit_test_nodes[&NodeId::new(1)].hit_depth;
+        let depth = |d: usize| {
+            full.hovered_nodes[&dom(d)].regular_hit_test_nodes[&NodeId::new(1)].hit_depth
+        };
         assert_eq!(depth(1), 0, "front-most");
         assert_eq!(depth(0), 1);
         let top = full.topmost_node().expect("something is hit");
-        assert_eq!(top.dom, dom(1), "topmost_node agrees with WebRender's rule now");
+        assert_eq!(
+            top.dom,
+            dom(1),
+            "topmost_node agrees with WebRender's rule now"
+        );
         // Outside the page, only the host - and it is then the front-most.
         let outside = tester.hit_test(p(20.0, 20.0));
         assert_eq!(outside, vec![(dom(0), NodeId::new(1))]);
@@ -2158,15 +2164,14 @@ mod autotest_generated {
         assert_eq!(
             tester.hit_test(p(120.0, 120.0)),
             vec![(dom(1), NodeId::new(1))],
-            "a point inside BOTH the viewport and the drawn child must hit it — \
-             clipping to `bounds.origin + content_offset` moved the viewport \
-             80px up and rejected it, which is a page canvas that goes dead as \
-             soon as you scroll"
+            "a point inside BOTH the viewport and the drawn child must hit it — clipping to \
+             `bounds.origin + content_offset` moved the viewport 80px up and rejected it, which \
+             is a page canvas that goes dead as soon as you scroll"
         );
         assert!(
             tester.hit_test(p(120.0, 60.0)).is_empty(),
-            "the part of the child scrolled ABOVE the viewport is not visible, \
-             so it must not take the click either"
+            "the part of the child scrolled ABOVE the viewport is not visible, so it must not \
+             take the click either"
         );
     }
 

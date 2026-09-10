@@ -3,30 +3,28 @@
 //! Translates IR types into:
 //!
 //! - simple (unit) enums  → `package Azul::AzFoo { sub Bar () { 0 } sub Baz () { 1 } }`
-//! - structs              → `package Azul::AzFoo { use FFI::Platypus::Record; record_layout_1($Azul::ffi, ...) }`
-//!                          plus `$ffi->type('record(Azul::AzFoo)' => 'Azul::AzFoo');`
-//! - tagged unions        → outer record `{ tag => 'sint32', payload => "opaque[N]" }`
-//!                          (a fixed-size byte blob; per-variant accessor methods are
-//!                          provided by the wrapper layer in `wrappers.rs`).
+//! - structs              → `package Azul::AzFoo { use FFI::Platypus::Record;
+//!   record_layout_1($Azul::ffi, ...) }` plus `$ffi->type('record(Azul::AzFoo)' => 'Azul::AzFoo');`
+//! - tagged unions        → outer record `{ tag => 'sint32', payload => "opaque[N]" }` (a
+//!   fixed-size byte blob; per-variant accessor methods are provided by the wrapper layer in
+//!   `wrappers.rs`).
 //!
 //! Filtering: skips types with `TypeCategory` Recursive / VecRef / GenericTemplate /
 //! DestructorOrClone. Skipped types receive a `# SKIPPED: <reason>` comment line.
 //!
 //! Type translation is intentionally conservative:
-//! - non-primitive value types pass via `'record(Azul::AzFoo)'` so layouts can
-//!   nest naturally;
-//! - any pointer / reference becomes `'opaque'` (FFI::Platypus's word for an
-//!   unmanaged void*);
-//! - arrays of primitives become `"<elem>[<count>]"` (FFI::Platypus's array
-//!   spec syntax inside record_layout_1).
+//! - non-primitive value types pass via `'record(Azul::AzFoo)'` so layouts can nest naturally;
+//! - any pointer / reference becomes `'opaque'` (FFI::Platypus's word for an unmanaged void*);
+//! - arrays of primitives become `"<elem>[<count>]"` (FFI::Platypus's array spec syntax inside
+//!   record_layout_1).
 //!
 //! All generated string literals use single quotes so Perl never interpolates
 //! `$var` / `@list` accidentally — every `$Azul::ffi` reference is intentional.
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory,
+use super::super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{CallbackTypedefDef, CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory},
 };
 
 // ============================================================================

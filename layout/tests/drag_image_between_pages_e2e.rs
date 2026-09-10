@@ -12,17 +12,24 @@
 //! image-decoding entanglement (replaced-content sizing is tracked in
 //! ENGINE-ISSUES separately).
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
-use azul_layout::solver3::paged_layout::layout_document_tokenized;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::HashMap;
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    solver3::{
+        display_list::{DisplayList, DisplayListItem},
+        paged_layout::layout_document_tokenized,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 const PAGE_H: f32 = 300.0;
 
@@ -179,8 +186,8 @@ fn dragging_the_image_to_page_two_moves_its_exclusion_with_it() {
     assert_eq!(
         wrapped_text_count(&after[0]),
         0,
-        "page 1 lines are FULL WIDTH again — the old page keeps no memory \
-         of the exclusion (the Regions-killing leak the design forbids)"
+        "page 1 lines are FULL WIDTH again — the old page keeps no memory of the exclusion (the \
+         Regions-killing leak the design forbids)"
     );
     assert!(
         wrapped_text_count(&after[1]) >= 1,

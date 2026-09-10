@@ -3,39 +3,35 @@
 //!
 //! Two layers:
 //!
-//! 1. **Externs** — `Public Declare Function az_dom_create Lib "azul"
-//!    Alias "AzDom_create" (...) As Long`. The `Alias` clause is what
-//!    VB6 actually sends to the dynamic loader; the
-//!    case-insensitive identifier on the left is just a VB6
-//!    convenience name. We keep them identical so call sites
-//!    look natural.
-//! 2. **Module-level wrappers** — `Public Function`s in the
-//!    `Azul.bas` module that hide the `Az` prefix from user code
-//!    where it makes sense. For free functions (functions whose
-//!    `class_name` doesn't have a corresponding `_delete`) we emit
-//!    a thin pass-through (`Public Function App_create(...) As Long :
-//!    App_create = AzApp_create(...) : End Function`) that drops the
-//!    `Az` prefix at the call site.
+//! 1. **Externs** — `Public Declare Function az_dom_create Lib "azul" Alias "AzDom_create" (...) As
+//!    Long`. The `Alias` clause is what VB6 actually sends to the dynamic loader; the
+//!    case-insensitive identifier on the left is just a VB6 convenience name. We keep them
+//!    identical so call sites look natural.
+//! 2. **Module-level wrappers** — `Public Function`s in the `Azul.bas` module that hide the `Az`
+//!    prefix from user code where it makes sense. For free functions (functions whose `class_name`
+//!    doesn't have a corresponding `_delete`) we emit a thin pass-through (`Public Function
+//!    App_create(...) As Long : App_create = AzApp_create(...) : End Function`) that drops the `Az`
+//!    prefix at the call site.
 //!
 //! VB6 calling-convention quirks:
 //!
-//! - VB6 cannot pass user-defined types by value to a `Declare`. UDT
-//!   arguments must always be passed `ByRef` (i.e. as a pointer).
-//!   Functions whose C signature takes a struct by value (i.e.
-//!   `ArgRefKind::Owned` over a struct type) get flagged with
-//!   `' SKIPPED: cannot pass UDT ByVal — workaround required`.
+//! - VB6 cannot pass user-defined types by value to a `Declare`. UDT arguments must always be
+//!   passed `ByRef` (i.e. as a pointer). Functions whose C signature takes a struct by value (i.e.
+//!   `ArgRefKind::Owned` over a struct type) get flagged with `' SKIPPED: cannot pass UDT ByVal —
+//!   workaround required`.
 //! - Pointer arguments are passed `ByVal ... As Long` (Long-as-pointer).
-//! - `String` arguments default to `ByVal ... As String` so VB6 auto-marshals
-//!   to ANSI. For UTF-8-correct paths the user must use `Long`-as-pointer
-//!   plus `StrPtr` / `CopyMemory` — but we keep the simpler `String`
-//!   shape for the generated declares because most strings are ASCII.
+//! - `String` arguments default to `ByVal ... As String` so VB6 auto-marshals to ANSI. For
+//!   UTF-8-correct paths the user must use `Long`-as-pointer plus `StrPtr` / `CopyMemory` — but we
+//!   keep the simpler `String` shape for the generated declares because most strings are ASCII.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, TypeCategory};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, TypeCategory},
+    },
     idiomatic_method_name, map_type_to_vb6, sanitize_comment, sanitize_identifier, LIB_NAME,
 };
 
@@ -193,10 +189,9 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
 /// VB6 rules:
 ///   - Pointer args (`*const`/`*mut`/`&`/`&mut`)  → `ByVal ... As Long`.
 ///   - Primitives by value (Long, Single, etc.)   → `ByVal ... As <T>`.
-///   - UDT by value                                → `ByRef ... As <T>`
-///     (VB6 cannot pass UDTs ByVal in Declare; the C side must accept
-///     them ByRef — the externals layer flags this as SKIPPED if the
-///     C side really does want by-value).
+///   - UDT by value                                → `ByRef ... As <T>` (VB6 cannot pass UDTs ByVal
+///     in Declare; the C side must accept them ByRef — the externals layer flags this as SKIPPED if
+///     the C side really does want by-value).
 fn arg_clause_and_type(
     ref_kind: &ArgRefKind,
     type_name: &str,

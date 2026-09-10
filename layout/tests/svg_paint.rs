@@ -33,9 +33,7 @@ const TRANSPARENT: ColorU = ColorU {
 /// these also pin that an `<svg>` root parses on its own, the way a browser
 /// takes one.
 fn render(markup: &str, size: f32) -> azul_layout::cpurender::ComponentPreviewResult {
-    let markup = format!(
-        "<style>body {{ margin: 0; padding: 0; }}</style>{markup}"
-    );
+    let markup = format!("<style>body {{ margin: 0; padding: 0; }}</style>{markup}");
     let parsed = azul_layout::xml::parse_xml(&markup).expect("the fixture parses");
     let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
     render_dom_to_rgba(dom, Css::empty(), size, size, 1.0, TRANSPARENT).expect("renders")
@@ -138,8 +136,8 @@ fn geometry_scales_from_the_view_box_into_the_painted_box() {
     let (painted, total) = coverage(&r);
     assert!(
         painted * 10 > total * 9,
-        "a full-viewBox square must fill the whole 64x64 box, not a 16x16 \
-         corner of it; got {painted}/{total}"
+        "a full-viewBox square must fill the whole 64x64 box, not a 16x16 corner of it; got \
+         {painted}/{total}"
     );
     assert_eq!(centre(&r), [0, 0, 255, 255]);
 }
@@ -191,8 +189,7 @@ fn an_svgs_own_style_element_styles_it_and_nothing_else() {
     assert_eq!(
         green(&with_outsider),
         64,
-        "an SVG's stylesheet is scoped to the SVG - the div outside it must \
-         stay unpainted"
+        "an SVG's stylesheet is scoped to the SVG - the div outside it must stay unpainted"
     );
 }
 
@@ -271,7 +268,6 @@ fn fill_none_paints_nothing() {
     let (painted, _) = coverage(&r);
     assert_eq!(painted, 0, "fill=\"none\" must not paint");
 }
-
 
 // ============================================================================
 // Hit testing — a clip path clips POINTER TARGETS too
@@ -353,16 +349,16 @@ fn a_clip_path_clips_the_pointer_target_not_just_the_pixels() {
     // Inside the BOX, outside the triangle - the corner the clip removed.
     assert!(
         !hits(13.0, 3.0),
-        "a point in the clipped-away corner must NOT hit the shape - the box \
-         is not the target, the path is"
+        "a point in the clipped-away corner must NOT hit the shape - the box is not the target, \
+         the path is"
     );
     // THE CONTROL: that same corner is inside the `<svg>`, which has no clip
     // path, and still hits it. Without this the assertion above would pass
     // just as well if the hit tester simply never reached that point.
     assert!(
         hits_svg(13.0, 3.0),
-        "the clipped-away corner is still inside the <svg> box, so the test \
-         above is about the PATH and not about the point being unreachable"
+        "the clipped-away corner is still inside the <svg> box, so the test above is about the \
+         PATH and not about the point being unreachable"
     );
 }
 
@@ -435,8 +431,7 @@ fn hover_and_focus_rules_reach_an_svg_shape() {
             b: 0,
             a: 255
         }),
-        "a :hover rule must reach the shape - this is what a baked inline \
-         fill made impossible"
+        "a :hover rule must reach the shape - this is what a baked inline fill made impossible"
     );
     assert_eq!(
         fill_in(focused),
@@ -480,9 +475,8 @@ fn a_curved_edge_is_antialiased_not_stepped() {
     assert!(opaque > 400, "the disc itself must paint, got {opaque} px");
     assert!(
         partial > 40,
-        "a 32px circle has a ~100px circumference; an antialiased edge leaves \
-         partial coverage all along it, got only {partial} partial pixels - \
-         that is a staircase, not a curve"
+        "a 32px circle has a ~100px circumference; an antialiased edge leaves partial coverage \
+         all along it, got only {partial} partial pixels - that is a staircase, not a curve"
     );
 }
 
@@ -495,11 +489,10 @@ fn a_curved_edge_is_antialiased_not_stepped() {
 /// `:hover` would flicker. A descendant selector keyed on the BUTTON is the
 /// declarative answer, if the cascade supports one.
 #[test]
-#[ignore = "KNOWN GAP, recorded deliberately: a descendant selector with a \
-            pseudo-class (`.btn:hover .ink`) does not reach the child. This \
-            is why swapping a window control's glyph on hover cannot be done \
-            in CSS and goes through a VirtualView re-render instead. Basic \
-            CSS, worth fixing on its own; un-ignore with the fix."]
+#[ignore = "KNOWN GAP, recorded deliberately: a descendant selector with a pseudo-class \
+            (`.btn:hover .ink`) does not reach the child. This is why swapping a window control's \
+            glyph on hover cannot be done in CSS and goes through a VirtualView re-render instead. \
+            Basic CSS, worth fixing on its own; un-ignore with the fix."]
 fn a_parents_hover_can_restyle_a_child() {
     use azul_core::{id::NodeId, styled_dom::StyledNodeState};
 
@@ -568,7 +561,7 @@ fn a_parents_hover_can_restyle_a_child() {
             b: 0,
             a: 255
         }),
-        "a `.btn:hover .ink` rule must reach the child - if this fails, \
-         swapping a glyph on hover needs an imperative API instead"
+        "a `.btn:hover .ink` rule must reach the child - if this fails, swapping a glyph on hover \
+         needs an imperative API instead"
     );
 }

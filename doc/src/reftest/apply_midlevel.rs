@@ -20,11 +20,13 @@
 //! Progress is saved to `doc/target/autoreview/apply-midlevel/progress.json`
 //! after every decision. Re-running the command resumes where it left off.
 
-use std::fs;
-use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::{
+    fs,
+    io::{self, BufRead, Write},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -153,9 +155,8 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         (triage_only as u8) + (pending_only as u8) + (refresh_pending as u8) + (auto_apply as u8);
     if mode_count > 1 {
         return Err(
-            "--triage, --pending-only, --auto-apply, and --refresh-pending \
-                    are mutually exclusive: they walk different subsets of the \
-                    commit list."
+            "--triage, --pending-only, --auto-apply, and --refresh-pending are mutually \
+             exclusive: they walk different subsets of the commit list."
                 .to_string(),
         );
     }
@@ -212,8 +213,8 @@ pub fn run(config: Config) -> Result<(), String> {
     // Safety: don't allow reusing progress from a different reference
     if progress.reference != config.reference || progress.reference_sha != reference_sha {
         return Err(format!(
-            "progress.json is for reference {} (sha {}), but you asked for {} (sha {}). \
-             Delete {} to start fresh.",
+            "progress.json is for reference {} (sha {}), but you asked for {} (sha {}). Delete {} \
+             to start fresh.",
             progress.reference,
             progress.reference_sha,
             config.reference,
@@ -331,9 +332,8 @@ pub fn run(config: Config) -> Result<(), String> {
                 );
                 let _ = b.send_message(
                     &format!(
-                        "azul-doc apply-midlevel started [mode: {}]\n\
-                         reference: {}\n\
-                         {} commits, {} processed, {} pending",
+                        "azul-doc apply-midlevel started [mode: {}]\nreference: {}\n{} commits, \
+                         {} processed, {} pending",
                         mode_label,
                         config.reference,
                         total,
@@ -405,8 +405,14 @@ pub fn run(config: Config) -> Result<(), String> {
                         .count();
                     let _ = b.send_message(
                         &format!(
-                            "apply-midlevel finished [mode: {}]\nreference: {}\napplied={} rejected={} skipped={} pending={}",
-                            mode_label, config.reference, applied, rejected, skipped, progress.pending.len()
+                            "apply-midlevel finished [mode: {}]\nreference: {}\napplied={} \
+                             rejected={} skipped={} pending={}",
+                            mode_label,
+                            config.reference,
+                            applied,
+                            rejected,
+                            skipped,
+                            progress.pending.len()
                         ),
                         None,
                     );
@@ -823,13 +829,18 @@ pub fn run(config: Config) -> Result<(), String> {
                                     println!("[pending] waiting {}s, then retrying...", sleep_secs);
                                     if let Some(b) = bridge.as_ref() {
                                         let _ = b.send_message(
-                                        &format!(
-                                            "[pending] {} attempt {}/{} ({} err) — waiting {}s before retry\n{}",
-                                            short(&next), attempts, config.retries,
-                                            kind, sleep_secs, e
-                                        ),
-                                        None,
-                                    );
+                                            &format!(
+                                                "[pending] {} attempt {}/{} ({} err) — waiting \
+                                                 {}s before retry\n{}",
+                                                short(&next),
+                                                attempts,
+                                                config.retries,
+                                                kind,
+                                                sleep_secs,
+                                                e
+                                            ),
+                                            None,
+                                        );
                                     }
 
                                     // Reset OUR scope for retry. Concurrent
@@ -845,10 +856,12 @@ pub fn run(config: Config) -> Result<(), String> {
                                     if !looks_transient {
                                         plan.iterations.push(PlanIteration {
                                             user_feedback: Some(format!(
-                                            "RETRY {}/{}: the previous attempt failed with:\n{}\n\
-                                             Try a different approach.",
-                                            attempts + 1, config.retries, e
-                                        )),
+                                                "RETRY {}/{}: the previous attempt failed \
+                                                 with:\n{}\nTry a different approach.",
+                                                attempts + 1,
+                                                config.retries,
+                                                e
+                                            )),
                                             analyzer_output: String::new(),
                                         });
                                     }
@@ -860,15 +873,21 @@ pub fn run(config: Config) -> Result<(), String> {
                                         "\n[pending] apply failed after {} attempt(s): {}",
                                         attempts, e
                                     );
-                                    println!("[pending] recording as rejected; moving on to next commit.");
+                                    println!(
+                                        "[pending] recording as rejected; moving on to next \
+                                         commit."
+                                    );
                                     if let Some(b) = bridge.as_ref() {
                                         let _ = b.send_message(
-                                        &format!(
-                                            "[pending] {} APPLY FAILED after {} attempts — recorded as rejected: {}",
-                                            short(&next), attempts, e
-                                        ),
-                                        None,
-                                    );
+                                            &format!(
+                                                "[pending] {} APPLY FAILED after {} attempts — \
+                                                 recorded as rejected: {}",
+                                                short(&next),
+                                                attempts,
+                                                e
+                                            ),
+                                            None,
+                                        );
                                     }
                                     break Err(format!(
                                         "pending-apply failed after {} attempts: {}",
@@ -1690,8 +1709,8 @@ fn open_commit_in_editor(
     if let Some(bridge) = input.bridge.as_ref() {
         let _ = bridge.send_message(
             &format!(
-                "Local checkout of {} for editor inspection. Send any message here \
-                 (or press Enter on the terminal) to restore branch {}.",
+                "Local checkout of {} for editor inspection. Send any message here (or press \
+                 Enter on the terminal) to restore branch {}.",
                 &sha[..12],
                 branch
             ),
@@ -2959,8 +2978,8 @@ fn run_apply_agent(
             // produced two distinct commits intentionally. Refuse and let the
             // user resolve manually.
             return Err(
-                "refinement requested on a commit chain containing follow-up: commits; \
-                 collapsing would lose intentional separation. Reset manually and re-run."
+                "refinement requested on a commit chain containing follow-up: commits; collapsing \
+                 would lose intentional separation. Reset manually and re-run."
                     .into(),
             );
         }
@@ -3246,8 +3265,14 @@ fn build_agent_prompt(
     p.push_str("`--release` — disk space is limited and debug artifacts are much larger\n");
     p.push_str("(sometimes 5-10× larger) than release artifacts.\n\n");
     p.push_str("    cargo check --release -p azul-dll --features build-dll                                    # host (darwin)\n");
-    p.push_str("    cargo check --release --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll   # linux\n");
-    p.push_str("    cargo check --release --target x86_64-pc-windows-gnu    -p azul-dll --features build-dll   # windows\n\n");
+    p.push_str(
+        "    cargo check --release --target x86_64-unknown-linux-gnu -p azul-dll --features \
+         build-dll   # linux\n",
+    );
+    p.push_str(
+        "    cargo check --release --target x86_64-pc-windows-gnu    -p azul-dll --features \
+         build-dll   # windows\n\n",
+    );
     p.push_str(
         "If any of these targets isn't installed, install it with `rustup target add <t>`.\n",
     );

@@ -1,17 +1,19 @@
 //! Glyph path and cell cache for CPU rendering.
 //!
 //! Two-level cache:
-//! 1. **Path cache**: `PathStorage` objects keyed by (font, glyph, ppem).
-//!    Avoids redundant path construction from font outlines.
-//! 2. **Cell cache**: Rasterizer cells keyed by (font, glyph, ppem, scale, sub-pixel).
-//!    Avoids the expensive path→cells conversion on every frame.
-//!    Cells are computed at position (0,0) and offset at render time.
+//! 1. **Path cache**: `PathStorage` objects keyed by (font, glyph, ppem). Avoids redundant path
+//!    construction from font outlines.
+//! 2. **Cell cache**: Rasterizer cells keyed by (font, glyph, ppem, scale, sub-pixel). Avoids the
+//!    expensive path→cells conversion on every frame. Cells are computed at position (0,0) and
+//!    offset at render time.
 
 use std::collections::HashMap;
 
-use agg_rust::basics::{VertexD, VertexSource, PATH_CMD_STOP};
-use agg_rust::path_storage::PathStorage;
-use agg_rust::rasterizer_cells_aa::CellAa;
+use agg_rust::{
+    basics::{VertexD, VertexSource, PATH_CMD_STOP},
+    path_storage::PathStorage,
+    rasterizer_cells_aa::CellAa,
+};
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
 
@@ -144,7 +146,8 @@ impl core::fmt::Debug for GlyphCache {
 
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
 #[inline]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/
+                                                                   // fixed-point/debug-marker cast
 fn quantize_subpx(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * 4.0).min(3.0) as u8
@@ -166,7 +169,8 @@ const LCD_SUBPX_BUCKETS: u8 = 16;
 
 /// Quantize a fractional pixel position into one of [`LCD_SUBPX_BUCKETS`].
 #[inline]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/
+                                                                   // fixed-point/debug-marker cast
 fn quantize_subpx_lcd(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * f32::from(LCD_SUBPX_BUCKETS)).min(f32::from(LCD_SUBPX_BUCKETS - 1)) as u8
@@ -292,16 +296,17 @@ impl GlyphCache {
     /// - `glyph_x`, `glyph_y`: final pixel position (used for sub-pixel quantization)
     /// - `scale`: font-unit→pixel scale (0.0 for hinted glyphs)
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
-    /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise).
-    ///   A hinted outline is built at the *integer* ppem; when the requested
-    ///   effective size (`font_size * dpi`) is fractional this rescales it back to
-    ///   the true target size so hinted glyphs match their unhinted neighbours and
-    ///   animate smoothly instead of snapping between integer ppems. When the
-    ///   effective size is already integral this is 1.0 and the hinted glyph keeps
-    ///   its pixel-grid-snapped placement.
+    /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise). A hinted
+    ///   outline is built at the *integer* ppem; when the requested effective size (`font_size *
+    ///   dpi`) is fractional this rescales it back to the true target size so hinted glyphs match
+    ///   their unhinted neighbours and animate smoothly instead of snapping between integer ppems.
+    ///   When the effective size is already integral this is 1.0 and the hinted glyph keeps its
+    ///   pixel-grid-snapped placement.
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point/
+                                                                       // debug-marker cast
     pub fn get_or_build_cells(
         &mut self,
         font_hash: u64,
@@ -387,9 +392,10 @@ impl GlyphCache {
             };
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
-                use agg_rust::basics::FillingRule;
-                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-                use agg_rust::trans_affine::TransAffine;
+                use agg_rust::{
+                    basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa,
+                    trans_affine::TransAffine,
+                };
                 let (path, _) = entry.as_ref()?;
                 let frac_x = f64::from(subpx_x) * 0.25;
                 let frac_y = f64::from(subpx_y) * 0.25;
@@ -460,7 +466,9 @@ impl GlyphCache {
     /// resolve, so nothing visible is given up, and 3 buckets per glyph keeps
     /// the cache small. The baseline is always grid-snapped (crisp vertical),
     /// matching what the uncached LCD path did.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point/
+                                                                       // debug-marker cast
     pub fn get_or_build_cells_lcd(
         &mut self,
         font_hash: u64,
@@ -518,9 +526,10 @@ impl GlyphCache {
                 ppem,
             };
             let cached_cells = self.paths.get(&path_key).and_then(|entry| {
-                use agg_rust::basics::FillingRule;
-                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-                use agg_rust::trans_affine::TransAffine;
+                use agg_rust::{
+                    basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa,
+                    trans_affine::TransAffine,
+                };
                 let (path, _) = entry.as_ref()?;
 
                 // Path units -> pixels, same rule as the uncached path: a
@@ -1508,9 +1517,8 @@ mod autotest_generated {
         assert_eq!(
             cache.paths_len(),
             MAX_PATH_ENTRIES + 1,
-            "rotation must DEMOTE the old generation, not delete it — clearing \
-             wholesale re-hints the entire visible page on whichever keystroke \
-             happens to cross the limit"
+            "rotation must DEMOTE the old generation, not delete it — clearing wholesale re-hints \
+             the entire visible page on whichever keystroke happens to cross the limit"
         );
         // The point of keeping it: an entry that was live before the
         // rotation is served from `prev` and promoted, not rebuilt.
@@ -1831,13 +1839,12 @@ impl GlyphCache {
             px[3] = 255;
         }
         {
-            use agg_rust::basics::FillingRule;
-            use agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear;
-            use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-            use agg_rust::renderer_base::RendererBase;
-            use agg_rust::renderer_scanline::render_scanlines_aa_solid;
-            use agg_rust::rendering_buffer::RowAccessor;
-            use agg_rust::scanline_u::ScanlineU8;
+            use agg_rust::{
+                basics::FillingRule, pixfmt_lcd::PixfmtRgba32LcdLinear,
+                rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
+                renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
+                scanline_u::ScanlineU8,
+            };
 
             let mut ras = RasterizerScanlineAa::new();
             ras.filling_rule(FillingRule::NonZero);

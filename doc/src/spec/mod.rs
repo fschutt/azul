@@ -12,8 +12,7 @@
 //! 5. `spec groups-json` — generate Gemini prompt for merge groups (JSON)
 //! 6. `spec agent-apply` — apply patches via Claude agents (4-phase workflow)
 
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 pub mod downloader;
 pub mod executor;
@@ -732,8 +731,8 @@ pub(crate) fn cmd_build_all(
 /// Walks through paragraphs in order. For each paragraph, tries to extend
 /// the current group if:
 ///   1. Same `source_file` as previous paragraph
-///   2. Keyword overlap with the *first* paragraph in the group is ≥ 2/3
-///      (using Jaccard-like: |intersection| / |smaller set| ≥ 2/3)
+///   2. Keyword overlap with the *first* paragraph in the group is ≥ 2/3 (using Jaccard-like:
+///      |intersection| / |smaller set| ≥ 2/3)
 ///   3. Group hasn't reached `max_size`
 ///
 /// Otherwise, starts a new group. Singletons are fine.

@@ -8,13 +8,15 @@
 
 // The localizer handle is exposed via `azul::fluent`; the `{ $name }`-style
 // format-arg types (`FmtArg`/`FmtValue`) via `azul::fmt`.
-use azul::fluent::FluentLocalizerHandle;
-use azul::fmt::{FmtArg, FmtValue};
 // NOTE: the `azul::desktop::http` functions (download_bytes, etc.) are only
 // described in the print statements below (Examples 3 & 6 are simulated), not
 // called — so there is intentionally no `use` for them here.
 use azul::desktop::zip::{
     zip_create_from_files, zip_extract_all, zip_list_contents, ZipReadConfig, ZipWriteConfig,
+};
+use azul::{
+    fluent::FluentLocalizerHandle,
+    fmt::{FmtArg, FmtValue},
 };
 
 fn main() {

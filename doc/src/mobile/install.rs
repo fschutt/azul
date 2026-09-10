@@ -118,10 +118,7 @@ pub fn android_plan(tc: &Toolchain, opts: &Opts) -> Plan {
         .filter(|t| !tc.has_rust_target(t))
         .collect();
     if missing_targets.is_empty() {
-        plan.push(Step::satisfied(
-            "Rust targets",
-            ANDROID_TARGETS.join(", "),
-        ));
+        plan.push(Step::satisfied("Rust targets", ANDROID_TARGETS.join(", ")));
     } else {
         plan.push(Step::run(
             "Rust targets",
@@ -161,10 +158,7 @@ pub fn android_plan(tc: &Toolchain, opts: &Opts) -> Plan {
         // The NDK is the one large download (~2.5 GB) and it is needed only to
         // LINK — `cargo check` never touches it. Separated so `--no-ndk` gives
         // a usable emulator setup without it.
-        want.push((
-            format!("ndk;{NDK_VERSION}"),
-            tc.ndk_home().is_dir(),
-        ));
+        want.push((format!("ndk;{NDK_VERSION}"), tc.ndk_home().is_dir()));
     }
 
     let missing: Vec<String> = want
@@ -250,9 +244,9 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
     if tc.host_os != HostOs::MacOs {
         plan.push(Step::skipped(
             "iOS toolchain",
-            "iOS tooling is macOS-only. `cargo check --target aarch64-apple-ios` still \
-             works anywhere (it does not link), so the compile gate is portable; \
-             building, signing and simulating are not.",
+            "iOS tooling is macOS-only. `cargo check --target aarch64-apple-ios` still works \
+             anywhere (it does not link), so the compile gate is portable; building, signing and \
+             simulating are not.",
         ));
         return plan;
     }
@@ -305,8 +299,8 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
             plan.push(Step::manual(
                 "Select Xcode",
                 format!(
-                    "/Applications/Xcode.app exists but xcode-select points at {selected}, \
-                     which has no iOS sysroot"
+                    "/Applications/Xcode.app exists but xcode-select points at {selected}, which \
+                     has no iOS sysroot"
                 ),
                 vec![
                     "sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
@@ -318,10 +312,10 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
             plan.push(Step::manual(
                 "Xcode",
                 format!(
-                    "xcode-select points at {selected}. Command Line Tools give you a \
-                     MacOSX.sdk and no iphonesimulator sysroot: iOS can be `cargo check`ed \
-                     but not linked, bundled or simulated. Xcode is a ~13 GB App Store \
-                     download tied to an Apple ID, so it cannot be installed unattended."
+                    "xcode-select points at {selected}. Command Line Tools give you a MacOSX.sdk \
+                     and no iphonesimulator sysroot: iOS can be `cargo check`ed but not linked, \
+                     bundled or simulated. Xcode is a ~13 GB App Store download tied to an Apple \
+                     ID, so it cannot be installed unattended."
                 ),
                 vec![
                     "open 'macappstore://apps.apple.com/app/xcode/id497799835'".to_string(),
@@ -339,13 +333,10 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
     // fresh Xcode can have zero iOS runtimes and `simctl list devices` is
     // empty, which reads exactly like "no simulators available".
     if !tc.has_xcode() {
-        plan.push(Step::skipped(
-            "iOS simulator runtime",
-            "needs Xcode first",
-        ));
+        plan.push(Step::skipped("iOS simulator runtime", "needs Xcode first"));
     } else {
-        let runtimes = super::toolchain::capture("xcrun", &["simctl", "list", "runtimes"])
-            .unwrap_or_default();
+        let runtimes =
+            super::toolchain::capture("xcrun", &["simctl", "list", "runtimes"]).unwrap_or_default();
         if runtimes.contains("iOS") {
             plan.push(Step::satisfied(
                 "iOS simulator runtime",
@@ -359,9 +350,7 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
         } else {
             plan.push(Step::run(
                 "iOS simulator runtime",
-                Cmd::new("xcodebuild")
-                    .arg("-downloadPlatform")
-                    .arg("iOS"),
+                Cmd::new("xcodebuild").arg("-downloadPlatform").arg("iOS"),
             ));
         }
     }
@@ -390,8 +379,8 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
                 "baguette (headless simulator driver)",
                 format!(
                     "needs Xcode 26+ for its SimulatorKit interfaces; this host has Xcode \
-                     {major}. `mobile run ios` falls back to simctl, which can install, \
-                     launch and screenshot but cannot inject real gestures."
+                     {major}. `mobile run ios` falls back to simctl, which can install, launch \
+                     and screenshot but cannot inject real gestures."
                 ),
             )
             .optional(),

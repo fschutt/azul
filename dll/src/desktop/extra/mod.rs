@@ -29,19 +29,17 @@ pub mod file_picker;
 /// `azul_layout::managers::gamepad::push_gamepad_state`, which the layout
 /// pass folds into the per-`App` `GamepadManager`.
 pub mod gamepad;
+pub mod geolocation;
 pub mod haptics;
 pub mod hid;
-pub mod media_keys;
-pub mod natural_scroll;
-/// Bringing a window to the front, per platform (9h-i-a-ii).
-pub mod window_activation;
-pub mod geolocation;
 pub mod keyring;
 /// MVT tile decode + projection math for the `MapWidget` content
 /// pipeline. Opt-in via the `map-tiles` Cargo feature; with the
 /// feature off, the entry points return an error rather than dragging
 /// in the `td` / `mvt-reader` / `proj4rs` dep tree.
 pub mod map;
+pub mod media_keys;
+pub mod natural_scroll;
 /// PDF (P5 AzulDoc). The `Pdf` handle is always present (so it codegen-exposes
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
@@ -74,6 +72,8 @@ pub mod video_codec;
 /// v1 = loopback stub engine;
 /// real QUIC behind `webtransport-native`. See `webtransport/mod.rs`.
 pub mod webtransport;
+/// Bringing a window to the front, per platform (9h-i-a-ii).
+pub mod window_activation;
 /// ZIP archives. The `Zip` handle is always present (so it codegen-exposes
 /// with no feature-gating); the compressor behind it is opt-in via the `zip`
 /// feature. Without it, entries still accumulate but `to_bytes` is empty.

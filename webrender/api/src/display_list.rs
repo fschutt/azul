@@ -912,7 +912,8 @@ impl<'a> BuiltDisplayListIter<'a> {
                 self.clip_chain_item_index = end;
             }
             Text(ref text_item) => {
-                // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this text
+                // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this
+                // text
                 let count = text_item.glyph_count;
                 let end = (self.glyph_index + count).min(self.payload.glyphs.len());
                 self.cur_glyphs = &self.payload.glyphs[self.glyph_index..end];

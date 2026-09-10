@@ -3,19 +3,16 @@
 //! Emits a single `Azul.php` source file. The generated file has three
 //! layers, top-to-bottom:
 //!
-//! 1. A `<<<CDEF ... CDEF;` heredoc carrying the entire `azul.h` payload
-//!    with C preprocessor directives stripped via the existing helper
-//!    [`super::lang_lua::cdef::strip_for_cdef`]. PHP's FFI parser is
-//!    structurally identical to LuaJIT's: it accepts plain C declarations
-//!    but rejects preprocessor directives and `extern "C"` blocks. We
-//!    therefore reuse the LuaJIT stripper verbatim instead of forking it.
-//! 2. A `final class Azul` static facade exposing `Azul::$ffi` plus a
-//!    `Azul::lib()` accessor that lazily calls `FFI::cdef($cdef, libname)`
-//!    where `libname` is platform-resolved (`libazul.so` / `.dylib` /
-//!    `azul.dll`).
-//! 3. Idiomatic wrapper classes — one per FFI struct/tagged-union enum
-//!    that has a `_delete` C function, plus per-variant predicates and
-//!    payload extractors for tagged unions. See
+//! 1. A `<<<CDEF ... CDEF;` heredoc carrying the entire `azul.h` payload with C preprocessor
+//!    directives stripped via the existing helper [`super::lang_lua::cdef::strip_for_cdef`]. PHP's
+//!    FFI parser is structurally identical to LuaJIT's: it accepts plain C declarations but rejects
+//!    preprocessor directives and `extern "C"` blocks. We therefore reuse the LuaJIT stripper
+//!    verbatim instead of forking it.
+//! 2. A `final class Azul` static facade exposing `Azul::$ffi` plus a `Azul::lib()` accessor that
+//!    lazily calls `FFI::cdef($cdef, libname)` where `libname` is platform-resolved (`libazul.so` /
+//!    `.dylib` / `azul.dll`).
+//! 3. Idiomatic wrapper classes — one per FFI struct/tagged-union enum that has a `_delete` C
+//!    function, plus per-variant predicates and payload extractors for tagged unions. See
 //!    [`wrappers::generate_wrappers`].
 //!
 //! ## PHP version requirement
@@ -38,10 +35,12 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::{CodeBuilder, LanguageGenerator};
-use super::ir::CodegenIR;
-use super::lang_c::CGenerator;
+use super::{
+    config::CodegenConfig,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::CodegenIR,
+    lang_c::CGenerator,
+};
 
 /// Generate the full `Azul.php` source file.
 ///
@@ -49,10 +48,9 @@ use super::lang_c::CGenerator;
 /// no per-target dialects), but is taken by reference to match the
 /// signatures of other language entry points.
 pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
-    // 1. Run the production C-header generator and strip preprocessor
-    //    directives so the result is acceptable inside FFI::cdef().
-    //    We reuse the LuaJIT stripper because PHP's FFI parser shares
-    //    the same restrictions (no #include / #ifdef / extern "C").
+    // 1. Run the production C-header generator and strip preprocessor directives so the result is
+    //    acceptable inside FFI::cdef(). We reuse the LuaJIT stripper because PHP's FFI parser
+    //    shares the same restrictions (no #include / #ifdef / extern "C").
     let c_config = CodegenConfig::c_header();
     let c_header = CGenerator.generate(ir, &c_config)?;
     let mut cdef_payload = super::lang_lua::cdef::strip_for_cdef(&c_header);
@@ -105,7 +103,8 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("throw new \\RuntimeException(");
     builder.indent();
     builder.line(
-        "'Azul.php requires the PHP FFI extension. Install php-ffi and set ffi.enable=true in php.ini.'",
+        "'Azul.php requires the PHP FFI extension. Install php-ffi and set ffi.enable=true in \
+         php.ini.'",
     );
     builder.dedent();
     builder.line(");");

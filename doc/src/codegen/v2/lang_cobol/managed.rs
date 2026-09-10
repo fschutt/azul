@@ -2,30 +2,31 @@
 //!
 //! COBOL is significantly more constrained than Lua/Pascal/Ada/Fortran:
 //!
-//! * No closures. User callbacks have to be written as standalone
-//!   ENTRY paragraphs in the user's PROCEDURE DIVISION.
-//! * No struct-by-value RETURNING — GnuCOBOL's CALL ... RETURNING
-//!   doesn't accept a TYPEDEF record; callers pass the return slot
-//!   by-reference instead.
+//! * No closures. User callbacks have to be written as standalone ENTRY paragraphs in the user's
+//!   PROCEDURE DIVISION.
+//! * No struct-by-value RETURNING — GnuCOBOL's CALL ... RETURNING doesn't accept a TYPEDEF record;
+//!   callers pass the return slot by-reference instead.
 //!
 //! What we can offer from the copybook side:
 //!
-//! 1. **Level-78 alias constants** for the host-invoker C symbols
-//!    so callers write `CALL FN-AZ-APP-SET-HOST-HANDLE-RELEASER`
-//!    instead of `CALL "AzApp_setHostHandleReleaser"`.
-//! 2. **A documentation block** describing the expected user-side
-//!    pattern: a `WS-AZUL-HANDLES` table in WORKING-STORAGE, an
-//!    `AZUL-RELEASER` ENTRY paragraph, and per-kind ENTRY
-//!    paragraphs registered at program start.
+//! 1. **Level-78 alias constants** for the host-invoker C symbols so callers write `CALL
+//!    FN-AZ-APP-SET-HOST-HANDLE-RELEASER` instead of `CALL "AzApp_setHostHandleReleaser"`.
+//! 2. **A documentation block** describing the expected user-side pattern: a `WS-AZUL-HANDLES`
+//!    table in WORKING-STORAGE, an `AZUL-RELEASER` ENTRY paragraph, and per-kind ENTRY paragraphs
+//!    registered at program start.
 //!
 //! The actual handle-table machinery has to live in the user's
 //! program, not the copybook — the copybook isn't a runtime, it's a
 //! declaration include.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{host_invoker_kinds, wrapper_name};
-use super::{cobol_identifier, to_cobol_case};
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::CodegenIR,
+        managed_host_invoker::{host_invoker_kinds, wrapper_name},
+    },
+    cobol_identifier, to_cobol_case,
+};
 
 /// Emit the host-invoker FN-* aliases. Call between
 /// `generate_function_constants` and `generate_wrapper_docs`.

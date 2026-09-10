@@ -1,18 +1,24 @@
+use std::collections::{BTreeMap, HashMap};
+
 /// Test inline and inline-block elements with gradient backgrounds and borders
 /// Verifies that gradient backgrounds and borders are correctly generated in the display list
 use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::display_list::DisplayListItem;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
+use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        display_list::DisplayListItem, paged_layout::layout_document_paged_with_config,
+        pagination::FakePageConfig,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 /// Helper function to run layout and return display list items
 fn run_layout(html: &str) -> Vec<DisplayListItem> {
@@ -431,7 +437,8 @@ fn test_radial_gradient_on_inline_block() {
 
     assert!(
         any_gradient_count >= 1 || radial_gradient_count >= 1,
-        "Should have at least 1 gradient item for the radial gradient, got radial={radial_gradient_count}, any={any_gradient_count}"
+        "Should have at least 1 gradient item for the radial gradient, got \
+         radial={radial_gradient_count}, any={any_gradient_count}"
     );
 }
 

@@ -5,14 +5,11 @@
 
 use std::{cell::RefCell, sync::Arc};
 
-use azul_core::icon::SharedIconProvider;
-use azul_core::{refany::RefAny, resources::AppConfig};
+use azul_core::{icon::SharedIconProvider, refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::super::common::debug_server::LogCategory;
-use super::super::common::event::SharedUndoManager;
+use super::super::common::{debug_server::LogCategory, event::SharedUndoManager};
 use crate::log_debug;
 
 /// Shared resources for all windows in a Linux application
@@ -91,7 +88,8 @@ impl AppResources {
 
         log_debug!(
             LogCategory::Resources,
-            "[AppResources] System style detected: platform={:?}, theme={:?}, ui_font={:?}, accent={:?}",
+            "[AppResources] System style detected: platform={:?}, theme={:?}, ui_font={:?}, \
+             accent={:?}",
             system_style.platform,
             system_style.theme,
             system_style.fonts.ui_font,

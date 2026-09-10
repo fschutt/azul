@@ -29,12 +29,16 @@
 //! today's guess into the recorded data and make the corpus unusable when the
 //! guess changes.
 
-use azul::json::{Json, JsonKeyValue};
-use azul::vec::{JsonKeyValueVec, JsonVec, U8Vec};
-use azul::zip::Zip;
+use azul::{
+    json::{Json, JsonKeyValue},
+    vec::{JsonKeyValueVec, JsonVec, U8Vec},
+    zip::Zip,
+};
 
-use crate::model::{Finding, Stroke, VoiceClip};
-use crate::AppState;
+use crate::{
+    model::{Finding, Stroke, VoiceClip},
+    AppState,
+};
 
 // --------------------------------------------------------------------------
 // Small bridges into the C-ABI vector types.

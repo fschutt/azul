@@ -45,15 +45,18 @@
 //! size guard here is a post-hoc length check rather than the pre-read
 //! rejection Windows and macOS get.
 
-use std::sync::mpsc::{self, Sender, SyncSender};
-use std::sync::{Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::{
+    sync::{
+        mpsc::{self, Sender, SyncSender},
+        Mutex, MutexGuard, OnceLock,
+    },
+    time::Duration,
+};
 
 use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 use x11_clipboard::Clipboard;
 
-use super::super::super::common::clipboard::MAX_FLAVOR_BYTES;
-use super::super::super::common::debug_server::LogCategory;
+use super::super::super::common::{clipboard::MAX_FLAVOR_BYTES, debug_server::LogCategory};
 use crate::log_warn;
 
 /// The selection targets a payload read probes for, richest first.
@@ -281,8 +284,8 @@ fn store_both_selections(text: &str) {
         {
             log_warn!(
                 LogCategory::Resources,
-                "[X11] failed to take a selection for the copied text — pasting inside this \
-                 app still works from the parked copy, other apps will not see it"
+                "[X11] failed to take a selection for the copied text — pasting inside this app \
+                 still works from the parked copy, other apps will not see it"
             );
         }
     }
@@ -388,8 +391,8 @@ fn load_selection_payload() -> Option<ClipboardPayload> {
                 // back — the ranked order means that is the best of them.
                 log_warn!(
                     LogCategory::Resources,
-                    "[X11] selection owner stopped answering at target `{target}` — using the \
-                     {} flavor(s) already read",
+                    "[X11] selection owner stopped answering at target `{target}` — using the {} \
+                     flavor(s) already read",
                     payload.len()
                 );
                 break;
@@ -543,8 +546,10 @@ impl std::fmt::Display for ClipboardError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-    use std::{sync::mpsc, time::Duration, time::Instant};
+    use std::{
+        sync::{mpsc, Mutex},
+        time::{Duration, Instant},
+    };
 
     use super::{
         await_selection_reply, commit_copy, resolve_paste, ClipboardJob, PASTE_UI_DEADLINE,

@@ -17,14 +17,16 @@
 //! `camera/v4l2.rs` — no link-time dep); iOS has no `libloading`, so it keeps
 //! the historical Float32-interleaved assumption (what the iOS HAL delivers).
 
-use std::os::raw::c_char;
-use std::ptr;
-use std::sync::{Arc, Mutex, Once};
-use std::time::Duration;
+use std::{
+    os::raw::c_char,
+    ptr,
+    sync::{Arc, Mutex, Once},
+    time::Duration,
+};
 
-use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+use objc2::{
+    define_class, msg_send, rc::Retained, runtime::ProtocolObject, AllocAnyThread, DefinedClass,
+};
 use objc2_av_foundation::{
     AVCaptureAudioDataOutput, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureConnection,
     AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession, AVMediaTypeAudio,
@@ -66,7 +68,7 @@ fn cm_get_asbd() -> Option<unsafe extern "C" fn(*const core::ffi::c_void) -> *co
     static CM: OnceLock<Option<(libloading::Library, GetAsbd)>> = OnceLock::new();
     CM.get_or_init(|| unsafe {
         let lib = crate::desktop::open_first_lib(&[
-            "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
+            "/System/Library/Frameworks/CoreMedia.framework/CoreMedia"
         ])?;
         let f: GetAsbd = *lib
             .get(b"CMAudioFormatDescriptionGetStreamBasicDescription\0")
@@ -205,8 +207,8 @@ define_class!(
             static FMT_LOGGED: Once = Once::new();
             FMT_LOGGED.call_once(|| match &asbd {
                 Some(a) => crate::plog_info!(
-                    "[audio] mic format: {}Hz x{}ch {}bit float={} interleaved={} \
-                     (advisory: {}Hz x{}ch)",
+                    "[audio] mic format: {}Hz x{}ch {}bit float={} interleaved={} (advisory: {}Hz \
+                     x{}ch)",
                     a.sample_rate,
                     a.channels_per_frame,
                     a.bits_per_channel,

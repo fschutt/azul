@@ -16,19 +16,23 @@
 
 use alloc::vec::Vec;
 
-use azul_core::audio::{AudioConfig, AudioFrame};
-
-use super::capture_common::{mic_backend, terminate_requested};
-use azul_core::callbacks::Update;
-use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::task::{ThreadId, ThreadReceiver};
+use azul_core::{
+    audio::{AudioConfig, AudioFrame},
+    callbacks::Update,
+    dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter},
+    refany::{OptionRefAny, RefAny},
+    task::{ThreadId, ThreadReceiver},
+};
 use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::F32Vec;
 
-use crate::callbacks::{Callback, CallbackInfo, CallbackType};
-use crate::thread::{
-    Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
+use super::capture_common::{mic_backend, terminate_requested};
+use crate::{
+    callbacks::{Callback, CallbackInfo, CallbackType},
+    thread::{
+        Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallback,
+    },
 };
 
 // --- User hook: on_frame (backreference DI, FFI-exposed) ---
@@ -246,15 +250,14 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: T
         TEST_TONE_ANNOUNCE.call_once(|| {
             if have_backend {
                 eprintln!(
-                    "[azul][microphone] the platform microphone backend failed to open \
-                     (device missing/busy or libasound unavailable — see lines above) \
-                     — feeding a synthetic 440 Hz TEST TONE instead of the microphone"
+                    "[azul][microphone] the platform microphone backend failed to open (device \
+                     missing/busy or libasound unavailable — see lines above) — feeding a \
+                     synthetic 440 Hz TEST TONE instead of the microphone"
                 );
             } else {
                 eprintln!(
-                    "[azul][microphone] no microphone backend is registered in this \
-                     build/OS — feeding a synthetic 440 Hz TEST TONE instead of the \
-                     microphone"
+                    "[azul][microphone] no microphone backend is registered in this build/OS — \
+                     feeding a synthetic 440 Hz TEST TONE instead of the microphone"
                 );
             }
         });
@@ -1375,8 +1378,8 @@ mod autotest_generated {
         }
         assert!(
             finished(),
-            "mic_worker did not acknowledge TerminateThread within 2000ms — at shutdown it \
-             would be DETACHED rather than joined"
+            "mic_worker did not acknowledge TerminateThread within 2000ms — at shutdown it would \
+             be DETACHED rather than joined"
         );
     }
 }

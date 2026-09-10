@@ -49,7 +49,8 @@ pub struct VirtualViewManager {
     /// next unrelated relayout, and a status-bar label re-rendered with a
     /// longer text was clipped by the box the shorter text had earned. The
     /// window drains this set right after the pass that filled it and lays
-    /// the host out once more with the reported size (`crate::window::LayoutWindow::relayout_dom_for_virtual_view_sizes`).
+    /// the host out once more with the reported size
+    /// (`crate::window::LayoutWindow::relayout_dom_for_virtual_view_sizes`).
     natural_size_stale: alloc::collections::BTreeSet<(DomId, NodeId)>,
 }
 
@@ -117,7 +118,8 @@ struct VirtualViewState {
 /// Which edges of the materialized window the visible window is near
 /// (within `EDGE_THRESHOLD`) AND has document left to load past.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-#[allow(clippy::struct_excessive_bools)] // one independent bool per box edge (top/bottom/left/right)
+#[allow(clippy::struct_excessive_bools)] // one independent bool per box edge
+                                         // (top/bottom/left/right)
 struct EdgeFlags {
     /// Near top edge
     top: bool,
@@ -309,7 +311,8 @@ impl VirtualViewManager {
         // with a different window.
         if matches!(
             reason,
-            VirtualViewCallbackReason::EdgeScrolled(_) | VirtualViewCallbackReason::ScrollBeyondContent
+            VirtualViewCallbackReason::EdgeScrolled(_)
+                | VirtualViewCallbackReason::ScrollBeyondContent
         ) {
             state.served_scroll_demand = Some(reason);
         }
@@ -406,10 +409,10 @@ impl VirtualViewManager {
     ///
     /// Returns `Some(reason)` if the `VirtualView` callback should be invoked:
     /// - `InitialRender`: `VirtualView` has never been invoked
-    /// - `BoundsExpanded`: the container grew since the callback last saw it,
-    ///   and is now larger than the materialized content
-    /// - `ScrollBeyondContent`: the visible window left the materialized one
-    ///   entirely (a jump past everything that is rendered)
+    /// - `BoundsExpanded`: the container grew since the callback last saw it, and is now larger
+    ///   than the materialized content
+    /// - `ScrollBeyondContent`: the visible window left the materialized one entirely (a jump past
+    ///   everything that is rendered)
     /// - `EdgeScrolled`: User scrolled near an edge (for lazy loading)
     ///
     /// Returns `None` if no re-invocation is needed — including when the
@@ -537,12 +540,12 @@ impl VirtualViewState {
     /// scroll position
     ///
     /// Checks, in this order:
-    /// 1. Container bounds expanded beyond the materialized content
-    ///    (`BoundsExpanded`, once per container growth — armed by
-    ///    [`VirtualViewManager::check_reinvoke`], served by any invocation).
-    /// 2. What the scroll position demands of the materialized window
-    ///    ([`Self::scroll_demand`]: `ScrollBeyondContent` / `EdgeScrolled`),
-    ///    minus the demand this window has already been invoked for.
+    /// 1. Container bounds expanded beyond the materialized content (`BoundsExpanded`, once per
+    ///    container growth — armed by [`VirtualViewManager::check_reinvoke`], served by any
+    ///    invocation).
+    /// 2. What the scroll position demands of the materialized window ([`Self::scroll_demand`]:
+    ///    `ScrollBeyondContent` / `EdgeScrolled`), minus the demand this window has already been
+    ///    invoked for.
     ///
     /// This is where the "fires once per edge approach" latch is CLEARED: a
     /// scroll position that demands nothing releases `served_scroll_demand`,
@@ -588,18 +591,15 @@ impl VirtualViewState {
     /// The visible window is `[current_offset, current_offset + container]`,
     /// in the same virtual space as `materialized` and the document estimate.
     ///
-    /// * `ScrollBeyondContent`: the visible window does not overlap the
-    ///   materialized one at all (a scrollbar drag or a programmatic jump
-    ///   landed on pages that were never materialized) while the document
-    ///   does extend there. Everything on screen would be bare background.
-    /// * `EdgeScrolled(edge)`: the visible window is within `EDGE_THRESHOLD`
-    ///   of an edge of the materialized window that the document extends past
-    ///   (so there is something to load — otherwise the ends of every
-    ///   document would demand a re-materialization forever). Priority
-    ///   bottom / right / top / left, the common infinite-scroll directions
-    ///   first; a callback that materializes around the offset clears all of
-    ///   them at once, one that only extends the reported edge is asked about
-    ///   the next one on the next check.
+    /// * `ScrollBeyondContent`: the visible window does not overlap the materialized one at all (a
+    ///   scrollbar drag or a programmatic jump landed on pages that were never materialized) while
+    ///   the document does extend there. Everything on screen would be bare background.
+    /// * `EdgeScrolled(edge)`: the visible window is within `EDGE_THRESHOLD` of an edge of the
+    ///   materialized window that the document extends past (so there is something to load —
+    ///   otherwise the ends of every document would demand a re-materialization forever). Priority
+    ///   bottom / right / top / left, the common infinite-scroll directions first; a callback that
+    ///   materializes around the offset clears all of them at once, one that only extends the
+    ///   reported edge is asked about the next one on the next check.
     ///
     /// Both require the user to have actually moved from the resting position
     /// captured at `InitialRender`: the callback was just invoked for THAT
@@ -1682,7 +1682,8 @@ mod autotest_generated {
         m.get_or_create_nested_dom_id(DOM, n(1));
         mark(&mut m, DOM, n(1), VirtualViewCallbackReason::InitialRender);
         let (o, s) = materialize(0.0);
-        m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+        m.update_virtual_view_info(DOM, n(1), o, s, doc)
+            .expect("view exists");
 
         let mut invocations = Vec::new();
         let mut offset = 0.0;
@@ -1698,7 +1699,8 @@ mod autotest_generated {
                 );
                 mark(&mut m, DOM, n(1), reason);
                 let (o, s) = materialize(offset);
-                m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+                m.update_virtual_view_info(DOM, n(1), o, s, doc)
+                    .expect("view exists");
                 invocations.push((offset, o.y));
             }
         }
@@ -1708,7 +1710,10 @@ mod autotest_generated {
         // starts at page 0 and ends at page TOTAL-3 (the last 3-page window),
         // advancing one page per fire.
         for w in invocations.windows(2) {
-            assert!(w[1].1 > w[0].1, "window must advance on every fire: {invocations:?}");
+            assert!(
+                w[1].1 > w[0].1,
+                "window must advance on every fire: {invocations:?}"
+            );
         }
         let last_first = TOTAL_PAGES - 3.0;
         assert_eq!(
@@ -1731,12 +1736,19 @@ mod autotest_generated {
                 );
                 mark(&mut m, DOM, n(1), reason);
                 let (o, s) = materialize(offset);
-                m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+                m.update_virtual_view_info(DOM, n(1), o, s, doc)
+                    .expect("view exists");
                 ups += 1;
             }
         }
-        assert_eq!(ups, last_first as usize, "one re-materialization per page retreat");
-        assert_eq!(st(&m, DOM, n(1)).materialized.map(|r| r.origin.y), Some(0.0));
+        assert_eq!(
+            ups, last_first as usize,
+            "one re-materialization per page retreat"
+        );
+        assert_eq!(
+            st(&m, DOM, n(1)).materialized.map(|r| r.origin.y),
+            Some(0.0)
+        );
     }
 
     #[test]
@@ -1754,7 +1766,12 @@ mod autotest_generated {
             m.check_reinvoke(DOM, n(1), &far, bounds),
             Some(VirtualViewCallbackReason::ScrollBeyondContent)
         );
-        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::ScrollBeyondContent);
+        mark(
+            &mut m,
+            DOM,
+            n(1),
+            VirtualViewCallbackReason::ScrollBeyondContent,
+        );
 
         // Until the callback answers, the same jump is not asked twice.
         assert_eq!(m.check_reinvoke(DOM, n(1), &far, bounds), None);
@@ -1860,9 +1877,12 @@ mod autotest_generated {
         // inclusivity. It needs the both-axes fixture: on `invoked_state` the
         // window spans the document's full width, so left/right have nothing to
         // load and correctly never fire whatever the distance.
-        let mut s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc, both axes
-                                                       // y is parked dead centre of the window (450 px from either vertical
-                                                       // edge) so that only the x axis can speak.
+        let mut s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc,
+                                                           // both axes
+                                                           // y is parked dead centre of the window
+                                                           // (450 px from either vertical
+                                                           // edge) so that only the x axis can
+                                                           // speak.
         let quiet_y = FIXTURE_WINDOW_ORIGIN_Y + 450.0;
 
         // Left edge: vis_min_x - mat_min_x == 1200 - 1000 == 200 → inclusive hit.
@@ -1922,7 +1942,10 @@ mod autotest_generated {
         };
 
         // Grow down: bottom is 600 px away → Right is next.
-        answer(&mut s, LogicalRect::new(pos(1000.0, 1000.0), sz(1000.0, 1500.0)));
+        answer(
+            &mut s,
+            LogicalRect::new(pos(1000.0, 1000.0), sz(1000.0, 1500.0)),
+        );
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right))
@@ -1931,14 +1954,20 @@ mod autotest_generated {
         assert_eq!(s.check_reinvoke_condition(offset, container), None);
 
         // Grow right → Top.
-        answer(&mut s, LogicalRect::new(pos(1000.0, 1000.0), sz(1500.0, 1500.0)));
+        answer(
+            &mut s,
+            LogicalRect::new(pos(1000.0, 1000.0), sz(1500.0, 1500.0)),
+        );
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
 
         // Grow up → Left.
-        answer(&mut s, LogicalRect::new(pos(1000.0, 500.0), sz(1500.0, 2000.0)));
+        answer(
+            &mut s,
+            LogicalRect::new(pos(1000.0, 500.0), sz(1500.0, 2000.0)),
+        );
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left))
@@ -1946,7 +1975,10 @@ mod autotest_generated {
 
         // Grow left: every edge is out of reach → quiet, and the document is
         // the same one throughout.
-        answer(&mut s, LogicalRect::new(pos(500.0, 500.0), sz(2000.0, 2000.0)));
+        answer(
+            &mut s,
+            LogicalRect::new(pos(500.0, 500.0), sz(2000.0, 2000.0)),
+        );
         assert_eq!(s.check_reinvoke_condition(offset, container), None);
         assert_eq!(s.virtual_rect, Some(doc));
     }
@@ -2386,9 +2418,8 @@ mod autotest_generated {
 
         assert!(
             m.materialized_sizes().is_empty(),
-            "before the callback has run there is nothing to size from - a \
-             view is sized from the OUTSIDE first, which is the only order \
-             that terminates"
+            "before the callback has run there is nothing to size from - a view is sized from the \
+             OUTSIDE first, which is the only order that terminates"
         );
 
         m.update_virtual_view_info(

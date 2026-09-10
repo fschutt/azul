@@ -6,17 +6,16 @@
 //
 // These simulate realistic scenarios: HTML-like state transitions.
 
-use azul_core::diff::{
-    reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult, NodeChangeSet,
+use azul_core::{
+    diff::{reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult, NodeChangeSet},
+    dom::{DomId, NodeData},
+    geom::LogicalRect,
+    id::NodeId,
+    styled_dom::StyledNodeState,
+    task::Instant,
+    OrderedMap,
 };
-use azul_core::dom::{DomId, NodeData};
-use azul_core::geom::LogicalRect;
-use azul_core::id::NodeId;
-use azul_core::styled_dom::StyledNodeState;
-use azul_core::task::Instant;
-use azul_core::OrderedMap;
-use azul_css::props::property::RelayoutScope;
-use azul_css::AzString;
+use azul_css::{props::property::RelayoutScope, AzString};
 
 /// Helper: create a layout map with zero-rect entries for N nodes
 fn make_layout(n: usize) -> OrderedMap<NodeId, LogicalRect> {

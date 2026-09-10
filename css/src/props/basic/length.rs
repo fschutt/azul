@@ -302,7 +302,8 @@ pub fn parse_float_value(input: &str) -> Result<FloatValue, ParseFloatError> {
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseError {
@@ -325,7 +326,8 @@ impl_display! { PercentageParseError, {
     InvalidUnit(u) => format!("Error parsing percentage: invalid unit \"{}\"", u.as_str()),
 }}
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseErrorOwned {

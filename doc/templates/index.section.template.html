@@ -6,9 +6,18 @@
       </div>
       <div class="feature-image">
         <div class="screenshot-wrapper">
-          <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
-          <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
-          <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          <picture class="showcase linux">
+            <source srcset="$$EXAMPLE_IMAGE_SOURCE_LINUX_DARK$$" media="(prefers-color-scheme: dark)">
+            <img src="$$EXAMPLE_IMAGE_SOURCE_LINUX_LIGHT$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          </picture>
+          <picture class="showcase mac">
+            <source srcset="$$EXAMPLE_IMAGE_SOURCE_MAC_DARK$$" media="(prefers-color-scheme: dark)">
+            <img src="$$EXAMPLE_IMAGE_SOURCE_MAC_LIGHT$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          </picture>
+          <picture class="showcase windows">
+            <source srcset="$$EXAMPLE_IMAGE_SOURCE_WINDOWS_DARK$$" media="(prefers-color-scheme: dark)">
+            <img src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS_LIGHT$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          </picture>
         </div>
       </div>
       <div class="feature-code">

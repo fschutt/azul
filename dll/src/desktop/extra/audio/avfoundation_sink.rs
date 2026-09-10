@@ -6,24 +6,23 @@
 //!
 //! Two correctness constraints this file upholds:
 //!
-//! * `AVAudioPlayerNode` requires the **standard** (deinterleaved float)
-//!   format — scheduling interleaved f32 buffers is a documented crash /
-//!   silent-failure class, so `open` builds the format with
-//!   `initStandardFormatWithSampleRate:channels:` and `play` does the
-//!   strided interleaved→planar copy into `floatChannelData`.
-//! * Scheduled buffers must be **bounded**: `scheduleBuffer:completionHandler:`
-//!   queues without limit, so if frames arrive faster than realtime the
-//!   backlog (and memory) grows forever. An `Arc<AtomicUsize>` counts
-//!   in-flight buffers (incremented before scheduling, decremented in the
-//!   block2 completion handler — same `RcBlock` pattern as
-//!   `extra/biometric/apple.rs`); past `MAX_IN_FLIGHT` the frame is dropped.
+//! * `AVAudioPlayerNode` requires the **standard** (deinterleaved float) format — scheduling
+//!   interleaved f32 buffers is a documented crash / silent-failure class, so `open` builds the
+//!   format with `initStandardFormatWithSampleRate:channels:` and `play` does the strided
+//!   interleaved→planar copy into `floatChannelData`.
+//! * Scheduled buffers must be **bounded**: `scheduleBuffer:completionHandler:` queues without
+//!   limit, so if frames arrive faster than realtime the backlog (and memory) grows forever. An
+//!   `Arc<AtomicUsize>` counts in-flight buffers (incremented before scheduling, decremented in the
+//!   block2 completion handler — same `RcBlock` pattern as `extra/biometric/apple.rs`); past
+//!   `MAX_IN_FLIGHT` the frame is dropped.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Once};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Once,
+};
 
 use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2::AllocAnyThread;
+use objc2::{rc::Retained, AllocAnyThread};
 use objc2_avf_audio::{AVAudioEngine, AVAudioFormat, AVAudioPCMBuffer, AVAudioPlayerNode};
 
 /// Max scheduled-but-unplayed buffers before `play` starts dropping frames.
@@ -104,8 +103,8 @@ impl AvfSink {
             static DROPPED: Once = Once::new();
             DROPPED.call_once(|| {
                 crate::plog_warn!(
-                    "[audio] sink backlog full ({} buffers in flight) - dropping frames \
-                     (producer faster than realtime; logged once)",
+                    "[audio] sink backlog full ({} buffers in flight) - dropping frames (producer \
+                     faster than realtime; logged once)",
                     MAX_IN_FLIGHT
                 );
             });

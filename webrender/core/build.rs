@@ -88,10 +88,8 @@ fn write_unoptimized_shaders(
 
         writeln!(
             shader_file,
-            "    shaders.insert(\"{shader_name}\", SourceWithDigest {{ \
-                compressed_source: include_bytes!(\"{br_include_path}\"), \
-                digest: \"{digest}\"\
-            }});",
+            "    shaders.insert(\"{shader_name}\", SourceWithDigest {{ compressed_source: \
+             include_bytes!(\"{br_include_path}\"), digest: \"{digest}\"}});",
         )?;
     }
     writeln!(shader_file, "    shaders")?;

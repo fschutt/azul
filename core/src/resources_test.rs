@@ -71,7 +71,8 @@ mod tests {
         let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
         let c = img.clone();
         assert_eq!(img, c); // same id -> shallow clone
-                            // Two live copies: sole-owner extraction must fail (and `c` drops cleanly).
+                            // Two live copies: sole-owner extraction must fail (and `c` drops
+                            // cleanly).
         assert!(c.into_inner().is_none());
         // Back to one owner: extraction now succeeds, forgetting `self` without leak.
         assert!(img.into_inner().is_some());
@@ -571,7 +572,8 @@ mod autotest_generated {
         assert_eq!(config.log_level, AppLogLevel::Error);
         assert!(
             config.enable_visual_panic_hook,
-            "a release build is panic=abort: the crash dialog is the only report surface, on by default"
+            "a release build is panic=abort: the crash dialog is the only report surface, on by \
+             default"
         );
         assert!(config.enable_logging_on_panic);
         assert_eq!(

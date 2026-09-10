@@ -3,23 +3,20 @@
 //! This module defines the rendering backend selection and compositor
 //! pipeline types:
 //!
-//! - [`AzBackend`] — resolved from the `AZ_BACKEND` env var or
-//!   programmatic `HwAcceleration` setting.
-//! - [`CompositorMode`] — the concrete GPU / CPU / Auto mode derived
-//!   from `AzBackend`.
-//! - [`Compositor`] trait — interface that concrete implementations
-//!   (e.g. `CpuCompositor`, future GPU compositor) must satisfy.
-//! - [`RenderContext`] — platform-specific rendering context handle
-//!   (OpenGL, Metal, D3D11, Vulkan, or CPU).
-//! - [`GpuInfo`] / [`check_gpu_blacklist`] — GPU driver inspection and
-//!   blacklist for known-broken configurations.
+//! - [`AzBackend`] — resolved from the `AZ_BACKEND` env var or programmatic `HwAcceleration`
+//!   setting.
+//! - [`CompositorMode`] — the concrete GPU / CPU / Auto mode derived from `AzBackend`.
+//! - [`Compositor`] trait — interface that concrete implementations (e.g. `CpuCompositor`, future
+//!   GPU compositor) must satisfy.
+//! - [`RenderContext`] — platform-specific rendering context handle (OpenGL, Metal, D3D11, Vulkan,
+//!   or CPU).
+//! - [`GpuInfo`] / [`check_gpu_blacklist`] — GPU driver inspection and blacklist for known-broken
+//!   configurations.
 
 use azul_core::geom::PhysicalSizeU32;
 use azul_layout::solver3::display_list::DisplayList;
 
-use super::error::CompositorError;
-
-use super::debug_server::LogCategory;
+use super::{debug_server::LogCategory, error::CompositorError};
 use crate::log_warn;
 
 /// Compositor mode selection.
@@ -164,10 +161,10 @@ impl AzBackend {
                     #[cfg(not(feature = "web"))]
                     if val.to_lowercase().starts_with("web") {
                         eprintln!(
-                            "[azul] AZ_BACKEND={val} requests the web backend, but this build \
-                             has no `web` feature, so it does NOTHING (falling back to the \
-                             default backend). Rebuild with: cargo build -p azul-dll \
-                             --features build-dll,web"
+                            "[azul] AZ_BACKEND={val} requests the web backend, but this build has \
+                             no `web` feature, so it does NOTHING (falling back to the default \
+                             backend). Rebuild with: cargo build -p azul-dll --features \
+                             build-dll,web"
                         );
                     }
                     log_warn!(
@@ -249,7 +246,9 @@ pub fn query_gpu_info(gl: &gl_context_loader::GenericGlContext) -> GpuCheckResul
 
     if vendor.is_empty() && renderer.is_empty() && version.is_empty() {
         return GpuCheckResult::QueryFailed(
-            "glGetString returned no vendor/renderer/version — GL context not current or driver broken".into(),
+            "glGetString returned no vendor/renderer/version — GL context not current or driver \
+             broken"
+                .into(),
         );
     }
 
@@ -319,8 +318,8 @@ pub fn check_gpu_blacklist(info: &GpuInfo) -> GpuCheckResult {
     {
         return GpuCheckResult::Blacklisted {
             info: info.clone(),
-            reason: "Mesa software rasteriser (llvmpipe/softpipe/swrast) detected — \
-                     cpurender is faster and avoids desktop-GLSL shader-compile errors"
+            reason: "Mesa software rasteriser (llvmpipe/softpipe/swrast) detected — cpurender is \
+                     faster and avoids desktop-GLSL shader-compile errors"
                 .into(),
         };
     }
@@ -334,8 +333,8 @@ pub fn check_gpu_blacklist(info: &GpuInfo) -> GpuCheckResult {
     {
         return GpuCheckResult::Blacklisted {
             info: info.clone(),
-            reason: "NVIDIA driver without shader compiler (azul#220) — \
-                     the GL driver loads but cannot compile shaders"
+            reason: "NVIDIA driver without shader compiler (azul#220) — the GL driver loads but \
+                     cannot compile shaders"
                 .into(),
         };
     }
@@ -474,7 +473,10 @@ mod render_selector_tests {
         assert_eq!(render_backend_from_env("opengl"), Some(AzBackend::Gpu));
         assert_eq!(render_backend_from_env("gl"), Some(AzBackend::Gpu));
         assert_eq!(render_backend_from_env("auto"), Some(AzBackend::Auto));
-        assert_eq!(render_backend_from_env("headless"), Some(AzBackend::Headless));
+        assert_eq!(
+            render_backend_from_env("headless"),
+            Some(AzBackend::Headless)
+        );
 
         // An unrecognised value is not a renderer either.
         assert_eq!(render_backend_from_env("nonsense"), None);

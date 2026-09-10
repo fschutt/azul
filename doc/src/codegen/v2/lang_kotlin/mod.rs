@@ -6,16 +6,13 @@
 //! emit one `Azul.kt` file containing:
 //!
 //! 1. `interface AzulNative : Library` — the JNA FFI declarations.
-//! 2. `open class Az<Foo> : Structure() { ... }` per FFI struct, with
-//!    `@JvmField` properties (so JNA can write fields directly), an
-//!    overridden `getFieldOrder`, and `ByValue` / `ByReference` inner
-//!    classes for pass-by-value vs pointer parameters.
-//! 3. `enum class Az<Foo>(val value: Int) { ... }` per unit enum, plus
-//!    a per-tagged-union `open class Az<Foo> : Union()` + a parallel
-//!    Java-style `Az<Foo>_Tag` enum.
-//! 4. Idiomatic Kotlin wrapper classes (`class App private constructor
-//!    (...) : AutoCloseable`) for every FFI type with a `_delete`
-//!    function. Includes Kotlin `use { }` ergonomics out of the box
+//! 2. `open class Az<Foo> : Structure() { ... }` per FFI struct, with `@JvmField` properties (so
+//!    JNA can write fields directly), an overridden `getFieldOrder`, and `ByValue` / `ByReference`
+//!    inner classes for pass-by-value vs pointer parameters.
+//! 3. `enum class Az<Foo>(val value: Int) { ... }` per unit enum, plus a per-tagged-union `open
+//!    class Az<Foo> : Union()` + a parallel Java-style `Az<Foo>_Tag` enum.
+//! 4. Idiomatic Kotlin wrapper classes (`class App private constructor (...) : AutoCloseable`) for
+//!    every FFI type with a `_delete` function. Includes Kotlin `use { }` ergonomics out of the box
 //!    via `AutoCloseable`'s standard library extension.
 //!
 //! ## Shared with `lang_java`
@@ -32,20 +29,20 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    FunctionDef, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
-    TypeAliasDef, TypeCategory,
-};
-
 // ─── Reuse Java helpers where possible ─────────────────────────────────────
-
 pub use super::lang_java::ffi_type_name;
-pub use super::lang_java::is_java_reserved;
-pub use super::lang_java::map_jvm_type as base_map_jvm_type;
-pub use super::lang_java::user_enum_type_name;
+pub use super::lang_java::{
+    is_java_reserved, map_jvm_type as base_map_jvm_type, user_enum_type_name,
+};
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{
+        ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+        FieldRefKind, FunctionDef, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant,
+        StructDef, TypeAliasDef, TypeCategory,
+    },
+};
 
 /// Library name JNA loads. Matches the Java side.
 pub const LIBRARY_NAME: &str = "azul";
@@ -590,7 +587,11 @@ fn emit_monomorphized_alias(
                 let sep = if idx == last { ";" } else { "," };
                 builder.line(&format!("{}({}){}", v_name, idx, sep));
             }
-            builder.line(&format!("companion object {{ fun fromInt(v: Int): {} = values().first {{ it.value == v }} }}", name));
+            builder.line(&format!(
+                "companion object {{ fun fromInt(v: Int): {} = values().first {{ it.value == v }} \
+                 }}",
+                name
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();

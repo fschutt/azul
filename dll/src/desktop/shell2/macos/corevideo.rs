@@ -89,7 +89,7 @@ impl CoreVideoFunctions {
         unsafe {
             // Try to load CoreVideo framework
             let lib = crate::desktop::open_first_lib(&[
-                "/System/Library/Frameworks/CoreVideo.framework/CoreVideo",
+                "/System/Library/Frameworks/CoreVideo.framework/CoreVideo"
             ])
             .ok_or_else(|| "Failed to load CoreVideo framework".to_string())?;
 

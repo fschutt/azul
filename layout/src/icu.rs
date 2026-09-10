@@ -24,12 +24,13 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt::Write;
-use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use core::{
+    fmt::Write,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
 use std::sync::Mutex;
 
 use azul_css::AzString;
-
 // ICU4X-only imports (not used in the macOS Foundation backend)
 #[cfg(all(
     feature = "icu",
@@ -636,7 +637,6 @@ impl IcuDateTime {
 // When building for macOS with `icu_macos` feature, use Foundation formatters.
 #[cfg(all(target_os = "macos", feature = "icu_macos"))]
 pub use icu_macos::IcuLocalizer;
-
 // ─── Windows NLS backend ──────────────────────────────────────────────────────
 // When building for Windows with `icu_windows` feature, use Win32 NLS functions.
 #[cfg(all(target_os = "windows", feature = "icu_windows"))]
@@ -991,9 +991,7 @@ impl IcuLocalizer {
     /// - de-DE Medium: "15.01.2025"
     /// - de-DE Long: "15. Januar 2025"
     pub fn format_date(&mut self, date: IcuDate, length: FormatLength) -> IcuResult {
-        use icu::datetime::fieldsets::YMD;
-        use icu::datetime::input::Date;
-        use icu::datetime::DateTimeFormatter;
+        use icu::datetime::{fieldsets::YMD, input::Date, DateTimeFormatter};
 
         let icu_date = match Date::try_new_iso(date.year, date.month, date.day) {
             Ok(d) => d,
@@ -1025,9 +1023,7 @@ impl IcuLocalizer {
     /// - en-US: "4:30 PM" or "4:30:45 PM"
     /// - de-DE: "16:30" or "16:30:45"
     pub fn format_time(&mut self, time: IcuTime, include_seconds: bool) -> IcuResult {
-        use icu::datetime::fieldsets;
-        use icu::datetime::input::Time;
-        use icu::datetime::NoCalendarFormatter;
+        use icu::datetime::{fieldsets, input::Time, NoCalendarFormatter};
 
         let icu_time = match Time::try_new(time.hour, time.minute, time.second, 0) {
             Ok(t) => t,
@@ -1061,9 +1057,11 @@ impl IcuLocalizer {
 
     /// Format a date and time according to the current locale.
     pub fn format_datetime(&mut self, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
-        use icu::datetime::fieldsets::YMD;
-        use icu::datetime::input::{Date, DateTime, Time};
-        use icu::datetime::DateTimeFormatter;
+        use icu::datetime::{
+            fieldsets::YMD,
+            input::{Date, DateTime, Time},
+            DateTimeFormatter,
+        };
 
         let icu_date =
             match Date::try_new_iso(datetime.date.year, datetime.date.month, datetime.date.day) {

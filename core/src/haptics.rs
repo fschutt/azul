@@ -142,7 +142,11 @@ impl HapticPattern {
     // on `Selection`; merging them into one or-pattern would delete the ladder.
     #[allow(clippy::match_same_arms)]
     pub const fn fallback(self) -> Option<Self> {
-        use HapticPattern::{Selection, ImpactLight, ImpactSoft, ImpactMedium, ImpactHeavy, ImpactRigid, Success, Warning, Error, KeyPress, KeyRelease, TextHandleMove, LongPress, ContextClick, GestureStart, GestureEnd, Rise, Fall, Spin};
+        use HapticPattern::{
+            ContextClick, Error, Fall, GestureEnd, GestureStart, ImpactHeavy, ImpactLight,
+            ImpactMedium, ImpactRigid, ImpactSoft, KeyPress, KeyRelease, LongPress, Rise,
+            Selection, Spin, Success, TextHandleMove, Warning,
+        };
         match self {
             // The terminus: nothing is simpler than a selection tick.
             Selection => None,
@@ -245,7 +249,12 @@ impl HapticRequest {
     /// A request at full strength and natural duration — the common case.
     #[must_use]
     pub const fn new(pattern: HapticPattern, target: HapticTarget) -> Self {
-        Self { pattern, target, intensity: 1.0, duration_ms: 0 }
+        Self {
+            pattern,
+            target,
+            intensity: 1.0,
+            duration_ms: 0,
+        }
     }
 
     /// Clamp the scale into the range every backend assumes.
@@ -442,7 +451,10 @@ mod tests {
         for tiny in [0.0, 0.0001, -5.0, f32::NAN] {
             r.intensity = tiny;
             let a = r.amplitude_u8();
-            assert!(a >= 1, "intensity {tiny} produced amplitude {a}, which Android rejects");
+            assert!(
+                a >= 1,
+                "intensity {tiny} produced amplitude {a}, which Android rejects"
+            );
         }
         // NaN is treated as "full" by `intensity_clamped`, not as zero.
         r.intensity = f32::NAN;
@@ -494,8 +506,8 @@ mod tests {
             assert_eq!(
                 seen.last(),
                 Some(&HapticPattern::Selection),
-                "chain from {start:?} ended at {:?}, not Selection — a backend that only \
-                 supports Selection would drop it",
+                "chain from {start:?} ended at {:?}, not Selection — a backend that only supports \
+                 Selection would drop it",
                 seen.last()
             );
         }

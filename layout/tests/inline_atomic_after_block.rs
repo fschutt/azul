@@ -4,20 +4,21 @@
 //!
 //! Two things were wrong there, both visible in the frontpage screenshots:
 //!
-//! 1. The button sat 12.8 px lower on the FIRST layout pass than on every pass
-//!    after it. 12.8 px is `0.8 * 16 px`, the strut ascent of the container's
-//!    own font: the atomic inline reported no baseline the first time round, so
-//!    the line box aligned its top edge to the strut's baseline instead of its
-//!    own. Any redraw (clicking the button, i.e. `Update::RefreshDom`) then
-//!    moved it up — which is what left a ghost of the old button on screen.
+//! 1. The button sat 12.8 px lower on the FIRST layout pass than on every pass after it. 12.8 px is
+//!    `0.8 * 16 px`, the strut ascent of the container's own font: the atomic inline reported no
+//!    baseline the first time round, so the line box aligned its top edge to the strut's baseline
+//!    instead of its own. Any redraw (clicking the button, i.e. `Update::RefreshDom`) then moved it
+//!    up — which is what left a ghost of the old button on screen.
 //!
-//! 2. The line box holding it was only as tall as the strut (18.4 px), not as
-//!    tall as the button (42.5 px), so the container's height was ~24 px short
-//!    and the button hung out of its own parent.
+//! 2. The line box holding it was only as tall as the strut (18.4 px), not as tall as the button
+//!    (42.5 px), so the container's height was ~24 px short and the button hung out of its own
+//!    parent.
 //!
 //! Both are asserted here against the geometry a browser produces for the same
 //! markup: the box is positioned once, identically on every pass, and the
 //! container is tall enough to hold it.
+
+use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
@@ -33,7 +34,6 @@ use azul_layout::{
     xml::DomXmlExt,
     Solver3LayoutCache,
 };
-use std::collections::{BTreeMap, HashMap};
 
 /// The hello-world shape: a 32 px paragraph, then an inline-level button.
 const HTML: &str = r#"
@@ -289,7 +289,9 @@ fn dbg_dump_two_passes() {
         println!("=== pass {pass}");
         for (i, n) in tree.nodes.iter().enumerate() {
             let abs = cache.calculated_positions.get(i).copied();
-            let rel = tree.warm(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|w| w.relative_position);
+            let rel = tree
+                .warm(azul_layout::solver3::LayoutNodeId::new(i))
+                .and_then(|w| w.relative_position);
             println!(
                 "  [{i}] dom={:?} parent={:?} fc={:?} size={:?} rel={:?} abs={:?}",
                 n.dom_node_id.map(|d| d.index()),
@@ -394,7 +396,7 @@ fn an_inline_flex_box_is_as_tall_as_its_content_plus_its_own_box() {
     assert!(
         (btn_h - expected).abs() < 0.01,
         "the inline-flex button is {btn_h:.2} px tall for a {label_h:.2} px label; expected \
-         {expected:.2} (label + 12 px padding + 2 px border). A difference of exactly the \
-         padding means it was counted twice."
+         {expected:.2} (label + 12 px padding + 2 px border). A difference of exactly the padding \
+         means it was counted twice."
     );
 }

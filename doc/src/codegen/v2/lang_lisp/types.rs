@@ -2,33 +2,33 @@
 //! Common Lisp generator.
 //!
 //! Strategy:
-//! - **Unit-only enums** -> `(cffi:defcenum az-foo (:variant-a 0)
-//!   (:variant-b 1) ...)`. CFFI converts between the keyword and the
-//!   integer transparently at call sites.
-//! - **Tagged-union enums** -> a `defcenum` for the discriminator
-//!   (`az-foo-tag`) + one `defcstruct` per variant payload (each leads
-//!   with the `tag` slot so the layout matches the C ABI's
-//!   tag-then-payload representation) + a `defcunion az-foo` overlapping
-//!   all variant payloads at offset 0. We do NOT emit a separate "outer"
-//!   struct because CFFI's `defcunion` already supports
+//! - **Unit-only enums** -> `(cffi:defcenum az-foo (:variant-a 0) (:variant-b 1) ...)`. CFFI
+//!   converts between the keyword and the integer transparently at call sites.
+//! - **Tagged-union enums** -> a `defcenum` for the discriminator (`az-foo-tag`) + one `defcstruct`
+//!   per variant payload (each leads with the `tag` slot so the layout matches the C ABI's
+//!   tag-then-payload representation) + a `defcunion az-foo` overlapping all variant payloads at
+//!   offset 0. We do NOT emit a separate "outer" struct because CFFI's `defcunion` already supports
 //!   `:struct`-typed slots.
 //! - **POD structs** -> `(cffi:defcstruct az-foo (slot-a :uint32) ...)`.
-//! - **Callback typedefs** -> `(cffi:defctype az-foo-callback-type
-//!   :pointer)` plus a comment describing the canonical signature. CFFI
-//!   `defcallback` is used at call sites by user code; we don't emit
-//!   trampolines here because we have no Lisp callable to bind.
-//! - **Generic / Recursive / VecRef / Boxed / DestructorOrClone** are
-//!   skipped entirely (they're internal to the Rust side of the API).
+//! - **Callback typedefs** -> `(cffi:defctype az-foo-callback-type :pointer)` plus a comment
+//!   describing the canonical signature. CFFI `defcallback` is used at call sites by user code; we
+//!   don't emit trampolines here because we have no Lisp callable to bind.
+//! - **Generic / Recursive / VecRef / Boxed / DestructorOrClone** are skipped entirely (they're
+//!   internal to the Rust side of the API).
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+            MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+        },
+    },
+    ident_to_kebab, map_type_to_cffi, to_kebab_case,
 };
-use super::{ident_to_kebab, map_type_to_cffi, to_kebab_case};
 
 // =============================================================================
 // Top-level type emission

@@ -743,7 +743,10 @@ mod autotest_generated {
         ];
         hm.apply_press_target_capture(&mut events, &never_related);
         assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
-        assert_eq!(hm.press_target_for(9, MouseButton::Left), Some(press_dnid(4)));
+        assert_eq!(
+            hm.press_target_for(9, MouseButton::Left),
+            Some(press_dnid(4))
+        );
 
         // Seat 9 releases elsewhere: node 4 gets the captured release, and the
         // primary's press is still on file.
@@ -1580,9 +1583,20 @@ mod autotest_generated {
             seat_move(9, press_dnid(5), EventType::MouseUp),
         ];
         let released = apply_pointer_capture(&mut events, capture);
-        assert_eq!(events[0].target, press_dnid(3), "the captured seat's move went to the node");
-        assert_eq!(events[1].target, press_dnid(5), "the other seat's move did not");
-        assert!(!released, "the OTHER seat's release does not end this capture");
+        assert_eq!(
+            events[0].target,
+            press_dnid(3),
+            "the captured seat's move went to the node"
+        );
+        assert_eq!(
+            events[1].target,
+            press_dnid(5),
+            "the other seat's move did not"
+        );
+        assert!(
+            !released,
+            "the OTHER seat's release does not end this capture"
+        );
 
         let mut events = vec![seat_move(0, press_dnid(8), EventType::MouseUp)];
         assert!(apply_pointer_capture(&mut events, capture));
@@ -1596,10 +1610,12 @@ mod autotest_generated {
     fn host_and_page() -> FullHitTest {
         let mut full = FullHitTest::empty(None);
         let mut host = HitTest::empty();
-        host.regular_hit_test_nodes.insert(NodeId::new(3), hit_item(1));
+        host.regular_hit_test_nodes
+            .insert(NodeId::new(3), hit_item(1));
         full.hovered_nodes.insert(dom(0), host);
         let mut page = HitTest::empty();
-        page.regular_hit_test_nodes.insert(NodeId::new(2), hit_item(0));
+        page.regular_hit_test_nodes
+            .insert(NodeId::new(2), hit_item(0));
         full.hovered_nodes.insert(dom(1), page);
         full
     }
@@ -1644,8 +1660,10 @@ mod autotest_generated {
         // 4's chain is not. The old largest-id proxy would have focused 7.
         let mut full = FullHitTest::empty(None);
         let mut ht = HitTest::empty();
-        ht.regular_hit_test_nodes.insert(NodeId::new(4), hit_item(0));
-        ht.regular_hit_test_nodes.insert(NodeId::new(7), hit_item(2));
+        ht.regular_hit_test_nodes
+            .insert(NodeId::new(4), hit_item(0));
+        ht.regular_hit_test_nodes
+            .insert(NodeId::new(7), hit_item(2));
         full.hovered_nodes.insert(dom(0), ht);
         let seven = |_: DomId, n: NodeId| n.index() == 7;
         let no_parents = |_: DomId, _: NodeId| None;

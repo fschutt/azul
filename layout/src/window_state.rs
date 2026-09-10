@@ -215,7 +215,12 @@ impl FullWindowState {
             return false;
         }
         let before = self.pointer_seats.len();
-        if !self.pointer_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+        if !self
+            .pointer_seats
+            .as_ref()
+            .iter()
+            .any(|s| s.seat_id == seat_id)
+        {
             return false;
         }
         let mut v = self.pointer_seats.clone().into_library_owned_vec();
@@ -281,7 +286,12 @@ impl FullWindowState {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             return false;
         }
-        if !self.keyboard_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+        if !self
+            .keyboard_seats
+            .as_ref()
+            .iter()
+            .any(|s| s.seat_id == seat_id)
+        {
             return false;
         }
         let mut v = self.keyboard_seats.clone().into_library_owned_vec();
@@ -291,10 +301,12 @@ impl FullWindowState {
     }
 
     /// Every keyboard, the primary's first.
-    pub fn keyboard_seats_with_primary(
-        &self,
-    ) -> impl Iterator<Item = (u64, &KeyboardState)> {
-        core::iter::once((azul_core::window::PRIMARY_POINTER_SEAT, &self.keyboard_state)).chain(
+    pub fn keyboard_seats_with_primary(&self) -> impl Iterator<Item = (u64, &KeyboardState)> {
+        core::iter::once((
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            &self.keyboard_state,
+        ))
+        .chain(
             self.keyboard_seats
                 .as_ref()
                 .iter()
@@ -381,9 +393,15 @@ mod autotest_generated {
         let mut s = FullWindowState::default();
         s.pointer_seat_mut(PRIMARY_POINTER_SEAT).left_down = true;
         assert!(s.mouse_state.left_down, "seat 0 IS mouse_state");
-        assert!(s.pointer_seats.is_empty(), "and is never duplicated into the vec");
+        assert!(
+            s.pointer_seats.is_empty(),
+            "and is never duplicated into the vec"
+        );
         assert!(!s.remove_pointer_seat(PRIMARY_POINTER_SEAT));
-        assert_eq!(s.pointer_seat(PRIMARY_POINTER_SEAT).map(|m| m.left_down), Some(true));
+        assert_eq!(
+            s.pointer_seat(PRIMARY_POINTER_SEAT).map(|m| m.left_down),
+            Some(true)
+        );
     }
 
     #[test]

@@ -23,8 +23,8 @@
 //! Key types: [`Spinner`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{color::ColorU, *},
         layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutWidth},
@@ -780,8 +780,8 @@ mod autotest_generated {
 
             assert_eq!(
                 widget_panicked, profile_traps_overflow,
-                "size {size}: the fixed-point encoding no longer behaves like a raw \
-                 multiply (expected panic == {profile_traps_overflow})",
+                "size {size}: the fixed-point encoding no longer behaves like a raw multiply \
+                 (expected panic == {profile_traps_overflow})",
             );
         }
     }

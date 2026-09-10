@@ -632,7 +632,8 @@ fn collect_source_code_with_budget(config: &DebugConfig) -> anyhow::Result<Vec<(
     let token_budget = if config.dry_run {
         usize::MAX // No limit for dry run
     } else {
-        MAX_TOKENS - 100_000 - image_tokens // Reserve 100k for test data + prompt structure + images
+        MAX_TOKENS - 100_000 - image_tokens // Reserve 100k for test data + prompt structure +
+                                            // images
     };
 
     for (priority, path) in source_files {

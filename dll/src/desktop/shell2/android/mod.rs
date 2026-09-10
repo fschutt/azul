@@ -29,14 +29,20 @@ use azul_layout::{
 };
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use crate::desktop::shell2::common::{
-    debug_server::LogCategory,
-    event::{self, CommonWindowState, HitTestNode, PlatformWindow},
-    WindowError,
+use crate::{
+    desktop::{
+        shell2::{
+            common::{
+                debug_server::LogCategory,
+                event::{self, CommonWindowState, HitTestNode, PlatformWindow},
+                WindowError,
+            },
+            headless::CpuBackend,
+        },
+        wr_translate2::{AsyncHitTester, WrRenderApi},
+    },
+    impl_platform_window_getters, log_debug, log_error, log_info,
 };
-use crate::desktop::shell2::headless::CpuBackend;
-use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
-use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 pub mod accessibility;
 pub mod clipboard;
@@ -669,7 +675,8 @@ pub fn android_main(app: AndroidApp) {
     // So one property carries them all, and they are injected into the real
     // environment so every existing `std::env::var` call site works unchanged:
     //
-    //     adb shell setprop debug.az.env 'AZ_E2E=/data/local/tmp/x.json;AZWRITER_SCREEN=backstage-info'
+    //     adb shell setprop debug.az.env
+    // 'AZ_E2E=/data/local/tmp/x.json;AZWRITER_SCREEN=backstage-info'
     //
     // Called FIRST in android_main, before any other thread exists — `set_var`
     // is not thread-safe, and this is the only point where that is guaranteed.
@@ -682,8 +689,8 @@ pub fn android_main(app: AndroidApp) {
             None => {
                 log_error!(
                     LogCategory::EventLoop,
-                    "[Android] android_main called without INITIAL_OPTIONS set — \
-                     did azul_run() run first?",
+                    "[Android] android_main called without INITIAL_OPTIONS set — did azul_run() \
+                     run first?",
                 );
                 return;
             }
@@ -1131,8 +1138,14 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         let logical_h = (nw.height() as f32) / android_scale;
                         log_debug!(
                             LogCategory::Window,
-                            "[Android] InitWindow physical={}x{} density={} (azul dpi={}) logical={}x{}",
-                            nw.width(), nw.height(), density, dpi, logical_w, logical_h,
+                            "[Android] InitWindow physical={}x{} density={} (azul dpi={}) \
+                             logical={}x{}",
+                            nw.width(),
+                            nw.height(),
+                            density,
+                            dpi,
+                            logical_w,
+                            logical_h,
                         );
                         window
                             .common
@@ -1240,8 +1253,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
 /// system; multi-touch (`TouchStart`/`TouchMove`/`TouchEnd`) is deferred.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
-    use azul_core::geom::LogicalPosition;
-    use azul_core::window::CursorPosition;
+    use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
     let mut iter = match app.input_events_iter() {
         Ok(it) => it,
@@ -1593,8 +1605,10 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // what hands an overshoot to the spring.
         {
             use azul_core::task::Instant;
-            use azul_layout::managers::hover::InputPointId;
-            use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+            use azul_layout::managers::{
+                hover::InputPointId,
+                scroll_state::{ScrollInputDevice, ScrollInputSource},
+            };
 
             // The pan has its OWN active finger (U2-a-iii), and unlike the
             // mouse pipe it transfers: when the panning finger lifts while
@@ -1762,8 +1776,8 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     let rotary_device = rotary_deltas.last().map_or(0, |(id, _)| *id);
     if rotary_total != 0.0 {
         if let Some(lw) = window.common.layout_window.as_mut() {
-            lw.gesture_drag_manager.update_dial_state(
-                azul_layout::managers::gesture::DialState {
+            lw.gesture_drag_manager
+                .update_dial_state(azul_layout::managers::gesture::DialState {
                     // Wear has one crown, and Android gives it no id.
                     device_id: 0,
                     // RADIANS, WHEN THE DEVICE SAYS SO (9c-i-a). The old
@@ -1789,8 +1803,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     pressed: false,
                     // Never on-screen; that is a Surface Studio property.
                     contact_position: azul_core::geom::OptionLogicalPosition::None,
-                },
-            );
+                });
         }
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2940,7 +2953,9 @@ fn rotary_resolution(device_id: i32) -> f32 {
         }
     };
     if let Ok(mut guard) = CACHE.lock() {
-        guard.get_or_insert_with(Default::default).insert(device_id, value);
+        guard
+            .get_or_insert_with(Default::default)
+            .insert(device_id, value);
     }
     value
 }
@@ -3136,7 +3151,10 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
         let mut effect = None;
         while let Some(pattern) = current {
             if let Some(name) = haptic_constant_name(pattern) {
-                match env.get_static_field(&constants, name, "I").and_then(|v| v.i()) {
+                match env
+                    .get_static_field(&constants, name, "I")
+                    .and_then(|v| v.i())
+                {
                     Ok(value) => {
                         effect = Some(value);
                         break;
@@ -3152,7 +3170,10 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             current = pattern.fallback();
         }
         let Some(effect) = effect else {
-            return Err(format!("no constant for {:?} or any fallback", request.pattern));
+            return Err(format!(
+                "no constant for {:?} or any fallback",
+                request.pattern
+            ));
         };
 
         let window = env
@@ -3212,16 +3233,16 @@ pub fn play_haptic(_request: &azul_core::haptics::HapticRequest) {}
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 mod jni_bridge {
-    use azul_core::geom::LogicalPosition;
-    use azul_layout::managers::gesture::{
-        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
-    };
     // A nested `mod` does NOT inherit the file's `use` items, and this one
     // was missing the reason type entirely — `inject()` below has always
     // referred to a `RelayoutReason` that is not in scope here. It surfaced
     // only now because android is the one target that compiles this file and
     // nothing had forced it to resolve.
     use azul_core::callbacks::RelayoutReason;
+    use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{
+        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
+    };
 
     /// SAFETY: `native_ptr` is the AndroidWindow address handed to the
     /// Java side by `android_main`. We are the only Rust thread mutating
@@ -3406,8 +3427,7 @@ pub mod text_bridge {
     // `with_window` belongs to the sibling `jni_bridge` module, not to the
     // android module root — the gesture bridge declared it there first and
     // this bridge reuses it rather than defining a second copy.
-    use super::jni_bridge::with_window;
-    use super::{LogCategory, RelayoutReason};
+    use super::{jni_bridge::with_window, LogCategory, RelayoutReason};
     use crate::log_info;
 
     /// Read a Java `String` argument.
@@ -3735,8 +3755,7 @@ pub mod text_bridge {
         right_px: i32,
         ime_px: i32,
     ) {
-        use azul_css::props::basic::pixel::OptionPixelValue;
-        use azul_css::props::basic::pixel::PixelValue;
+        use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 
         with_window(native_ptr, |w| {
             let scale = w

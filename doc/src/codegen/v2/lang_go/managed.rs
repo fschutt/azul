@@ -2,19 +2,16 @@
 //!
 //! Emits two files into the Go package:
 //!
-//! * `callbacks.go` — cgo preamble declaring libazul's host-invoker C ABI
-//!   (the `AzApp_set<Kind>Invoker` / `Az<Kind>_createFromHostHandle` /
-//!   `AzRefAny_newHostHandle` exports are NOT in `azul.h`, so this file
-//!   declares them), a handle registry (`sync.Map` + atomic counter), the
-//!   per-kind `Register<Kind>(fn)` helpers, `RefAnyWrap`/`RefAnyGet`,
-//!   string helpers, smart factories (`NewWindowCreateOptions`,
-//!   `NewAppWithData`, `RunWindow`, per-widget `On<Event>` setters), and
-//!   the cross-package `Raw()` accessors.
-//! * `callbacks_export.go` — the `//export` trampolines, one per invoker
-//!   *arity* (total pointer parameters after the `uint64` handle). Files
-//!   containing `//export` must not define anything in their cgo preamble
-//!   (cgo copies the preamble into two generated C files), hence the
-//!   separate file with a minimal `#include <stdint.h>` preamble.
+//! * `callbacks.go` — cgo preamble declaring libazul's host-invoker C ABI (the
+//!   `AzApp_set<Kind>Invoker` / `Az<Kind>_createFromHostHandle` / `AzRefAny_newHostHandle` exports
+//!   are NOT in `azul.h`, so this file declares them), a handle registry (`sync.Map` + atomic
+//!   counter), the per-kind `Register<Kind>(fn)` helpers, `RefAnyWrap`/`RefAnyGet`, string helpers,
+//!   smart factories (`NewWindowCreateOptions`, `NewAppWithData`, `RunWindow`, per-widget
+//!   `On<Event>` setters), and the cross-package `Raw()` accessors.
+//! * `callbacks_export.go` — the `//export` trampolines, one per invoker *arity* (total pointer
+//!   parameters after the `uint64` handle). Files containing `//export` must not define anything in
+//!   their cgo preamble (cgo copies the preamble into two generated C files), hence the separate
+//!   file with a minimal `#include <stdint.h>` preamble.
 //!
 //! # How the dispatch works
 //!
@@ -39,18 +36,20 @@
 //! Go enums from `types.go` (`AzUpdate`), primitives, and
 //! `unsafe.Pointer` — all namable by consumers. `Raw()` bridges wrapper
 //! values back into the `C.Az*`-typed parameters of `wrappers.go`.
-//!
-
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionKind};
-use super::super::managed_host_invoker::{
-    host_invoker_kinds, is_callback_wrapper, managed_c_symbol, wrapper_name,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionKind},
+        managed_host_invoker::{
+            host_invoker_kinds, is_callback_wrapper, managed_c_symbol, wrapper_name,
+        },
+    },
+    wrappers::should_emit_wrapper,
 };
-use super::wrappers::should_emit_wrapper;
 
 /// Map an IR callback-arg / return type name to its C-ABI name
 /// (`usize` → `size_t`, everything else gets the `Az` prefix). Narrow
@@ -547,7 +546,10 @@ fn emit_register_fns(
                     nm, i
                 ));
             } else if wrapper_types.iter().any(|w| w == t) {
-                let has_del = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
+                let has_del = ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
                 let inner_expr = if has_del {
                     format!("(*C.{})(args[{}])", c_typename(t), i)
                 } else {
@@ -555,9 +557,7 @@ fn emit_register_fns(
                 };
                 b.line(&format!(
                     "        {} := &{}{{ inner: {} }}",
-                    nm,
-                    t,
-                    inner_expr
+                    nm, t, inner_expr
                 ));
             } else {
                 b.line(&format!("        {} := args[{}]", nm, i));
@@ -575,7 +575,10 @@ fn emit_register_fns(
                 a = call_args
             )),
             RetKind::Wrapper(r) => {
-                let has_del = ir.functions.iter().any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
+                let has_del = ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
                 b.line(&format!("        ret := fn({})", call_args));
                 b.line("        if ret != nil {");
                 if has_del {
@@ -621,7 +624,10 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("func NewWindowCreateOptions(fn LayoutCallbackFunc) *WindowCreateOptions {");
     b.line("    wco := C.AzWindowCreateOptions_default()");
     b.line("    wco.window_state.layout_callback = RegisterLayoutCallback(fn)");
-    b.line("    inner := (*C.AzWindowCreateOptions)(C.malloc(C.size_t(unsafe.Sizeof(C.AzWindowCreateOptions{}))))");
+    b.line(
+        "    inner := \
+         (*C.AzWindowCreateOptions)(C.malloc(C.size_t(unsafe.Sizeof(C.AzWindowCreateOptions{}))))",
+    );
     b.line("    *inner = wco");
     b.line("    self := &WindowCreateOptions{ inner: inner }");
     b.line("    runtime.SetFinalizer(self, func(x *WindowCreateOptions) { x.Close() })");
@@ -698,8 +704,15 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
                 "func (self *{}) {}(data *RefAny, fn {}Func) {{",
                 go_name, method, cb_ty
             ));
-            let self_has_del = ir.functions.iter().any(|f| f.class_name == s.name && f.kind == FunctionKind::Delete);
-            let self_expr = if self_has_del { "self.inner" } else { "&self.inner" };
+            let self_has_del = ir
+                .functions
+                .iter()
+                .any(|f| f.class_name == s.name && f.kind == FunctionKind::Delete);
+            let self_expr = if self_has_del {
+                "self.inner"
+            } else {
+                "&self.inner"
+            };
             b.line(&format!(
                 "    C.{}({}, C.AzRefAny_clone(data.inner), Register{}(fn))",
                 managed_c_symbol(f),
@@ -732,8 +745,11 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
         b.line("// the caller (the wrapper's finalizer, if any, is disarmed).");
         b.line(&format!("func (self *{t}) Raw() C.Az{t} {{", t = t));
         b.line("    runtime.SetFinalizer(self, nil)");
-        
-        let has_delete = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
+
+        let has_delete = ir
+            .functions
+            .iter()
+            .any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
         if has_delete {
             b.line("    val := *self.inner");
             b.line("    C.free(unsafe.Pointer(self.inner))");

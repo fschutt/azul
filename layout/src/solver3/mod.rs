@@ -252,7 +252,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// NON-primary seat focuses, with that seat's colour - the same
     /// seat-coloured convention as the seat carets, painted as a 2px ring
     /// around the border box since `:focus` is the primary's alone.
-    pub seat_focus_rings: Vec<(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)>,
+    pub seat_focus_rings: Vec<(
+        azul_core::dom::DomNodeId,
+        azul_css::props::basic::color::ColorU,
+    )>,
     /// Paint the draggable selection handles under the local primary
     /// range (U2-a). Set where the platform lends a custom view no handles
     /// of its own (Android); see `TextEditManager::selection_handles`.
@@ -357,7 +360,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_box_props`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_box_props`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_box_props_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -365,7 +369,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_css_getter`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_css_getter`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_css_getter_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -373,7 +378,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_bfc_layout`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_bfc_layout`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_bfc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -381,7 +387,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_ifc_layout`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_ifc_layout`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_ifc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -389,7 +396,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_table_layout`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_table_layout`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_table_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -397,7 +405,8 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
         }
     }
 
-    /// Internal method - called by `debug_display_type`! macro after checking `debug_messages.is_some()`
+    /// Internal method - called by `debug_display_type`! macro after checking
+    /// `debug_messages.is_some()`
     #[inline]
     pub fn debug_display_type_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
@@ -464,7 +473,10 @@ pub fn dl_input_fingerprint(
     text_selections: &BTreeMap<DomId, TextSelection>,
     preedit_text: Option<&str>,
     paint_selection_handles: bool,
-    seat_focus_rings: &[(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)],
+    seat_focus_rings: &[(
+        azul_core::dom::DomNodeId,
+        azul_css::props::basic::color::ColorU,
+    )],
 ) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -533,7 +545,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         azul_core::selection::SelectionOwner,
         azul_css::props::basic::color::ColorU,
     >,
-    seat_focus_rings: Vec<(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)>,
+    seat_focus_rings: Vec<(
+        azul_core::dom::DomNodeId,
+        azul_css::props::basic::color::ColorU,
+    )>,
     paint_selection_handles: bool,
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
@@ -720,13 +735,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     {
         let _ = (0xDD00_0002u32);
     }
-    // [az-diag g51 REVERT] 0x71 = reconcile_and_invalidate returned OK (no InvalidTree in reconcile).
+    // [az-diag g51 REVERT] 0x71 = reconcile_and_invalidate returned OK (no InvalidTree in
+    // reconcile).
     unsafe {
         crate::az_mark(0x60704_u32, (0x71u32));
     }
     // [az-diag g54 REVERT] 0x40740 = new_tree.nodes.len() RIGHT AFTER reconcile. If 0 → reconcile
     // built an empty LayoutTree (the bug is in reconcile_recursive/create_node_from_dom). If 2 →
-    // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the loop).
+    // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the
+    // loop).
     unsafe {
         crate::az_mark(0x60740_u32, (new_tree.nodes.len() as u32));
     }
@@ -1103,20 +1120,22 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     {
         let _ = (0xDD00_0003u32);
     }
-    // [az-diag g51 REVERT] 0x80 = reached the incremental layout loop (past early-exit + remap + dirty loops).
+    // [az-diag g51 REVERT] 0x80 = reached the incremental layout loop (past early-exit + remap +
+    // dirty loops).
     unsafe {
         crate::az_mark(0x60704_u32, (0x80u32));
     }
-    // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the HEAP-backed
-    // cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree). cache is the stable
-    // &mut arg (read correctly throughout), so cache.tree is NOT a deep-SP-relative stack local. At the
-    // sizing call we read BOTH: stack new_tree (expect 0=corrupted) vs heap cache.tree (expect 2 if
-    // path B sidesteps the SP-drift/wild-store). If heap=2, the full cache.tree refactor will fix it.
+    // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the
+    // HEAP-backed cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree).
+    // cache is the stable &mut arg (read correctly throughout), so cache.tree is NOT a
+    // deep-SP-relative stack local. At the sizing call we read BOTH: stack new_tree (expect
+    // 0=corrupted) vs heap cache.tree (expect 2 if path B sidesteps the SP-drift/wild-store).
+    // If heap=2, the full cache.tree refactor will fix it.
     cache.tree = Some((*new_tree).clone());
     // [az-diag g66] disambiguate the g65 heap=1: read BOTH right after the clone. 0x407C0 = stack
     // new_tree.nodes.len() (source), 0x407C4 = clone cache.tree.nodes.len(). If src=2 & clone=1 →
-    // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do it).
-    // If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
+    // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do
+    // it). If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
     unsafe {
         crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
         crate::az_mark(
@@ -1143,7 +1162,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _p = crate::probe::Probe::span("clone_calculated_positions");
             cache.calculated_positions.clone()
         };
-        // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop calculated_positions.clone().
+        // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop
+        // calculated_positions.clone().
         unsafe {
             crate::az_mark(0x60780_u32, (new_tree.nodes.len() as u32));
         }
@@ -1151,24 +1171,28 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
         {
             crate::probe::reset_peak();
-            // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the calc Span).
+            // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the
+            // calc Span).
             unsafe {
                 crate::az_mark(0x60784_u32, (new_tree.nodes.len() as u32));
             }
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
-            // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
+            // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes
+            // Span.
             unsafe {
                 crate::az_mark(0x60788_u32, (new_tree.nodes.len() as u32));
             }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
-            // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
-            // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
-            // to a bare `brk #0x1` right after the 0x90 marker — aborting BEFORE calculate_intrinsic_sizes.
-            // The whole-session "new_tree 2→0 corruption" was a MIRAGE: the beforeCall marker store was
-            // dead-code-eliminated (after the abort), so the harness read uninitialized 0, not a corrupted
-            // tree. Native disasm of layout_document proved it: 0x90 marker store → `brk #0x1` → no `bl
-            // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check was
-            // wrong — panic_immediate_abort strips the message string.)
+            // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so
+            // this panic WAS compiled in, and with `-Z
+            // build-std-features=panic_immediate_abort` it lowered to a bare `brk #0x1`
+            // right after the 0x90 marker — aborting BEFORE calculate_intrinsic_sizes.
+            // The whole-session "new_tree 2→0 corruption" was a MIRAGE: the beforeCall marker store
+            // was dead-code-eliminated (after the abort), so the harness read
+            // uninitialized 0, not a corrupted tree. Native disasm of layout_document
+            // proved it: 0x90 marker store → `brk #0x1` → no `bl
+            // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
+            // was wrong — panic_immediate_abort strips the message string.)
             // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
             // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
             unsafe {
@@ -1244,8 +1268,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 debug_msgs.push(LayoutDebugMessage::new(
                     LayoutDebugMessageType::PositionCalculation,
                     format!(
-                        "[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), adjusted=({:.2}, {:.2}), \
-                         CB size=({:.2}x{:.2}), viewport=({:.2}x{:.2}), margin=({:.2}, {:.2})",
+                        "[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), adjusted=({:.2}, {:.2}), CB \
+                         size=({:.2}x{:.2}), viewport=({:.2}x{:.2}), margin=({:.2}, {:.2})",
                         root_idx,
                         dom_name,
                         cb_pos.x,
@@ -1332,8 +1356,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     debug_msgs.push(LayoutDebugMessage::new(
                         LayoutDebugMessageType::PositionCalculation,
                         format!(
-                            "[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}) (viewport origin + margin), \
-                             margin=({:.2}, {:.2}, {:.2}, {:.2})",
+                            "[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}) (viewport \
+                             origin + margin), margin=({:.2}, {:.2}, {:.2}, {:.2})",
                             root_idx,
                             dom_name,
                             root_position.x,
@@ -1393,13 +1417,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // +spec:positioning:8d1286 - normal flow, relative, float, absolute positioning dispatch
     // +spec:positioning:bdfc81 - Layout divided into sizing (Step 2) then positioning (Step 3)
     // --- Step 3: Adjust Relatively Positioned Elements ---
-    // +spec:positioning:a831e8 - inline content width uses pre-relative-offset positions (satisfied by post-layout relative adjustment)
-    // +spec:positioning:e2647b - Relative positioning applied after line height calculation, so line height is not adjusted for relative offsets
-    // +spec:positioning:77a2d2 - Relatively positioned boxes considered without their offset during auto height
-    // +spec:positioning:b47ac2 - Relatively positioned boxes considered without their offset for block auto height
-    // Relative offsets applied AFTER layout, so auto-height calculation sees normal-flow positions.
-    // This must be done BEFORE positioning out-of-flow elements, because
-    // relatively positioned elements establish containing blocks for their
+    // +spec:positioning:a831e8 - inline content width uses pre-relative-offset positions (satisfied
+    // by post-layout relative adjustment) +spec:positioning:e2647b - Relative positioning
+    // applied after line height calculation, so line height is not adjusted for relative offsets
+    // +spec:positioning:77a2d2 - Relatively positioned boxes considered without their offset during
+    // auto height +spec:positioning:b47ac2 - Relatively positioned boxes considered without
+    // their offset for block auto height Relative offsets applied AFTER layout, so auto-height
+    // calculation sees normal-flow positions. This must be done BEFORE positioning out-of-flow
+    // elements, because relatively positioned elements establish containing blocks for their
     // absolutely positioned descendants. If we adjust relative positions after
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
@@ -1495,14 +1520,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 match (cur, cache.last_dynamic_context.as_ref()) {
                     (Some(a), Some(b)) if a != b => {
                         eprintln!(
-                            "[CTXDIFF] vw={}/{} vh={}/{} theme={} media={} pseudo={} lang={} focus={}/{} os={} cont={}",
-                            a.viewport_width, b.viewport_width,
-                            a.viewport_height, b.viewport_height,
-                            a.theme == b.theme, a.media_type == b.media_type,
+                            "[CTXDIFF] vw={}/{} vh={}/{} theme={} media={} pseudo={} lang={} \
+                             focus={}/{} os={} cont={}",
+                            a.viewport_width,
+                            b.viewport_width,
+                            a.viewport_height,
+                            b.viewport_height,
+                            a.theme == b.theme,
+                            a.media_type == b.media_type,
                             a.pseudo_state == b.pseudo_state,
                             a.language == b.language,
-                            a.window_focused, b.window_focused,
-                            a.os == b.os && a.os_version == b.os_version && a.desktop_env == b.desktop_env,
+                            a.window_focused,
+                            b.window_focused,
+                            a.os == b.os
+                                && a.os_version == b.os_version
+                                && a.desktop_env == b.desktop_env,
                             a.container_width.to_bits() == b.container_width.to_bits()
                                 && a.container_height.to_bits() == b.container_height.to_bits()
                                 && a.container_name == b.container_name,
@@ -1532,7 +1564,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!(
                 "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
-                 prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} fresh={:?}",
+                 prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} \
+                 fresh={:?}",
                 cache.last_reconcile_was_skipped,
                 cache.last_reconcile_structure_preserved,
                 css_dirty.len(),
@@ -1804,18 +1837,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     Ok(display_list)
 }
 
-// +spec:containing-block:159830 - Containing block chain: parent content-box for in-flow, viewport for initial containing block
-// +spec:containing-block:22fbaa - computes the element's original containing block (before positioning effects)
-// +spec:containing-block:238fc5 - containing block dimensions calculated here (CSS 2.2 §9.1.2 forward ref to §10)
-// +spec:containing-block:263629 - block element's content-box establishes the containing block for its line boxes
-// +spec:containing-block:2a5280 - boxes act as containing blocks for descendants; CB = parent's content box
-// +spec:containing-block:6776cb - boxes positioned w.r.t. containing block but not confined; overflow allowed
-// +spec:containing-block:718894 - CB derived from parent content-box edges; root uses initial CB (viewport)
-// +spec:containing-block:a2aa37 - box edges act as containing block for descendants; initial containing block = viewport
-// +spec:containing-block:e23b3f - CSS 2.2 §10.1: initial containing block = viewport; static/relative = parent content-box; fixed = viewport
-// +spec:containing-block:e8fdb2 - Containing block resolution (CSS2 §9.1.2, §10.1)
-// +spec:overflow:9a2b11 - containing block is content-box of parent; boxes may overflow it
-// +spec:positioning:acc663 - containing block definition: element boxes positioned relative to containing block
+// +spec:containing-block:159830 - Containing block chain: parent content-box for in-flow, viewport
+// for initial containing block +spec:containing-block:22fbaa - computes the element's original
+// containing block (before positioning effects) +spec:containing-block:238fc5 - containing block
+// dimensions calculated here (CSS 2.2 §9.1.2 forward ref to §10) +spec:containing-block:263629 -
+// block element's content-box establishes the containing block for its line boxes
+// +spec:containing-block:2a5280 - boxes act as containing blocks for descendants; CB = parent's
+// content box +spec:containing-block:6776cb - boxes positioned w.r.t. containing block but not
+// confined; overflow allowed +spec:containing-block:718894 - CB derived from parent content-box
+// edges; root uses initial CB (viewport) +spec:containing-block:a2aa37 - box edges act as
+// containing block for descendants; initial containing block = viewport +spec:containing-block:
+// e23b3f - CSS 2.2 §10.1: initial containing block = viewport; static/relative = parent
+// content-box; fixed = viewport +spec:containing-block:e8fdb2 - Containing block resolution (CSS2
+// §9.1.2, §10.1) +spec:overflow:9a2b11 - containing block is content-box of parent; boxes may
+// overflow it +spec:positioning:acc663 - containing block definition: element boxes positioned
+// relative to containing block
 pub(super) fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
@@ -1843,7 +1879,8 @@ pub(super) fn get_containing_block_for_node(
                     .map(|n| &n.styled_node_state)
                     .copied()
                     .unwrap_or_default();
-                // +spec:containing-block:c205e5 - writing mode of containing block used for inner_size (orthogonal flow awareness)
+                // +spec:containing-block:c205e5 - writing mode of containing block used for
+                // inner_size (orthogonal flow awareness)
                 let writing_mode =
                     get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
                 let content_size = pbp.inner_size(size, writing_mode);
@@ -1855,32 +1892,35 @@ pub(super) fn get_containing_block_for_node(
     }
 
     // +spec:containing-block:41bdfc - ICB equals viewport; overflow:hidden on root clips to ICB
-    // +spec:containing-block:1eed60 - Initial containing block establishes a BFC; viewport is the ICB
-    // +spec:containing-block:99866f - Containing block is a rectangle for sizing/positioning; ICB from viewport
-    // +spec:containing-block:22f09b - viewport serves as initial containing block for root element
-    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
-    // +spec:containing-block:2fd7b1 - ICB equals viewport; principal writing mode propagated to ICB
-    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
-    // The principal writing mode is propagated to the ICB and viewport (css-writing-modes-4 §8.1).
-    // +spec:containing-block:5efb84 - Root element's containing block is the initial containing block
-    // +spec:containing-block:6278fb - initial containing block is the viewport; also serves as initial fixed containing block
-    // Root element's containing block is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8).
-    // For ROOT nodes: the containing block is the viewport (initial containing block).
-    // Do NOT subtract margin here - margins are handled in calculate_used_size().
-    // The margin creates space between viewport edge and element's border-box,
-    // but the available space for calculating width/height percentages
+    // +spec:containing-block:1eed60 - Initial containing block establishes a BFC; viewport is the
+    // ICB +spec:containing-block:99866f - Containing block is a rectangle for
+    // sizing/positioning; ICB from viewport +spec:containing-block:22f09b - viewport serves as
+    // initial containing block for root element Root element's containing block is the initial
+    // containing block (CSS 2.2 §10.1, CSS Display 3 §2.8). +spec:containing-block:2fd7b1 - ICB
+    // equals viewport; principal writing mode propagated to ICB Root element's containing block
+    // is the initial containing block (CSS 2.2 §10.1, CSS Display 3 §2.8). The principal
+    // writing mode is propagated to the ICB and viewport (css-writing-modes-4 §8.1).
+    // +spec:containing-block:5efb84 - Root element's containing block is the initial containing
+    // block +spec:containing-block:6278fb - initial containing block is the viewport; also
+    // serves as initial fixed containing block Root element's containing block is the initial
+    // containing block (CSS 2.2 §10.1, CSS Display 3 §2.8). For ROOT nodes: the containing
+    // block is the viewport (initial containing block). Do NOT subtract margin here - margins
+    // are handled in calculate_used_size(). The margin creates space between viewport edge and
+    // element's border-box, but the available space for calculating width/height percentages
     // is still the full viewport size.
     (viewport.origin, viewport.size)
 }
 
 // [g119 az-web-lift FIX] `#[repr(C, u8)]` (was repr(Rust)): the `Text(font_traits::LayoutError)`
 // variant's String/FontSelector pointer gives `Result<T, LayoutError>` a POINTER-niche disc, which
-// the web lift MIS-READS → every solver3 `?`/Result return flips Ok→Err (heisenbug; g118 = collect's
-// Result<(),LayoutError> arrived as Err → rc=5 InvalidTree though the out-param content was correct).
-// An explicit u8 tag (0..=4) moves the Result niche to unused tag values (5..) = a simple u8 compare
-// the lift handles. Same disc-mis-lift class as InlineContent/LogicalItem/ShapedItem (g117/g118).
+// the web lift MIS-READS → every solver3 `?`/Result return flips Ok→Err (heisenbug; g118 =
+// collect's Result<(),LayoutError> arrived as Err → rc=5 InvalidTree though the out-param content
+// was correct). An explicit u8 tag (0..=4) moves the Result niche to unused tag values (5..) = a
+// simple u8 compare the lift handles. Same disc-mis-lift class as
+// InlineContent/LogicalItem/ShapedItem (g117/g118).
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug)]
 #[repr(C, u8)]
 pub enum LayoutError {
@@ -2264,7 +2304,8 @@ mod autotest_generated {
         // scrollbar oscillation and a hung frame. 0 would mean "never lay out".
         const _: () = assert!(
             MAX_SCROLLBAR_REFLOW_ITERATIONS >= 1 && MAX_SCROLLBAR_REFLOW_ITERATIONS <= 64,
-            "the scrollbar reflow bound must be a usable positive limit; an absurd bound = a hung frame"
+            "the scrollbar reflow bound must be a usable positive limit; an absurd bound = a hung \
+             frame"
         );
     }
 
@@ -3068,8 +3109,9 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
-                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
-                false,              // paint_selection_handles (U2-a)
+                Vec::new(),         /* seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live
+                                     * path */
+                false, // paint_selection_handles (U2-a)
                 None,
                 &image_cache,
                 None,
@@ -3114,8 +3156,9 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
-                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
-                false,              // paint_selection_handles (U2-a)
+                Vec::new(),         /* seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live
+                                     * path */
+                false, // paint_selection_handles (U2-a)
                 None,
                 &image_cache,
                 None,
@@ -3162,8 +3205,9 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
-                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
-                false,              // paint_selection_handles (U2-a)
+                Vec::new(),         /* seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live
+                                     * path */
+                false, // paint_selection_handles (U2-a)
                 None,
                 &image_cache,
                 None,
@@ -3223,8 +3267,8 @@ mod autotest_generated {
             let third = run(&mut cache, &dom, viewport).expect("unchanged pass");
             assert!(
                 std::sync::Arc::ptr_eq(&second, &third),
-                "an unchanged pass after a paint-only repaint must hit the DL cache \
-                 with the REPAINTED list, not re-emit or serve the stale one"
+                "an unchanged pass after a paint-only repaint must hit the DL cache with the \
+                 REPAINTED list, not re-emit or serve the stale one"
             );
 
             // Sizing: must actually re-solve.
@@ -3260,9 +3304,9 @@ mod autotest_generated {
         /// BAKED mid-flight transform.
         #[test]
         fn dl_cache_misses_when_the_gpu_key_population_changes() {
-            use azul_core::gpu::GpuValueCache;
-            use azul_core::resources::TransformKey;
-            use azul_core::transform::ComputedTransform3D;
+            use azul_core::{
+                gpu::GpuValueCache, resources::TransformKey, transform::ComputedTransform3D,
+            };
 
             let count_refframes = |dl: &DisplayList| {
                 dl.items
@@ -3309,8 +3353,8 @@ mod autotest_generated {
             assert_eq!(
                 count_refframes(&second),
                 1,
-                "a freshly keyed node must get a reference frame — 0 means the \
-                 cache served the pre-key display list back"
+                "a freshly keyed node must get a reference frame — 0 means the cache served the \
+                 pre-key display list back"
             );
 
             // Retirement: the key goes away, the frame must too. A stale hit

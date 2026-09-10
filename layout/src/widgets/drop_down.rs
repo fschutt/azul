@@ -17,7 +17,9 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::{ColorOrSystem, ColorU},
@@ -59,278 +61,6 @@ azul_core::impl_managed_callback! {
     extra_args:     [ choice_index: usize ],
 }
 
-// -- Font --
-
-const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
-const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
-    StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
-
-// -- Layout constants --
-
-const FONT_SIZE_PX: isize = 13;
-const ARROW_FONT_SIZE_PX: isize = 18;
-const PADDING_HORIZONTAL_PX: isize = 4;
-const PADDING_VERTICAL_PX: isize = 2;
-const LABEL_PADDING_RIGHT_PX: isize = 8;
-const BORDER_WIDTH_PX: isize = 1;
-
-// -- Colors --
-
-const BORDER_NORMAL: ColorU = ColorU {
-    r: 172,
-    g: 172,
-    b: 172,
-    a: 255,
-};
-const BORDER_HOVER: ColorU = ColorU {
-    r: 126,
-    g: 180,
-    b: 234,
-    a: 255,
-};
-const BORDER_FOCUS: ColorU = ColorU {
-    r: 86,
-    g: 157,
-    b: 229,
-    a: 255,
-};
-
-const BG_GRADIENT_TOP: ColorU = ColorU {
-    r: 245,
-    g: 245,
-    b: 245,
-    a: 255,
-};
-const BG_GRADIENT_BOTTOM: ColorU = ColorU {
-    r: 235,
-    g: 235,
-    b: 235,
-    a: 255,
-};
-const BG_HOVER_TOP: ColorU = ColorU {
-    r: 234,
-    g: 244,
-    b: 252,
-    a: 255,
-};
-const BG_HOVER_BOTTOM: ColorU = ColorU {
-    r: 218,
-    g: 236,
-    b: 252,
-    a: 255,
-};
-const BG_ACTIVE_TOP: ColorU = ColorU {
-    r: 218,
-    g: 236,
-    b: 252,
-    a: 255,
-};
-const BG_ACTIVE_BOTTOM: ColorU = ColorU {
-    r: 202,
-    g: 226,
-    b: 248,
-    a: 255,
-};
-
-const NORMAL_BG_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(&[
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(0),
-                color: ColorOrSystem::color(BG_GRADIENT_TOP),
-            },
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(100),
-                color: ColorOrSystem::color(BG_GRADIENT_BOTTOM),
-            },
-        ]),
-    })];
-
-const HOVER_BG_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(&[
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(0),
-                color: ColorOrSystem::color(BG_HOVER_TOP),
-            },
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(100),
-                color: ColorOrSystem::color(BG_HOVER_BOTTOM),
-            },
-        ]),
-    })];
-
-const ACTIVE_BG_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(&[
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(0),
-                color: ColorOrSystem::color(BG_ACTIVE_TOP),
-            },
-            NormalizedLinearColorStop {
-                offset: PercentageValue::const_new(100),
-                color: ColorOrSystem::color(BG_ACTIVE_BOTTOM),
-            },
-        ]),
-    })];
-
-// -- Dropdown wrapper styles (the clickable trigger) --
-
-static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
-    // Layout
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    // Font
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-        FONT_SIZE_PX,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    // Padding
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(PADDING_HORIZONTAL_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(PADDING_HORIZONTAL_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        PADDING_VERTICAL_PX,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(PADDING_VERTICAL_PX),
-    )),
-    // Border
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
-        LayoutBorderTopWidth::const_px(BORDER_WIDTH_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
-        LayoutBorderBottomWidth::const_px(BORDER_WIDTH_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
-        LayoutBorderLeftWidth::const_px(BORDER_WIDTH_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
-        LayoutBorderRightWidth::const_px(BORDER_WIDTH_PX),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
-        StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
-        StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_NORMAL,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: BORDER_NORMAL,
-        },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: BORDER_NORMAL,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: BORDER_NORMAL,
-        },
-    )),
-    // Background
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(NORMAL_BG_ITEMS),
-    )),
-    // Hover
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_HOVER,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: BORDER_HOVER,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: BORDER_HOVER,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: BORDER_HOVER,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(HOVER_BG_ITEMS),
-    )),
-    // Active
-    CssPropertyWithConditions::on_active(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(ACTIVE_BG_ITEMS),
-    )),
-    // Focus
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_FOCUS,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-];
-
-// -- Label text style --
-
-static DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(LABEL_PADDING_RIGHT_PX),
-    )),
-];
-
-// -- Arrow icon style --
-
-static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-        ARROW_FONT_SIZE_PX,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-];
-
 // ============================================================================
 // Widget struct and API
 // ============================================================================
@@ -347,16 +77,17 @@ pub struct DropDown {
     /// Optional callback invoked when the user picks a different choice.
     pub on_choice_change: OptionDropDownOnChoiceChange,
     /// Style of the clickable trigger wrapper.
-    pub wrapper_style: CssPropertyWithConditionsVec,
+    pub wrapper_style: OptionCssPropertyWithConditionsVec,
     /// Style of the selected-choice label.
-    pub label_style: CssPropertyWithConditionsVec,
+    pub label_style: OptionCssPropertyWithConditionsVec,
     /// Style of the drop-down arrow icon.
-    pub arrow_style: CssPropertyWithConditionsVec,
+    pub arrow_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    pub theme: crate::widgets::themes::OptionTheme,
 }
 
 impl Default for DropDown {
@@ -365,10 +96,11 @@ impl Default for DropDown {
             choices: StringVec::from_const_slice(&[]),
             selected: 0,
             on_choice_change: None.into(),
-            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE),
-            label_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE),
-            arrow_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_ICON_STYLE),
+            wrapper_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
+            arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
         }
     }
 }
@@ -444,65 +176,15 @@ impl DropDown {
     /// Builds the DOM tree for this drop-down widget.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // Read the selected label before the options are moved into the DOM.
-        let selected_label: Option<AzString> = self
-            .choices
-            .as_ref()
-            .get(self.selected)
-            .map(|o| AzString::from(o.as_str().to_string()));
-
-        const DROPDOWN_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
-
-        let selected_text = self
-            .choices
-            .as_slice()
-            .get(self.selected)
-            .cloned()
-            .unwrap_or_else(|| AzString::from_const_str(""));
-
-        // The full widget state travels into the focus callback; the style
-        // vecs are pulled out first so the rendered nodes use them directly.
-        let wrapper_style = self.wrapper_style.clone();
-        let label_style = self.label_style.clone();
-        let arrow_style = self.arrow_style.clone();
-        let refany = RefAny::new(self);
-
-        // Wrapper: focusable trigger that opens popup on focus
-
-        Dom::create_div()
-            .with_css_props(wrapper_style)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
-            .with_tab_index(TabIndex::Auto)
-            // A drop-down announces which option is current; without a value a
-            // reader says "combo box" and never what is selected.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::ComboBox,
-                accessibility_value: selected_label.into(),
-                ..Default::default()
-            })
-            .with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                    refany,
-                    callback: CoreCallback {
-                        cb: on_dropdown_click as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                }]
-                .into(),
-            )
-            .with_children(DomVec::from_vec(vec![
-                // Selected text label wrapped in <p> for proper block formatting
-                crate::widgets::widget_p()
-                    .with_css_props(label_style)
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
-                    ])),
-                // Arrow icon (resolved via Material Icons)
-                Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
-                    .with_css_props(arrow_style),
-            ]))
+        match self.theme {
+            crate::widgets::themes::OptionTheme::None => Dom::create_div(),
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+                crate::widgets::themes::flat::drop_down(self)
+            }
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+                crate::widgets::themes::flora::drop_down(self)
+            }
+        }
     }
 }
 
@@ -519,7 +201,7 @@ struct ChoiceCallbackData {
 // Callbacks
 // ============================================================================
 
-extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(refany) = refany.downcast_ref::<DropDown>() else {
         return Update::DoNothing;
     };

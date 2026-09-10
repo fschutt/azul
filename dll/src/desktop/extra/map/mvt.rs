@@ -271,7 +271,8 @@ pub fn parse_mvt_tile(
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to convert MVT feature in tile {:?} (layer '{}'): {}. Skipping feature.",
+                        "Failed to convert MVT feature in tile {:?} (layer '{}'): {}. Skipping \
+                         feature.",
                         tile_coord, layer.name, e
                     );
                 }
@@ -331,7 +332,8 @@ fn get_target_proj_str_for_extent_calc(longitude: f64, latitude: f64, projection
         }
         // Default to a Mercator projection centered on the given longitude
         _ => format!(
-            "+proj=merc +lat_0=0 +lon_0={} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs",
+            "+proj=merc +lat_0=0 +lon_0={} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs \
+             +type=crs",
             longitude
         ),
     }
@@ -596,10 +598,11 @@ mod geometry_conversion_tests {
     //! for them and a z2 planet tile decoded to ~0 GeoJSON features (the map
     //! rendered blank). These tests pin every geometry kind to a successful,
     //! correctly-shaped GeoJSON conversion.
-    use super::*;
     use geo_types::{
         Coord, Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
     };
+
+    use super::*;
 
     fn tc() -> TileCoord {
         TileCoord { z: 2, x: 1, y: 1 }

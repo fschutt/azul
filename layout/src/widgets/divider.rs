@@ -5,8 +5,8 @@
 //! Key types: [`Divider`], [`DividerOrientation`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::ColorU,
         layout::{

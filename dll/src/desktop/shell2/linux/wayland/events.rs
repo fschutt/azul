@@ -10,12 +10,17 @@ use azul_core::{
     window::{VirtualKeyCode, WindowFrame},
 };
 
-use super::{defines, defines::*, WaylandWindow};
-
-use super::super::super::common::clipboard::MAX_FLAVOR_BYTES;
-use super::super::super::common::debug_server::LogCategory;
-use super::super::super::common::event::PlatformWindow;
-use super::super::common::compose::{ComposeAction, ComposeSequencer};
+use super::{
+    super::{
+        super::common::{
+            clipboard::MAX_FLAVOR_BYTES, debug_server::LogCategory, event::PlatformWindow,
+        },
+        common::compose::{ComposeAction, ComposeSequencer},
+    },
+    defines,
+    defines::*,
+    WaylandWindow,
+};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // -- State for input devices --
@@ -546,8 +551,8 @@ pub(super) extern "C" fn registry_global_handler(
                     if rc != 0 {
                         crate::log_warn!(
                             super::super::super::common::debug_server::LogCategory::Platform,
-                            "[native-bb] wl_shm listener attach FAILED (rc={rc}) — \
-                             format detection dead, pools stay ARGB8888"
+                            "[native-bb] wl_shm listener attach FAILED (rc={rc}) — format \
+                             detection dead, pools stay ARGB8888"
                         );
                     }
                 }
@@ -683,7 +688,11 @@ pub(super) extern "C" fn registry_global_handler(
                 LogCategory::Platform,
                 "[Wayland] Bound zwp_pointer_gestures_v1 v{} - touchpad {}",
                 v,
-                if v >= 3 { "pinch/swipe/hold" } else { "pinch/swipe" }
+                if v >= 3 {
+                    "pinch/swipe/hold"
+                } else {
+                    "pinch/swipe"
+                }
             );
             unsafe { try_init_pointer_gestures(window, data) };
         }
@@ -731,7 +740,8 @@ pub(super) extern "C" fn registry_global_handler(
             };
             crate::log_debug!(
                 LogCategory::Platform,
-                "[Wayland] Bound zwp_primary_selection_device_manager_v1 - middle-click paste available"
+                "[Wayland] Bound zwp_primary_selection_device_manager_v1 - middle-click paste \
+                 available"
             );
             unsafe { try_init_primary_selection(window, data) };
             unsafe { try_init_seat_primary_selections(window, data) };
@@ -962,7 +972,8 @@ pub(super) extern "C" fn registry_global_handler(
                 window.decoration_manager = Some(mgr);
                 crate::log_debug!(
                     LogCategory::Platform,
-                    "[Wayland] Bound zxdg_decoration_manager_v1 - server-side decorations available"
+                    "[Wayland] Bound zxdg_decoration_manager_v1 - server-side decorations \
+                     available"
                 );
             }
         }
@@ -1011,12 +1022,12 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
 /// a virtual output.
 ///
 /// This used to be an empty stub, which leaked in three separate ways:
-///   * `known_outputs` grew monotonically across replug cycles, so every index
-///     after the removed one shifted — and `get_current_monitor()` correlates
-///     `known_outputs` against `display::get_displays()` BY INDEX.
+///   * `known_outputs` grew monotonically across replug cycles, so every index after the removed
+///     one shifted — and `get_current_monitor()` correlates `known_outputs` against
+///     `display::get_displays()` BY INDEX.
 ///   * the `wl_output` proxy was never destroyed.
-///   * the tracked-listener entry kept pointing at a dead proxy, so a later
-///     event on a recycled id could dispatch into freed state.
+///   * the tracked-listener entry kept pointing at a dead proxy, so a later event on a recycled id
+///     could dispatch into freed state.
 pub(super) extern "C" fn registry_global_remove_handler(
     data: *mut c_void,
     _registry: *mut wl_registry,
@@ -1317,7 +1328,11 @@ pub(super) unsafe fn try_init_seat_tablets(window: &mut WaylandWindow, data: *mu
         if tablet_seat.is_null() {
             continue;
         }
-        (window.wayland.zwp_tablet_seat_v2_add_listener)(tablet_seat, &ZWP_TABLET_SEAT_LISTENER, data);
+        (window.wayland.zwp_tablet_seat_v2_add_listener)(
+            tablet_seat,
+            &ZWP_TABLET_SEAT_LISTENER,
+            data,
+        );
         window.track_listener(tablet_seat);
         window.seat_tablet_seats.insert(seat_id, tablet_seat);
     }
@@ -1329,7 +1344,9 @@ fn seat_of_tablet_seat(window: &WaylandWindow, tablet_seat: *mut zwp_tablet_seat
         .seat_tablet_seats
         .iter()
         .find(|(_, ts)| **ts == tablet_seat)
-        .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| *seat_id)
+        .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| {
+            *seat_id
+        })
 }
 
 extern "C" fn tablet_seat_tablet_added(
@@ -1679,7 +1696,9 @@ static ZWP_TABLET_SEAT_LISTENER: zwp_tablet_seat_v2_listener = zwp_tablet_seat_v
 extern "C" fn tablet_name(data: *mut c_void, t: *mut zwp_tablet_v2, name: *const c_char) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     if !name.is_null() {
-        let name = unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned();
+        let name = unsafe { CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned();
         window.tablets.entry(t as usize).or_default().name = name.clone();
         window.tablet_info.name = name;
     }
@@ -1695,7 +1714,9 @@ extern "C" fn tablet_id(data: *mut c_void, t: *mut zwp_tablet_v2, vid: u32, pid:
 extern "C" fn tablet_path(data: *mut c_void, t: *mut zwp_tablet_v2, path: *const c_char) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     if !path.is_null() {
-        let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned();
         window.tablets.entry(t as usize).or_default().path = path.clone();
         window.tablet_info.path = path;
     }
@@ -1709,14 +1730,11 @@ extern "C" fn tablet_done(data: *mut c_void, _t: *mut zwp_tablet_v2) {
 extern "C" fn tablet_removed(data: *mut c_void, t: *mut zwp_tablet_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablets.remove(&(t as usize));
-    window.tablet_tool_tablets.retain(|_, tablet| *tablet != t as usize);
+    window
+        .tablet_tool_tablets
+        .retain(|_, tablet| *tablet != t as usize);
     // The fallback record follows whatever tablet is still here.
-    window.tablet_info = window
-        .tablets
-        .values()
-        .next()
-        .cloned()
-        .unwrap_or_default();
+    window.tablet_info = window.tablets.values().next().cloned().unwrap_or_default();
     window.sync_tablet_devices();
 }
 extern "C" fn tablet_noop_bustype(_d: *mut c_void, _t: *mut zwp_tablet_v2, _b: u32) {}
@@ -1801,7 +1819,9 @@ extern "C" fn tool_proximity_in(
     // tablet and not the last one announced.
     let device_id = window.tablet_composite_id(tablet);
     if !tablet.is_null() {
-        window.tablet_tool_tablets.insert(t as usize, tablet as usize);
+        window
+            .tablet_tool_tablets
+            .insert(t as usize, tablet as usize);
     }
     let stat = *tool_static_mut(window, t);
     window.pen_pending_mut(t).device_id = device_id;
@@ -2096,16 +2116,13 @@ extern "C" fn data_device_data_offer(
 /// This is what libwayland's own generated `wl_data_offer_destroy` does, and
 /// getting only half of it wrong disconnects the client:
 ///
-/// * Skipping `wl_proxy_destroy` leaves the id in the CLIENT's object map.
-///   Offer ids are SERVER-allocated (they start at 0xFF000000), and the
-///   server reuses them; the next `wl_data_device.data_offer` carrying a
-///   recycled id makes libwayland's demarshaller find the id already
-///   occupied and raise
-///   `not a valid new object id (4278190080), message data_offer(n)`.
-///   That is a protocol error, so the compositor drops the connection: the
-///   window VANISHES while the process keeps running. Selecting text was
-///   enough to hit it, because every clipboard change delivers a fresh
-///   offer through `selection`.
+/// * Skipping `wl_proxy_destroy` leaves the id in the CLIENT's object map. Offer ids are
+///   SERVER-allocated (they start at 0xFF000000), and the server reuses them; the next
+///   `wl_data_device.data_offer` carrying a recycled id makes libwayland's demarshaller find the id
+///   already occupied and raise `not a valid new object id (4278190080), message data_offer(n)`.
+///   That is a protocol error, so the compositor drops the connection: the window VANISHES while
+///   the process keeps running. Selecting text was enough to hit it, because every clipboard change
+///   delivers a fresh offer through `selection`.
 /// * Skipping the destroy request leaks the object SERVER-side instead.
 ///
 /// The three call sites (`selection`, `leave`, `drop`) each used to open-code
@@ -2703,7 +2720,10 @@ pub(super) unsafe fn try_init_primary_selection(window: &mut WaylandWindow, data
 /// offers are not read (a seat's middle-click paste stays the primary's,
 /// 9b-ii-b-i-b-i-a-i-a); the listener only destroys what the compositor
 /// hands it, so nothing leaks.
-pub(super) unsafe fn try_init_seat_primary_selections(window: &mut WaylandWindow, data: *mut c_void) {
+pub(super) unsafe fn try_init_seat_primary_selections(
+    window: &mut WaylandWindow,
+    data: *mut c_void,
+) {
     if window.primary_selection_manager.is_null() {
         return;
     }
@@ -2799,7 +2819,10 @@ extern "C" fn seat_primary_selection_selection(
         unsafe { destroy_primary_offer(window, id) };
         return;
     };
-    let old = window.seat_primary_offers.remove(&seat_id).unwrap_or(std::ptr::null_mut());
+    let old = window
+        .seat_primary_offers
+        .remove(&seat_id)
+        .unwrap_or(std::ptr::null_mut());
     if !old.is_null() && old != id {
         unsafe { destroy_primary_offer(window, old) };
     }
@@ -3093,14 +3116,12 @@ pub(super) extern "C" fn seat_capabilities_handler(
             (true, None) => {
                 let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
                 unsafe {
-                    (window.wayland.wl_keyboard_add_listener)(
-                        keyboard,
-                        &WL_KEYBOARD_LISTENER,
-                        data,
-                    )
+                    (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
                 };
                 window.track_listener(keyboard);
-                window.seats.set_keyboard(seat.cast(), Some(keyboard.cast()));
+                window
+                    .seats
+                    .set_keyboard(seat.cast(), Some(keyboard.cast()));
                 if let Some(ref mut lw) = window.common.layout_window {
                     lw.device_event_manager.note_device(true);
                 }
@@ -3296,7 +3317,8 @@ fn parse_xkb_keymap(
         // xkb_state would segfault in the key/modifier handlers).
         crate::log_warn!(
             LogCategory::Platform,
-            "[Wayland] xkb_keymap_new_from_string failed to parse the keymap; keyboard input disabled"
+            "[Wayland] xkb_keymap_new_from_string failed to parse the keymap; keyboard input \
+             disabled"
         );
         return None;
     }
@@ -3766,7 +3788,11 @@ pub(super) extern "C" fn pointer_motion_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let seat_id = window.seat_id_for_pointer(pointer);
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-        window.handle_seat_pointer_motion(seat_id, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+        window.handle_seat_pointer_motion(
+            seat_id,
+            surface_x as f64 / 256.0,
+            surface_y as f64 / 256.0,
+        );
         return;
     }
     let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
@@ -4701,8 +4727,8 @@ mod tests {
             .count();
         assert!(
             passes >= 3,
-            "the audit only found {passes} event passes in wayland/events.rs — the item \
-             splitter stopped matching this file"
+            "the audit only found {passes} event passes in wayland/events.rs — the item splitter \
+             stopped matching this file"
         );
     }
 
@@ -4727,21 +4753,21 @@ mod tests {
         assert_eq!(
             *MARSHAL_CALLS.lock().unwrap(),
             vec![(offer as usize, 2)],
-            "the wl_data_offer.destroy request (opcode 2) must be sent to the \
-             server exactly once, for this offer"
+            "the wl_data_offer.destroy request (opcode 2) must be sent to the server exactly \
+             once, for this offer"
         );
         assert_eq!(
             *DESTROY_CALLS.lock().unwrap(),
             vec![offer as usize],
-            "wl_proxy_destroy must free the local proxy exactly once — without \
-             it the server-allocated id stays in the client's object map and \
-             its next reuse is a fatal protocol error"
+            "wl_proxy_destroy must free the local proxy exactly once — without it the \
+             server-allocated id stays in the client's object map and its next reuse is a fatal \
+             protocol error"
         );
         assert_eq!(
             *ORDER.lock().unwrap(),
             vec!["marshal", "destroy"],
-            "the request has to go out BEFORE the proxy is freed; the other \
-             order marshals through a dead proxy"
+            "the request has to go out BEFORE the proxy is freed; the other order marshals \
+             through a dead proxy"
         );
     }
 
@@ -5000,14 +5026,12 @@ extern "C" fn locked_pointer_unlocked(data: *mut c_void, _p: *mut zwp_locked_poi
     // is the only party that knows. Reporting a lock that no longer exists
     // would leave `RawMouseMotion` looking armed while no deltas arrive, so
     // the flag follows the compositor rather than the app's last request.
-    window
-        .common
-        .update_window_state(
-            crate::desktop::shell2::common::event::WindowStateSource::Os,
-            |s| {
-                s.mouse_state.is_cursor_locked = false;
-            },
-        );
+    window.common.update_window_state(
+        crate::desktop::shell2::common::event::WindowStateSource::Os,
+        |s| {
+            s.mouse_state.is_cursor_locked = false;
+        },
+    );
 }
 
 static ZWP_LOCKED_POINTER_LISTENER: defines::zwp_locked_pointer_v1_listener =
@@ -5050,7 +5074,9 @@ pub(super) unsafe fn set_pointer_lock(
         return false;
     }
 
-    let rel = (window.wayland.zwp_relative_pointer_manager_v1_get_relative_pointer)(
+    let rel = (window
+        .wayland
+        .zwp_relative_pointer_manager_v1_get_relative_pointer)(
         window.relative_pointer_manager,
         window.pointer_state.pointer,
     );

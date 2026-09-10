@@ -11,16 +11,16 @@
 //! Per release this module writes, next to the loose files and from the same
 //! inputs (so the two cannot drift):
 //!
-//! * `azul-<lang>-<ver>.tar.gz` — one per language (or C++ dialect group) that
-//!   declares a `bundle` map in api.json (`installation.languages.<lang>.bundle`:
-//!   release file → path inside the bundle). The map is the install steps'
-//!   source of truth: the steps say `tar xzf`, the map says what comes out.
-//! * `azul-rust-<ver>.tar.gz` — a self-contained `azul` crate whose generated
-//!   sources live INSIDE `src/`, so rust-analyzer resolves every type without a
-//!   generator or a build script. `azul-<ver>.crate` is the same crate in the
-//!   layout cargo's sparse registry protocol expects (azul.rs/ui/cargo).
-//! * `bindings-<ver>.tar.gz` — every rendered binding, the headers, api.json
-//!   and the Rust crate, for agents and for "give me everything".
+//! * `azul-<lang>-<ver>.tar.gz` — one per language (or C++ dialect group) that declares a `bundle`
+//!   map in api.json (`installation.languages.<lang>.bundle`: release file → path inside the
+//!   bundle). The map is the install steps' source of truth: the steps say `tar xzf`, the map says
+//!   what comes out.
+//! * `azul-rust-<ver>.tar.gz` — a self-contained `azul` crate whose generated sources live INSIDE
+//!   `src/`, so rust-analyzer resolves every type without a generator or a build script.
+//!   `azul-<ver>.crate` is the same crate in the layout cargo's sparse registry protocol expects
+//!   (azul.rs/ui/cargo).
+//! * `bindings-<ver>.tar.gz` — every rendered binding, the headers, api.json and the Rust crate,
+//!   for agents and for "give me everything".
 //!
 //! tar.gz, not zip: macOS, every Linux and Windows 10+ (bsdtar) unpack it with
 //! `tar xzf`, so no install step needs `unzip`. The archives are written by the
@@ -64,11 +64,15 @@ pub struct TarGz {
 
 impl TarGz {
     pub fn create(path: &Path) -> Result<Self> {
-        let file = File::create(path)
-            .with_context(|| format!("cannot create {}", path.display()))?;
+        let file =
+            File::create(path).with_context(|| format!("cannot create {}", path.display()))?;
         // GzEncoder's default header carries mtime 0 and no filename: stable.
         let gz = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-        Ok(TarGz { gz, entries: 0, bytes: 0 })
+        Ok(TarGz {
+            gz,
+            entries: 0,
+            bytes: 0,
+        })
     }
 
     /// Append one regular file. `name` is the path inside the archive
@@ -160,15 +164,27 @@ fn rust_crate_files(
         }
     }
     let mut files = vec![
-        ("Cargo.toml".to_string(), rust_crate_manifest(version).into_bytes()),
+        (
+            "Cargo.toml".to_string(),
+            rust_crate_manifest(version).into_bytes(),
+        ),
         ("build.rs".to_string(), rust_crate_build_rs().into_bytes()),
-        ("README.md".to_string(), rust_crate_readme(version).into_bytes()),
-        ("src/lib.rs".to_string(), rust_crate_lib_rs(version).into_bytes()),
+        (
+            "README.md".to_string(),
+            rust_crate_readme(version).into_bytes(),
+        ),
+        (
+            "src/lib.rs".to_string(),
+            rust_crate_lib_rs(version).into_bytes(),
+        ),
         (
             "src/generated/dll_api_external.rs".to_string(),
             fs::read(&external)?,
         ),
-        ("src/generated/reexports.rs".to_string(), fs::read(&reexports)?),
+        (
+            "src/generated/reexports.rs".to_string(),
+            fs::read(&reexports)?,
+        ),
     ];
     if let Some(ex) = example {
         files.push(("examples/hello-world.rs".to_string(), ex.to_vec()));
@@ -486,7 +502,10 @@ pub fn create_bindings_bundles(
         }
         let (n, _) = tar.finish()?;
         if missing_here > 0 {
-            eprintln!("  [WARN] {name}: {missing_here} of {} files missing", map.len());
+            eprintln!(
+                "  [WARN] {name}: {missing_here} of {} files missing",
+                map.len()
+            );
         }
         println!("  - Created {name} ({n} files)");
         report.written.push(name);
@@ -508,9 +527,10 @@ pub fn create_bindings_bundles(
             n_codegen += 1;
         }
     } else {
-        report
-            .missing
-            .push(format!("{union}: codegen dir {} (run `azul-doc codegen all`)", codegen_dir.display()));
+        report.missing.push(format!(
+            "{union}: codegen dir {} (run `azul-doc codegen all`)",
+            codegen_dir.display()
+        ));
     }
     let api_json = version_dir.join("api.json");
     if api_json.is_file() {
@@ -581,14 +601,20 @@ mod tests {
         assert_eq!(field(&h, 0, 100), "azul-haskell/src/Azul/Internal/FFI.hs");
         assert_eq!(field(&h, 100, 108), "0000644");
         assert_eq!(u64::from_str_radix(&field(&h, 124, 136), 8).unwrap(), 1234);
-        assert_eq!(u64::from_str_radix(&field(&h, 136, 148), 8).unwrap(), ARCHIVE_MTIME);
+        assert_eq!(
+            u64::from_str_radix(&field(&h, 136, 148), 8).unwrap(),
+            ARCHIVE_MTIME
+        );
         assert_eq!(h[156], b'0');
         assert_eq!(&h[257..263], b"ustar\0");
         // The checksum is the byte sum with the checksum field read as spaces.
         let mut copy = h;
         copy[148..156].copy_from_slice(b"        ");
         let expected: u32 = copy.iter().map(|&b| u32::from(b)).sum();
-        assert_eq!(u32::from_str_radix(&field(&h, 148, 156), 8).unwrap(), expected);
+        assert_eq!(
+            u32::from_str_radix(&field(&h, 148, 156), 8).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -639,7 +665,9 @@ mod tests {
         // The shared link logic really is embedded, with the entry point the
         // in-repo build.rs calls.
         let b = rust_crate_build_rs();
-        assert!(b.contains("fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBuf])"));
+        assert!(b.contains(
+            "fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBuf])"
+        ));
         assert!(b.contains("fn emit_static_system_deps"));
     }
 }

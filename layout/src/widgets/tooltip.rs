@@ -27,8 +27,8 @@ use azul_core::{
     dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -924,8 +924,7 @@ mod autotest_generated {
             assert_eq!(
                 types.len(),
                 declared,
-                "{name}: a duplicated property type would make the later declaration \
-                 silently win"
+                "{name}: a duplicated property type would make the later declaration silently win"
             );
         }
     }

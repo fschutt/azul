@@ -4,16 +4,13 @@
 //! function, we emit a plain Smalltalk class `Azul<TypeName>` in the
 //! `Azul-Core` package that:
 //!
-//! - Holds the raw `FFIExternalStructure` instance in an instance
-//!   variable named `handle`.
-//! - Registers itself with `WeakArray` / `WeakRegistry` finalization
-//!   via `FFIExternalResourceManager addResource:`. When Pharo's GC
-//!   reclaims the wrapper, `finalize` is invoked on a finalizer
-//!   replacement that forwards to `AzulNative class >> az<Type>Delete:`.
-//! - Surfaces every non-trait method on `<TypeName>` as an idiomatic
-//!   instance or class-side method. Class-side static methods become
-//!   factory selectors (`AzulApp create: anOptions`); instance methods
-//!   forward `self handle` as the first FFI argument.
+//! - Holds the raw `FFIExternalStructure` instance in an instance variable named `handle`.
+//! - Registers itself with `WeakArray` / `WeakRegistry` finalization via
+//!   `FFIExternalResourceManager addResource:`. When Pharo's GC reclaims the wrapper, `finalize` is
+//!   invoked on a finalizer replacement that forwards to `AzulNative class >> az<Type>Delete:`.
+//! - Surfaces every non-trait method on `<TypeName>` as an idiomatic instance or class-side method.
+//!   Class-side static methods become factory selectors (`AzulApp create: anOptions`); instance
+//!   methods forward `self handle` as the first FFI argument.
 //!
 //! Plain POD structs without a `_delete` get *no* wrapper — they are
 //! used directly as `FFIExternalStructure` values.
@@ -24,15 +21,18 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
-};
-use super::types::class_header;
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+    },
     ffi_type_name, map_type_to_uffi, method_category_line, sanitize_identifier,
-    snake_to_lower_camel, wrapper_class_name, NATIVE_CLASS, PACKAGE_CORE,
+    snake_to_lower_camel,
+    types::class_header,
+    wrapper_class_name, NATIVE_CLASS, PACKAGE_CORE,
 };
 
 // ============================================================================

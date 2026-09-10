@@ -97,9 +97,8 @@ fn the_radio_circle_stays_round_and_its_dot_stays_centered_across_passes() {
             let (dx, dy, dw, dh) = node_rect(&lw, *dot).expect("dot rect");
             assert!(
                 (cw - CIRCLE_SIZE).abs() < 0.6 && (ch - CIRCLE_SIZE).abs() < 0.6,
-                "pass {pass}: the circle must stay {CIRCLE_SIZE}px round, got \
-                 {cw}x{ch} — its fixed height lost to the row's cross-axis \
-                 stretch (the device OVAL)"
+                "pass {pass}: the circle must stay {CIRCLE_SIZE}px round, got {cw}x{ch} — its \
+                 fixed height lost to the row's cross-axis stretch (the device OVAL)"
             );
             assert!(
                 (dw - DOT_SIZE).abs() < 0.6 && (dh - DOT_SIZE).abs() < 0.6,
@@ -110,8 +109,8 @@ fn the_radio_circle_stays_round_and_its_dot_stays_centered_across_passes() {
             assert!(
                 (dx - expect_dx).abs() < 1.0 && (dy - expect_dy).abs() < 1.0,
                 "pass {pass}: dot at ({dx},{dy}) but the circle centre wants \
-                 ({expect_dx},{expect_dy}) — align-items:center was lost (the \
-                 device dot-at-the-top)"
+                 ({expect_dx},{expect_dy}) — align-items:center was lost (the device \
+                 dot-at-the-top)"
             );
         }
     }

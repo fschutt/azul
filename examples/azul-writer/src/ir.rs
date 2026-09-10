@@ -18,18 +18,18 @@
 //! unknown body/run tag degrades to nothing instead of failing the load.
 //!
 //! Design rules the rest of the editor relies on:
-//! - **Block indices are stable across the render**: `to_content_dom`
-//!   emits exactly one root child per `IrBlock`, in order, so the engine's
-//!   structural changesets (child-index + byte positions) and the
-//!   pagination `[block]` / `[block, child]` paths address IR blocks 1:1.
-//! - **One node per run**: a paragraph's children correspond 1:1 to its
-//!   `runs` — a plain run is a bare text node (the exact shape the editor
-//!   rendered before formatting existed), a formatted run is ONE element
-//!   (`strong` / `em` / `span`) holding one text node. Formatting never
-//!   nests, so child indices keep meaning "run index".
+//! - **Block indices are stable across the render**: `to_content_dom` emits exactly one root child
+//!   per `IrBlock`, in order, so the engine's structural changesets (child-index + byte positions)
+//!   and the pagination `[block]` / `[block, child]` paths address IR blocks 1:1.
+//! - **One node per run**: a paragraph's children correspond 1:1 to its `runs` — a plain run is a
+//!   bare text node (the exact shape the editor rendered before formatting existed), a formatted
+//!   run is ONE element (`strong` / `em` / `span`) holding one text node. Formatting never nests,
+//!   so child indices keep meaning "run index".
 
-use azul::dom::{Dom, IdOrClass};
-use azul::vec::IdOrClassVec;
+use azul::{
+    dom::{Dom, IdOrClass},
+    vec::IdOrClassVec,
+};
 
 // ============================================================================
 // The model
@@ -118,7 +118,11 @@ impl IrRun {
     }
 
     pub fn is_plain(&self) -> bool {
-        !self.bold && !self.italic && !self.underline && !self.strike && !self.code
+        !self.bold
+            && !self.italic
+            && !self.underline
+            && !self.strike
+            && !self.code
             && self.link.is_none()
     }
 }
@@ -456,8 +460,7 @@ pub fn from_markdown(markdown: &str) -> IrDocument {
     // The classic office-suite implicit empty paragraph: an empty document
     // still has ONE paragraph, or the caret has nothing to anchor to.
     if doc.blocks.is_empty() {
-        doc.blocks
-            .push(IrBlock::Paragraph(IrParagraph::default()));
+        doc.blocks.push(IrBlock::Paragraph(IrParagraph::default()));
     }
     doc
 }
@@ -962,8 +965,10 @@ pub fn from_docx_bytes(data: &[u8]) -> Result<IrDocument, String> {
 // Editing: the engine changeset mirror + formatting + text sync
 // ============================================================================
 
-use azul::css::DocumentOperation;
-use azul::dom::{DocOpMergeNodes, DocOpSplitNode};
+use azul::{
+    css::DocumentOperation,
+    dom::{DocOpMergeNodes, DocOpSplitNode},
+};
 
 /// One inline formatting axis a toolbar toggles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1120,11 +1125,7 @@ pub fn apply_operation(
 /// Which runs (by index) a `[start, end)` byte range of the block's
 /// FLATTENED text covers, splitting partially-covered runs first so the
 /// covered set is exact. Returns the covered index range.
-fn split_runs_at_range(
-    runs: &mut Vec<IrRun>,
-    start: usize,
-    end: usize,
-) -> core::ops::Range<usize> {
+fn split_runs_at_range(runs: &mut Vec<IrRun>, start: usize, end: usize) -> core::ops::Range<usize> {
     // Clamp BOTH bounds to char boundaries of the flattened text first —
     // the same clamped values drive the splits AND the coverage walk, or a
     // mid-code-point bound covers one run too many.
@@ -1264,14 +1265,16 @@ pub fn set_block_style(doc: &mut IrDocument, block_idx: usize, style: IrParaStyl
 /// untouched text survives typing; the changed middle inherits the format
 /// of the run it lands in.
 pub fn sync_block_text(doc: &mut IrDocument, path: &[u32], new_text: &str) -> bool {
-    let runs: &mut Vec<IrRun> = match (path, doc.blocks.get_mut(path.first().map_or(usize::MAX, |b| *b as usize))) {
+    let runs: &mut Vec<IrRun> = match (
+        path,
+        doc.blocks
+            .get_mut(path.first().map_or(usize::MAX, |b| *b as usize)),
+    ) {
         ([_], Some(IrBlock::Paragraph(p))) => &mut p.runs,
-        ([_, item], Some(IrBlock::List(l))) => {
-            match l.items.get_mut(*item as usize) {
-                Some(it) => &mut it.runs,
-                None => return false,
-            }
-        }
+        ([_, item], Some(IrBlock::List(l))) => match l.items.get_mut(*item as usize) {
+            Some(it) => &mut it.runs,
+            None => return false,
+        },
         _ => return false,
     };
     let old = flatten_runs(runs);
@@ -1324,7 +1327,9 @@ mod tests {
 
     use super::*;
 
-    const SAMPLE: &str = "# Title\n\nHello **bold** and *it* and ~~gone~~ and `code`.\n\n- item one\n- item two\n\n1. first\n2. second\n\n> quoted words\n\n```rust\nlet x = 1;\n```\n\n---\n";
+    const SAMPLE: &str = "# Title\n\nHello **bold** and *it* and ~~gone~~ and `code`.\n\n- item \
+                          one\n- item two\n\n1. first\n2. second\n\n> quoted \
+                          words\n\n```rust\nlet x = 1;\n```\n\n---\n";
 
     #[test]
     fn markdown_round_trips_through_the_ir() {
@@ -1339,7 +1344,12 @@ mod tests {
         let IrBlock::Paragraph(p) = &ir.blocks[0] else {
             panic!("paragraph expected")
         };
-        assert_eq!(p.runs.len(), 5, "a | b(bold) | space | c(italic) | plain: {:?}", p.runs);
+        assert_eq!(
+            p.runs.len(),
+            5,
+            "a | b(bold) | space | c(italic) | plain: {:?}",
+            p.runs
+        );
         assert!(p.runs[1].bold && !p.runs[1].italic);
         assert!(p.runs[3].italic && !p.runs[3].bold);
     }
@@ -1420,8 +1430,10 @@ mod tests {
     }
 
     fn split_op(block_after: u32, child: u32, byte: Option<u32>) -> (DocumentOperation, Vec<u32>) {
-        use azul::css::NodePosition;
-        use azul::dom::{DomId, DomNodeId, NodeHierarchyItemId};
+        use azul::{
+            css::NodePosition,
+            dom::{DomId, DomNodeId, NodeHierarchyItemId},
+        };
         let at = NodePosition {
             child_index: child,
             text_byte: byte.into(),
@@ -1443,18 +1455,23 @@ mod tests {
         let mut ir = from_markdown("Hello **bold** world\n");
         // Split block 0 at run 0 ("Hello "), byte 3: "Hel" | "lo **bold** world".
         let (op, resume) = split_op(1, 0, Some(3));
-        let (inverse, inv_resume) =
-            apply_operation(&mut ir, &op, &resume).expect("split applies");
+        let (inverse, inv_resume) = apply_operation(&mut ir, &op, &resume).expect("split applies");
         assert_eq!(ir.blocks.len(), 2);
-        let IrBlock::Paragraph(a) = &ir.blocks[0] else { panic!() };
-        let IrBlock::Paragraph(b) = &ir.blocks[1] else { panic!() };
+        let IrBlock::Paragraph(a) = &ir.blocks[0] else {
+            panic!()
+        };
+        let IrBlock::Paragraph(b) = &ir.blocks[1] else {
+            panic!()
+        };
         assert_eq!(flatten_runs(&a.runs), "Hel");
         assert_eq!(flatten_runs(&b.runs), "lo bold world");
         assert!(b.runs.iter().any(|r| r.bold), "bold survives the split");
         // The inverse merge restores one block with runs intact.
         let (_, _) = apply_operation(&mut ir, &inverse, &inv_resume).expect("merge applies");
         assert_eq!(ir.blocks.len(), 1);
-        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else {
+            panic!()
+        };
         assert_eq!(flatten_runs(&p.runs), "Hello bold world");
         assert!(p.runs.iter().any(|r| r.bold));
     }
@@ -1464,14 +1481,18 @@ mod tests {
         let mut ir = from_markdown("hello world\n");
         // Bold "world" (bytes 6..11).
         assert!(toggle_format_range(&mut ir, 0, 6, 11, FormatAxis::Bold));
-        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else {
+            panic!()
+        };
         assert_eq!(p.runs.len(), 2, "{:?}", p.runs);
         assert!(!p.runs[0].bold && p.runs[1].bold);
         assert_eq!(p.runs[1].text, "world");
         assert_eq!(to_markdown(&ir), "hello **world**\n");
         // Toggling the same range again clears it and the runs merge back.
         assert!(toggle_format_range(&mut ir, 0, 6, 11, FormatAxis::Bold));
-        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else {
+            panic!()
+        };
         assert_eq!(p.runs.len(), 1);
         assert_eq!(to_markdown(&ir), "hello world\n");
     }
@@ -1482,7 +1503,9 @@ mod tests {
         // A range end landing INSIDE the 2-byte '\u{00df}' clamps to a char boundary
         // instead of splitting the code point.
         assert!(toggle_format_range(&mut ir, 0, 0, 5, FormatAxis::Bold));
-        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else {
+            panic!()
+        };
         let flat = flatten_runs(&p.runs);
         assert_eq!(flat, "gr\u{00fc}\u{00df}e here", "no bytes lost: {flat:?}");
         assert!(p.runs[0].bold);
@@ -1498,7 +1521,9 @@ mod tests {
         let mut ir = from_markdown("one **two** three\n");
         // The user typed "XY" inside "three": new flat text.
         assert!(sync_block_text(&mut ir, &[0], "one two thrXYee"));
-        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else {
+            panic!()
+        };
         assert_eq!(flatten_runs(&p.runs), "one two thrXYee");
         assert!(
             p.runs.iter().any(|r| r.bold && r.text == "two"),
@@ -1539,7 +1564,11 @@ mod docx_end_to_end {
             panic!("block 1: {:?}", ir.blocks.get(1))
         };
         assert_eq!(flatten_runs(&p.runs), "Plain then bold italic");
-        assert!(p.runs.iter().any(|r| r.bold), "a bold run survives: {:?}", p.runs);
+        assert!(
+            p.runs.iter().any(|r| r.bold),
+            "a bold run survives: {:?}",
+            p.runs
+        );
         assert!(p.runs.iter().any(|r| r.italic), "an italic run survives");
         assert!(
             ir.blocks.iter().any(|b| matches!(b, IrBlock::PageBreak)),
@@ -1549,5 +1578,3 @@ mod docx_end_to_end {
         assert_eq!(ir.derived_title().as_deref(), Some("A Real Heading"));
     }
 }
-
-

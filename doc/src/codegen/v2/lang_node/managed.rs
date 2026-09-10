@@ -21,31 +21,29 @@
 //! Three pieces wired into `azul.js`:
 //!
 //! 1. **Function bindings** for the host-invoker C-ABI exports — one
-//!    `lib.AzApp_setHostHandleReleaser` plus one
-//!    `lib.AzApp_set<Kind>Invoker` and one
+//!    `lib.AzApp_setHostHandleReleaser` plus one `lib.AzApp_set<Kind>Invoker` and one
 //!    `lib.Az<Kind>_createFromHostHandle` per supported callback kind.
-//! 2. **Type registrations** for the per-kind invoker prototypes
-//!    (`koffi.proto('AzCallbackInvoker', ...)`, mirrored on Bun/Deno via
-//!    the uniform `azulFFI.proto(...)` adapter).
-//! 3. **`azul.registerCallback(kind, fn)`** factory that allocates a host
-//!    handle, stashes the user fn in a process-wide map, and returns the
-//!    matching `Az<Kind>` cdata struct from
-//!    `Az<Kind>_createFromHostHandle`. Plus `azul.refanyCreate(value)` /
-//!    `azul.refanyGet(refany)` user-data helpers that share the same map.
+//! 2. **Type registrations** for the per-kind invoker prototypes (`koffi.proto('AzCallbackInvoker',
+//!    ...)`, mirrored on Bun/Deno via the uniform `azulFFI.proto(...)` adapter).
+//! 3. **`azul.registerCallback(kind, fn)`** factory that allocates a host handle, stashes the user
+//!    fn in a process-wide map, and returns the matching `Az<Kind>` cdata struct from
+//!    `Az<Kind>_createFromHostHandle`. Plus `azul.refanyCreate(value)` / `azul.refanyGet(refany)`
+//!    user-data helpers that share the same map.
 //!
 //! Future work (deferred):
 //!
-//! * Wrapper-emitter substitution in `wrappers.rs`. Until that lands,
-//!   user code calls `azul.registerCallback('Callback', fn)` explicitly
-//!   before passing the result to e.g. `button.setOnClick(...)`.
-//! * Aggregate-return marshalling for kinds whose return type is a
-//!   struct (LayoutCallback returns AzDom). Today the integer return
-//!   path (Update enum) works directly via `koffi.encode`; struct
+//! * Wrapper-emitter substitution in `wrappers.rs`. Until that lands, user code calls
+//!   `azul.registerCallback('Callback', fn)` explicitly before passing the result to e.g.
+//!   `button.setOnClick(...)`.
+//! * Aggregate-return marshalling for kinds whose return type is a struct (LayoutCallback returns
+//!   AzDom). Today the integer return path (Update enum) works directly via `koffi.encode`; struct
 //!   returns need per-runtime out-pointer writeback support.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind};
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use super::super::{
+    generator::CodeBuilder,
+    ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind},
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+};
 
 /// Emit the host-invoker block. Insertion order: AFTER the existing
 /// `types::generate_type_registrations` and `functions::generate_function_bindings`
@@ -306,7 +304,10 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
                     "azulFFI.encodeInto(outPtr, '{}', _raw);",
                     koffi_type
                 ));
-                b.line("if (ret && ret._ptr !== undefined && ret.constructor && ret.constructor._registry) {");
+                b.line(
+                    "if (ret && ret._ptr !== undefined && ret.constructor && \
+                     ret.constructor._registry) {",
+                );
                 b.indent();
                 b.line("ret.constructor._registry.unregister(ret);");
                 b.line("ret._ptr = null;");
@@ -358,14 +359,11 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
 /// never reads a half-written return value.
 ///
 /// Classification of the return type:
-/// - fieldless enum (`Update`, ...) → `int32_t 0` (the first variant,
-///   i.e. `Update.DoNothing`);
-/// - struct with an IR `Default` factory (`Dom` → `AzDom_default`,
-///   `VirtualViewReturn` → `AzVirtualViewReturn_default`) → encode a
-///   freshly-constructed default struct;
-/// - anything else (e.g. `OnTextInputReturn`, which has no `_default`
-///   C export) → leave the native pre-filled default in place
-///   (documented no-op).
+/// - fieldless enum (`Update`, ...) → `int32_t 0` (the first variant, i.e. `Update.DoNothing`);
+/// - struct with an IR `Default` factory (`Dom` → `AzDom_default`, `VirtualViewReturn` →
+///   `AzVirtualViewReturn_default`) → encode a freshly-constructed default struct;
+/// - anything else (e.g. `OnTextInputReturn`, which has no `_default` C export) → leave the native
+///   pre-filled default in place (documented no-op).
 fn emit_catch_default_write(b: &mut CodeBuilder, ir: &CodegenIR, cb: &CallbackTypedefDef) {
     let rt = cb.return_type.as_deref().map(str::trim).unwrap_or("");
     let unit_enum = ir
@@ -392,7 +390,8 @@ fn emit_catch_default_write(b: &mut CodeBuilder, ir: &CodegenIR, cb: &CallbackTy
         // the enum default (0 == first, DoNothing-style variant) is safely
         // re-written on every runtime and cannot tear (single 4-byte store).
         b.line(&format!(
-            "try {{ azulFFI.writeInt32(outPtr, 0); }} catch (_e2) {{ /* pre-fill stands */ }} // 0 == {}.DoNothing-style first variant",
+            "try {{ azulFFI.writeInt32(outPtr, 0); }} catch (_e2) {{ /* pre-fill stands */ }} // \
+             0 == {}.DoNothing-style first variant",
             rt
         ));
     } else if let Some(c_name) = default_factory {
@@ -402,7 +401,8 @@ fn emit_catch_default_write(b: &mut CodeBuilder, ir: &CodegenIR, cb: &CallbackTy
         b.line("if (azulFFI.runtime === 'node-koffi') {");
         b.indent();
         b.line(&format!(
-            "try {{ azulFFI.koffi.encode(outPtr, '{}', lib.{}()); }} catch (_e2) {{ /* pre-fill stands */ }}",
+            "try {{ azulFFI.koffi.encode(outPtr, '{}', lib.{}()); }} catch (_e2) {{ /* pre-fill \
+             stands */ }}",
             super::ffi_type_name(rt),
             c_name
         ));

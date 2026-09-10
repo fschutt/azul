@@ -328,8 +328,7 @@ mod tests {
         ] {
             assert!(
                 body.contains(fallback),
-                "the XWayland fallback `{fallback}` must still exist, just off \
-                 the UI thread"
+                "the XWayland fallback `{fallback}` must still exist, just off the UI thread"
             );
         }
     }

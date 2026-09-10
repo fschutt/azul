@@ -1,6 +1,4 @@
-use azul::css::ColorU;
-use azul::prelude::*;
-use azul::widgets::*;
+use azul::{css::ColorU, prelude::*, widgets::*};
 
 #[derive(Default, Clone)]
 struct WidgetShowcase {

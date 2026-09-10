@@ -2,8 +2,9 @@
 //!
 //! These types are C-compatible (repr(C)) for use across FFI boundaries.
 
-use crate::corety::{AzString, OptionF32};
 use alloc::string::String;
+
+use crate::corety::{AzString, OptionF32};
 
 /// Compares two f32 values for ordering, treating NaN as equal.
 fn cmp_f32(a: f32, b: f32) -> core::cmp::Ordering {
@@ -383,7 +384,8 @@ impl CssShape {
         match self {
             Self::Circle(ShapeCircle { center, radius }) => {
                 format!(
-                    "CssShape::Circle(ShapeCircle {{ center: ShapePoint::new({}_f32, {}_f32), radius: {}_f32 }})",
+                    "CssShape::Circle(ShapeCircle {{ center: ShapePoint::new({}_f32, {}_f32), \
+                     radius: {}_f32 }})",
                     center.x, center.y, radius
                 )
             }
@@ -393,7 +395,8 @@ impl CssShape {
                 radius_y,
             }) => {
                 format!(
-                    "CssShape::Ellipse(ShapeEllipse {{ center: ShapePoint::new({}_f32, {}_f32), radius_x: {}_f32, radius_y: {}_f32 }})",
+                    "CssShape::Ellipse(ShapeEllipse {{ center: ShapePoint::new({}_f32, {}_f32), \
+                     radius_x: {}_f32, radius_y: {}_f32 }})",
                     center.x, center.y, radius_x, radius_y
                 )
             }
@@ -420,7 +423,9 @@ impl CssShape {
                     OptionF32::None => String::from("OptionF32::None"),
                 };
                 format!(
-                    "CssShape::Inset(ShapeInset {{ inset_top: {inset_top}_f32, inset_right: {inset_right}_f32, inset_bottom: {inset_bottom}_f32, inset_left: {inset_left}_f32, border_radius: {br} }})"
+                    "CssShape::Inset(ShapeInset {{ inset_top: {inset_top}_f32, inset_right: \
+                     {inset_right}_f32, inset_bottom: {inset_bottom}_f32, inset_left: \
+                     {inset_left}_f32, border_radius: {br} }})"
                 )
             }
             Self::Path(ShapePath { data }) => {

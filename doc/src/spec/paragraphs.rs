@@ -11,8 +11,9 @@
 //!
 //! Format: `+spec:{spec-id}-{section}-p{paragraph}`
 
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A single paragraph from a W3C spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,9 +291,15 @@ impl ParagraphRegistry {
             1,
         );
 
-        reg.add("css22-visudet-10.3.3-p1", "Block non-replaced width", 
-            "Constraint: margin-left + border-left + padding-left + width + ... = containing block width",
-            "css22-visudet.html", "10.3.3", 1);
+        reg.add(
+            "css22-visudet-10.3.3-p1",
+            "Block non-replaced width",
+            "Constraint: margin-left + border-left + padding-left + width + ... = containing \
+             block width",
+            "css22-visudet.html",
+            "10.3.3",
+            1,
+        );
 
         reg.add(
             "css22-visudet-10.3.3-p2",

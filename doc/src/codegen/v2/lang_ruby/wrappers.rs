@@ -4,12 +4,11 @@
 //! lightweight Ruby class that:
 //!
 //! 1. Holds `@ptr` (the underlying FFI struct pointer);
-//! 2. Registers an `ObjectSpace.define_finalizer` that calls
-//!    `Native.az_<typename>_delete(ptr)` when the Ruby object is GC'd.
-//!    The finalizer proc captures only `ptr` — never `self` — to avoid the
-//!    well-known "finalizer keeps the instance alive forever" trap;
-//! 3. Exposes idiomatic class methods (constructors, static helpers) and
-//!    instance methods (anything else that takes `&self` / `&mut self`).
+//! 2. Registers an `ObjectSpace.define_finalizer` that calls `Native.az_<typename>_delete(ptr)`
+//!    when the Ruby object is GC'd. The finalizer proc captures only `ptr` — never `self` — to
+//!    avoid the well-known "finalizer keeps the instance alive forever" trap;
+//! 3. Exposes idiomatic class methods (constructors, static helpers) and instance methods (anything
+//!    else that takes `&self` / `&mut self`).
 //!
 //! Method naming: drop the `Az` prefix and the `<TypeName>_` segment, then
 //! convert `camelCase` to `snake_case`. So:
@@ -25,10 +24,14 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
-use super::types::{should_emit_struct, snake_case};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    },
+    types::{should_emit_struct, snake_case},
+};
 
 // ============================================================================
 // Public entry point
@@ -394,7 +397,10 @@ fn emit_rb_each_if_vec(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
             // overlay shape and rely on the user not retaining
             // yielded elements past the Vec's lifetime. Comment
             // emitted for runtime clarity.
-            builder.line("# WARNING: element type has no _clone — yielded values borrow from the Vec's buffer.");
+            builder.line(
+                "# WARNING: element type has no _clone — yielded values borrow from the Vec's \
+                 buffer.",
+            );
             builder.line(&format!(
                 "yield Native::{}.new(buf + i * elem_size)",
                 elem_prefixed

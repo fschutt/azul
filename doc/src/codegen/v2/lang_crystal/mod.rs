@@ -52,10 +52,10 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory,
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory},
 };
 
 /// The C library name used in `@[Link("azul")]`.

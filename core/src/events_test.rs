@@ -2,16 +2,19 @@
 pub use super::*;
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::dom::{DomId, DomNodeId};
-    use crate::geom::LogicalPosition;
-    use crate::id::NodeId;
-    use crate::styled_dom::NodeHierarchyItemId;
-    use crate::task::{Instant, SystemTick};
-    use crate::window::{
-        KeyboardState, MouseState, OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec,
-    };
     use azul_css::AzString;
+
+    use super::*;
+    use crate::{
+        dom::{DomId, DomNodeId},
+        geom::LogicalPosition,
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+        window::{
+            KeyboardState, MouseState, OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec,
+        },
+    };
 
     struct MockSelectionManager {
         click_count: u8,
@@ -79,7 +82,8 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&events, None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&events, None, &kb, &mouse, &sel, &focus, true);
 
         let ops: Vec<_> = result
             .system_changes
@@ -120,7 +124,8 @@ mod tests {
             has_sel: false,
         };
         let focus = MockFocusManager(Some(target));
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
         let ops: Vec<_> = result
             .system_changes
             .iter()
@@ -160,7 +165,8 @@ mod tests {
             has_sel: false,
         };
         let focus = MockFocusManager(Some(target));
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
         let ops: Vec<_> = result
             .system_changes
             .iter()
@@ -189,7 +195,8 @@ mod tests {
         };
         let focus = MockFocusManager(None); // No focus!
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         assert!(
             result.system_changes.is_empty(),
@@ -215,7 +222,8 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         // This test documents the bug we just fixed: EventData::None causes
         // the handle_key_down function to return None (early exit at line 2737)
@@ -266,7 +274,8 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
+        let result =
+            pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         let copy_changes = result
             .system_changes
@@ -278,10 +287,13 @@ mod tests {
     }
 
     fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
-        use crate::dom::OptionDomNodeId;
-        use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
-        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
+
+        use crate::{
+            dom::OptionDomNodeId,
+            hit_test::{FullHitTest, HitTest, HitTestItem},
+            spaces::ContentBoxLocal,
+        };
 
         let node_id = NodeId::new(node_idx);
         let dom_id = DomId { inner: 0 };
@@ -614,8 +626,10 @@ mod tests {
 
     #[test]
     fn nodedata_focusable_and_activation_traits_are_wired() {
-        use crate::dom::{NodeData, NodeType};
-        use crate::events::{ActivationBehavior as _, Focusable as _};
+        use crate::{
+            dom::{NodeData, NodeType},
+            events::{ActivationBehavior as _, Focusable as _},
+        };
 
         // <button> is naturally focusable and has activation behavior.
         let btn = NodeData::create_node(NodeType::Button);
@@ -640,10 +654,13 @@ mod tests {
 
     #[test]
     fn first_hovered_node_picks_frontmost_by_depth() {
-        use crate::dom::OptionDomNodeId;
-        use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
-        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
+
+        use crate::{
+            dom::OptionDomNodeId,
+            hit_test::{FullHitTest, HitTest, HitTestItem},
+            spaces::ContentBoxLocal,
+        };
 
         let item = |depth: u32| HitTestItem {
             point_in_viewport: LogicalPosition::zero(),
@@ -2398,8 +2415,8 @@ mod autotest_generated {
                 .collect();
             assert!(
                 missing.is_empty(),
-                "the ratchet does not cover {} of {} EventTypes, so a desync in \
-                 them lands green: {missing:?}",
+                "the ratchet does not cover {} of {} EventTypes, so a desync in them lands green: \
+                 {missing:?}",
                 missing.len(),
                 all_event_types().len(),
             );
@@ -2428,8 +2445,8 @@ mod autotest_generated {
                 assert!(
                     KNOWN_DESYNC.contains(&ty),
                     "NEW DESYNC: event_type_to_filters({ty:?}) emits {f:?}, but \
-                     matches_filter_phase rejects it at the Target phase, so the \
-                     callback would be collected and then silently dropped"
+                     matches_filter_phase rejects it at the Target phase, so the callback would \
+                     be collected and then silently dropped"
                 );
             }
         }
@@ -2446,7 +2463,9 @@ mod autotest_generated {
             ..Default::default()
         });
         let down = event_type_to_filters(EventType::MouseDown, &data);
-        assert_eq!(down, vec![
+        assert_eq!(
+            down,
+            vec![
                 // Planning is scope-complete now (it is derived from the
                 // matcher), so the generic MouseDown appears in all three
                 // scopes. The POINT of this test is unchanged: no
@@ -2454,7 +2473,8 @@ mod autotest_generated {
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 EventFilter::Focus(FocusEventFilter::MouseDown),
                 EventFilter::Window(WindowEventFilter::MouseDown),
-            ]);
+            ]
+        );
         let up = event_type_to_filters(EventType::MouseUp, &data);
         assert_eq!(
             up,
@@ -4079,10 +4099,9 @@ fn a_synthetic_click_activates_a_click_listener_and_nothing_else() {
 /// ARCHITECTURAL INVARIANT: the engine keeps TWO tables that map an event
 /// onto listeners, and nothing but discipline kept them in agreement.
 ///
-///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get
-///    collected for an event.
-///  * `matches_filter_phase` drives phase MATCHING - whether a collected
-///    callback actually fires.
+///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get collected for an
+///    event.
+///  * `matches_filter_phase` drives phase MATCHING - whether a collected callback actually fires.
 ///
 /// A de-sync is SILENT: the event simply never reaches the callback. That is
 /// exactly how Enter/Space died on every focusable widget - planning listed
@@ -4145,14 +4164,17 @@ fn dispatch_planning_and_phase_matching_agree_on_every_hover_filter() {
         for &f in FILTERS {
             let filter = EventFilter::Hover(f);
             let is_planned = planned.contains(&filter);
-            let does_match =
-                super::matches_filter_phase(filter, &event, EventPhase::Bubble);
+            let does_match = super::matches_filter_phase(filter, &event, EventPhase::Bubble);
             assert_eq!(
-                is_planned, does_match,
-                "de-sync for {event_type:?} x {f:?}: planning says {is_planned}, \
-                 matching says {does_match} - a callback registered on {f:?} would \
-                 {} (see the doc on this test)",
-                if is_planned { "be collected and then ignored" } else { "never be collected" },
+                is_planned,
+                does_match,
+                "de-sync for {event_type:?} x {f:?}: planning says {is_planned}, matching says \
+                 {does_match} - a callback registered on {f:?} would {} (see the doc on this test)",
+                if is_planned {
+                    "be collected and then ignored"
+                } else {
+                    "never be collected"
+                },
             );
         }
     }
@@ -4163,10 +4185,9 @@ fn dispatch_planning_and_phase_matching_agree_on_every_hover_filter() {
 /// The engine keeps two tables that map an event onto listeners and nothing
 /// but discipline kept them in agreement:
 ///
-///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get
-///    collected for an event.
-///  * `matches_filter_phase` drives phase MATCHING - whether a collected
-///    callback actually fires.
+///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get collected for an
+///    event.
+///  * `matches_filter_phase` drives phase MATCHING - whether a collected callback actually fires.
 ///
 /// A de-sync is SILENT in both directions: a filter planned but not matched
 /// collects a callback and drops it; a filter matched but not planned can
@@ -4589,10 +4610,17 @@ fn every_lifecycle_event_plans_exactly_its_component_listener() {
     // And the other direction: a pointer event never wakes a lifecycle
     // listener (a Mount callback firing on a click would be as wrong as one
     // never firing).
-    for ty in [EventType::Click, EventType::MouseUp, EventType::KeyDown, EventType::Scroll] {
+    for ty in [
+        EventType::Click,
+        EventType::MouseUp,
+        EventType::KeyDown,
+        EventType::Scroll,
+    ] {
         let planned = event_type_to_filters(ty, &EventData::None);
         assert!(
-            !planned.iter().any(|f| matches!(f, EventFilter::Component(_))),
+            !planned
+                .iter()
+                .any(|f| matches!(f, EventFilter::Component(_))),
             "{ty:?} must not plan a lifecycle listener; planned {planned:?}"
         );
     }
@@ -4646,7 +4674,10 @@ fn a_pointer_release_activates_a_click_listener_exactly_once() {
     let raw = EventFilter::Hover(HoverEventFilter::MouseUp);
     let raw_hits =
         usize::from(up_filters.contains(&raw)) + usize::from(click_filters.contains(&raw));
-    assert_eq!(raw_hits, 1, "a MouseUp listener must also fire exactly once");
+    assert_eq!(
+        raw_hits, 1,
+        "a MouseUp listener must also fire exactly once"
+    );
 }
 
 /// Keyboard and assistive-technology activation reach the SAME listener a
@@ -4701,9 +4732,7 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
         id::NodeId,
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
-        window::{
-            KeyboardState, OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec,
-        },
+        window::{KeyboardState, OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec},
     };
 
     let target = DomNodeId {
@@ -4830,7 +4859,6 @@ fn the_dial_filters_are_reachable_from_planning() {
         );
     }
 }
-
 
 #[cfg(test)]
 mod seat_dedup_tests {

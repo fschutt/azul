@@ -4,11 +4,10 @@
 //! by value. Every C-ABI function with an aggregate arg or return
 //! therefore needs a wrapper that:
 //!
-//! - Takes by-value aggregate args as `const T *` (Haskell allocates +
-//!   pokes; the shim dereferences before calling).
-//! - Takes by-value aggregate returns as a trailing `T *az_out`
-//!   (Haskell allocates; the shim writes the return through it; the
-//!   foreign-import returns `void`).
+//! - Takes by-value aggregate args as `const T *` (Haskell allocates + pokes; the shim dereferences
+//!   before calling).
+//! - Takes by-value aggregate returns as a trailing `T *az_out` (Haskell allocates; the shim writes
+//!   the return through it; the foreign-import returns `void`).
 //!
 //! Pointer args and primitive args / returns pass through unchanged.
 //!
@@ -24,23 +23,23 @@
 //! instances import those and nothing else, so they are exact on every
 //! platform cabal builds the cbits for.
 
-use super::super::config::CodegenConfig;
-use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef};
-use super::super::managed_host_invoker;
+use super::super::{
+    config::CodegenConfig,
+    ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef},
+    managed_host_invoker,
+};
 
 /// Top-level entry: produce the full `cbits/azul_shims.c` source as a
 /// single string, including the necessary `#include`s.
 pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
     let mut out = String::with_capacity(64 * 1024);
     out.push_str(
-        "/* ============================================================ */\n\
-         /* Auto-generated C shims for the Haskell Azul bindings.        */\n\
-         /* GHC's FFI doesn't support struct-by-value across the         */\n\
-         /* boundary; every function whose C signature uses one gets a   */\n\
-         /* `<name>_via` wrapper that takes/returns through pointers.   */\n\
-         /* ============================================================ */\n\n\
-         #include <stddef.h>\n\
-         #include \"azul.h\"\n\n",
+        "/* ============================================================ */\n/* Auto-generated C \
+         shims for the Haskell Azul bindings.        */\n/* GHC's FFI doesn't support \
+         struct-by-value across the         */\n/* boundary; every function whose C signature \
+         uses one gets a   */\n/* `<name>_via` wrapper that takes/returns through pointers.   \
+         */\n/* ============================================================ */\n\n#include \
+         <stddef.h>\n#include \"azul.h\"\n\n",
     );
     for func in &ir.functions {
         if !should_emit_shim_for(func, ir, config) {
@@ -95,18 +94,16 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
 /// was wrong, and the hello-world overflowed its stack (2026-09-07).
 fn emit_layout_oracle(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
     out.push_str(
-        "\n\
-         /* ============================================================ */\n\
-         /* Layout oracle for Azul.Types (Storable sizeOf / alignment /  */\n\
-         /* member offsets): sizeof, _Alignof and offsetof of every type  */\n\
-         /* the Haskell module declares, so the instances match the C    */\n\
-         /* ABI exactly on the platform the cbits are compiled for.      */\n\
-         /* ============================================================ */\n\n",
+        "\n/* ============================================================ */\n/* Layout oracle \
+         for Azul.Types (Storable sizeOf / alignment /  */\n/* member offsets): sizeof, _Alignof \
+         and offsetof of every type  */\n/* the Haskell module declares, so the instances match \
+         the C    */\n/* ABI exactly on the platform the cbits are compiled for.      */\n/* \
+         ============================================================ */\n\n",
     );
     for t in super::types::layout_oracle(ir, config) {
         out.push_str(&format!(
-            "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
-             size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
+            "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\nsize_t \
+             az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
             n = t.ir_name
         ));
         for m in &t.members {
@@ -130,15 +127,15 @@ fn emit_layout_oracle(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) 
 /// `Az<K>_createFromHostHandle`.
 fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
     out.push_str(
-        "\n\
-         /* ============================================================ */\n\
-         /* Host-invoker protocol (see core/src/host_invoker.rs).        */\n\
-         /* ============================================================ */\n\n",
+        "\n/* ============================================================ */\n/* Host-invoker \
+         protocol (see core/src/host_invoker.rs).        */\n/* \
+         ============================================================ */\n\n",
     );
     managed_host_invoker::emit_cdef_block(out, ir);
     out.push('\n');
     out.push_str(
-        "void AzRefAny_newHostHandle_via(uint64_t id, AzRefAny *az_out) { *az_out = AzRefAny_newHostHandle(id); }\n",
+        "void AzRefAny_newHostHandle_via(uint64_t id, AzRefAny *az_out) { *az_out = \
+         AzRefAny_newHostHandle(id); }\n",
     );
     for cb in managed_host_invoker::host_invoker_kinds(ir) {
         if !config.should_include_type(&cb.name) {
@@ -149,7 +146,8 @@ fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenCon
             continue;
         }
         out.push_str(&format!(
-            "void Az{w}_createFromHostHandle_via(uint64_t id, Az{w} *az_out) {{ *az_out = Az{w}_createFromHostHandle(id); }}\n",
+            "void Az{w}_createFromHostHandle_via(uint64_t id, Az{w} *az_out) {{ *az_out = \
+             Az{w}_createFromHostHandle(id); }}\n",
             w = w
         ));
     }
@@ -318,9 +316,7 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
         ));
     } else if ret_is_aggregate {
         out.push_str(&format!(
-            "{} {}({}) {{ {} __ret; \
-             if (g_{}) g_{}({}); \
-             return __ret; }}\n\n",
+            "{} {}({}) {{ {} __ret; if (g_{}) g_{}({}); return __ret; }}\n\n",
             abi_ret_c,
             trampoline_name,
             abi_params_str,

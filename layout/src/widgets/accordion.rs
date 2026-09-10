@@ -28,8 +28,8 @@ use azul_core::{
     },
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::{
@@ -547,10 +547,10 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     // open could never close again, and vice versa. That latch, not the toggle
     // itself, is what made the accordion "not properly expand/collapse".
     //
-    // - Host rebuilds (`RefreshDom*`): it owns the flag. CLEAR the override
-    //   (`initial` removes it) and let the rebuilt DOM's own style decide.
-    // - Host does nothing: the widget owns the flag, so write the override —
-    //   that is what makes a self-contained accordion work with no host state.
+    // - Host rebuilds (`RefreshDom*`): it owns the flag. CLEAR the override (`initial` removes it)
+    //   and let the rebuilt DOM's own style decide.
+    // - Host does nothing: the widget owns the flag, so write the override — that is what makes a
+    //   self-contained accordion work with no host state.
     if matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows) {
         info.set_css_property(body, CssProperty::initial(CssPropertyType::Display));
     } else {
@@ -1290,8 +1290,8 @@ mod autotest_generated {
         );
         assert!(
             display_writes(&changes).is_empty(),
-            "…but as `initial` (override cleared), never as a concrete value that \
-             would outrank the rebuilt DOM: {:?}",
+            "…but as `initial` (override cleared), never as a concrete value that would outrank \
+             the rebuilt DOM: {:?}",
             display_writes(&changes),
         );
         assert_eq!(

@@ -65,8 +65,8 @@ pub fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) 
 ///
 /// Creates a container `StyledDom` and appends:
 /// 1. Titlebar with close/min/max buttons (via [`Titlebar::dom_with_buttons`])
-/// 2. User's content DOM (which already includes the software menu bar, if any —
-///    that is injected earlier in `regenerate_layout`, before this runs)
+/// 2. User's content DOM (which already includes the software menu bar, if any — that is injected
+///    earlier in `regenerate_layout`, before this runs)
 pub fn wrap_user_dom_with_decorations(
     user_dom: StyledDom,
     window_title: &str,

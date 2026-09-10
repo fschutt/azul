@@ -3,23 +3,20 @@
 //! **Request-driven**, like the biometric manager, and shaped the same way:
 //!
 //! - A **callback** (the colour picker's eyedropper icon) calls
-//!   `CallbackInfo::pick_screen_color()`. That allocates a request id,
-//!   records it on THIS window's manager and parks the request in the
-//!   process-global channel [`push_request`].
+//!   `CallbackInfo::pick_screen_color()`. That allocates a request id, records it on THIS window's
+//!   manager and parks the request in the process-global channel [`push_request`].
 //!
-//! - The dll's event pass drains the channel ([`drain_requests`]) and hands
-//!   each request to the platform eyedropper: macOS's system sampler
-//!   (`NSColorSampler`, no screen-recording permission needed), or - on X11,
-//!   Windows and Wayland - a screenshot (Wayland asks the user through the
-//!   desktop portal first; the others can read the screen freely) shown in a
-//!   fullscreen loupe window where the user picks a pixel.
+//! - The dll's event pass drains the channel ([`drain_requests`]) and hands each request to the
+//!   platform eyedropper: macOS's system sampler (`NSColorSampler`, no screen-recording permission
+//!   needed), or - on X11, Windows and Wayland - a screenshot (Wayland asks the user through the
+//!   desktop portal first; the others can read the screen freely) shown in a fullscreen loupe
+//!   window where the user picks a pixel.
 //!
-//! - When the user picks or cancels, the backend parks the outcome in
-//!   [`push_result`]. Every window's pass drains the results addressed TO
-//!   IT ([`drain_results_for`]) - results are routed by request id, so the
-//!   window whose callback asked is the window whose callbacks hear
-//!   `EventType::ScreenColorPicked` (window-level, target = root) and read
-//!   the colour with `CallbackInfo::get_picked_screen_color()`.
+//! - When the user picks or cancels, the backend parks the outcome in [`push_result`]. Every
+//!   window's pass drains the results addressed TO IT ([`drain_results_for`]) - results are routed
+//!   by request id, so the window whose callback asked is the window whose callbacks hear
+//!   `EventType::ScreenColorPicked` (window-level, target = root) and read the colour with
+//!   `CallbackInfo::get_picked_screen_color()`.
 //!
 //! While any pick is in flight ([`in_flight_anywhere`]) a popup must not
 //! light-dismiss on focus loss: the loupe window (or the system sampler)
@@ -32,11 +29,11 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
 };
-use azul_core::task::Instant;
 use azul_css::props::basic::color::ColorU;
 
 /// Per-window eyedropper state.

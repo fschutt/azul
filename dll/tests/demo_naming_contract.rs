@@ -3,12 +3,11 @@
 //!
 //! This is a guard for a class that has now bitten twice in one release:
 //!
-//! 1. `examples/azul-writer` declares `[[bin]] name = "azwriter"` — the only
-//!    demo whose binary name differed from its package name. CI staged
-//!    `target/release/${package}`, a path that never existed, and a `[reuse]`
-//!    branch swallowed the miss. The 0.2.0 release shipped ZERO azul-writer
-//!    assets on all three desktop OSes while the job stayed green, and the
-//!    release page advertised three downloads that 404.
+//! 1. `examples/azul-writer` declares `[[bin]] name = "azwriter"` — the only demo whose binary name
+//!    differed from its package name. CI staged `target/release/${package}`, a path that never
+//!    existed, and a `[reuse]` branch swallowed the miss. The 0.2.0 release shipped ZERO
+//!    azul-writer assets on all three desktop OSes while the job stayed green, and the release page
+//!    advertised three downloads that 404.
 //! 2. The resolver written to fix that did not resolve it either: cargo omits
 //!    the package name after `#` when the directory is already named after the
 //!    package (`path+file:///…/examples/azul-writer#0.1.0`), a spelling the
@@ -99,9 +98,8 @@ fn the_workflow_and_this_test_agree_on_the_demo_list() {
     let expected = DEMOS.join(" ");
     assert!(
         wf.contains(&expected),
-        "the workflow's demo loop no longer reads `{expected}`. Update DEMOS in \
-         this test to match, so the naming guard keeps checking what actually \
-         ships."
+        "the workflow's demo loop no longer reads `{expected}`. Update DEMOS in this test to \
+         match, so the naming guard keeps checking what actually ships."
     );
 }
 
@@ -125,21 +123,19 @@ fn a_demos_binary_is_named_after_its_package() {
     for d in DEMOS {
         assert!(
             d.starts_with("Az") && d.len() > 2 && d.as_bytes()[2].is_ascii_uppercase(),
-            "demo package `{d}` does not follow the AzXxx convention — package, \
-             binary and release asset are all this one string, so it is the name \
-             users see in a download URL"
+            "demo package `{d}` does not follow the AzXxx convention — package, binary and \
+             release asset are all this one string, so it is the name users see in a download URL"
         );
     }
     assert!(
         wrong.is_empty(),
-        "these demos build a binary whose name is not their package name: {}\n\n\
-         CI stages `target/release/<package>` and the release page links \
-         `<package>-<os>.tar.gz`, so a differing bin name means the asset is \
-         never produced and the download 404s — silently, because the staging \
-         step treats the miss as a deliberate reuse. Either rename the bin to \
-         match the package, or change BOTH the staging step and the release \
-         page to derive the name from cargo's resolved executable \
-         (scripts/cargo_bin_path.py already does the resolving).",
+        "these demos build a binary whose name is not their package name: {}\n\nCI stages \
+         `target/release/<package>` and the release page links `<package>-<os>.tar.gz`, so a \
+         differing bin name means the asset is never produced and the download 404s — silently, \
+         because the staging step treats the miss as a deliberate reuse. Either rename the bin to \
+         match the package, or change BOTH the staging step and the release page to derive the \
+         name from cargo's resolved executable (scripts/cargo_bin_path.py already does the \
+         resolving).",
         wrong.join("; ")
     );
 }

@@ -9,16 +9,14 @@
 //! As a result, an Algol 68 user must release every owned native
 //! resource by hand. We help them in three ways:
 //!
-//! 1. For every IR struct that has a matching `<TypeName>_delete` C
-//!    function, we emit a paired Algol 68 PROC named `delete <type>`
-//!    whose body is an `ALIEN` call to that same C symbol. The user
-//!    writes `delete app(app)` instead of having to remember the C name.
-//! 2. For each such type we emit a comment block reminding the user
-//!    that they own the value and must explicitly `delete` it before
-//!    its `REF` goes out of scope.
-//! 3. We provide a `# Manual cleanup convention #` overview comment at
-//!    the top of the wrappers section so users browsing the file
-//!    understand the contract before they hit individual procedures.
+//! 1. For every IR struct that has a matching `<TypeName>_delete` C function, we emit a paired
+//!    Algol 68 PROC named `delete <type>` whose body is an `ALIEN` call to that same C symbol. The
+//!    user writes `delete app(app)` instead of having to remember the C name.
+//! 2. For each such type we emit a comment block reminding the user that they own the value and
+//!    must explicitly `delete` it before its `REF` goes out of scope.
+//! 3. We provide a `# Manual cleanup convention #` overview comment at the top of the wrappers
+//!    section so users browsing the file understand the contract before they hit individual
+//!    procedures.
 //!
 //! ## Why no idiomatic class wrappers?
 //!
@@ -32,10 +30,14 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionKind, StructDef, TypeCategory};
-use super::{algol_mode_name, camel_or_snake_to_spaced_lower_pub, LIB_NAME};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionKind, StructDef, TypeCategory},
+    },
+    algol_mode_name, camel_or_snake_to_spaced_lower_pub, LIB_NAME,
+};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,

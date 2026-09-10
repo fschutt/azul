@@ -3,8 +3,9 @@
 //! Organizes CSS features from fundamental to advanced, creating a dependency graph
 //! that determines the order in which features should be verified.
 
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A single feature in the skill tree
 #[derive(Debug, Clone, Serialize, Deserialize)]

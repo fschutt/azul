@@ -3,9 +3,11 @@
 // Verifies that field-by-field comparison of two NodeData instances
 // produces the correct NodeChangeSet flags.
 
-use azul_core::diff::{compute_node_changes, NodeChangeSet};
-use azul_core::dom::NodeData;
-use azul_core::styled_dom::StyledNodeState;
+use azul_core::{
+    diff::{compute_node_changes, NodeChangeSet},
+    dom::NodeData,
+    styled_dom::StyledNodeState,
+};
 use azul_css::AzString;
 
 /// Helper: wrap a u32 constant into a NodeChangeSet for calling methods

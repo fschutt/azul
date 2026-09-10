@@ -2,8 +2,9 @@
 pub use super::*;
 #[cfg(test)]
 mod audit_tests {
-    use super::*;
     use azul_css::props::basic::StyleFontFamily;
+
+    use super::*;
 
     fn fam(name: &str) -> StyleFontFamily {
         StyleFontFamily::System(name.to_string().into())
@@ -701,7 +702,8 @@ mod autotest_generated {
         assert!(sd.get_styled_node_state(&NodeId::ZERO).is_normal());
     }
 
-    /// miniword ENGINE-ISSUE 4: `Dom::create_text_do_not_use_without_block_level_wrapper(..).with_css(..)` silently
+    /// miniword ENGINE-ISSUE 4:
+    /// `Dom::create_text_do_not_use_without_block_level_wrapper(..).with_css(..)` silently
     /// dropped EVERY declaration — the bare-decl wrapper parses to
     /// `* { .. }`, and the `Global` matcher refused text nodes even for
     /// rules scoped to exactly that node. All four reported strings now
@@ -1224,8 +1226,7 @@ mod autotest_generated {
     /// mid-frame.
     #[test]
     fn restyle_user_property_rebuilds_the_compact_cache_with_the_patch() {
-        use azul_css::props::layout::display::LayoutDisplay;
-        use azul_css::props::property::CssProperty;
+        use azul_css::props::{layout::display::LayoutDisplay, property::CssProperty};
 
         let mut sd = flat_body(2);
         let node = NodeId::new(1);

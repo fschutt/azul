@@ -857,8 +857,8 @@ mod autotest_generated {
         assert!(matches!(resolved.root.get_node_type(), NodeType::Div));
         assert!(
             !resolved.css.as_ref().is_empty(),
-            "the icon's own stylesheet must survive resolution; losing it is \
-             how a styled icon silently renders unstyled"
+            "the icon's own stylesheet must survive resolution; losing it is how a styled icon \
+             silently renders unstyled"
         );
     }
 
@@ -948,8 +948,8 @@ mod icon_cache_tests {
         assert_eq!(
             FRAME_CALLS.load(AtomicOrdering::SeqCst),
             1,
-            "identical (spec, node, styled-state) must hit the cache — both \
-             across frames AND across duplicates within one frame"
+            "identical (spec, node, styled-state) must hit the cache — both across frames AND \
+             across duplicates within one frame"
         );
     }
 
@@ -968,9 +968,10 @@ mod icon_cache_tests {
     /// must occupy a different cache entry.
     #[test]
     fn distinct_inline_styles_are_distinct_cache_entries() {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::layout::dimensions::LayoutWidth;
-        use azul_css::props::property::CssProperty;
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{layout::dimensions::LayoutWidth, property::CssProperty},
+        };
 
         let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(
             style_variant_resolver,
@@ -1059,9 +1060,10 @@ mod icon_cache_tests {
         original: &NodeData,
         _style: &SystemStyle,
     ) -> Dom {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::layout::dimensions::LayoutWidth;
-        use azul_css::props::property::CssProperty;
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{layout::dimensions::LayoutWidth, property::CssProperty},
+        };
         PARITY_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
         // A realistic replacement: styled text (what a font-icon resolver
         // produces), reading nothing but producing node type + props + a11y.

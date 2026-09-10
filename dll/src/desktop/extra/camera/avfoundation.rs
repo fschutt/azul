@@ -7,22 +7,23 @@
 //! We request 32-BGRA from the data output (a single `videoSettings` dict), so
 //! the delegate's pixel buffer is always BGRA8 -> a cheap channel swap to RGBA.
 
-use std::ffi::c_void;
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
-use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
+use objc2::{
+    define_class, msg_send,
+    rc::Retained,
+    runtime::{AnyObject, ProtocolObject},
+    AllocAnyThread, DefinedClass,
+};
 use objc2_av_foundation::{
     AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput,
     AVCaptureDevicePosition, AVCaptureDeviceType, AVCaptureOutput, AVCaptureSession,
     AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh,
-    AVCaptureVideoDataOutput,
-    AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType, AVMediaTypeVideo,
+    AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType,
+    AVMediaTypeVideo,
 };
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
-
-use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
 use objc2_core_video::{
     kCVPixelBufferPixelFormatTypeKey, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
     CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
@@ -161,7 +162,8 @@ unsafe fn apply_fps(device: &AVCaptureDevice, fps: u32) {
             .any(|r| r.minFrameRate() - 0.01 <= wanted && wanted <= r.maxFrameRate() + 0.01);
         if !supported {
             crate::plog_info!(
-                "[camera] avfoundation: {} fps is outside the active format's ranges — keeping the default rate",
+                "[camera] avfoundation: {} fps is outside the active format's ranges — keeping \
+                 the default rate",
                 fps
             );
             return;
@@ -260,8 +262,8 @@ unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCa
                 index as usize
             } else {
                 crate::plog_warn!(
-                    "[camera] avfoundation: device index {} out of range ({} device(s)) → \
-                     falling back to device 0",
+                    "[camera] avfoundation: device index {} out of range ({} device(s)) → falling \
+                     back to device 0",
                     index,
                     count
                 );

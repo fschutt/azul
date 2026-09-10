@@ -1,5 +1,7 @@
-use azul_css::css::Css;
-use azul_css::props::property::{CssProperty, CssPropertyType};
+use azul_css::{
+    css::Css,
+    props::property::{CssProperty, CssPropertyType},
+};
 
 #[test]
 fn test_grid_template_areas_parsing() {
@@ -37,7 +39,8 @@ fn test_grid_template_areas_parsing() {
         .any(|w| w.contains("grid-area") || w.contains("grid-template-areas"));
     assert!(
         !has_grid_area_warning,
-        "grid-area or grid-template-areas should parse without warnings! Warnings: {warning_strs:?}"
+        "grid-area or grid-template-areas should parse without warnings! Warnings: \
+         {warning_strs:?}"
     );
 
     // Check that grid-template-areas was actually parsed

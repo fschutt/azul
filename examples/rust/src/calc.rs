@@ -188,7 +188,6 @@ impl Calculator {
         if self.display == "0" && digit != '.' {
             self.display = digit.to_string();
         } else if digit == '.' && self.display.contains('.') {
-
         } else {
             self.display.push(digit);
         }

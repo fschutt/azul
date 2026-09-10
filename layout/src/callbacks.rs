@@ -11,7 +11,6 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-
 #[cfg(feature = "std")]
 use std::sync::Mutex;
 
@@ -30,8 +29,10 @@ use azul_core::{
     impl_callback,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
-    resources::UpdateImageType,
-    resources::{ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources},
+    resources::{
+        ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources,
+        UpdateImageType,
+    },
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
     spaces::Inclusivity,
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
@@ -45,6 +46,7 @@ use azul_core::{
 use azul_css::{
     corety::{OptionString, OptionUsize},
     css::CssPath,
+    impl_option, impl_option_inner,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyType, CssPropertyVec},
@@ -59,7 +61,6 @@ use crate::icu::{
     FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,
     ListType, PluralCategory,
 };
-
 use crate::{
     hit_test::FullHitTest,
     managers::{
@@ -80,8 +81,6 @@ use crate::{
     window::{DomLayoutResult, LayoutWindow},
     window_state::{FullWindowState, FullWindowStateVec, WindowCreateOptions},
 };
-
-use azul_css::{impl_option, impl_option_inner};
 
 // ============================================================================
 // FFI-safe wrapper types for tuple returns
@@ -935,7 +934,9 @@ pub enum CallbackChange {
         request: azul_core::haptics::HapticRequest,
     },
     /// Ask the platform to show or hide the on-screen keyboard. APPENDED.
-    RequestSoftKeyboard { visible: bool },
+    RequestSoftKeyboard {
+        visible: bool,
+    },
     /// Publish what the app is playing to the system media session. APPENDED.
     ///
     /// Deferred for the same reason as `PlayHaptic`: the sink is a D-Bus
@@ -1021,13 +1022,12 @@ impl_callback!(Callback, CallbackType);
 ///
 /// `fn(data, info, result) -> Update`:
 ///
-/// * `data` is the `RefAny` the app passed to the request function, returned
-///   untouched - the continuation context.
+/// * `data` is the `RefAny` the app passed to the request function, returned untouched - the
+///   continuation context.
 /// * `info` is an ordinary `CallbackInfo` for this fresh activation.
-/// * `result` is the per-operation RESULT STRUCT, built by the runtime and
-///   type-erased into a `RefAny`. Every result struct has one static
-///   `downcast(result)` accessor (`FileOpenResult::downcast`, ...) that turns
-///   it back into the typed value.
+/// * `result` is the per-operation RESULT STRUCT, built by the runtime and type-erased into a
+///   `RefAny`. Every result struct has one static `downcast(result)` accessor
+///   (`FileOpenResult::downcast`, ...) that turns it back into the typed value.
 ///
 /// The callback never runs re-entrantly inside the requesting activation. On
 /// desktop it may run within the same frame; on web it always runs on a later
@@ -1164,7 +1164,8 @@ impl Callback {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// FFI-safe Option<Callback> type for C interop.
 ///
 /// This enum provides an ABI-stable alternative to `Option<Callback>`
@@ -1292,7 +1293,8 @@ pub struct CallbackInfo {
     cursor_relative_to_item: OptionLogicalPosition,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**
     cursor_in_viewport: OptionLogicalPosition,
-    // Transaction Container (New System) - Uses pointer to Arc<Mutex> for shared access across clones
+    // Transaction Container (New System) - Uses pointer to Arc<Mutex> for shared access across
+    // clones
     /// All changes made by the callback, applied atomically after callback returns
     /// Stored as raw pointer so `CallbackInfo` remains Copy
     #[cfg(feature = "std")]
@@ -1622,12 +1624,11 @@ impl CallbackInfo {
     /// Opens one of the built-in system dialogs (always CPU-rendered - a
     /// dialog reporting a problem must not depend on the GPU working):
     ///
-    /// * `ReportProblem`: captures a screenshot of THIS window, then opens
-    ///   the report dialog (message + optional screenshot/system info →
-    ///   `AppConfig.report_problem` mailbox, or disk without one).
-    /// * `UpdateVersion`: opens the update dialog and starts the async
-    ///   check (manifest + changelog; install only after consent, and only
-    ///   where the install kind permits self-update).
+    /// * `ReportProblem`: captures a screenshot of THIS window, then opens the report dialog
+    ///   (message + optional screenshot/system info → `AppConfig.report_problem` mailbox, or disk
+    ///   without one).
+    /// * `UpdateVersion`: opens the update dialog and starts the async check (manifest + changelog;
+    ///   install only after consent, and only where the install kind permits self-update).
     #[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
     pub fn invoke_system_dialog(&mut self, dialog: azul_core::window::SysDialogType) {
         match dialog {
@@ -1647,9 +1648,9 @@ impl CallbackInfo {
                 }
                 #[cfg(not(feature = "cpurender"))]
                 eprintln!(
-                    "[azul] invoke_system_dialog(ReportProblem): azul-layout was built \
-                     without the `cpurender` feature, which the report dialog needs to \
-                     render and redact its screenshot."
+                    "[azul] invoke_system_dialog(ReportProblem): azul-layout was built without \
+                     the `cpurender` feature, which the report dialog needs to render and redact \
+                     its screenshot."
                 );
             }
             azul_core::window::SysDialogType::UpdateVersion => {
@@ -1657,8 +1658,8 @@ impl CallbackInfo {
                 crate::dialogs::update_version::open(self);
                 #[cfg(not(feature = "updater"))]
                 eprintln!(
-                    "[azul] invoke_system_dialog(UpdateVersion): azul-layout was built \
-                     without the `updater` feature; the dialog is unavailable"
+                    "[azul] invoke_system_dialog(UpdateVersion): azul-layout was built without \
+                     the `updater` feature; the dialog is unavailable"
                 );
             }
             azul_core::window::SysDialogType::TelemetryConsent => {
@@ -1666,8 +1667,8 @@ impl CallbackInfo {
                 crate::dialogs::telemetry_consent::open(self);
                 #[cfg(not(feature = "telemetry"))]
                 eprintln!(
-                    "[azul] invoke_system_dialog(TelemetryConsent): azul-layout was built \
-                     without the `telemetry` feature; the dialog is unavailable"
+                    "[azul] invoke_system_dialog(TelemetryConsent): azul-layout was built without \
+                     the `telemetry` feature; the dialog is unavailable"
                 );
             }
             azul_core::window::SysDialogType::GpuCheck => {
@@ -1782,7 +1783,8 @@ impl CallbackInfo {
     /// ```c
     /// AzString id = AzCallbackInfo_getRouteParam(&info, AzString_fromConstStr("id"));
     /// ```
-    // FFI-exported (AzCallbackInfo_getRouteParam): the owned AzString key is the api.json signature.
+    // FFI-exported (AzCallbackInfo_getRouteParam): the owned AzString key is the api.json
+    // signature.
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn get_route_param(&self, key: AzString) -> AzString {
@@ -2190,10 +2192,7 @@ impl CallbackInfo {
     /// media node" is a real answer, and it is not the same as a default
     /// state.
     #[must_use]
-    pub fn get_media_state(
-        &self,
-        node: DomNodeId,
-    ) -> azul_core::media_player::OptionPlaybackState {
+    pub fn get_media_state(&self, node: DomNodeId) -> azul_core::media_player::OptionPlaybackState {
         match self.get_layout_window().media_player_manager.state(node) {
             Some(s) => azul_core::media_player::OptionPlaybackState::Some(s),
             None => azul_core::media_player::OptionPlaybackState::None,
@@ -2672,7 +2671,10 @@ impl CallbackInfo {
         ancestor: DomNodeId,
         node: DomNodeId,
     ) -> azul_css::corety::OptionU32Vec {
-        match self.get_layout_window().node_child_index_path(ancestor, node) {
+        match self
+            .get_layout_window()
+            .node_child_index_path(ancestor, node)
+        {
             Some(path) => {
                 let v: azul_css::corety::U32Vec = path.into();
                 azul_css::corety::OptionU32Vec::Some(v)
@@ -3419,7 +3421,9 @@ impl CallbackInfo {
     }
 
     /// Check if a node is anonymous (generated for table layout)
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     fn is_node_anonymous(&self, dom_id: &DomId, node_id: NodeId) -> bool {
         let layout_window = self.get_layout_window();
         let Some(layout_result) = layout_window.get_layout_result(dom_id) else {
@@ -3601,9 +3605,7 @@ impl CallbackInfo {
                 if node_data.get_marker().is_some_and(|m| m.as_str() == want) {
                     return Some(DomNodeId {
                         dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                            node_idx,
-                        ))),
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_idx))),
                     });
                 }
             }
@@ -3647,7 +3649,8 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `node_id` - The node to query
-    /// * `attr_name` - The attribute name (e.g., "id", "class", "href", "data-custom", "aria-label")
+    /// * `attr_name` - The attribute name (e.g., "id", "class", "href", "data-custom",
+    ///   "aria-label")
     ///
     /// Returns the attribute value if found, None otherwise.
     /// This searches the strongly-typed `AttributeVec` on the node.
@@ -3962,8 +3965,10 @@ impl CallbackInfo {
     #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
     #[must_use]
     pub fn get_cursor_position_screen(&self) -> azul_core::geom::OptionScreenPosition {
-        use azul_core::geom::{LogicalPosition, OptionScreenPosition, ScreenPosition};
-        use azul_core::window::WindowPosition;
+        use azul_core::{
+            geom::{LogicalPosition, OptionScreenPosition, ScreenPosition},
+            window::WindowPosition,
+        };
 
         let ws = self.get_current_window_state();
         let Some(cursor_local) = ws.mouse_state.cursor_position.get_position() else {
@@ -4821,8 +4826,8 @@ impl CallbackInfo {
     /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
         Err(AzString::from(
-            "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. \
-             Import it with: use azul::desktop::NativeScreenshotExt;",
+            "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. Import \
+             it with: use azul::desktop::NativeScreenshotExt;",
         ))
     }
 
@@ -4834,7 +4839,6 @@ impl CallbackInfo {
     /// # Returns
     /// * `Ok(String)` - Base64 data URI string
     /// * `Err(String)` - Error message if screenshot failed
-    ///
     #[cfg(feature = "std")]
     /// # Errors
     ///
@@ -5249,15 +5253,19 @@ impl CallbackInfo {
         }
         let begin = usize::try_from(m.preedit_cursor_begin).unwrap_or(0);
         let end = usize::try_from(m.preedit_cursor_end).unwrap_or(begin);
-        azul_core::events::OptionCompositionCursor::Some(
-            azul_core::events::CompositionCursor { begin, end },
-        )
+        azul_core::events::OptionCompositionCursor::Some(azul_core::events::CompositionCursor {
+            begin,
+            end,
+        })
     }
 
     /// Whether an IME composition is currently open on the focused node.
     #[must_use]
     pub const fn is_composing(&self) -> bool {
-        self.get_layout_window().text_edit_manager.preedit_text.is_some()
+        self.get_layout_window()
+            .text_edit_manager
+            .preedit_text
+            .is_some()
     }
 
     /// What kind of device produced the pointer event being handled -
@@ -5348,7 +5356,7 @@ impl CallbackInfo {
             .is_system_audio_active()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
         self.get_layout_window()
             .device_event_manager
@@ -5391,10 +5399,7 @@ impl CallbackInfo {
     /// of them at once asks about each control by id rather than waiting to be
     /// called for it.
     #[must_use]
-    pub fn get_validity_state_of(
-        &self,
-        node: DomNodeId,
-    ) -> azul_core::form::ValidityState {
+    pub fn get_validity_state_of(&self, node: DomNodeId) -> azul_core::form::ValidityState {
         self.get_layout_window()
             .form_validation_manager
             .state_of(node)
@@ -5448,7 +5453,11 @@ impl CallbackInfo {
     /// the C API, where a slice has no representation.
     #[must_use]
     pub fn get_hid_reports(&self) -> azul_core::hid::HidReportVec {
-        self.get_layout_window().hid_manager.reports().to_vec().into()
+        self.get_layout_window()
+            .hid_manager
+            .reports()
+            .to_vec()
+            .into()
     }
 
     /// The HID devices the platform enumerated.
@@ -5457,7 +5466,11 @@ impl CallbackInfo {
     /// the C API, where a slice has no representation.
     #[must_use]
     pub fn get_hid_devices(&self) -> azul_core::hid::HidDeviceVec {
-        self.get_layout_window().hid_manager.devices().to_vec().into()
+        self.get_layout_window()
+            .hid_manager
+            .devices()
+            .to_vec()
+            .into()
     }
 
     /// Play a haptic pattern.
@@ -5696,9 +5709,7 @@ impl CallbackInfo {
     /// is active; `Unknown` when the platform does not classify, which is
     /// every backend except Wayland today.
     #[must_use]
-    pub fn get_pen_tool_kind(
-        &self,
-    ) -> Option<crate::managers::gesture::TabletToolKind> {
+    pub fn get_pen_tool_kind(&self) -> Option<crate::managers::gesture::TabletToolKind> {
         self.get_pen_state().map(|pen| pen.tool_kind)
     }
 
@@ -5951,7 +5962,8 @@ impl CallbackInfo {
         dom: azul_core::dom::Dom,
         bound: LogicalSize,
     ) -> LogicalSize {
-        self.get_layout_window().measure_dom_shrink_to_fit(dom, bound)
+        self.get_layout_window()
+            .measure_dom_shrink_to_fit(dom, bound)
     }
 
     /// Deepest node currently under the mouse pointer (MWA-B8). Anchor for
@@ -7056,7 +7068,8 @@ pub struct MenuCallback {
     pub refany: RefAny,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Optional `MenuCallback`
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
@@ -7159,7 +7172,8 @@ impl RenderImageCallback {
     }
 }
 
-/// Allow `RenderImageCallback` to be passed to functions expecting `C: Into<CoreRenderImageCallback>`
+/// Allow `RenderImageCallback` to be passed to functions expecting `C:
+/// Into<CoreRenderImageCallback>`
 impl From<RenderImageCallback> for azul_core::callbacks::CoreRenderImageCallback {
     fn from(callback: RenderImageCallback) -> Self {
         callback.to_core()
@@ -7295,7 +7309,8 @@ impl From<Result<Vec<u8>, AzString>> for ResultU8VecString {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Result type for functions returning () or a String error  
 #[derive(Debug, Clone)]
 #[repr(C, u8)]

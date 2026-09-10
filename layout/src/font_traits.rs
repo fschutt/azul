@@ -8,6 +8,13 @@
 
 use azul_core::geom::LogicalSize;
 
+/// Backwards-compat alias for the inner `TextShapingCache` type.
+/// The real struct was renamed to disambiguate it from
+/// [`crate::solver3::cache::LayoutCache`] (the per-node 9+1-slot
+/// layout cache). Internal callers that read this name continue to
+/// resolve via the alias; new code should use `TextShapingCache`.
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
+pub use crate::text3::cache::TextShapingCache as LayoutCache;
 #[cfg(all(feature = "text_layout", feature = "font_loading"))]
 pub use crate::text3::script::Language;
 #[cfg(all(feature = "text_layout", feature = "font_loading"))]
@@ -21,14 +28,6 @@ pub use crate::text3::{
     },
     script::Script,
 };
-
-/// Backwards-compat alias for the inner `TextShapingCache` type.
-/// The real struct was renamed to disambiguate it from
-/// [`crate::solver3::cache::LayoutCache`] (the per-node 9+1-slot
-/// layout cache). Internal callers that read this name continue to
-/// resolve via the alias; new code should use `TextShapingCache`.
-#[cfg(all(feature = "text_layout", feature = "font_loading"))]
-pub use crate::text3::cache::TextShapingCache as LayoutCache;
 
 #[cfg(all(feature = "text_layout", feature = "font_loading"))]
 pub type TextLayoutCache = TextShapingCache;

@@ -8,8 +8,10 @@
 //! whose box follows its content (`measure_dom_shrink_to_fit` behind a
 //! content-sized `VirtualView`).
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId, NodeType},
@@ -22,8 +24,7 @@ use azul_core::{
     window::{MonitorVec, RawWindowHandle},
     FastBTreeSet,
 };
-use azul_css::system::SystemStyle;
-use azul_css::AzString;
+use azul_css::{system::SystemStyle, AzString};
 use azul_layout::{
     callbacks::{CallbackChange, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks},
     widgets::statusbar::{StatusBar, StatusBarSegment, StatusBarSegmentVec},
@@ -69,7 +70,10 @@ fn layout(lw: &mut LayoutWindow, styled_dom: StyledDom, window_state: &FullWindo
 /// `CallbackInfo::get_node_id_by_marker` finds, read straight from the
 /// styled dom here so the lookup and the widget can be checked separately.
 fn marked_node(lw: &LayoutWindow) -> NodeId {
-    let lr = lw.layout_results.get(&DomId::ROOT_ID).expect("root laid out");
+    let lr = lw
+        .layout_results
+        .get(&DomId::ROOT_ID)
+        .expect("root laid out");
     let nodes = lr.styled_dom.node_data.as_container();
     (0..nodes.len())
         .map(NodeId::new)
@@ -90,7 +94,8 @@ fn dom_node(node: NodeId) -> DomNodeId {
 }
 
 fn rect_of(lw: &LayoutWindow, node: NodeId) -> LogicalRect {
-    lw.get_node_layout_rect(dom_node(node)).expect("the node has a rect")
+    lw.get_node_layout_rect(dom_node(node))
+        .expect("the node has a rect")
 }
 
 /// The text the marked segment's view currently renders (its nested dom's
@@ -103,10 +108,12 @@ fn rendered_label(lw: &LayoutWindow, view: NodeId) -> String {
     let lr = lw.layout_results.get(&nested).expect("nested dom laid out");
     let nodes = lr.styled_dom.node_data.as_container();
     (0..nodes.len())
-        .filter_map(|i| match nodes.get(NodeId::new(i)).map(|d| d.get_node_type()) {
-            Some(NodeType::Text(t)) => Some(t.as_str().to_string()),
-            _ => None,
-        })
+        .filter_map(
+            |i| match nodes.get(NodeId::new(i)).map(|d| d.get_node_type()) {
+                Some(NodeType::Text(t)) => Some(t.as_str().to_string()),
+                _ => None,
+            },
+        )
         .collect::<Vec<_>>()
         .join("")
 }
@@ -175,7 +182,11 @@ fn apply_rerender(lw: &mut LayoutWindow, node: NodeId) {
 fn a_marked_segment_label_is_text_sized_on_the_first_frame() {
     let lw = window_with_bar("0 WORDS");
     let view = marked_node(&lw);
-    assert_eq!(rendered_label(&lw, view), "0 WORDS", "the view renders the segment text");
+    assert_eq!(
+        rendered_label(&lw, view),
+        "0 WORDS",
+        "the view renders the segment text"
+    );
 
     let rect = rect_of(&lw, view);
     assert!(
@@ -204,7 +215,11 @@ fn update_segment_label_rewrites_the_text_in_place_at_its_new_width() {
     let (found, _) = with_info(&lw, dom_node(NodeId::ZERO), |info| {
         info.get_node_id_by_marker(AzString::from(MARKER))
     });
-    assert_eq!(found, Some(dom_node(view)), "the marker names the label's view node");
+    assert_eq!(
+        found,
+        Some(dom_node(view)),
+        "the marker names the label's view node"
+    );
 
     let (updated, changes) = with_info(&lw, dom_node(NodeId::ZERO), |info| {
         StatusBar::update_segment_label(info, dom_node(view), AzString::from("12345 WORDS"))
@@ -245,7 +260,10 @@ fn update_segment_label_rewrites_the_text_in_place_at_its_new_width() {
     assert!(updated);
     apply_rerender(&mut lw, view);
     assert_eq!(rendered_label(&lw, view), "1 WORD");
-    assert!(rect_of(&lw, view).size.width < wide - 10.0, "shrunk to the shorter text");
+    assert!(
+        rect_of(&lw, view).size.width < wide - 10.0,
+        "shrunk to the shorter text"
+    );
 }
 
 #[test]
@@ -285,7 +303,12 @@ fn an_unmarked_segment_stays_a_plain_paragraph() {
     let styled_dom = StyledDom::create(&mut dom, css);
     let nodes = styled_dom.node_data.as_container();
     let views = (0..nodes.len())
-        .filter(|i| matches!(nodes.get(NodeId::new(*i)).map(|d| d.get_node_type()), Some(NodeType::VirtualView)))
+        .filter(|i| {
+            matches!(
+                nodes.get(NodeId::new(*i)).map(|d| d.get_node_type()),
+                Some(NodeType::VirtualView)
+            )
+        })
         .count();
     assert_eq!(views, 0);
 }

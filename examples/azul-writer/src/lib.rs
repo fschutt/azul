@@ -6,11 +6,11 @@
 //! pipeline into exactly those three functions.
 //!
 //! Screens:
-//! - Editor: title band (quick-access toolbar), the Office-2013-era look ribbon (HOME tab
-//!   clone), print-layout canvas with the paginated white sheet, status bar
-//!   (page / words / language, view switcher, zoom slider).
-//! - Backstage ("FILE"): dark-blue nav column with Info / Open panes per
-//!   the the Office-2013-era look screenshots; back arrow and Esc return to the editor.
+//! - Editor: title band (quick-access toolbar), the Office-2013-era look ribbon (HOME tab clone),
+//!   print-layout canvas with the paginated white sheet, status bar (page / words / language, view
+//!   switcher, zoom slider).
+//! - Backstage ("FILE"): dark-blue nav column with Info / Open panes per the the Office-2013-era
+//!   look screenshots; back arrow and Esc return to the editor.
 //!
 //! Screenshot harness (headless verification):
 //! `AZWRITER_SHOT=/path/out.png [AZWRITER_SCREEN=editor|backstage-info|
@@ -32,31 +32,30 @@ mod ribbon_ui;
 
 use std::path::{Path, PathBuf};
 
-use azul::app::{App, AppConfig};
-use azul::callbacks::{
-    CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback,
-    TimerCallbackInfo, TimerCallbackReturn, Update, WriteBackCallback,
+use azul::{
+    app::{App, AppConfig},
+    callbacks::{
+        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback, TimerCallbackInfo,
+        TimerCallbackReturn, Update, WriteBackCallback,
+    },
+    css::{DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations},
+    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dom::{Callback, Dom, DomId, DomNodeId},
+    file::FilePath,
+    option::{
+        OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
+    },
+    pdf::Pdf,
+    str::String as AzString,
+    svg::{CssPath, CssPathSelector, LogicalRect},
+    task::{
+        TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
+        ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
+    },
+    time::{Duration, SystemTimeDiff},
+    widgets::SliderState,
+    window::{WindowCreateOptions, WindowFrame},
 };
-use azul::css::{
-    DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations,
-};
-use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
-use azul::file::FilePath;
-use azul::dom::{Callback, Dom, DomId, DomNodeId};
-use azul::widgets::SliderState;
-
-use azul::option::{
-    OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
-};
-use azul::pdf::Pdf;
-use azul::str::String as AzString;
-use azul::svg::{CssPath, CssPathSelector, LogicalRect};
-use azul::task::{
-    TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
-    ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
-};
-use azul::time::{Duration, SystemTimeDiff};
-use azul::window::{WindowCreateOptions, WindowFrame};
 
 pub use crate::args::Args;
 use crate::document::{DocumentModel, FontCacheSnapshot};
@@ -102,8 +101,6 @@ impl Drop for FrameTimer {
 fn root_dom_id() -> DomId {
     DomId { inner: 0 }
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -489,7 +486,6 @@ fn snapshot_for_save(
         snapshot.markdown = ir::to_markdown(&snapshot.ir);
         (state.document.path.clone(), snapshot)
     })
-
 }
 
 fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
@@ -549,7 +545,6 @@ fn save_snapshot_to(
     path: PathBuf,
     model_snapshot: DocumentModel,
 ) -> Update {
-
     // Save writes the format the FILENAME asks for. Before this, Save always
     // wrote markdown and forced a .md extension, so typing "report.pdf" in the
     // dialog produced a markdown file called report.pdf — the dialog appeared,
@@ -718,11 +713,7 @@ pub(crate) fn map_span_to_block_range(
     let run_start: usize = match state.document.ir.blocks.get(block) {
         Some(ir::IrBlock::Paragraph(p)) => {
             let run_idx = rel.first().copied().unwrap_or(0) as usize;
-            p.runs
-                .iter()
-                .take(run_idx)
-                .map(|r| r.text.len())
-                .sum()
+            p.runs.iter().take(run_idx).map(|r| r.text.len()).sum()
         }
         _ => 0,
     };
@@ -934,7 +925,6 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         Update::DoNothing
     }
 }
-
 
 /// Quick-access / Ctrl+Z: undo the last structural edit.
 pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -1176,9 +1166,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             &system_style,
             compact,
         ),
-        Screen::Backstage => {
-            backstage_ui::backstage_screen(&state, &data, &pal, &system_style)
-        }
+        Screen::Backstage => backstage_ui::backstage_screen(&state, &data, &pal, &system_style),
     };
 
     Dom::create_body()
@@ -1210,7 +1198,11 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
             should_terminate: TerminateTimer::Terminate,
         };
     };
-    let png = match info.callback_info.take_screenshot(root_dom_id()).into_result() {
+    let png = match info
+        .callback_info
+        .take_screenshot(root_dom_id())
+        .into_result()
+    {
         Ok(png) => png,
         Err(e) => {
             eprintln!("[azwriter] screenshot FAILED: {}", e.as_str());
@@ -1274,10 +1266,11 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
         .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
         info.add_timer(TimerId::unique(), timer);
     }
-    if let Some((path, delay_ms)) = WINDOW_ARGS
-        .get()
-        .and_then(|a| a.shot.as_ref().map(|p| (p.display().to_string(), a.shot_delay_ms)))
-    {
+    if let Some((path, delay_ms)) = WINDOW_ARGS.get().and_then(|a| {
+        a.shot
+            .as_ref()
+            .map(|p| (p.display().to_string(), a.shot_delay_ms))
+    }) {
         let timer = Timer::create(
             RefAny::new(ShotConfig { path }),
             TimerCallback {

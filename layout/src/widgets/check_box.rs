@@ -7,7 +7,9 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -20,8 +22,10 @@ use azul_css::{
     OptionString, *,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
-use crate::widgets::themes::{OptionTheme, Theme};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{OptionTheme, Theme},
+};
 
 pub static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
@@ -217,9 +221,9 @@ impl CheckBox {
                 inner: CheckBoxState { checked },
                 ..Default::default()
             },
-            container_style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_const_slice(
-                DEFAULT_CHECKBOX_CONTAINER_STYLE,
-            )),
+            container_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_const_slice(DEFAULT_CHECKBOX_CONTAINER_STYLE),
+            ),
             content_style: OptionCssPropertyWithConditionsVec::Some(if checked {
                 CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED,

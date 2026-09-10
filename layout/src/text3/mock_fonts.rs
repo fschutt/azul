@@ -346,8 +346,8 @@ mod autotest_generated {
             assert_eq!(
                 mock_advance_px(family, 20.0),
                 None,
-                "{family:?} must not be treated as a mock font (matching is \
-                 exact and case-sensitive: no trimming, no normalisation)"
+                "{family:?} must not be treated as a mock font (matching is exact and \
+                 case-sensitive: no trimming, no normalisation)"
             );
         }
     }
@@ -787,9 +787,8 @@ mod autotest_generated {
                 .unwrap_or_else(|| panic!("{family:?}: no format-4 cmap subtable"));
             assert_eq!(
                 actual, declared,
-                "{family:?}: cmap coverage disagrees with mock_font_ranges(), so \
-                 registration would claim glyphs the font does not have (or hide \
-                 ones it does)"
+                "{family:?}: cmap coverage disagrees with mock_font_ranges(), so registration \
+                 would claim glyphs the font does not have (or hide ones it does)"
             );
 
             // .notdef plus one glyph per covered codepoint.
@@ -847,8 +846,8 @@ mod autotest_generated {
             assert_eq!(
                 blank,
                 vec![0, 1],
-                "{family:?}: exactly .notdef (gid 0) and U+0020 (gid 1) may be \
-                 blank — they still advance, they just draw nothing"
+                "{family:?}: exactly .notdef (gid 0) and U+0020 (gid 1) may be blank — they still \
+                 advance, they just draw nothing"
             );
 
             let inked: Vec<&[u8]> = outlines.iter().copied().filter(|o| !o.is_empty()).collect();
@@ -856,9 +855,8 @@ mod autotest_generated {
             assert_eq!(
                 distinct.len(),
                 inked.len(),
-                "{family:?}: {} of {} inked glyphs share an outline with another \
-                 glyph, so the characters they encode are indistinguishable in \
-                 pixels",
+                "{family:?}: {} of {} inked glyphs share an outline with another glyph, so the \
+                 characters they encode are indistinguishable in pixels",
                 inked.len() - distinct.len(),
                 inked.len()
             );
@@ -894,8 +892,8 @@ mod autotest_generated {
                 );
                 assert_eq!(
                     bbox, global,
-                    "{family:?}: glyph {gid} has bbox {bbox:?} but head declares \
-                     {global:?} — glyph extents must not vary by character"
+                    "{family:?}: glyph {gid} has bbox {bbox:?} but head declares {global:?} — \
+                     glyph extents must not vary by character"
                 );
             }
         }

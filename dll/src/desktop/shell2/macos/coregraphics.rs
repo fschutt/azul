@@ -27,9 +27,9 @@ impl CoreGraphicsFunctions {
     pub fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Load ApplicationServices framework (which includes CoreGraphics)
-            let lib = crate::desktop::open_first_lib(&[
-                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
-            ])
+            let lib = crate::desktop::open_first_lib(&["/System/Library/Frameworks/\
+                                                        ApplicationServices.framework/\
+                                                        ApplicationServices"])
             .ok_or_else(|| "Failed to load ApplicationServices framework".to_string())?;
 
             // Load display functions

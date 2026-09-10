@@ -1086,8 +1086,8 @@ mod autotest_generated {
             assert_eq!(
                 unconditional[0],
                 of_type.len() - 1,
-                "{ty:?}: the unconditional fallback must come last, otherwise the \
-                 {} rule(s) after it are dead under first-match-wins",
+                "{ty:?}: the unconditional fallback must come last, otherwise the {} rule(s) \
+                 after it are dead under first-match-wins",
                 of_type.len() - 1 - unconditional[0]
             );
         }

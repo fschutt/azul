@@ -101,8 +101,8 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
         // backend with no data. Call sites cache the None, so this fires
         // once per subsystem in practice.
         crate::plog_warn!(
-            "[dlopen] none of {:?} could be loaded (capability degrades to its \
-             stub) — last loader error: {}",
+            "[dlopen] none of {:?} could be loaded (capability degrades to its stub) — last \
+             loader error: {}",
             names,
             last_err.map_or_else(|| "<no candidates>".to_string(), |e| e.to_string())
         );

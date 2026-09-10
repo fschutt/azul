@@ -74,16 +74,8 @@ fn a_dragged_overlay_scrollbar_is_repainted_at_its_ghost_position_too() {
 
     let mut pixmap = AzulPixmap::new(200, 100).expect("pixmap");
     let delta = (10.0, 0.0);
-    let out = cpurender::execute_scroll_shift(
-        &mut pixmap,
-        &dl,
-        7,
-        &clip,
-        delta,
-        (10.0, 0.0),
-        1.0,
-        false,
-    );
+    let out =
+        cpurender::execute_scroll_shift(&mut pixmap, &dl, 7, &clip, delta, (10.0, 0.0), 1.0, false);
 
     // Fast path taken: the whole clip is presented, not repainted.
     assert!(
@@ -99,7 +91,12 @@ fn a_dragged_overlay_scrollbar_is_repainted_at_its_ghost_position_too() {
     );
     // ...and so is the position its pixels were DRAGGED to (origin - delta):
     // without this rect the snap-back leaves one smeared copy per frame.
-    let ghost = rect(bar.origin.x - delta.0, bar.origin.y, bar.size.width, bar.size.height);
+    let ghost = rect(
+        bar.origin.x - delta.0,
+        bar.origin.y,
+        bar.size.width,
+        bar.size.height,
+    );
     assert!(
         covers(&out.damage, &ghost),
         "the dragged ghost at origin-delta must be repainted, damage: {:?}",

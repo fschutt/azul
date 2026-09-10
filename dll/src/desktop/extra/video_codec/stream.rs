@@ -8,12 +8,13 @@
 //! [`VideoWidget::dom_with_decoder`](azul_layout::widgets::video::VideoWidget::dom_with_decoder)
 //! wrapped in a `ThreadCallback`, exactly like `MapWidget::dom_with_fetch`.
 
-use azul_core::refany::RefAny;
-use azul_core::task::ThreadReceiver;
-use azul_layout::thread::{
-    ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
+use azul_core::{refany::RefAny, task::ThreadReceiver};
+use azul_layout::{
+    thread::{
+        ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
+    },
+    widgets::video::video_writeback,
 };
-use azul_layout::widgets::video::video_writeback;
 
 /// FFI entry point the `VideoWidget::dom()` shim calls — wires the off-main
 /// streaming decode worker, mirroring `map_widget_dom`. The worker lives here in
@@ -58,15 +59,14 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, recv: 
         ANNOUNCE.call_once(|| {
             if !cfg!(feature = "video-native") {
                 eprintln!(
-                    "[azul][video] VideoWidget: this build has no `video-native` feature \
-                     — H.264 decode is compiled out, the widget will show its placeholder \
-                     forever. Rebuild with: cargo build -p azul-dll --features \
-                     build-dll,video-native"
+                    "[azul][video] VideoWidget: this build has no `video-native` feature — H.264 \
+                     decode is compiled out, the widget will show its placeholder forever. \
+                     Rebuild with: cargo build -p azul-dll --features build-dll,video-native"
                 );
             } else {
                 eprintln!(
-                    "[azul][video] VideoWidget: H.264 decode requires x86_64 linux/windows \
-                     (this target: {}-{}) — the widget will show its placeholder forever",
+                    "[azul][video] VideoWidget: H.264 decode requires x86_64 linux/windows (this \
+                     target: {}-{}) — the widget will show its placeholder forever",
                     std::env::consts::ARCH,
                     std::env::consts::OS,
                 );
@@ -82,10 +82,13 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, recv: 
     any(target_os = "linux", target_os = "windows")
 ))]
 fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
-    use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
-    use azul_core::video::{OptionVideoFrame, VideoFrame};
-    use azul_css::U8Vec;
     use std::time::{Duration, Instant};
+
+    use azul_core::{
+        task::{OptionThreadSendMsg, ThreadSendMsg},
+        video::{OptionVideoFrame, VideoFrame},
+    };
+    use azul_css::U8Vec;
 
     // Target output size (physical px) the widget last asked for via NodeResized.
     // While `None` the worker emits frames at the stream's native size; once set,
@@ -95,9 +98,9 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
 
     let log = std::env::var("AZ_VIDEO_FRAMELOG").is_ok();
 
-    // 1. The thread-init is the `VideoConfig`; match its typed source → MP4 bytes
-    //    (URL via range request / local file / in-memory bytes). No RefAny downcast
-    //    ambiguity — the source is strongly typed.
+    // 1. The thread-init is the `VideoConfig`; match its typed source → MP4 bytes (URL via range
+    //    request / local file / in-memory bytes). No RefAny downcast ambiguity — the source is
+    //    strongly typed.
     use azul_core::video::VideoSource;
     let config = match init.downcast_ref::<azul_core::video::VideoConfig>() {
         Some(c) => c.clone(),

@@ -10,8 +10,10 @@
     feature = "font_loading"
 ))]
 
-use azul_core::dom::{Dom, IdOrClass};
-use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+use azul_core::{
+    dom::{Dom, IdOrClass},
+    resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
+};
 use azul_css::U8Vec;
 use azul_layout::cpurender::{render_dom_to_image, AzulPixmap};
 
@@ -47,7 +49,8 @@ fn assert_green(pm: &AzulPixmap, x: u32, y: u32, ctx: &str) {
     let (r, g, b) = (d[off], d[off + 1], d[off + 2]);
     assert!(
         g > 200 && r < 90 && b < 90,
-        "{ctx}: expected green at ({x},{y}), got rgba=({r},{g},{b}) — cpurender did not blit the image",
+        "{ctx}: expected green at ({x},{y}), got rgba=({r},{g},{b}) — cpurender did not blit the \
+         image",
     );
 }
 

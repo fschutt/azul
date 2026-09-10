@@ -69,10 +69,7 @@ impl ContainingBlock {
     #[must_use]
     pub const fn from_flattened(size: LogicalSize) -> Self {
         Self {
-            width: axis_from_flattened(
-                size.width,
-                crate::text3::cache::AvailableSpace::MaxContent,
-            ),
+            width: axis_from_flattened(size.width, crate::text3::cache::AvailableSpace::MaxContent),
             height: axis_from_flattened(
                 size.height,
                 crate::text3::cache::AvailableSpace::MaxContent,
@@ -165,8 +162,9 @@ pub struct PositionedRectangle {
 
 // +spec:box-model:83b3b8 - Box dimensions: content area with optional padding, border, margin areas
 /// Represents the four edges of a box for properties like margin, padding, border.
-// +spec:box-model:3b155c - "4 values assigned to sides" pattern (top, right, bottom, left) matching margin/inset shorthands
-// +spec:width-calculation:37f9e7 - CSS 2.2 §8.1 box dimensions: content, padding, border, margin areas with top/right/bottom/left segments
+// +spec:box-model:3b155c - "4 values assigned to sides" pattern (top, right, bottom, left) matching
+// margin/inset shorthands +spec:width-calculation:37f9e7 - CSS 2.2 §8.1 box dimensions: content,
+// padding, border, margin areas with top/right/bottom/left segments
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EdgeSizes {
     pub top: f32,
@@ -188,28 +186,34 @@ impl EdgeSizes {
         self.top + self.bottom
     }
 
-    // +spec:block-formatting-context:440282 - vertical writing modes use analogous layout via main/cross axis abstraction
-    // +spec:block-formatting-context:a49f9e - line-relative directions mapped via writing mode
-    // +spec:block-formatting-context:387117 - writing-mode property maps block flow to vertical/horizontal axes
-    // +spec:box-model:4c01a3 - dimensional mapping: main=block axis, cross=inline axis per writing mode
-    // +spec:box-model:4c1a9f - physical-to-logical mapping of margin/padding/border for vertical writing modes
-    // +spec:box-model:9414ab - flow-relative mapping of box edges (margin/padding/border) per writing mode
-    // +spec:inline-formatting-context:2de457 - block/inline dimension mapping via writing mode
-    // +spec:inline-formatting-context:c6b91e - line-relative "over"/"under" mapped to physical top/bottom via writing mode
-    // +spec:writing-modes:00a918 - Abstract-to-physical mappings for block/inline to top/right/bottom/left
-    // +spec:writing-modes:14e6f0 - block-start/end depend only on writing-mode; inline-start/end also depend on direction (handled in positioning.rs)
-    // +spec:writing-modes:1c2101 - Abstract directional terms (top/right/bottom/left) to logical axes (main/cross) based on writing-mode
-    // +spec:writing-modes:1c5155 - line-relative mappings: over/under/line-left/line-right → top/bottom/left/right in horizontal-tb
-    // +spec:writing-modes:70daf1 - block/inline axis mapping per writing-mode for edge sizes
-    // +spec:writing-modes:f9af71 - flow-relative directions: block-start/end and inline-start/end mapped to physical edges
-    // +spec:writing-modes:60b023 - abstract-to-physical mapping: block axis = main, inline axis = cross
-    // +spec:writing-modes:829cd7 - flow-relative directions: block-start/end from writing-mode, inline-start/end from writing-mode+direction
-    // +spec:writing-modes:a2113d - block/inline axis mapping for writing modes (block-axis, inline-axis, block-start/end, inline-start/end)
-    // +spec:writing-modes:c0ae9c - abstract directional mappings from writing-mode/direction
-    // +spec:writing-modes:c91130 - Abstract box terminology: block/inline axis mapping per writing-mode
-    // +spec:writing-modes:cd31ce - flow-relative directions mapped to physical via writing mode
-    // +spec:writing-modes:fd8c18 - block/inline axis mapping based on writing mode
-    // +spec:writing-modes:0e549a - writing-mode computed value influences physical/logical axis mapping
+    // +spec:block-formatting-context:440282 - vertical writing modes use analogous layout via
+    // main/cross axis abstraction +spec:block-formatting-context:a49f9e - line-relative
+    // directions mapped via writing mode +spec:block-formatting-context:387117 - writing-mode
+    // property maps block flow to vertical/horizontal axes +spec:box-model:4c01a3 - dimensional
+    // mapping: main=block axis, cross=inline axis per writing mode +spec:box-model:4c1a9f -
+    // physical-to-logical mapping of margin/padding/border for vertical writing modes
+    // +spec:box-model:9414ab - flow-relative mapping of box edges (margin/padding/border) per
+    // writing mode +spec:inline-formatting-context:2de457 - block/inline dimension mapping via
+    // writing mode +spec:inline-formatting-context:c6b91e - line-relative "over"/"under" mapped
+    // to physical top/bottom via writing mode +spec:writing-modes:00a918 - Abstract-to-physical
+    // mappings for block/inline to top/right/bottom/left +spec:writing-modes:14e6f0 -
+    // block-start/end depend only on writing-mode; inline-start/end also depend on direction
+    // (handled in positioning.rs) +spec:writing-modes:1c2101 - Abstract directional terms
+    // (top/right/bottom/left) to logical axes (main/cross) based on writing-mode
+    // +spec:writing-modes:1c5155 - line-relative mappings: over/under/line-left/line-right →
+    // top/bottom/left/right in horizontal-tb +spec:writing-modes:70daf1 - block/inline axis
+    // mapping per writing-mode for edge sizes +spec:writing-modes:f9af71 - flow-relative
+    // directions: block-start/end and inline-start/end mapped to physical edges
+    // +spec:writing-modes:60b023 - abstract-to-physical mapping: block axis = main, inline axis =
+    // cross +spec:writing-modes:829cd7 - flow-relative directions: block-start/end from
+    // writing-mode, inline-start/end from writing-mode+direction +spec:writing-modes:a2113d -
+    // block/inline axis mapping for writing modes (block-axis, inline-axis, block-start/end,
+    // inline-start/end) +spec:writing-modes:c0ae9c - abstract directional mappings from
+    // writing-mode/direction +spec:writing-modes:c91130 - Abstract box terminology:
+    // block/inline axis mapping per writing-mode +spec:writing-modes:cd31ce - flow-relative
+    // directions mapped to physical via writing mode +spec:writing-modes:fd8c18 - block/inline
+    // axis mapping based on writing mode +spec:writing-modes:0e549a - writing-mode computed
+    // value influences physical/logical axis mapping
     /// Returns the size of the edge at the start of the main/block axis.
     #[must_use]
     pub const fn main_start(&self, wm: LayoutWritingMode) -> f32 {
@@ -234,7 +238,8 @@ impl EdgeSizes {
         self.main_start(wm) + self.main_end(wm)
     }
 
-    // +spec:block-formatting-context:6225cb - line-relative directions: vertical modes map line-over/under to top/bottom
+    // +spec:block-formatting-context:6225cb - line-relative directions: vertical modes map
+    // line-over/under to top/bottom
     /// Returns the size of the edge at the start of the cross/inline axis.
     #[must_use]
     pub const fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
@@ -371,13 +376,15 @@ impl UnresolvedMargin {
     /// - `Zero` returns 0.0
     /// - `Length` is resolved using the resolution context
     #[allow(clippy::match_same_arms)]
-    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that
+    // can't merge)
     #[must_use]
     pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
             Self::Zero => 0.0,
-            // +spec:box-model:c921aa - auto margin-top/bottom used value is 0 for block-level non-replaced elements in normal flow
-            // +spec:box-model:e25fdc - auto margins treated as zero for abspos size computation
+            // +spec:box-model:c921aa - auto margin-top/bottom used value is 0 for block-level
+            // non-replaced elements in normal flow +spec:box-model:e25fdc - auto
+            // margins treated as zero for abspos size computation
             Self::Auto => 0.0, // Auto is handled separately in layout
             Self::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
         }
@@ -447,7 +454,8 @@ impl UnresolvedEdge<PixelValue> {
 /// Parameters needed to resolve CSS values to pixels.
 #[derive(Debug, Clone, Copy)]
 pub struct ResolutionParams {
-    // +spec:inline-formatting-context:26c933 - LogicalSize maps inline/block dimensions to physical width/height per writing mode
+    // +spec:inline-formatting-context:26c933 - LogicalSize maps inline/block dimensions to
+    // physical width/height per writing mode
     /// The containing block size (for % resolution)
     pub containing_block: LogicalSize,
     /// The viewport size (for vh/vw resolution)
@@ -533,7 +541,8 @@ pub struct MarginAuto {
 /// A fully resolved representation of a node's box model properties.
 // +spec:box-model:3e083b - content/padding/border/margin box model layers
 // +spec:box-model:a227ff - content/padding/border/margin edges defining box extents for overflow
-// +spec:containing-block:bca691 - box model edges: padding/border/margin boxes with content-box, padding-box, margin-box methods
+// +spec:containing-block:bca691 - box model edges: padding/border/margin boxes with content-box,
+// padding-box, margin-box methods
 ///
 /// All values are in pixels. This is the result of resolving `UnresolvedBoxProps`
 /// against a containing block.
@@ -549,8 +558,9 @@ pub struct ResolvedBoxProps {
 }
 
 impl ResolvedBoxProps {
-    // +spec:box-model:be08c6 - inner size (content-box) from outer size minus border+padding, floored at zero
-    // +spec:writing-modes:a58616 - abstract dimensions: inline size maps to physical width/height per writing-mode
+    // +spec:box-model:be08c6 - inner size (content-box) from outer size minus border+padding,
+    // floored at zero +spec:writing-modes:a58616 - abstract dimensions: inline size maps to
+    // physical width/height per writing-mode
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
     #[must_use]
@@ -629,7 +639,8 @@ impl ResolvedBoxProps {
         }
     }
 
-    // +spec:box-model:0e75c1 - margin, padding, border contribute to layout bounds (default line-fit-edge: leading uses line-height model)
+    // +spec:box-model:0e75c1 - margin, padding, border contribute to layout bounds (default
+    // line-fit-edge: leading uses line-height model)
     /// Total horizontal space consumed by margin + border + padding.
     #[must_use]
     pub fn horizontal_mbp(&self) -> f32 {
@@ -770,7 +781,9 @@ impl PackedBoxProps {
     }
 
     #[inline]
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     fn unpack_edge(e: &[i16; 4]) -> EdgeSizes {
         EdgeSizes {
             top: f32::from(e[0]) * 0.1,
@@ -787,20 +800,24 @@ pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 // +spec:intrinsic-sizing:af39b6 - min-content, max-content, and stretch fit size definitions
 // min-content constraint, max-content constraint definitions
 // and fit-content sizes for both inline and block axes
-// +spec:height-calculation:e9ec84 - replaced elements have natural dimensions (width, height, ratio)
+// +spec:height-calculation:e9ec84 - replaced elements have natural dimensions (width, height,
+// ratio)
 /// Represents the intrinsic sizing information for an element, calculated
 /// without knowledge of the final containing block size.
-// +spec:intrinsic-sizing:127a10 - min-content, max-content, fit-content size definitions (css-sizing-3 §2.1)
-// +spec:intrinsic-sizing:21f2cb - defines min-content, max-content, and stretch-fit size terminology
-// +spec:width-calculation:1583c4 - min-content, max-content, fit-content intrinsic size definitions (§2.1)
+// +spec:intrinsic-sizing:127a10 - min-content, max-content, fit-content size definitions
+// (css-sizing-3 §2.1) +spec:intrinsic-sizing:21f2cb - defines min-content, max-content, and
+// stretch-fit size terminology +spec:width-calculation:1583c4 - min-content, max-content,
+// fit-content intrinsic size definitions (§2.1)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IntrinsicSizes {
-    // +spec:width-calculation:b83d0a - min-content width ("preferred minimum width" in CSS2.1§10.3.5)
-    // +spec:writing-modes:1583c4 - min-content size in inline axis = size fitting contents with all soft wraps taken
+    // +spec:width-calculation:b83d0a - min-content width ("preferred minimum width" in
+    // CSS2.1§10.3.5) +spec:writing-modes:1583c4 - min-content size in inline axis = size
+    // fitting contents with all soft wraps taken
     /// §2.1 min-content inline size: inline size fitting contents if all soft wraps taken.
     pub min_content_width: f32,
     // +spec:width-calculation:0c74d3 - max-content width ("preferred width" in CSS2.1§10.3.5)
-    // +spec:writing-modes:6e85d3 - max-content inline size is the "ideal" size in the inline axis (writing-mode-dependent)
+    // +spec:writing-modes:6e85d3 - max-content inline size is the "ideal" size in the inline axis
+    // (writing-mode-dependent)
     /// §2.1 max-content inline size: narrowest inline size if no soft wraps taken.
     pub max_content_width: f32,
     /// The width specified by CSS properties, if any.
@@ -822,7 +839,8 @@ pub struct IntrinsicSizes {
 
 impl IntrinsicSizes {
     // +spec:intrinsic-sizing:127a10 - fit-content = clamp(min-content, stretch-fit, max-content)
-    // +spec:intrinsic-sizing:21f2cb - stretch-fit size drawn from available (containing-block) space
+    // +spec:intrinsic-sizing:21f2cb - stretch-fit size drawn from available (containing-block)
+    // space
     /// CSS Sizing §2.1 fit-content **inline** size:
     /// `clamp(min-content, stretch-fit, max-content)`, where the stretch-fit size is the
     /// `available_inline_size` (the space the containing block offers in the inline axis).
@@ -860,15 +878,17 @@ impl IntrinsicSizes {
 /// - `direction` determines the inline base direction (ltr or rtl)
 /// - `text-orientation` determines glyph orientation in vertical writing modes
 // +spec:block-formatting-context:333dcb - typographic mode captured by text_orientation field
-// +spec:block-formatting-context:66eb6d - text-orientation property (mixed|upright|sideways) integrated into WritingModeContext
-// +spec:block-formatting-context:8be1b0 - writing modes and vertical text orientation context (UTN#22)
-// +spec:display-property:0a39dc - text-orientation affects inline-level alignment via WritingModeContext
-// +spec:display-property:591355 - bidirectionality support via direction property in WritingModeContext
+// +spec:block-formatting-context:66eb6d - text-orientation property (mixed|upright|sideways)
+// integrated into WritingModeContext +spec:block-formatting-context:8be1b0 - writing modes and
+// vertical text orientation context (UTN#22) +spec:display-property:0a39dc - text-orientation
+// affects inline-level alignment via WritingModeContext +spec:display-property:591355 -
+// bidirectionality support via direction property in WritingModeContext
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WritingModeContext {
     pub writing_mode: LayoutWritingMode,
     pub direction: StyleDirection,
-    // +spec:block-formatting-context:925cfe - text-orientation mixed/upright for horizontal scripts in vertical mode
+    // +spec:block-formatting-context:925cfe - text-orientation mixed/upright for horizontal
+    // scripts in vertical mode
     pub text_orientation: StyleTextOrientation,
 }
 
@@ -916,10 +936,12 @@ impl WritingModeContext {
         self.direction
     }
 
-    // +spec:containing-block:c205e5 - orthogonal flow: child writing mode perpendicular to containing block's
+    // +spec:containing-block:c205e5 - orthogonal flow: child writing mode perpendicular to
+    // containing block's
 
-    // +spec:block-formatting-context:6225cb - vertical writing modes: line-over is right, line-under is left
-    // +spec:block-formatting-context:9a4269 - vertical vs horizontal script classification
+    // +spec:block-formatting-context:6225cb - vertical writing modes: line-over is right,
+    // line-under is left +spec:block-formatting-context:9a4269 - vertical vs horizontal script
+    // classification
     /// Returns true if the writing mode is horizontal (`HorizontalTb`).
     ///
     /// When true, the inline axis is horizontal and the block axis is vertical.

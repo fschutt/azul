@@ -307,20 +307,16 @@ impl PaginationSnapshot {
     pub fn break_was_avoided(&self, index: usize) -> bool {
         self.as_info()
             .and_then(|i| i.breaks.get(index))
-            .is_some_and(|b| {
-                matches!(
-                    b.kind,
-                    crate::solver3::page_breaks::BreakKind::Avoided(..)
-                )
-            })
+            .is_some_and(|b| matches!(b.kind, crate::solver3::page_breaks::BreakKind::Avoided(..)))
     }
 
     /// Which page a document-space Y lands on ("what page is this node on?"
     /// - the editor query that needs NO page to be materialized).
     #[must_use]
     pub fn page_of_y(&self, y: f32) -> usize {
-        self.as_info()
-            .map_or(0, |i| crate::solver3::page_breaks::page_of_y(i.breaks.as_ref(), y))
+        self.as_info().map_or(0, |i| {
+            crate::solver3::page_breaks::page_of_y(i.breaks.as_ref(), y)
+        })
     }
 }
 
@@ -337,10 +333,7 @@ impl Drop for PaginationSnapshot {
     fn drop(&mut self) {
         if self.run_destructor && !self.ptr.is_null() {
             unsafe {
-                drop(Box::from_raw(
-                    self.ptr
-                        .cast::<PaginationAnalysis>(),
-                ));
+                drop(Box::from_raw(self.ptr.cast::<PaginationAnalysis>()));
             }
             self.ptr = core::ptr::null_mut();
             self.run_destructor = false;

@@ -11,11 +11,12 @@
 
 use anyhow::Result;
 
-use crate::codegen::v2::config::*;
-use crate::codegen::v2::generator::{CodeBuilder, LanguageGenerator};
-use crate::codegen::v2::ir::*;
-
 use super::shared;
+use crate::codegen::v2::{
+    config::*,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::*,
+};
 
 // ============================================================================
 // Dynamic Binding Generator
@@ -161,7 +162,8 @@ impl RustDynamicGenerator {
         let is_generic = !struct_def.generic_params.is_empty();
 
         // Clone trait - calls Az{Type}_clone
-        // Only generate manual impl if Clone is NOT derived (to avoid conflict with #[derive(Clone)])
+        // Only generate manual impl if Clone is NOT derived (to avoid conflict with
+        // #[derive(Clone)])
         if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived && !is_generic {
             let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));

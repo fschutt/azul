@@ -2,8 +2,9 @@
 pub use super::*;
 #[cfg(test)]
 mod tests {
-    use super::*;
     use core::cmp::Ordering;
+
+    use super::*;
 
     #[test]
     fn hit_test_edges_match_contains() {
@@ -85,10 +86,9 @@ mod autotest_generated {
     };
 
     use azul_css::props::layout::LayoutWritingMode;
+    use proptest::{prelude::*, proptest};
 
     use super::*;
-    use proptest::prelude::*;
-    use proptest::proptest;
 
     /// Hostile float grid: every class that can reach a coordinate field.
     const HOSTILE: [f32; 8] = [

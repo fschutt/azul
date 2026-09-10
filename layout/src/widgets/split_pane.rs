@@ -39,7 +39,6 @@
 //! Key types: [`SplitPane`], [`SplitPaneState`], [`SplitDirection`],
 //! [`SplitPaneOnResize`].
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::vec::Vec;
 
 use azul_core::{
@@ -48,8 +47,8 @@ use azul_core::{
     geom::{CursorNodePosition, LogicalSize},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, FloatValue, PixelValue},
@@ -66,7 +65,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{callbacks::CallbackInfo, solver3::layout_tree::LayoutNodeId};
 
 static SPLIT_PANE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-split-pane"))];

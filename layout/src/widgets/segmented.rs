@@ -17,8 +17,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -161,7 +161,8 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// rounding of the outer corners (only the first segment is rounded on the left,
 /// only the last on the right) are the position-dependent properties, so the
 /// style is built at runtime.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn build_segment_style(
     selected: bool,
     is_first: bool,

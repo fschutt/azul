@@ -619,9 +619,6 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-
-
-
 /// Single-line text input widget with platform-native styling.
 ///
 /// Use [`TextInput::create()`] to build an instance, configure it with the
@@ -638,6 +635,7 @@ pub struct TextInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    pub theme: crate::widgets::themes::OptionTheme,
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
@@ -749,7 +747,8 @@ azul_core::impl_managed_callback! {
     extra_args:     [ state: TextInputState ],
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {
@@ -780,6 +779,7 @@ impl Default for TextInput {
             ),
             label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
             accessibility_name: OptionString::None,
+            theme: None.into(),
         }
     }
 }
@@ -929,8 +929,6 @@ impl TextInput {
         self
     }
 
-
-
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.container_style = style;
     }
@@ -967,130 +965,21 @@ impl TextInput {
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
     #[must_use]
-    pub fn dom(mut self) -> Dom {
-        // Read before the state is moved into the DOM/callbacks below.
-        let a11y_name: Option<AzString> = self.text_input_state.inner.placeholder.as_ref().cloned();
-        let a11y_value: String = self
-            .text_input_state
-            .inner
-            .text
-            .as_ref()
-            .iter()
-            .filter_map(|c| char::from_u32(*c))
-            .collect();
-
-        use azul_core::{
-            callbacks::CoreCallbackData,
-            dom::{
-                AttributeType, DomVec, EventFilter, FocusEventFilter, HoverEventFilter,
-                IdOrClass::Class, TabIndex,
-            },
-        };
-
-        self.text_input_state.inner.cursor_pos = self.text_input_state.inner.text.len();
-
-        let label_text: String = self
-            .text_input_state
-            .inner
-            .text
-            .iter()
-            .filter_map(|s| core::char::from_u32(*s))
-            .collect();
-
-        let placeholder = self
-            .text_input_state
-            .inner
-            .placeholder
-            .as_ref()
-            .map(|s| s.as_str().to_string())
-            .unwrap_or_default();
-
-        let state_ref = RefAny::new(self.text_input_state);
-
-        Dom::create_div()
-            .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
-            .with_css_props(self.container_style)
-            .with_tab_index(TabIndex::Auto)
-            // A text field with no name is the classic unusable form control: a
-            // reader announces "edit" and the user has no idea what to type.
-            // The PLACEHOLDER is the best name available here — it is what a
-            // sighted user reads for the same purpose — but a caller with a
-            // real label should point `labelled_by` at it instead, which keeps
-            // the two from drifting apart.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Text,
-                accessibility_name: a11y_name.into(),
-                accessibility_value: Some(AzString::from(a11y_value)).into(),
-                ..Default::default()
-            })
-            .with_contenteditable(true)
-            .with_dataset(Some(state_ref.clone()).into())
-            .with_callbacks(
-                vec![
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_received as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_lost as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::TextInput),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_text_input as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_virtual_key_down as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                        refany: state_ref,
-                        callback: CoreCallback {
-                            cb: default_on_mouse_hover as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                ]
-                .into(),
-            )
-            .with_children(
-                vec![
-                    // ONE child: the value <p>. The prompt is an ATTRIBUTE on
-                    // it, painted by the engine while the line is empty and
-                    // unfocused - it is not a node, so it cannot swallow a
-                    // click meant for the editable, own clusters, or carry a
-                    // visibility override that latches.
-                    crate::widgets::widget_p()
-                        .with_ids_and_classes(
-                            vec![Class("__azul-native-text-input-label".into())].into(),
-                        )
-                        .with_css_props(self.label_style)
-                        // appended, never `with_attributes`: that one replaces
-                        // the whole vector, classes included
-                        .with_attribute(AttributeType::Placeholder(placeholder.into()))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
-                ]
-                .into(),
-            )
+    pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(crate::widgets::themes::Theme::Flat) => {
+                crate::widgets::themes::flat::text_input(self)
+            }
+            Some(crate::widgets::themes::Theme::Flora) => {
+                crate::widgets::themes::flora::text_input(self)
+            }
+            None => crate::widgets::themes::flora::text_input(self),
+        }
     }
 }
+
+pub const TEXT_INPUT_CONTAINER_CLASS: &str = "__azul-native-text-input-container";
+pub const TEXT_INPUT_LABEL_CLASS: &str = "__azul-native-text-input-label";
 
 /// The value `<p>` - the editable line the engine paints the `placeholder`
 /// attribute's prompt into while it is empty and unfocused.
@@ -1180,7 +1069,10 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
-extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_focus_received(
+    mut text_input: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1210,7 +1102,7 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
     Update::DoNothing
 }
 
-extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1240,7 +1132,7 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
     }
 }
 
-extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
@@ -1370,7 +1262,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     Some(result.update)
 }
 
-extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
@@ -1427,7 +1319,7 @@ fn default_on_virtual_key_down_inner(
     Some(result.update)
 }
 
-extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
     let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1797,10 +1689,7 @@ mod autotest_generated {
         );
         let label = probe.get_first_child(dom_node(CONTAINER));
         let label_text = label.and_then(|l| probe.get_first_child(l));
-        let nodes = Nodes {
-            label,
-            label_text,
-        };
+        let nodes = Nodes { label, label_text };
 
         let info = CallbackInfo::new(
             &ref_data,
@@ -2677,9 +2566,7 @@ mod autotest_generated {
             "the value line's css must not depend on whether it has text",
         );
         assert_eq!(
-            filled.children.as_ref()[LABEL_CHILD]
-                .root
-                .get_placeholder(),
+            filled.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
             empty.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
             "and neither must the prompt attribute",
         );
@@ -2908,9 +2795,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(
             changes.is_empty(),
-            "focus must write NO css: the engine paints the prompt only while \
-             the line is empty AND unfocused, so there is no state to toggle \
-             and nothing that can latch: {changes:?}",
+            "focus must write NO css: the engine paints the prompt only while the line is empty \
+             AND unfocused, so there is no state to toggle and nothing that can latch: {changes:?}",
         );
         let _ = nodes;
 
@@ -2950,8 +2836,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(
             changes.is_empty(),
-            "blur must write NO css either — the prompt reappears because the \
-             next display list sees empty+unfocused: {changes:?}",
+            "blur must write NO css either — the prompt reappears because the next display list \
+             sees empty+unfocused: {changes:?}",
         );
         let _ = nodes;
 

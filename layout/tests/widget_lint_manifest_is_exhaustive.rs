@@ -156,8 +156,8 @@ fn the_exemption_list_has_no_stale_entries() {
         );
         assert!(
             !is_registered(body, name),
-            "`{name}` is now registered in `every_widget_dom()`, so its exemption is stale and \
-             is masking nothing — delete it from EXEMPT in this file (reason on file: {reason})"
+            "`{name}` is now registered in `every_widget_dom()`, so its exemption is stale and is \
+             masking nothing — delete it from EXEMPT in this file (reason on file: {reason})"
         );
     }
 }

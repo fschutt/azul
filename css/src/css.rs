@@ -4,8 +4,8 @@
 //!
 //! - [`Css`] contains one or more [`Stylesheet`]s, each holding [`CssRuleBlock`]s.
 //! - A [`CssRuleBlock`] pairs a [`CssPath`] (selector) with [`CssDeclaration`]s (properties).
-//! - [`CssPropertyValue<T>`] wraps individual property values with CSS keywords
-//!   (`auto`, `inherit`, `initial`, etc.).
+//! - [`CssPropertyValue<T>`] wraps individual property values with CSS keywords (`auto`, `inherit`,
+//!   `initial`, etc.).
 //! - [`BoxOrStatic<T>`] is a smart-pointer enum for heap-allocated or static CSS values.
 //! - [`NodeTypeTag`] enumerates all recognized HTML/SVG element types for selector matching.
 use alloc::{string::String, vec::Vec};
@@ -407,8 +407,8 @@ impl CssDeclaration {
 
     /// Whether this declaration's value depends on the window's
     /// [`DynamicSelectorContext`](crate::dynamic_selector::DynamicSelectorContext)
-    /// - i.e. it is an `env()` - so a context change must re-run the cascade
-    ///   for it, exactly as it must for a rule with `@media`-style conditions.
+    /// - i.e. it is an `env()` - so a context change must re-run the cascade for it, exactly as it
+    ///   must for a rule with `@media`-style conditions.
     #[must_use]
     pub fn depends_on_dynamic_context(&self) -> bool {
         self.env_variable().is_some()
@@ -418,14 +418,12 @@ impl CssDeclaration {
     /// under `ctx`.
     ///
     /// - `Static` - the property itself.
-    /// - `env()` - the variable's live value (an absolute length parsed as
-    ///   the declared property's own type, so `padding-bottom` gets a
-    ///   padding and `top` gets an inset), or the parsed fallback when the
-    ///   platform reports none for it, or when there is no context yet (a
-    ///   `StyledDom` no window has adopted - the same rule conditional
-    ///   rule blocks follow).
-    /// - a `var()` `Dynamic` - `None`, matching the previous behaviour of
-    ///   every cascade site (they filtered on `Static`).
+    /// - `env()` - the variable's live value (an absolute length parsed as the declared property's
+    ///   own type, so `padding-bottom` gets a padding and `top` gets an inset), or the parsed
+    ///   fallback when the platform reports none for it, or when there is no context yet (a
+    ///   `StyledDom` no window has adopted - the same rule conditional rule blocks follow).
+    /// - a `var()` `Dynamic` - `None`, matching the previous behaviour of every cascade site (they
+    ///   filtered on `Static`).
     #[must_use]
     pub fn resolve_in_cascade(
         &self,
@@ -1302,7 +1300,8 @@ impl NodeTypeTagParseErrorOwned {
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     /// # Errors
     ///
     /// Returns an error if `css_key` is not a recognized HTML node-type tag.
@@ -1540,7 +1539,9 @@ impl NodeTypeTag {
 }
 
 impl fmt::Display for NodeTypeTag {
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS
+                                     // parser/formatter/dispatch table (one branch per
+                                     // property/variant)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Document structure
@@ -1820,14 +1821,14 @@ impl CssPath {
     /// Two cases (#47 leak fix + descendant-selector support):
     ///
     /// - A **bare `*` rule** (the `parse_inline` wrapper for a `with_css`/`set_css`
-    ///   bare-declaration string) is scoped **node-only** (`[start, start]`):
-    ///   inline-style semantics — it applies to the OWNER only and must not leak to
-    ///   descendants or siblings. `[Root([s,s]), Global]` matches `s` only.
-    /// - A rule with a **real selector** (`.menu-item`, `div`, a descendant chain —
-    ///   from `add_component_css` / a component stylesheet) is scoped to the whole
-    ///   **subtree** (`[start, end]`), so its selectors match within the owner's
-    ///   subtree (e.g. a menu container's `.menu-item` children). `[Root([s,e]),
-    ///   Class(x)]` matches any node in `[s,e]` that also matches `.x`.
+    ///   bare-declaration string) is scoped **node-only** (`[start, start]`): inline-style
+    ///   semantics — it applies to the OWNER only and must not leak to descendants or siblings.
+    ///   `[Root([s,s]), Global]` matches `s` only.
+    /// - A rule with a **real selector** (`.menu-item`, `div`, a descendant chain — from
+    ///   `add_component_css` / a component stylesheet) is scoped to the whole **subtree** (`[start,
+    ///   end]`), so its selectors match within the owner's subtree (e.g. a menu container's
+    ///   `.menu-item` children). `[Root([s,e]), Class(x)]` matches any node in `[s,e]` that also
+    ///   matches `.x`.
     pub fn push_front_scope(&mut self, start: usize, end: usize) {
         self.push_front_scope_for(start, end, true);
     }
@@ -2863,8 +2864,8 @@ mod autotest_generated {
             LIVE.load(Ordering::SeqCst),
             0,
             "into_inner() on a Boxed variant leaks: it clones the payload and then \
-             mem::forget(self), so `Drop for BoxOrStatic` never runs and the Box \
-             (plus the T inside it) is never freed"
+             mem::forget(self), so `Drop for BoxOrStatic` never runs and the Box (plus the T \
+             inside it) is never freed"
         );
     }
 
@@ -3322,8 +3323,8 @@ mod autotest_generated {
         assert_eq!(
             names.len(),
             before,
-            "two NodeTypeTag variants serialize to the same CSS tag name — \
-             the string is then ambiguous on the way back in"
+            "two NodeTypeTag variants serialize to the same CSS tag name — the string is then \
+             ambiguous on the way back in"
         );
     }
 
@@ -3341,8 +3342,8 @@ mod autotest_generated {
         }
         assert!(
             broken.is_empty(),
-            "from_str(Display(tag)) must yield tag back, but these variants do not \
-             round-trip: {broken:?}"
+            "from_str(Display(tag)) must yield tag back, but these variants do not round-trip: \
+             {broken:?}"
         );
     }
 
@@ -3946,10 +3947,9 @@ mod autotest_generated {
     #[test]
     fn viewport_breakpoints_harvests_media_bounds() {
         let css = Css::from_string(
-            "@media (max-width: 400px) { .a { width: 10px; } }\n\
-             @media (min-width: 800px) { .b { width: 10px; } }\n\
-             @media (max-height: 300px) { .c { width: 10px; } }\n\
-             .d { width: 10px; }"
+            "@media (max-width: 400px) { .a { width: 10px; } }\n@media (min-width: 800px) { .b { \
+             width: 10px; } }\n@media (max-height: 300px) { .c { width: 10px; } }\n.d { width: \
+             10px; }"
                 .into(),
         );
         let (w, h) = css.viewport_breakpoints();
@@ -4203,8 +4203,8 @@ mod autotest_generated {
         assert_eq!(
             css.rules.as_ref()[0].path.selectors.as_ref(),
             &[CssPathSelector::Global][..],
-            "the wrapper path must be exactly `*` — push_front_scope keys node-only \
-             inline semantics off that shape"
+            "the wrapper path must be exactly `*` — push_front_scope keys node-only inline \
+             semantics off that shape"
         );
     }
 

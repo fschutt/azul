@@ -11,12 +11,18 @@ use std::{io, ptr};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
 use azul_layout::managers::keyring::push_keyring_result;
-use winapi::shared::minwindef::{DWORD, FALSE, LPBYTE};
-use winapi::shared::winerror::ERROR_NOT_FOUND;
-use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::wincred::{
-    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
-    CRED_TYPE_GENERIC, PCREDENTIALW,
+use winapi::{
+    shared::{
+        minwindef::{DWORD, FALSE, LPBYTE},
+        winerror::ERROR_NOT_FOUND,
+    },
+    um::{
+        errhandlingapi::GetLastError,
+        wincred::{
+            CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
+            CRED_TYPE_GENERIC, PCREDENTIALW,
+        },
+    },
 };
 
 const SERVICE: &str = "com.azul.keyring";

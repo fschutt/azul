@@ -4,32 +4,33 @@
 //! we emit:
 //!
 //! - In the **spec** (`azul.ads`):
-//!     - A tagged record `type Foo is new Ada.Finalization.Controlled with
-//!       record Inner : aliased Az_Foo; Owned : Boolean := True; end record;`
+//!     - A tagged record `type Foo is new Ada.Finalization.Controlled with record Inner : aliased
+//!       Az_Foo; Owned : Boolean := True; end record;`
 //!     - `overriding procedure Finalize (Self : in out Foo);`
-//!     - `overriding procedure Adjust (Self : in out Foo);` (set the
-//!       Owned flag conservatively — clones aren't free, so we don't
-//!       silently double-free).
+//!     - `overriding procedure Adjust (Self : in out Foo);` (set the Owned flag conservatively —
+//!       clones aren't free, so we don't silently double-free).
 //! - In the **body** (`azul.adb`):
-//!     - The implementation of `Finalize`, which calls
-//!       `Az_Foo_Delete (Self.Inner'Access)` once. After finalization the
-//!       Owned flag is cleared so a second pass is a no-op.
-//!     - The implementation of `Adjust`, which marks the freshly assigned
-//!       copy as not-owned by default (Ada `Adjust` runs after a copy;
-//!       we cannot safely deep-copy through the C ABI without an
-//!       explicit clone API, so the safe default is "the copy does not
-//!       own").
+//!     - The implementation of `Finalize`, which calls `Az_Foo_Delete (Self.Inner'Access)` once.
+//!       After finalization the Owned flag is cleared so a second pass is a no-op.
+//!     - The implementation of `Adjust`, which marks the freshly assigned copy as not-owned by
+//!       default (Ada `Adjust` runs after a copy; we cannot safely deep-copy through the C ABI
+//!       without an explicit clone API, so the safe default is "the copy does not own").
 //!
 //! Plain POD structs without a `_delete` get *no* wrapper. Tagged-union
 //! enums likewise: the FFI variant record is the user-facing surface.
 
-use anyhow::Result;
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionKind, StructDef, TypeCategory};
-use super::{ada_ffi_type_name, ada_wrapper_type_name};
+use anyhow::Result;
+
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionKind, StructDef, TypeCategory},
+    },
+    ada_ffi_type_name, ada_wrapper_type_name,
+};
 
 // ============================================================================
 // Public entry points (called from mod.rs)

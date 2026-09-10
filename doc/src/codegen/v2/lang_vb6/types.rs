@@ -2,48 +2,45 @@
 //!
 //! Strategy:
 //!
-//! - **Unit-only enums** → `Public Enum AzFoo : AzFoo_A = 0 : AzFoo_B = 1
-//!   : End Enum`. VB6 enums are `Long`-backed integers; values are
-//!   pinned explicitly so the layout matches the C-ABI tag values.
-//! - **Tagged-union enums** → VB6 has **no native `Union` type**. We
-//!   emit a `Public Type` with a `tag As Long` field plus a
-//!   `payload(0 To N - 1) As Byte` byte array sized to the largest
-//!   variant. The user must call `CopyMemory` (`RtlMoveMemory`) to
-//!   marshal payload bytes in/out of a typed local. We also emit a
-//!   tag-enum companion `Public Enum AzFooTag` with the variant
-//!   discriminator values. Each variant gets a comment block listing
-//!   its payload-field layout so the user knows what to copy.
-//! - **POD structs** → `Public Type AzFoo ... End Type`. VB6 packs
-//!   fields with natural-alignment by default, matching Rust's
-//!   `extern "C"` ABI.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with `' SKIPPED: <reason>` line comments.
+//! - **Unit-only enums** → `Public Enum AzFoo : AzFoo_A = 0 : AzFoo_B = 1 : End Enum`. VB6 enums
+//!   are `Long`-backed integers; values are pinned explicitly so the layout matches the C-ABI tag
+//!   values.
+//! - **Tagged-union enums** → VB6 has **no native `Union` type**. We emit a `Public Type` with a
+//!   `tag As Long` field plus a `payload(0 To N - 1) As Byte` byte array sized to the largest
+//!   variant. The user must call `CopyMemory` (`RtlMoveMemory`) to marshal payload bytes in/out of
+//!   a typed local. We also emit a tag-enum companion `Public Enum AzFooTag` with the variant
+//!   discriminator values. Each variant gets a comment block listing its payload-field layout so
+//!   the user knows what to copy.
+//! - **POD structs** → `Public Type AzFoo ... End Type`. VB6 packs fields with natural-alignment by
+//!   default, matching Rust's `extern "C"` ABI.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `' SKIPPED:
+//!   <reason>` line comments.
 //!
 //! VB6 quirks worth recording:
 //!
-//! - VB6 cannot pass user-defined types (UDTs) `ByVal` to a `Declare`
-//!   — only `ByRef`. Functions whose C signature takes a struct by
-//!   value will be flagged with `' SKIPPED: struct-by-value` in
-//!   `functions.rs`. (The IR already exposes `ArgRefKind::Owned` for
-//!   these cases.)
-//! - VB6 has no enum payload concept; tag-enum constants pin the
-//!   discriminator value but the variant's payload bytes have to be
-//!   extracted manually.
-//! - VB6 string handling: `String` is BSTR (UTF-16). C `char*`
-//!   arguments declared `ByVal As String` get auto-marshalled to
-//!   ANSI on the way out, which loses non-ASCII characters. We
-//!   default to `Long`-as-pointer for `*const c_char` and let the
-//!   caller manage UTF-8 conversion via `StrPtr` + `CopyMemory`.
+//! - VB6 cannot pass user-defined types (UDTs) `ByVal` to a `Declare` — only `ByRef`. Functions
+//!   whose C signature takes a struct by value will be flagged with `' SKIPPED: struct-by-value` in
+//!   `functions.rs`. (The IR already exposes `ArgRefKind::Owned` for these cases.)
+//! - VB6 has no enum payload concept; tag-enum constants pin the discriminator value but the
+//!   variant's payload bytes have to be extracted manually.
+//! - VB6 string handling: `String` is BSTR (UTF-16). C `char*` arguments declared `ByVal As String`
+//!   get auto-marshalled to ANSI on the way out, which loses non-ASCII characters. We default to
+//!   `Long`-as-pointer for `*const c_char` and let the caller manage UTF-8 conversion via `StrPtr`
+//!   + `CopyMemory`.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, StructDef, TypeCategory,
+        },
+    },
+    ffi_type_name, map_type_to_vb6, sanitize_comment, sanitize_identifier,
 };
-use super::{ffi_type_name, map_type_to_vb6, sanitize_comment, sanitize_identifier};
 
 // ============================================================================
 // Top-level entry
@@ -64,8 +61,8 @@ pub fn generate_types(
     builder.line("' native Union type and no native typed-pointer dereference, so");
     builder.line("' callers extract variant payloads with this RtlMoveMemory wrapper.");
     builder.line(
-        "Public Declare Sub CopyMemory Lib \"kernel32\" Alias \"RtlMoveMemory\" \
-         (ByRef Destination As Any, ByRef Source As Any, ByVal Length As Long)",
+        "Public Declare Sub CopyMemory Lib \"kernel32\" Alias \"RtlMoveMemory\" (ByRef \
+         Destination As Any, ByRef Source As Any, ByVal Length As Long)",
     );
     builder.blank();
 
@@ -99,12 +96,10 @@ pub fn generate_types(
         emit_struct(builder, s, ir);
     }
 
-    // 4. Callback procedural typedefs. VB6 has no first-class function
-    //    pointers, but the convention is to pass the address of a
-    //    Public Function via `AddressOf` — and the actual *typedef* on
-    //    the VB6 side is just a `Long`-as-pointer. We emit a comment
-    //    block documenting the expected callback signature so users
-    //    know what to write on the VB6 side.
+    // 4. Callback procedural typedefs. VB6 has no first-class function pointers, but the convention
+    //    is to pass the address of a Public Function via `AddressOf` — and the actual *typedef* on
+    //    the VB6 side is just a `Long`-as-pointer. We emit a comment block documenting the expected
+    //    callback signature so users know what to write on the VB6 side.
     for cb in &ir.callback_typedefs {
         emit_callback_typedef_comment(builder, cb, ir);
     }
@@ -202,15 +197,13 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 //
 // VB6 has no native `Union` type. We emit:
 //
-//   1. A companion `Public Enum AzFooTag` with one constant per variant
-//      so user code can compare `foo.tag` against named values.
-//   2. A `Public Type AzFoo` containing:
-//        tag       As Long
-//        payload(0 To N - 1) As Byte    ' N = max payload size in bytes
-//      The byte array is sized to the largest variant. Smaller variants
+//   1. A companion `Public Enum AzFooTag` with one constant per variant so user code can compare
+//      `foo.tag` against named values.
+//   2. A `Public Type AzFoo` containing: tag       As Long payload(0 To N - 1) As Byte    ' N = max
+//      payload size in bytes The byte array is sized to the largest variant. Smaller variants
 //      simply leave the trailing bytes unused.
-//   3. A documentation comment block listing each variant's payload
-//      shape so the user knows what to read out via CopyMemory.
+//   3. A documentation comment block listing each variant's payload shape so the user knows what to
+//      read out via CopyMemory.
 //
 // We DO NOT compute the actual largest variant size (that requires
 // platform-specific size knowledge for nested types). Instead we

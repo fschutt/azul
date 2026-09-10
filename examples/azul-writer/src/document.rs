@@ -4,29 +4,28 @@
 //!
 //! The pipeline the shell was seamed for:
 //!
-//! 1. [`load_markdown`]  — markdown file -> pulldown-cmark -> HTML ->
-//!    azul XML parser -> content `Dom` (with the document stylesheet
-//!    attached to `Dom.css`, cascading inside the app's own DOM).
+//! 1. [`load_markdown`]  — markdown file -> pulldown-cmark -> HTML -> azul XML parser -> content
+//!    `Dom` (with the document stylesheet attached to `Dom.css`, cascading inside the app's own
+//!    DOM).
 //! 2. [`save_markdown`]  — document model -> file.
-//! 3. [`paginate`]       — content DOM -> `Vec<Page>` via the ENGINE's
-//!    pagination: `Pdf::compute_pagination` estimates the breaks and hands
-//!    back one root-to-node child-index path per page boundary
-//!    (`PaginationSnapshot::break_path`), and `DomSplit::at_path` cuts the
-//!    content along those paths (reverse order, so earlier paths stay
-//!    valid). One DOM per page — the classic office-suite page model,
-//!    driven by the real layout engine.
+//! 3. [`paginate`]       — content DOM -> `Vec<Page>` via the ENGINE's pagination:
+//!    `Pdf::compute_pagination` estimates the breaks and hands back one root-to-node child-index
+//!    path per page boundary (`PaginationSnapshot::break_path`), and `DomSplit::at_path` cuts the
+//!    content along those paths (reverse order, so earlier paths stay valid). One DOM per page —
+//!    the classic office-suite page model, driven by the real layout engine.
 
 use std::path::{Path, PathBuf};
-
-use azul::css::{BoxOrStaticString, LayoutSize, LogicalSize};
-use azul::dom::{Dom, DomSplit, NodeType};
-use azul::misc::PaginationSnapshot;
-use azul::pdf::Pdf;
 
 /// Snapshot handles the pagination call takes. Re-exported through this
 /// module so every caller names ONE source.
 pub use azul::font::FontCacheSnapshot;
 pub use azul::image::ImageCacheSnapshot;
+use azul::{
+    css::{BoxOrStaticString, LayoutSize, LogicalSize},
+    dom::{Dom, DomSplit, NodeType},
+    misc::PaginationSnapshot,
+    pdf::Pdf,
+};
 
 /// #28 (b): THE single source of page geometry. A4 @96dpi CSS px with the
 /// classic office-suite default 1" margins.
@@ -358,7 +357,6 @@ pub fn blank_document() -> Dom {
 // SEAM 1: load  (markdown -> HTML -> azul XML parser -> Dom)
 // ============================================================================
 
-
 /// Where `--dump-xml` writes the generated document XML.
 ///
 /// A one-time store rather than a parameter because the only caller is
@@ -374,7 +372,6 @@ pub fn init_dump_xml(path: Option<PathBuf>) {
     let _ = DUMP_XML.set(path);
 }
 
-
 /// markdown source -> content `Dom`, through the full pipeline:
 /// pulldown-cmark renders HTML, the azul XML parser turns it into an
 /// unstyled `Dom` with the `<style>` document stylesheet attached to
@@ -387,8 +384,6 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
     // the edit loop needs, and inline formatting survives the trip.)
     crate::ir::to_content_dom(&crate::ir::from_markdown(markdown), DOC_CSS)
 }
-
-
 
 /// Loads a markdown file and returns the document CONTENT DOM (not yet
 /// paginated — feed it to [`paginate`]). Prefer `DocumentModel::from_path`,
@@ -768,9 +763,9 @@ mod sample_tests {
             md.push_str(&format!("## Section {section}\n\n"));
             for para in 0..6 {
                 md.push_str(&format!(
-                    "Paragraph {para} of section {section}. The quick brown fox jumps over \
-                     the lazy dog, repeatedly, so that this document is long enough to be \
-                     paginated into more than a single page by the layout engine.\n\n"
+                    "Paragraph {para} of section {section}. The quick brown fox jumps over the \
+                     lazy dog, repeatedly, so that this document is long enough to be paginated \
+                     into more than a single page by the layout engine.\n\n"
                 ));
             }
         }
@@ -977,16 +972,15 @@ pub fn page_path_to_model_path(page_offset: usize, page_path: &[u32]) -> Vec<u32
 
 #[cfg(test)]
 mod test_edit_support {
-    use azul::callbacks::DocumentChangeset;
-    use azul::css::DocumentOperation;
-    use azul::dom::{Dom, DomId, DomNodeId, NodeHierarchyItemId};
-    use azul::error::DocumentEditError;
-    use azul::misc::EditResumePoint;
-    use azul::time::Instant;
-
-    pub(super) use azul::app::AppliedEdit;
-    pub(super) use azul::css::NodePosition;
-    pub(super) use azul::dom::DocOpSplitNode;
+    pub(super) use azul::{app::AppliedEdit, css::NodePosition, dom::DocOpSplitNode};
+    use azul::{
+        callbacks::DocumentChangeset,
+        css::DocumentOperation,
+        dom::{Dom, DomId, DomNodeId, NodeHierarchyItemId},
+        error::DocumentEditError,
+        misc::EditResumePoint,
+        time::Instant,
+    };
 
     /// The "no node" id (the crate-internal `from_crate_internal(None)`
     /// encoding: inner 0).
@@ -1045,9 +1039,12 @@ mod test_edit_support {
 
 #[cfg(test)]
 mod edit_loop_tests {
-    use super::test_edit_support::{apply, changeset, split_op};
-    use super::*;
     use azul::css::DocumentOperation;
+
+    use super::{
+        test_edit_support::{apply, changeset, split_op},
+        *,
+    };
 
     fn model_text_provider(content: &Dom) -> impl FnMut(&[u32]) -> Option<String> + '_ {
         move |path: &[u32]| {
@@ -1071,13 +1068,15 @@ mod edit_loop_tests {
 
     #[test]
     fn markdown_round_trips_through_the_serializer() {
-        let md = "# Title\n\nHello **world** paragraph.\n\n## Section\n\n- item one\n- item two\n\n> quoted line\n";
+        let md = "# Title\n\nHello **world** paragraph.\n\n## Section\n\n- item one\n- item \
+                  two\n\n> quoted line\n";
         let dom = markdown_to_content_dom(md);
         let mut provider = model_text_provider(&dom);
         let out = dom_to_markdown(&dom, &mut provider);
         assert_eq!(
             out,
-            "# Title\n\nHello world paragraph.\n\n## Section\n\n- item one\n- item two\n\n> quoted line\n",
+            "# Title\n\nHello world paragraph.\n\n## Section\n\n- item one\n- item two\n\n> \
+             quoted line\n",
             "structure + text round-trip (inline markup flattens to text)"
         );
         // Negative control: a DIFFERENT text provider changes the output.
@@ -1150,8 +1149,10 @@ mod edit_loop_tests {
 
 #[cfg(test)]
 mod save_round_trip_tests {
-    use super::test_edit_support::{apply, changeset, split_op};
-    use super::*;
+    use super::{
+        test_edit_support::{apply, changeset, split_op},
+        *,
+    };
 
     /// load -> (structural edit on the model) -> serialize -> save -> reload:
     /// the document that comes back must carry the edit, and paginate the
@@ -1208,8 +1209,9 @@ mod save_round_trip_tests {
 
 #[cfg(test)]
 mod pdf_export_tests {
-    use super::*;
     use azul::css::StyledDom;
+
+    use super::*;
 
     fn find_from(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         hay.get(from..)?
@@ -1223,8 +1225,8 @@ mod pdf_export_tests {
     /// a real multi-page PDF (header + page objects + embedded text).
     #[test]
     fn markdown_exports_to_a_real_pdf() {
-        let md = "# Report\n\nFirst paragraph with several words in it.\n\n\
-                  ## Section\n\n- alpha\n- beta\n\nClosing paragraph.\n";
+        let md = "# Report\n\nFirst paragraph with several words in it.\n\n## Section\n\n- \
+                  alpha\n- beta\n\nClosing paragraph.\n";
         let content = markdown_to_content_dom(md);
 
         let mut doc = Dom::create_body().with_css("margin: 0; padding: 96px; background: white;");
@@ -1307,16 +1309,15 @@ mod pdf_export_tests {
         assert_eq!(
             above,
             0,
-            "{above}/{} text ops sit ABOVE the {a4_h_pt}pt page box (px/pt \
-             confusion); max y = {:?}",
+            "{above}/{} text ops sit ABOVE the {a4_h_pt}pt page box (px/pt confusion); max y = \
+             {:?}",
             ys.len(),
             ys.iter().cloned().fold(f32::MIN, f32::max)
         );
         // Negative control: an EMPTY document must produce fewer bytes than
         // the real one (i.e. the content actually reached the PDF).
-        let empty_styled = StyledDom::create_from_dom(
-            Dom::create_body().with_css("margin: 0; padding: 96px;"),
-        );
+        let empty_styled =
+            StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0; padding: 96px;"));
         let empty = pdf.from_styled_dom_with_resources(
             empty_styled,
             794.0,
@@ -1339,8 +1340,9 @@ mod pdf_export_tests {
 
 #[cfg(test)]
 mod live_text_tests {
-    use super::*;
     use azul::dom::IdOrClass;
+
+    use super::*;
 
     /// The `id` attributes on a node, through the public ids-and-classes
     /// accessor (the tagging path writes ids there via `Dom::with_id`).
@@ -1415,12 +1417,7 @@ mod live_text_tests {
             .iter()
             .find(|b| matches!(b.root.node_type, NodeType::Ul))
             .expect("ul present");
-        let li_ids: Vec<String> = ul
-            .children
-            .as_ref()
-            .iter()
-            .flat_map(ids_of)
-            .collect();
+        let li_ids: Vec<String> = ul.children.as_ref().iter().flat_map(ids_of).collect();
         assert!(
             li_ids.contains(&nested_dom_id(1, 0)) && li_ids.contains(&nested_dom_id(1, 1)),
             "list items must carry [block, child] ids, got {li_ids:?}"
@@ -1497,9 +1494,9 @@ mod resize_cost_tests {
         eprintln!("[MEMO] cold={cold:?} warm={warm:?}");
         assert!(
             warm * 10 < cold,
-            "a repeat layout must be at least 10x cheaper than the cold \
-             pagination (cold={cold:?}, warm={warm:?}) - otherwise a resize \
-             drag starves the compositor handshake again"
+            "a repeat layout must be at least 10x cheaper than the cold pagination \
+             (cold={cold:?}, warm={warm:?}) - otherwise a resize drag starves the compositor \
+             handshake again"
         );
 
         // Negative control: a NEW generation must recompute (not serve a
@@ -1536,8 +1533,10 @@ mod resize_cost_tests {
 
 #[cfg(test)]
 mod undo_api_validation {
-    use super::test_edit_support::{apply, changeset, split_op};
-    use super::*;
+    use super::{
+        test_edit_support::{apply, changeset, split_op},
+        *,
+    };
 
     fn texts(d: &Dom) -> Vec<String> {
         fn own(d: &Dom) -> String {
@@ -1620,8 +1619,8 @@ mod undo_api_validation {
         assert_eq!(
             texts(&model),
             before,
-            "undo must restore the document EXACTLY (the inverse's resume \
-             point must be usable as handed back)"
+            "undo must restore the document EXACTLY (the inverse's resume point must be usable as \
+             handed back)"
         );
     }
 }

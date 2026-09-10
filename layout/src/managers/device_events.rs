@@ -161,25 +161,21 @@ impl EventProvider for DeviceEventManager {
                 }),
             ));
         }
-        events.extend(
-            self.pending
-            .iter()
-            .map(|h| {
-                let event_type = match (h.kind, h.connected) {
-                    (HotplugKind::Device, true) => EventType::DeviceConnected,
-                    (HotplugKind::Device, false) => EventType::DeviceDisconnected,
-                    (HotplugKind::Monitor, true) => EventType::MonitorConnected,
-                    (HotplugKind::Monitor, false) => EventType::MonitorDisconnected,
-                };
-                SyntheticEvent::new(
-                    event_type,
-                    EventSource::User,
-                    DomNodeId::ROOT,
-                    timestamp.clone(),
-                    EventData::None,
-                )
-            }),
-        );
+        events.extend(self.pending.iter().map(|h| {
+            let event_type = match (h.kind, h.connected) {
+                (HotplugKind::Device, true) => EventType::DeviceConnected,
+                (HotplugKind::Device, false) => EventType::DeviceDisconnected,
+                (HotplugKind::Monitor, true) => EventType::MonitorConnected,
+                (HotplugKind::Monitor, false) => EventType::MonitorDisconnected,
+            };
+            SyntheticEvent::new(
+                event_type,
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::None,
+            )
+        }));
         events
     }
 }
@@ -241,4 +237,3 @@ mod monitor_hotplug_tests {
         assert!(kinds(&m).is_empty());
     }
 }
-

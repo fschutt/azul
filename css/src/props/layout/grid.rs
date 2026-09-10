@@ -228,7 +228,8 @@ impl NamedGridLine {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents a grid line position (start or end)
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -878,7 +879,8 @@ impl FormatAsRustCode for GridTrackSizing {
             Self::Auto => "GridTrackSizing::Auto".to_string(),
             Self::MinMax(minmax) => {
                 format!(
-                    "GridTrackSizing::MinMax(GridMinMax {{ min: Box::new({}), max: Box::new({}) }})",
+                    "GridTrackSizing::MinMax(GridMinMax {{ min: Box::new({}), max: Box::new({}) \
+                     }})",
                     minmax.min.format_as_rust_code(tabs),
                     minmax.max.format_as_rust_code(tabs)
                 )
@@ -1426,7 +1428,8 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
         areas.push(GridAreaDefinition {
             name: name.into(),
             row_start: u16::try_from(min_row + 1).unwrap_or(u16::MAX),
-            row_end: u16::try_from(max_row + 2).unwrap_or(u16::MAX), // end line is one past the last cell
+            row_end: u16::try_from(max_row + 2).unwrap_or(u16::MAX), /* end line is one past the
+                                                                      * last cell */
             column_start: u16::try_from(min_col + 1).unwrap_or(u16::MAX),
             column_end: u16::try_from(max_col + 2).unwrap_or(u16::MAX),
         });

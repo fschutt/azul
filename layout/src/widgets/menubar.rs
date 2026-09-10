@@ -44,27 +44,17 @@ pub const MENUBAR_ITEM_CLASS: &str = "azul-menubar-item";
 /// Inline CSS for the bar root: a full-width horizontal flex row themed from the
 /// OS (`system:` colors + `system:ui` font). Bare declarations, so the rule is
 /// scoped node-only at flatten time.
-const MENUBAR_CSS: &str = "display: flex; \
-     flex-direction: row; \
-     align-items: stretch; \
-     width: 100%; \
-     height: 26px; \
-     background: system:window-background; \
-     color: system:text; \
-     font-family: system:ui; \
-     font-size: 14px; \
-     padding-left: 2px;";
+const MENUBAR_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; width: 100%; \
+                           height: 26px; background: system:window-background; color: \
+                           system:text; font-family: system:ui; font-size: 14px; padding-left: \
+                           2px;";
 
 /// Inline CSS for a top-level item: vertically-centered click target with hover
 /// feedback (the `:hover` block nests via CSS nesting in `parse_inline`).
-const MENUBAR_ITEM_CSS: &str = "display: flex; \
-     flex-direction: row; \
-     align-items: center; \
-     padding-left: 10px; \
-     padding-right: 10px; \
-     color: system:text; \
-     cursor: pointer; \
-     :hover { background: system:selection-background; color: system:selection-text; }";
+const MENUBAR_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
+                                padding-left: 10px; padding-right: 10px; color: system:text; \
+                                cursor: pointer; :hover { background: \
+                                system:selection-background; color: system:selection-text; }";
 
 /// Build the software menu-bar DOM from a [`Menu`].
 ///
@@ -161,8 +151,7 @@ mod autotest_generated {
     use azul_css::AzString;
     use rust_fontconfig::FcFontCache;
 
-    use super::callbacks::menubar_item_click;
-    use super::*;
+    use super::{callbacks::menubar_item_click, *};
     #[cfg(feature = "icu")]
     use crate::icu::IcuLocalizerHandle;
     use crate::{
@@ -296,8 +285,8 @@ mod autotest_generated {
         assert_eq!(
             dom.estimated_total_children,
             recursive_descendants(dom),
-            "estimated_total_children must equal the real descendant count — a \
-             too-small value makes convert_dom_into_compact_dom under-allocate",
+            "estimated_total_children must equal the real descendant count — a too-small value \
+             makes convert_dom_into_compact_dom under-allocate",
         );
     }
 
@@ -710,8 +699,8 @@ mod autotest_generated {
         let b = refany_of(&bar.children.as_ref()[1]);
         assert!(
             a != b,
-            "two bar items must not share one RefAny — dropping one would then \
-             invalidate the other's submenu"
+            "two bar items must not share one RefAny — dropping one would then invalidate the \
+             other's submenu"
         );
         assert_eq!(
             a.get_type_id(),
@@ -768,8 +757,8 @@ mod autotest_generated {
         assert_eq!(
             sub,
             Menu::create(MenuItemVec::from_vec(vec![MenuItem::String(item.clone())])),
-            "a leaf must be wrapped byte-for-byte — accelerator, callback, state \
-             and icon included — or its own callback can never fire",
+            "a leaf must be wrapped byte-for-byte — accelerator, callback, state and icon \
+             included — or its own callback can never fire",
         );
 
         let MenuItem::String(wrapped) = &sub.items.as_slice()[0] else {
@@ -868,8 +857,8 @@ mod autotest_generated {
         assert_eq!(
             sub.items.as_slice().len(),
             1,
-            "an explicitly-empty child vec is still a leaf, so it self-wraps \
-             rather than opening an empty popup",
+            "an explicitly-empty child vec is still a leaf, so it self-wraps rather than opening \
+             an empty popup",
         );
         assert_eq!(labels_of(&sub), vec!["Help"]);
     }

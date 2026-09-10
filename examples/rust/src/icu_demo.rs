@@ -13,7 +13,6 @@
 use azul::desktop::icu::{
     FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuTime, ListType,
 };
-
 // We use azul_css::AzString directly since azul re-exports it
 use azul_css::AzString;
 

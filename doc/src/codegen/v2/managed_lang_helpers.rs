@@ -16,8 +16,8 @@
 //!
 //! * "Does this function take any callback args?"
 //! * "Which positional args of this function are callbacks?"
-//! * "What is the C-ABI typedef name for this callback (so I can pass it
-//!   to my language's cast/pin helper)?"
+//! * "What is the C-ABI typedef name for this callback (so I can pass it to my language's cast/pin
+//!   helper)?"
 //!
 //! Adapter files use these to expand their wrapper-method emitters from
 //! the trivial `function(...) return C.fn(self, ...) end` form into

@@ -26,8 +26,8 @@
 use azul_core::hid::{HidDevice, HidReport};
 
 use crate::desktop::shell2::windows::dlopen::{
-    self, RAWINPUTDEVICELIST, RAWINPUTHEADER, RAWINPUTHID, RID_DEVICE_INFO, RIDI_DEVICEINFO,
-    RIDI_DEVICENAME, RID_INPUT, RIM_TYPEHID,
+    self, RAWINPUTDEVICELIST, RAWINPUTHEADER, RAWINPUTHID, RIDI_DEVICEINFO, RIDI_DEVICENAME,
+    RID_DEVICE_INFO, RID_INPUT, RIM_TYPEHID,
 };
 
 /// Cache of device identity, keyed by the `hDevice` handle that arrives in
@@ -69,12 +69,7 @@ fn describe(user32: &dlopen::User32Functions, handle: isize) -> Option<HidDevice
         // product string - that WOULD need hid.dll - but it is stable, unique
         // and identifies the device to a user reading a log.
         let mut chars: u32 = 0;
-        (user32.GetRawInputDeviceInfoW)(
-            handle,
-            RIDI_DEVICENAME,
-            core::ptr::null_mut(),
-            &mut chars,
-        );
+        (user32.GetRawInputDeviceInfoW)(handle, RIDI_DEVICENAME, core::ptr::null_mut(), &mut chars);
         let name = if chars > 0 && chars < 4096 {
             let mut buf = vec![0u16; chars as usize];
             // NOTE: for RIDI_DEVICENAME the size is a CHARACTER count, not a
@@ -132,8 +127,7 @@ pub fn enumerate(user32: &dlopen::User32Functions) {
         let mut count: u32 = 0;
         let entry_size = core::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
         // A null buffer asks "how many?" - the documented probe.
-        if (user32.GetRawInputDeviceList)(core::ptr::null_mut(), &mut count, entry_size)
-            == u32::MAX
+        if (user32.GetRawInputDeviceList)(core::ptr::null_mut(), &mut count, entry_size) == u32::MAX
         {
             return;
         }
@@ -239,8 +233,7 @@ pub fn handle_wm_input(user32: &dlopen::User32Functions, lparam: isize) {
         // there are `dwCount` of them back to back, each `dwSizeHid` long.
         // Treating the payload as ONE report would merge a coalesced batch
         // into a single nonsense report.
-        let data_offset =
-            core::mem::size_of::<RAWINPUTHEADER>() + core::mem::size_of::<u32>() * 2;
+        let data_offset = core::mem::size_of::<RAWINPUTHEADER>() + core::mem::size_of::<u32>() * 2;
         for i in 0..count {
             let start = data_offset + i * size_hid;
             let end = start + size_hid;
@@ -275,8 +268,7 @@ pub fn feature_report(name: &str, report_id: u8, len: usize) -> Option<Vec<u8>> 
 mod hid_dll {
     use std::sync::OnceLock;
 
-    use winapi::shared::minwindef::HINSTANCE;
-    use winapi::um::winnt::HANDLE;
+    use winapi::{shared::minwindef::HINSTANCE, um::winnt::HANDLE};
 
     /// `BOOLEAN HidD_GetSerialNumberString(HANDLE, PVOID buffer, ULONG bytes)`
     type GetSerialNumberString =
@@ -332,9 +324,11 @@ mod hid_dll {
     /// the identity strings and feature reports still work, and a device
     /// another process holds exclusively (keyboards, mice) still opens.
     unsafe fn open(name: &str) -> Option<HANDLE> {
-        use winapi::um::fileapi::{CreateFileW, OPEN_EXISTING};
-        use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-        use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+        use winapi::um::{
+            fileapi::{CreateFileW, OPEN_EXISTING},
+            handleapi::INVALID_HANDLE_VALUE,
+            winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE},
+        };
         let h = CreateFileW(
             wide(name).as_ptr(),
             0,

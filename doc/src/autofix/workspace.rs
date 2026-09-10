@@ -1027,7 +1027,8 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
-    // Generate standard Vec functions (without known_types check since this is for initial structure generation)
+    // Generate standard Vec functions (without known_types check since this is for initial
+    // structure generation)
     let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name, None);
 
     ClassPatch {
@@ -1056,8 +1057,9 @@ pub fn generate_vec_functions(
     lowercase_type_name: &str,
     known_types: Option<&std::collections::HashSet<String>>,
 ) -> indexmap::IndexMap<String, crate::api::FunctionData> {
-    use crate::api::{FunctionData, ReturnTypeData};
     use indexmap::IndexMap;
+
+    use crate::api::{FunctionData, ReturnTypeData};
 
     let mut functions = IndexMap::new();
 
@@ -1183,7 +1185,10 @@ pub fn generate_vec_functions(
         functions.insert(
             "c_get".to_string(),
             FunctionData {
-                doc: Some(vec![format!("Returns a copy of the element at the given index, or None if out of bounds. C-API compatible.")]),
+                doc: Some(vec![format!(
+                    "Returns a copy of the element at the given index, or None if out of bounds. \
+                     C-API compatible."
+                )]),
                 fn_args: get_args,
                 returns: Some(ReturnTypeData {
                     r#type: option_element_type,
@@ -1235,13 +1240,19 @@ pub fn generate_vec_functions(
         functions.insert(
             "as_c_slice_range".to_string(),
             FunctionData {
-                doc: Some(vec![format!("Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds.")]),
+                doc: Some(vec![format!(
+                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to \
+                     valid bounds."
+                )]),
                 fn_args: as_c_slice_range_args,
                 returns: Some(ReturnTypeData {
                     r#type: slice_type,
                     doc: None,
                 }),
-                fn_body: Some(format!("{}.as_c_slice_range(start, end)", lowercase_type_name)),
+                fn_body: Some(format!(
+                    "{}.as_c_slice_range(start, end)",
+                    lowercase_type_name
+                )),
                 ..Default::default()
             },
         );
@@ -1282,7 +1293,11 @@ pub fn generate_vec_functions(
     functions.insert(
         "copy_from_ptr".to_string(),
         FunctionData {
-            doc: Some(vec![format!("Copies elements from a C array into a `{}`. The array must be valid for `len` elements.", type_name)]),
+            doc: Some(vec![format!(
+                "Copies elements from a C array into a `{}`. The array must be valid for `len` \
+                 elements.",
+                type_name
+            )]),
             fn_args: copy_from_ptr_args,
             returns: Some(ReturnTypeData {
                 r#type: type_name.to_string(),

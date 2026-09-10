@@ -87,10 +87,9 @@
 // together so it can't happen by mistake.
 #[cfg(all(feature = "web-transpiler", feature = "debug-server"))]
 compile_error!(
-    "the `debug-server` feature (AZ_DEBUG port + AZ_E2E runner) must not be enabled \
-     together with the web transpiler (`web-transpiler`/`web-transpiler-static`): a \
-     deployed web build must not expose a debug port. Build libazulwithremill.so \
-     without `debug-server`."
+    "the `debug-server` feature (AZ_DEBUG port + AZ_E2E runner) must not be enabled together with \
+     the web transpiler (`web-transpiler`/`web-transpiler-static`): a deployed web build must not \
+     expose a debug port. Build libazulwithremill.so without `debug-server`."
 );
 
 // ---------------------------------------------------------------------------

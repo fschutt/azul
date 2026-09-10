@@ -30,26 +30,22 @@
 //!
 //! Conventions:
 //!
-//! * The wrapper struct uses the **unprefixed** type name (`App`, not
-//!   `AzApp`). The raw C type stays reachable via `C.AzApp` for users
-//!   who need it.
-//! * Heap-owning types implement `io.Closer` via a `Close() error`
-//!   method, so users write `defer app.Close()` at the call site.
-//! * `runtime.SetFinalizer` is registered as a safety net: if the user
-//!   forgets `Close()`, the GC will call the destructor at some
-//!   later point. We clear the finalizer inside `Close()` so the same
-//!   destructor never runs twice.
-//! * Constructors / static factories become `pub fn New<Method>(...)`.
-//!   The api.json `new` method becomes `New<Type>` (the package-prefix
-//!   style — e.g. `azul.NewApp(...)`); other static factories keep
-//!   their PascalCase method name (`Default`, etc.).
-//! * Instance methods take a `*Self` receiver and call the C function
-//!   with `&self.inner`. Refs and pointers in the C ABI are uniformly
-//!   handed `&self.inner` because cgo doesn't distinguish `&self` from
-//!   `&mut self`.
-//! * Anything cgo can already see for free through `import "C"` (POD
-//!   structs without `_delete`, plain enums, callback typedefs, etc.) is
-//!   **not** re-emitted — the user accesses it as `C.AzWhatever`.
+//! * The wrapper struct uses the **unprefixed** type name (`App`, not `AzApp`). The raw C type
+//!   stays reachable via `C.AzApp` for users who need it.
+//! * Heap-owning types implement `io.Closer` via a `Close() error` method, so users write `defer
+//!   app.Close()` at the call site.
+//! * `runtime.SetFinalizer` is registered as a safety net: if the user forgets `Close()`, the GC
+//!   will call the destructor at some later point. We clear the finalizer inside `Close()` so the
+//!   same destructor never runs twice.
+//! * Constructors / static factories become `pub fn New<Method>(...)`. The api.json `new` method
+//!   becomes `New<Type>` (the package-prefix style — e.g. `azul.NewApp(...)`); other static
+//!   factories keep their PascalCase method name (`Default`, etc.).
+//! * Instance methods take a `*Self` receiver and call the C function with `&self.inner`. Refs and
+//!   pointers in the C ABI are uniformly handed `&self.inner` because cgo doesn't distinguish
+//!   `&self` from `&mut self`.
+//! * Anything cgo can already see for free through `import "C"` (POD structs without `_delete`,
+//!   plain enums, callback typedefs, etc.) is **not** re-emitted — the user accesses it as
+//!   `C.AzWhatever`.
 //!
 //! # Skipped categories
 //!
@@ -60,15 +56,19 @@
 //! * `TypeCategory::Boxed`            — internal heap wrappers.
 //! * `TypeCategory::GenericTemplate`  — generic shells, not instantiable.
 //! * `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! * `TypeCategory::CallbackTypedef`  — raw fn-pointer typedefs (visible
-//!   to users via `C.*`; no wrapper makes sense).
+//! * `TypeCategory::CallbackTypedef`  — raw fn-pointer typedefs (visible to users via `C.*`; no
+//!   wrapper makes sense).
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
-use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    },
+    ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case,
+};
 
 /// Generate the contents of `wrappers.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -91,12 +91,12 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 /// be armed — mirroring how self-returning factories/methods are handled.
 ///
 /// Returns `None` (keep the raw `C.Az*` return) unless ALL hold:
-///   * the return is a bare type name — pointers/refs (`*`, `&`) are
-///     borrows the callee still owns, so we must never free them;
-///   * the IR has a matching struct whose wrapper is actually emitted
-///     (`should_emit_wrapper`) — otherwise `*Type` would be undefined Go;
-///   * that type has an `Az<T>_delete` (`has_destructor`) — the gate that
-///     makes the wrapper's `Close()` (which the finalizer calls) exist.
+///   * the return is a bare type name — pointers/refs (`*`, `&`) are borrows the callee still owns,
+///     so we must never free them;
+///   * the IR has a matching struct whose wrapper is actually emitted (`should_emit_wrapper`) —
+///     otherwise `*Type` would be undefined Go;
+///   * that type has an `Az<T>_delete` (`has_destructor`) — the gate that makes the wrapper's
+///     `Close()` (which the finalizer calls) exist.
 ///
 /// A raw `C.Az<T>` returned by value with an `Az<T>_delete` had NO
 /// finalizer and no `Close()`, so a caller that forgot the manual
@@ -395,7 +395,10 @@ fn emit_static_factory(
     if returns_self {
         if has_delete {
             let ffi_name = ffi_type_name(&f.class_name);
-            b.line(&format!("self := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
+            b.line(&format!(
+                "self := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}",
+                go_name, ffi_name, ffi_name
+            ));
             b.line(&format!("*self.inner = {}", call));
             // Safety net: if user forgets `Close()`, GC will eventually
             // run the destructor.
@@ -414,7 +417,10 @@ fn emit_static_factory(
         // at most once — no double-free.
         let ret_ty_name = f.return_type.as_deref().unwrap().trim();
         let ret_ffi_name = ffi_type_name(ret_ty_name);
-        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
+        b.line(&format!(
+            "ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}",
+            w, ret_ffi_name, ret_ffi_name
+        ));
         b.line(&format!("*ret.inner = {}", call));
         b.line(&format!(
             "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
@@ -538,7 +544,10 @@ fn emit_instance_method(
     if returns_self {
         if has_destructor(&f.class_name, ir) {
             let ffi_name = ffi_type_name(&f.class_name);
-            b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
+            b.line(&format!(
+                "ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}",
+                go_name, ffi_name, ffi_name
+            ));
             b.line(&format!("*ret.inner = {}", call));
             b.line(&format!(
                 "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
@@ -560,7 +569,10 @@ fn emit_instance_method(
         // owned solely by `ret`, freed at most once — no double-free.
         let ret_ty_name = f.return_type.as_deref().unwrap().trim();
         let ret_ffi_name = ffi_type_name(ret_ty_name);
-        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
+        b.line(&format!(
+            "ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}",
+            w, ret_ffi_name, ret_ffi_name
+        ));
         b.line(&format!("*ret.inner = {}", call));
         b.line(&format!(
             "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
@@ -770,8 +782,16 @@ fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
 fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: &CodegenIR) {
     let ffi = format!("Az{}", class_name);
     let has_delete = has_destructor(class_name, ir);
-    let self_expr = if has_delete { "self.inner" } else { "&self.inner" };
-    let other_expr = if has_delete { "other.inner" } else { "&other.inner" };
+    let self_expr = if has_delete {
+        "self.inner"
+    } else {
+        "&self.inner"
+    };
+    let other_expr = if has_delete {
+        "other.inner"
+    } else {
+        "&other.inner"
+    };
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for f in ir.functions_for_class(class_name) {
         let name = match f.kind {

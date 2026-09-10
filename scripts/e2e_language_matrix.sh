@@ -1139,6 +1139,11 @@ lang_go() {
   local f; f="$(log_path go)"
   (
     set -x
+    rm -rf "$REPO_ROOT/examples/azul-go"
+    mkdir -p "$REPO_ROOT/examples/azul-go"
+    cp -r "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/azul-go/"
+    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
     cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/go" || exit 1

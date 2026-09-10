@@ -15,8 +15,8 @@
 //! 2. Skip lines containing `extern "C"` openers/closers.
 //! 3. Replace the platform-specific `DLLIMPORT` macro with empty text.
 //! 4. Drop the `restrict` qualifier (LuaJIT's parser doesn't recognize it).
-//! 5. Drop the `AZ_REFLECT*` macro definitions and helpers (they expand to
-//!    code, not types, and aren't needed by the FFI binding).
+//! 5. Drop the `AZ_REFLECT*` macro definitions and helpers (they expand to code, not types, and
+//!    aren't needed by the FFI binding).
 //!
 //! Other preprocessor lines (`#define X Y`) for **constants** are turned
 //! into `enum { X = Y };` enum members so callers can still see the value
@@ -27,15 +27,13 @@
 ///
 /// Two passes:
 ///
-/// 1. `strip_preprocessor` — line-oriented filter that drops/rewrites
-///    constructs LuaJIT FFI can't parse (#includes, extern "C", etc.).
-/// 2. `reorder_callback_typedefs` — moves every
-///    `typedef X (*Az<Name>Type)(args)` line below the struct definitions
-///    so LuaJIT can see the full struct layouts when computing the size
-///    of by-value struct args. C compilers don't need this because they
-///    only resolve sizes lazily; LuaJIT FFI does it at typedef-parse
-///    time and silently drops unparseable args, leaving the typedef
-///    looking like `Result (*)()`.
+/// 1. `strip_preprocessor` — line-oriented filter that drops/rewrites constructs LuaJIT FFI can't
+///    parse (#includes, extern "C", etc.).
+/// 2. `reorder_callback_typedefs` — moves every `typedef X (*Az<Name>Type)(args)` line below the
+///    struct definitions so LuaJIT can see the full struct layouts when computing the size of
+///    by-value struct args. C compilers don't need this because they only resolve sizes lazily;
+///    LuaJIT FFI does it at typedef-parse time and silently drops unparseable args, leaving the
+///    typedef looking like `Result (*)()`.
 pub fn strip_for_cdef(c_header: &str) -> String {
     let stripped = strip_preprocessor(c_header);
     reorder_callback_typedefs(&stripped)
@@ -98,11 +96,10 @@ fn reorder_callback_typedefs(input: &str) -> String {
     if !callbacks.is_empty() {
         out.push('\n');
         out.push_str(
-            "/* Callback function-pointer typedefs — emitted after struct\n   \
-             definitions so LuaJIT FFI can compute by-value arg sizes.\n   \
-             Struct fields that referenced these typedefs by name have been\n   \
-             rewritten to `void *` (same size — fn pointers are pointer-sized)\n   \
-             so the structs parse without the typedef being in scope. */\n",
+            "/* Callback function-pointer typedefs — emitted after struct\n   definitions so \
+             LuaJIT FFI can compute by-value arg sizes.\n   Struct fields that referenced these \
+             typedefs by name have been\n   rewritten to `void *` (same size — fn pointers are \
+             pointer-sized)\n   so the structs parse without the typedef being in scope. */\n",
         );
         for l in &callbacks {
             out.push_str(l);
@@ -112,8 +109,8 @@ fn reorder_callback_typedefs(input: &str) -> String {
     if !externs.is_empty() {
         out.push('\n');
         out.push_str(
-            "/* Function declarations — moved here so they can resolve the\n   \
-             callback-typedef names defined just above. */\n",
+            "/* Function declarations — moved here so they can resolve the\n   callback-typedef \
+             names defined just above. */\n",
         );
         for l in &externs {
             out.push_str(l);

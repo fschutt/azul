@@ -3,13 +3,12 @@
 //! Every OS-facing operation the browser can only answer asynchronously is
 //! split in two on every target:
 //!
-//! * **request** - `FileDialog::open_file(.., data, on_result) -> RequestId`
-//!   registers `{RequestId, data, on_result}` here and returns the id.
-//! * **resume** - once the result exists the *runtime* invokes
-//!   `on_result(data, CallbackInfo, result)` as a fresh, ordinary callback
-//!   activation. A resume may issue the next request, so a chain of awaits
-//!   becomes a chain of resumes and the app's callbacks form a state machine
-//!   over its own `RefAny`.
+//! * **request** - `FileDialog::open_file(.., data, on_result) -> RequestId` registers `{RequestId,
+//!   data, on_result}` here and returns the id.
+//! * **resume** - once the result exists the *runtime* invokes `on_result(data, CallbackInfo,
+//!   result)` as a fresh, ordinary callback activation. A resume may issue the next request, so a
+//!   chain of awaits becomes a chain of resumes and the app's callbacks form a state machine over
+//!   its own `RefAny`.
 //!
 //! This module is the one place where requests are parked. On desktop the
 //! request function usually performs the (modal, blocking) OS call itself and
@@ -36,15 +35,13 @@
 //!
 //! ## Delivery order and ownership
 //!
-//! * FIFO. Nested completions (a resume that issues and immediately
-//!   completes another request) are appended to the end, never recursed
-//!   into.
-//! * Entries are delivered by whichever window pumps next. Synchronous
-//!   completions (every desktop dialog / file / http call) are pumped by the
-//!   requesting window right after the requesting activation returns, so in
-//!   practice a request resumes on the window that issued it.
-//! * The queue holds a clone of the app's `data` until delivery, keeping the
-//!   `RefAny` alive across the gap. There is no cancellation in v1.
+//! * FIFO. Nested completions (a resume that issues and immediately completes another request) are
+//!   appended to the end, never recursed into.
+//! * Entries are delivered by whichever window pumps next. Synchronous completions (every desktop
+//!   dialog / file / http call) are pumped by the requesting window right after the requesting
+//!   activation returns, so in practice a request resumes on the window that issued it.
+//! * The queue holds a clone of the app's `data` until delivery, keeping the `RefAny` alive across
+//!   the gap. There is no cancellation in v1.
 
 use alloc::{boxed::Box, vec::Vec};
 
@@ -238,17 +235,17 @@ pub fn pending_count() -> usize {
 /// (`AZ_E2E` / `AZ_E2E_TEST` set, or `AZ_BACKEND=headless`; explicitly with
 /// [`arm`]) and disarmed in production, where it costs one relaxed load.
 ///
-/// * A **mocked** operation resumes immediately with the canned answer; the
-///   resume path is the normal one, so a mocked test exercises the whole
-///   request / resume machinery except the OS call itself.
-/// * An **unmocked** picker under an armed store resolves as *cancelled* and
-///   is recorded (and printed) as an unmocked request, so the scenario can
-///   assert on it (`assert_no_unmocked_requests`) instead of hanging.
-/// * Reads (`FilePath::read_*`) are served from the canned table when the
-///   path is registered and from the real file system otherwise: files a
-///   scenario created are real, virtual `e2e://` documents are canned.
-/// * `FileDialog::save_bytes` never shows a dialog while armed: the bytes are
-///   recorded in [`saved_files`] for `assert_saved_file`.
+/// * A **mocked** operation resumes immediately with the canned answer; the resume path is the
+///   normal one, so a mocked test exercises the whole request / resume machinery except the OS call
+///   itself.
+/// * An **unmocked** picker under an armed store resolves as *cancelled* and is recorded (and
+///   printed) as an unmocked request, so the scenario can assert on it
+///   (`assert_no_unmocked_requests`) instead of hanging.
+/// * Reads (`FilePath::read_*`) are served from the canned table when the path is registered and
+///   from the real file system otherwise: files a scenario created are real, virtual `e2e://`
+///   documents are canned.
+/// * `FileDialog::save_bytes` never shows a dialog while armed: the bytes are recorded in
+///   [`saved_files`] for `assert_saved_file`.
 ///
 /// The JSON scenario op `{"op": "mock", "set": {...}}` fills the store; the
 /// same op is what the browser lane maps onto `window.__az_e2e_mock`.

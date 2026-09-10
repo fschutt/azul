@@ -15,8 +15,7 @@
 /// The Makefile is parameter-free and assumes:
 /// - `azul.f90` is the generated bindings module (sibling to the example).
 /// - `hello_world.f90` is the example program.
-/// - The shared library is named `libazul.{so,dylib,dll}` and lives in
-///   the same directory.
+/// - The shared library is named `libazul.{so,dylib,dll}` and lives in the same directory.
 ///
 /// The user can override `FC=` on the command line to swap compilers
 /// (e.g. `make FC=ifort`).

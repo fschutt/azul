@@ -134,7 +134,8 @@ fn import_is_provided(module: &str, name: &str) -> bool {
         return super::symbol_table::shards_enabled() && plausible_synth;
     }
     if name.starts_with("__remill_")       // intrinsics (read/write/atomic/cas/undef)
-        || name.starts_with("__az")        // resolver/dispatch/probe hooks
+        || name.starts_with("__az")
+    // resolver/dispatch/probe hooks
     {
         return true;
     }
@@ -150,19 +151,44 @@ fn import_is_provided(module: &str, name: &str) -> bool {
             | "__divti3"
             | "__umodti3"
             | "__modti3"
-            | "sqrtf" | "sqrt"
-            | "fmaxf" | "fminf" | "fmax" | "fmin"
-            | "roundf" | "round"
-            | "fabsf" | "fabs"
-            | "floorf" | "floor"
-            | "ceilf" | "ceil"
-            | "truncf" | "trunc"
-            | "powf" | "pow"
-            | "fmodf" | "fmod"
-            | "expf" | "exp" | "logf" | "log"
-            | "sinf" | "sin" | "cosf" | "cos" | "tanf" | "tan"
-            | "atan2f" | "atan2" | "atanf" | "atan"
-            | "asinf" | "asin" | "acosf" | "acos"
+            | "sqrtf"
+            | "sqrt"
+            | "fmaxf"
+            | "fminf"
+            | "fmax"
+            | "fmin"
+            | "roundf"
+            | "round"
+            | "fabsf"
+            | "fabs"
+            | "floorf"
+            | "floor"
+            | "ceilf"
+            | "ceil"
+            | "truncf"
+            | "trunc"
+            | "powf"
+            | "pow"
+            | "fmodf"
+            | "fmod"
+            | "expf"
+            | "exp"
+            | "logf"
+            | "log"
+            | "sinf"
+            | "sin"
+            | "cosf"
+            | "cos"
+            | "tanf"
+            | "tan"
+            | "atan2f"
+            | "atan2"
+            | "atanf"
+            | "atan"
+            | "asinf"
+            | "asin"
+            | "acosf"
+            | "acos"
     )
 }
 
@@ -270,9 +296,7 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
                             let start = if mis == 0 { 0 } else { 8 - mis };
                             let mut i = start;
                             while i + 8 <= data.len() {
-                                let v = u64::from_le_bytes(
-                                    data[i..i + 8].try_into().unwrap(),
-                                );
+                                let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
                                 if v >= lo && v < hi {
                                     out.natptr_hits += 1;
                                 } else if is_module_band(v) {
@@ -390,7 +414,10 @@ pub fn run(
 ) -> bool {
     let img = native_image_range(crate::web::eventloop::AzStartup_alloc as usize);
     if img.is_none() {
-        eprintln!("[azul-web][lift-audit] ⚠ could not locate the native image range — natptr check skipped");
+        eprintln!(
+            "[azul-web][lift-audit] ⚠ could not locate the native image range — natptr check \
+             skipped"
+        );
     }
     let mut fatal = false;
 
@@ -399,34 +426,50 @@ pub fn run(
             // The 8-byte placeholder: only fatal for the mini when a real
             // transpiler ran (stub-by-config is a legitimate mode).
             if *label == "mini" && transpiler_available {
-                eprintln!("[azul-web][lift-audit] ✗ F1 {label}: STUB ({} bytes) — bootstrap WILL fail in every client", bytes.len());
+                eprintln!(
+                    "[azul-web][lift-audit] ✗ F1 {label}: STUB ({} bytes) — bootstrap WILL fail \
+                     in every client",
+                    bytes.len()
+                );
                 fatal = true;
             }
             continue;
         }
         let a = audit_wasm(bytes, img);
         if !a.parse_ok {
-            eprintln!("[azul-web][lift-audit] ⚠ {label}: wasm parse failed — audit incomplete (treating as suspect)");
+            eprintln!(
+                "[azul-web][lift-audit] ⚠ {label}: wasm parse failed — audit incomplete (treating \
+                 as suspect)"
+            );
             continue;
         }
         if *label == "mini" && transpiler_available && a.export_count == 0 {
-            eprintln!("[azul-web][lift-audit] ✗ F1 {label}: 0 exports — bootstrap WILL fail in every client");
+            eprintln!(
+                "[azul-web][lift-audit] ✗ F1 {label}: 0 exports — bootstrap WILL fail in every \
+                 client"
+            );
             fatal = true;
         }
         if !a.unknown_imports.is_empty() {
             let mut names = a.unknown_imports.clone();
             names.truncate(12);
             eprintln!(
-                "[azul-web][lift-audit] ✗ F3 {label}: {} env import(s) the loader does not implement (zero-stubbed at runtime): {}{}",
+                "[azul-web][lift-audit] ✗ F3 {label}: {} env import(s) the loader does not \
+                 implement (zero-stubbed at runtime): {}{}",
                 a.unknown_imports.len(),
                 names.join(", "),
-                if a.unknown_imports.len() > 12 { ", …" } else { "" },
+                if a.unknown_imports.len() > 12 {
+                    ", …"
+                } else {
+                    ""
+                },
             );
             fatal = true;
         }
         if a.natptr_hits > 0 {
             eprintln!(
-                "[azul-web][lift-audit] ✗ F4 {label}: {} untranslated native pointer(s) in {} data bytes (wild-deref class; healthy = 0)",
+                "[azul-web][lift-audit] ✗ F4 {label}: {} untranslated native pointer(s) in {} \
+                 data bytes (wild-deref class; healthy = 0)",
                 a.natptr_hits, a.data_bytes,
             );
             fatal = true;
@@ -445,11 +488,15 @@ pub fn run(
                 .collect();
             vals.truncate(8);
             eprintln!(
-                "[azul-web][lift-audit] ⚠ W4 {label}: {} pointer(s) into modules outside the lifted image \
-                 (IAT slots; silently no-op if called and not routed): {}{}",
+                "[azul-web][lift-audit] ⚠ W4 {label}: {} pointer(s) into modules outside the \
+                 lifted image (IAT slots; silently no-op if called and not routed): {}{}",
                 a.xmodule_hits,
                 vals.join(", "),
-                if a.xmodule_values.len() > 8 { ", …" } else { "" },
+                if a.xmodule_values.len() > 8 {
+                    ", …"
+                } else {
+                    ""
+                },
             );
         }
     }
@@ -461,39 +508,61 @@ pub fn run(
         // a fatal — a build is servable as long as the un-liftable code is
         // never actually reached, and if it is, the trap says which.
         eprintln!(
-            "[azul-web][lift-audit] ⚠ W3 {lift_failures} function(s) TRAP-stubbed (remill/llc could not lift them) — they halt loudly at 0x40048 if ever called; see the per-fn warnings above",
+            "[azul-web][lift-audit] ⚠ W3 {lift_failures} function(s) TRAP-stubbed (remill/llc \
+             could not lift them) — they halt loudly at 0x40048 if ever called; see the per-fn \
+             warnings above",
         );
     }
 
     // F5: __remill_error, aggressive — every non-allowlisted fn is fatal.
-    let mut err_new: Vec<&(String, u32, u32)> =
-        preflight.iter().filter(|(n, e, _)| *e > 0 && !allowlisted(n)).collect();
-    let err_allowed = preflight.iter().filter(|(n, e, _)| *e > 0 && allowlisted(n)).count();
-    let mb_fns = preflight.iter().filter(|(_, e, mb)| *e == 0 && *mb > 0).count();
+    let mut err_new: Vec<&(String, u32, u32)> = preflight
+        .iter()
+        .filter(|(n, e, _)| *e > 0 && !allowlisted(n))
+        .collect();
+    let err_allowed = preflight
+        .iter()
+        .filter(|(n, e, _)| *e > 0 && allowlisted(n))
+        .count();
+    let mb_fns = preflight
+        .iter()
+        .filter(|(_, e, mb)| *e == 0 && *mb > 0)
+        .count();
     if !err_new.is_empty() {
         err_new.sort_by(|a, b| b.1.cmp(&a.1));
         eprintln!(
-            "[azul-web][lift-audit] ✗ F5 {} fn(s) with UNEXPLAINED __remill_error (sNaN-guard and ud2 classes already excluded) — debug each; a verified-benign residual goes into lift_audit_allowlist.txt WITH its reason, anything else is a real mis-lift:",
+            "[azul-web][lift-audit] ✗ F5 {} fn(s) with UNEXPLAINED __remill_error (sNaN-guard and \
+             ud2 classes already excluded) — debug each; a verified-benign residual goes into \
+             lift_audit_allowlist.txt WITH its reason, anything else is a real mis-lift:",
             err_new.len(),
         );
         for (name, e, mb) in err_new.iter().take(20) {
             eprintln!("[azul-web][lift-audit]     {e:>3} error {mb:>3} missing  {name}");
         }
         if err_new.len() > 20 {
-            eprintln!("[azul-web][lift-audit]     … {} more (AZ_PREFLIGHT=1 for the full list)", err_new.len() - 20);
+            eprintln!(
+                "[azul-web][lift-audit]     … {} more (AZ_PREFLIGHT=1 for the full list)",
+                err_new.len() - 20
+            );
         }
         fatal = true;
     }
     if err_allowed > 0 {
-        eprintln!("[azul-web][lift-audit] ✓ F5 {err_allowed} fn(s) with __remill_error covered by the reviewed allowlist");
+        eprintln!(
+            "[azul-web][lift-audit] ✓ F5 {err_allowed} fn(s) with __remill_error covered by the \
+             reviewed allowlist"
+        );
     }
     if mb_fns > 0 {
         eprintln!(
-            "[azul-web][lift-audit] ⚠ W2 {mb_fns} fn(s) contain __remill_missing_block — usually benign tails; runtime recorder @0x400FC tracks live hits",
+            "[azul-web][lift-audit] ⚠ W2 {mb_fns} fn(s) contain __remill_missing_block — usually \
+             benign tails; runtime recorder @0x400FC tracks live hits",
         );
     }
     if !fatal && lift_failures == 0 && err_new.is_empty() {
-        eprintln!("[azul-web][lift-audit] ✓ CLEAN — no fatal findings, no unreviewed __remill_error, no crash stubs");
+        eprintln!(
+            "[azul-web][lift-audit] ✓ CLEAN — no fatal findings, no unreviewed __remill_error, no \
+             crash stubs"
+        );
     }
     fatal
 }

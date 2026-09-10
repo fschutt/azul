@@ -28,8 +28,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, PixelValue, StyleFontSize},
@@ -2067,9 +2067,12 @@ mod autotest_generated {
         assert!(props.iter().any(|p| matches!(
             p, CssProperty::FlexDirection(d)
                 if d.get_property() == Some(&LayoutFlexDirection::Row))));
-        assert!(props.iter().any(|p| matches!(
+        assert!(
+            props.iter().any(|p| matches!(
             p, CssProperty::AlignItems(a) if a.get_property() == Some(&LayoutAlignItems::Start))),
-            "step cells must be top-aligned so labels of different heights do not shift the circles");
+            "step cells must be top-aligned so labels of different heights do not shift the \
+             circles"
+        );
         assert_eq!(
             flex_grow_value(&props),
             Some(0.0),

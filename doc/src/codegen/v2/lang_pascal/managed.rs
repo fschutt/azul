@@ -8,16 +8,14 @@
 //!
 //! Emitted into `Azul.pas`:
 //!
-//! 1. **Interface declarations** for AzApp_setHostHandleReleaser,
-//!    AzRefAny_newHostHandle, AzRefAny_getHostHandle, plus per-kind
-//!    Az<K>_createFromHostHandle / AzApp_set<K>Invoker bindings.
-//! 2. **A global Pascal handle table** (`THandleMap`) keyed by qword
-//!    holding `Pointer` (Pascal-managed values are typed `Pointer`
-//!    in the table; users cast at retrieve time).
+//! 1. **Interface declarations** for AzApp_setHostHandleReleaser, AzRefAny_newHostHandle,
+//!    AzRefAny_getHostHandle, plus per-kind Az<K>_createFromHostHandle / AzApp_set<K>Invoker
+//!    bindings.
+//! 2. **A global Pascal handle table** (`THandleMap`) keyed by qword holding `Pointer`
+//!    (Pascal-managed values are typed `Pointer` in the table; users cast at retrieve time).
 //! 3. **A releaser procedure** that removes entries on last-clone drop.
 //! 4. **Per-kind invoker procedures** dispatching through the table.
-//! 5. **`azul_refany_create` / `azul_refany_get`** for user-data
-//!    refany round-trip.
+//! 5. **`azul_refany_create` / `azul_refany_get`** for user-data refany round-trip.
 //!
 //! Unlike Lua/OCaml, Pascal doesn't store arbitrary closures. We use
 //! Pascal's OOP: one abstract class per callback kind
@@ -30,9 +28,11 @@
 //! up by id and dispatches through the virtual method. Mirrors the
 //! Java / Kotlin SAM-based shape.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use super::super::{
+    generator::CodeBuilder,
+    ir::CodegenIR,
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+};
 
 /// Emit the interface-section declarations (FFI imports, type
 /// declarations, and the public surface). Call from inside the
@@ -72,7 +72,8 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // FFI imports (interface section so callers can use them directly).
     builder.line(
-        "procedure AzApp_setHostHandleReleaser(releaser: TAzHostHandleReleaserProc); cdecl; external AzulLib;",
+        "procedure AzApp_setHostHandleReleaser(releaser: TAzHostHandleReleaserProc); cdecl; \
+         external AzulLib;",
     );
     builder
         .line("function AzRefAny_newHostHandle(id: cuint64): TAzRefAny; cdecl; external AzulLib;");

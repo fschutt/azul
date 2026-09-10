@@ -11,12 +11,11 @@
 //! what `demux.rs` emits and what goes over UDP in azul-meet); VideoToolbox
 //! speaks **AVCC** (4-byte big-endian length prefixes, out-of-band parameter
 //! sets). This module converts both directions:
-//!   - encode: SPS/PPS pulled from the output format description and emitted
-//!     in-band ahead of every keyframe; each length-prefixed NAL rewritten
-//!     with `00 00 00 01` start codes.
+//!   - encode: SPS/PPS pulled from the output format description and emitted in-band ahead of every
+//!     keyframe; each length-prefixed NAL rewritten with `00 00 00 01` start codes.
 //!   - decode: SPS(7)/PPS(8) NALs collected from the Annex-B stream feed
-//!     `CMVideoFormatDescriptionCreateFromH264ParameterSets`; VCL NALs are
-//!     re-prefixed with 4-byte lengths and wrapped in a `CMSampleBuffer`.
+//!     `CMVideoFormatDescriptionCreateFromH264ParameterSets`; VCL NALs are re-prefixed with 4-byte
+//!     lengths and wrapped in a `CMSampleBuffer`.
 //!
 //! Input frames are RGBA8 (the toolkit's universal frame format); the Apple
 //! encoders accept `kCVPixelFormatType_32BGRA` directly (an internal
@@ -25,9 +24,11 @@
 //! H.265 is not wired yet (the demos are H.264, same scope as the Vulkan
 //! backend) — `open(h265=true)` yields the stub.
 
-use std::collections::VecDeque;
-use std::ffi::c_void;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    collections::VecDeque,
+    ffi::c_void,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use azul_core::video::VideoFrame;
 use azul_css::U8Vec;

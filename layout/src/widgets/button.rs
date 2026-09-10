@@ -109,6 +109,7 @@ pub struct Button {
     pub trailing_icon_style: CssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
+    pub theme: crate::widgets::themes::OptionTheme,
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -502,6 +503,7 @@ impl Button {
             container_style: CssPropertyWithConditionsVec::from_vec(container_style),
             label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
             image_style: CssPropertyWithConditionsVec::from_vec(label_style),
+            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
             icon_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE),
             trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(
                 BUTTON_ICON_DEFAULT_STYLE,
@@ -610,24 +612,12 @@ impl Button {
         };
 
         // Add both the base class and the type-specific class
-        // ⚠ BISECTION step 5 (REVERT): const-str classes → HEAP classes (AzString::from(&str)
-        // = s.to_string().into()). Decisive test: if web-button-nocb RUNS now → the const-str
-        // CLONE (s.clone() of a NoDestructor/borrowed AzString in set_ids_and_classes) mis-lifts
-        // (deref of unmirrored .rodata); fix = transpiler const-str mirror OR heap classes here.
-        // If it still OOBs → the AttributeTypeVec machinery (swap/into_library_owned_vec/retain/
-        // push/set_attributes) is the lift bug, independent of const-str.
         let type_class = self.button_type.class_name();
         let classes: Vec<IdOrClass> = vec![
             Class(AzString::from("__azul-native-button")),
             Class(AzString::from(type_class)),
         ];
 
-        // (2026-06-10: the June-02 bisection strips are REVERTED — the underlying corruption
-        // was the alloc collect-machinery Leaf-stub in the web transpiler, fixed there. The
-        // label keeps its inline css; the button carries its on_click callbacks + tab index
-        // again — without them every Button click was a silent no-op on ALL backends, and the
-        // web route-walk discovered 0 callbacks. The FIX-A ordering (container style before
-        // ids/classes) is kept: builder-order is semantically neutral natively.)
         let mut button = Dom::create_node(NodeType::Button);
 
         let has_icon = !self.icon.as_str().is_empty() || self.icon_dom.is_some();

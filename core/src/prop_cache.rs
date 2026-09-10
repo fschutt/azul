@@ -24,8 +24,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::fmt::Write;
-use core::mem::ManuallyDrop;
+use core::{fmt::Write, mem::ManuallyDrop};
 
 use crate::dom::NodeType;
 
@@ -48,6 +47,9 @@ pub struct CssPropertyWithOrigin {
 
 use azul_css::{
     css::{Css, CssPath},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
+    },
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         layout::{LayoutDisplay, LayoutHeight, LayoutWidth},
@@ -78,7 +80,6 @@ use azul_css::{
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
             ShapeOutsideValue, StringSetValue, StyleAlignmentBaselineValue, StyleAppRegionValue,
-            StyleSpatialNavigationActionValue, StyleSpatialNavigationContainValue,
             StyleAspectRatioValue, StyleBackfaceVisibilityValue, StyleBackgroundContentValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBaselineSourceValue,
@@ -98,14 +99,14 @@ use azul_css::{
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
             StyleObjectFitValue, StyleObjectPositionValue, StyleOpacityValue,
             StyleOverflowClipMarginValue, StyleOverflowWrapValue, StylePerspectiveOriginValue,
-            StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleTabSizeValue,
-            StyleTextAlignLastValue, StyleTextAlignValue, StyleTextBoxEdgeValue,
-            StyleTextBoxTrimValue, StyleTextColorValue, StyleTextCombineUprightValue,
-            StyleTextDecorationValue, StyleTextIndentValue, StyleTextOrientationValue,
-            StyleTextOverflowValue, StyleTextTransformValue, StyleTransformOriginValue,
-            StyleTransformVecValue, StyleUnicodeBidiValue, StyleUserSelectValue,
-            StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
-            StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
+            StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleSpatialNavigationActionValue,
+            StyleSpatialNavigationContainValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleTextAlignValue, StyleTextBoxEdgeValue, StyleTextBoxTrimValue, StyleTextColorValue,
+            StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
+            StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
+            StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
+            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -120,10 +121,6 @@ use crate::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
-};
-
-use azul_css::dynamic_selector::{
-    CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
 };
 
 #[cfg(feature = "std")]
@@ -547,9 +544,10 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs.iter().copied().find(|&(rs, rl)| {
-                rl == len && new_data[rs as usize..(rs + rl) as usize] == *run
-            });
+            let existing = runs
+                .iter()
+                .copied()
+                .find(|&(rs, rl)| rl == len && new_data[rs as usize..(rs + rl) as usize] == *run);
             if let Some((rs, rl)) = existing {
                 new_offsets.push((rs, rl));
                 continue;
@@ -777,7 +775,6 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 }
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
-
 
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
 /// value plus the nodes that resolve to it.
@@ -1179,7 +1176,11 @@ impl CssPropertyCache {
                         }
                     }
                 }
-                eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
+                eprintln!(
+                    "[PRUNE] css_props: norm+compact={normal_compact} \
+                     norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: \
+                     total={casc_total} norm+compact={casc_normal_compact}"
+                );
             }
         }
 
@@ -1311,12 +1312,14 @@ impl CssPropertyCache {
 /// compact-encoded types (tier1 enums, colors, hashes, etc.) always round-trip
 /// through the compact encoding.
 fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
-    use azul_css::css::CssPropertyValue;
-    use azul_css::props::{
-        basic::length::SizeMetric,
-        layout::{
-            dimensions::{LayoutHeight, LayoutWidth},
-            flex::LayoutFlexBasis,
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::length::SizeMetric,
+            layout::{
+                dimensions::{LayoutHeight, LayoutWidth},
+                flex::LayoutFlexBasis,
+            },
         },
     };
 
@@ -1490,7 +1493,10 @@ impl CssPropertyCache {
     /// Returns tag IDs for hit-testing. If `compact_cache` is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -1501,7 +1507,9 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
-                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus},
+                CssPathPseudoSelector::{
+                    Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
+                },
                 CssPathSelector, CssRuleBlock,
             },
             dynamic_selector::{DynamicSelector, PseudoStateType},
@@ -1710,11 +1718,7 @@ impl CssPropertyCache {
                 collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
                 collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
                 collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
-                collect_and_assign!(
-                    Some(SeatFocus),
-                    PseudoStateType::SeatFocus,
-                    has_seat_focus
-                );
+                collect_and_assign!(Some(SeatFocus), PseudoStateType::SeatFocus, has_seat_focus);
                 collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
                 collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
                 collect_and_assign!(
@@ -1812,7 +1816,8 @@ impl CssPropertyCache {
                         .chain(parent_inheritable_css.iter())
                         .chain(parent_inheritable_cascaded.iter())
                     {
-                        // or_insert: only insert if child doesn't already have this (state, prop_type)
+                        // or_insert: only insert if child doesn't already have this (state,
+                        // prop_type)
                         if !child_vec
                             .iter()
                             .any(|p| p.state == state && p.prop_type == *prop_type)
@@ -2029,7 +2034,10 @@ impl CssPropertyCache {
         tag_ids
     }
 
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn get_computed_css_style_string(
         &self,
         node_data: &NodeData,
@@ -2617,7 +2625,8 @@ impl CssPropertyCache {
     }
 
     #[cfg(feature = "std")]
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct
@@ -2641,7 +2650,8 @@ impl CssPropertyCache {
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3035,7 +3045,10 @@ impl CssPropertyCache {
         // Check computed values cache for inherited properties
         // Sorted Vec with binary search
         if css_property_type.is_inheritable() {
-            if let Some(v) = self.computed_values.get(node_id.index(), *css_property_type) {
+            if let Some(v) = self
+                .computed_values
+                .get(node_id.index(), *css_property_type)
+            {
                 return Some(&v.property);
             }
         }
@@ -3052,7 +3065,8 @@ impl CssPropertyCache {
     ///
     /// The evaluation follows "last wins" semantics - properties are evaluated
     /// in reverse order and the first matching property wins.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     pub(crate) fn get_property_with_context<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3502,7 +3516,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
     /// Method for getting grid-gap property
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     pub(crate) fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -4582,7 +4597,8 @@ impl CssPropertyCache {
             .unwrap_or(0.0)
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,
@@ -4755,8 +4771,7 @@ impl CssPropertyCache {
     /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
     #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
-        use azul_css::dynamic_selector::PseudoStateType;
-        use azul_css::props::property::CssPropertyType;
+        use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType};
 
         let node_count = node_data.len();
         if node_count == 0 {
@@ -5213,11 +5228,7 @@ impl CssPropertyCache {
     /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
     /// properties are still answered by `cascaded_props` / `css_props` / the
     /// compact cache, which is where the layout path reads them from anyway.
-    fn store_if_changed(
-        &mut self,
-        ctx: &InheritanceContext,
-        previous: &InheritedValues,
-    ) -> bool {
+    fn store_if_changed(&mut self, ctx: &InheritanceContext, previous: &InheritedValues) -> bool {
         let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx
             .computed_values
             .iter()
@@ -5225,7 +5236,8 @@ impl CssPropertyCache {
             .cloned()
             .collect();
         let changed = previous.values_for(ctx.node_id.index()) != inheritable;
-        self.computed_values.set_node(ctx.node_id.index(), &inheritable);
+        self.computed_values
+            .set_node(ctx.node_id.index(), &inheritable);
         changed
     }
 }

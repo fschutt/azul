@@ -11,14 +11,13 @@
 //!
 //! Key types: [`Slider`], [`SliderState`], [`SliderOnValueChange`].
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -36,7 +35,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    solver3::layout_tree::LayoutNodeId,
+};
 
 static SLIDER_TRACK_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-slider"))];
@@ -71,6 +73,7 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Slider {
+    pub theme: crate::widgets::themes::OptionTheme,
     pub slider_state: SliderStateWrapper,
     /// Style for the slider track (the horizontal rail).
     pub track_style: CssPropertyWithConditionsVec,
@@ -192,7 +195,8 @@ fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
 
 /// Builds the thumb style; the `margin-left` is the only position-dependent
 /// property and slides the thumb between the left (`min`) and right (`max`) ends.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render
+                                                                        // numeric cast
 fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
     // `fraction` is a bare `f32` with no type-level guard. Its only caller feeds
     // it `value_to_fraction`'s already-clamped output, but the helper must be
@@ -274,6 +278,7 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
+            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -338,106 +343,22 @@ impl Slider {
 
     #[inline]
     #[must_use]
+
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::Theme) -> Self {
+        self.theme = crate::widgets::themes::OptionTheme::Some(theme);
+        self
+    }
+
     pub fn dom(self) -> Dom {
-        // Read the value BEFORE the fields are moved into the DOM below.
-        let value_now = self.slider_state.inner.value;
-
-        // The widget KNOWS here whether it was named, because the name is one
-        // of its own fields — so this warning cannot fire on a slider the
-        // caller did name. That is precisely why the field lives on Slider and
-        // not only as a Dom-level patch applied afterwards.
-        let a11y_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name("Slider", a11y_name.is_some());
-
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
-        };
-
-        // One shared RefAny across all pointer callbacks so the transient
-        // `dragging` flag set on press is visible to the move/release handlers
-        // (RefAny::clone shares the underlying data — same pattern as map.rs).
-        let state = RefAny::new(self.slider_state);
-        let mk = |event: EventFilter, cb: usize| CoreCallbackData {
-            event,
-            callback: CoreCallback {
-                cb,
-                ctx: OptionRefAny::None,
-            },
-            refany: state.clone(),
-        };
-        let callbacks = vec![
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseDown),
-                on_slider_pointer_down as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseMove),
-                on_slider_pointer_move as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                on_slider_pointer_up as usize,
-            ),
-            mk(
-                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
-                on_slider_key as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_slider_pointer_leave as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchStart),
-                on_slider_pointer_down as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchMove),
-                on_slider_pointer_move as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchEnd),
-                on_slider_pointer_up as usize,
-            ),
-        ];
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_TRACK_CLASS))
-            .with_css_props(self.track_style)
-            .with_callbacks(callbacks.into())
-            // The same RefAny as the callbacks' (one allocation), so the
-            // reconciler can carry the interaction state across a parent
-            // rebuild and re-point the fresh callbacks at the merged state —
-            // see `merge_slider_state` for what that saves.
-            .with_dataset(OptionRefAny::Some(state))
-            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
-                merge_slider_state,
-            ))
-            .with_tab_index(TabIndex::Auto)
-            // For a slider the VALUE is the content. Without it a screen reader
-            // announces "slider" and never where the thumb sits, which is the
-            // one thing the control exists to communicate. Published on every
-            // build so it tracks the thumb rather than freezing at construction.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Slider,
-                accessibility_name: a11y_name,
-                // NOTE: no name here on purpose — a slider is a track and a
-                // thumb, with no text to derive one from. The warning below
-                // asks the caller for it.
-
-                accessibility_value: Some(AzString::from(
-                    alloc::format!("{value_now}"),
-                ))
-                .into(),
-                ..Default::default()
-            })
-            .with_children(
-                vec![Dom::create_div()
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_THUMB_CLASS))
-                    .with_css_props(self.thumb_style)]
-                .into(),
-            )
+        match self.theme {
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+                crate::widgets::themes::flat::slider(self)
+            }
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+                crate::widgets::themes::flora::slider(self)
+            }
+            _ => Dom::create_div(),
+        }
     }
 }
 
@@ -449,7 +370,8 @@ impl Default for Slider {
 
 /// Shared logic for press + drag: compute the value from the cursor's X position
 /// relative to the track, slide the thumb live, and invoke the user callback.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render
+                                                                        // numeric cast
 fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) -> Update {
     let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
         return Update::DoNothing;
@@ -499,7 +421,7 @@ fn commit_value(
 /// macOS), the same fine/coarse pair the colour picker uses.
 ///
 /// Commits through `commit_value`, exactly like a drag.
-extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
@@ -542,7 +464,7 @@ extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 /// Pointer down → begin a drag and set the value from the press position.
-extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -551,7 +473,7 @@ extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 /// Pointer move → if a drag is active, track the value to the cursor.
-extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -562,7 +484,7 @@ extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 /// Pointer up → end the drag.
-extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
     }
@@ -579,7 +501,7 @@ extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upd
 /// The callback sees its own node (the track), not the event's origin, so
 /// the cursor decides: still inside the track's rect means the pointer only
 /// left a child.
-extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
         info.get_hit_node_rect(),
@@ -615,7 +537,7 @@ extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> U
 /// the pointer is up the app's value is the truth again, as for any
 /// controlled widget. The `on_value_change` hook is taken from the FRESH
 /// build so a rebuilt closure/data is honoured.
-extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+pub extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SliderStateWrapper>();
         let old_guard = old_data.downcast_ref::<SliderStateWrapper>();
@@ -1406,8 +1328,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "build_thumb_style overflows the isize fixed-point encoding and panics \
-             instead of saturating for: {panicked:?}",
+            "build_thumb_style overflows the isize fixed-point encoding and panics instead of \
+             saturating for: {panicked:?}",
         );
     }
 
@@ -1547,8 +1469,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "Slider::create panics (f32::clamp asserts min <= max) instead of \
-             normalising these ranges: {panicked:?}",
+            "Slider::create panics (f32::clamp asserts min <= max) instead of normalising these \
+             ranges: {panicked:?}",
         );
     }
 
@@ -1731,8 +1653,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "Slider::set_value panics (f32::clamp asserts min <= max) on these \
-             externally-set ranges: {panicked:?}",
+            "Slider::set_value panics (f32::clamp asserts min <= max) on these externally-set \
+             ranges: {panicked:?}",
         );
     }
 
@@ -2064,8 +1986,8 @@ mod autotest_generated {
         let cb_state = &dom.root.callbacks.as_ref()[0].refany;
         assert_eq!(
             dataset.sharing_info.ptr as usize, cb_state.sharing_info.ptr as usize,
-            "dataset and callbacks must share ONE allocation, or the reconciler cannot \
-             re-point the fresh callbacks at the merged state"
+            "dataset and callbacks must share ONE allocation, or the reconciler cannot re-point \
+             the fresh callbacks at the merged state"
         );
         assert!(
             dom.root.get_merge_callback().is_some(),
@@ -2810,5 +2732,4 @@ mod autotest_generated {
         assert!((step(100.0, 0.0, 100.0, 1.0, true) - 100.0).abs() < 1e-4);
         assert!((step(0.0, 0.0, 100.0, -1.0, true) - 0.0).abs() < 1e-4);
     }
-
 }

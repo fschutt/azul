@@ -31,8 +31,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -694,8 +694,8 @@ mod autotest_generated {
         assert_eq!(
             closed.len(),
             open.len(),
-            "both states must declare the same props so the runtime display toggle \
-             has everything it needs"
+            "both states must declare the same props so the runtime display toggle has everything \
+             it needs"
         );
         assert_eq!(prop_types(&closed), prop_types(&open));
 
@@ -744,8 +744,8 @@ mod autotest_generated {
             assert_eq!(
                 types.len(),
                 declared,
-                "a duplicated property type would make the later declaration silently win \
-                 (open = {open})"
+                "a duplicated property type would make the later declaration silently win (open = \
+                 {open})"
             );
         }
     }
@@ -761,8 +761,8 @@ mod autotest_generated {
             );
             assert!(
                 a.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
-                "the panel style must apply unconditionally — a stray condition would \
-                 leave the panel unstyled (open = {open})"
+                "the panel style must apply unconditionally — a stray condition would leave the \
+                 panel unstyled (open = {open})"
             );
         }
     }

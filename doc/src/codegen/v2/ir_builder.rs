@@ -4,13 +4,16 @@
 //! and building a complete Intermediate Representation (IR) that can
 //! be consumed by language-specific generators.
 
-use anyhow::Result;
-use indexmap::IndexMap;
 use std::collections::BTreeMap;
 
+use anyhow::Result;
+use indexmap::IndexMap;
+
 use super::ir::*;
-use crate::api::{ApiData, ClassData, EnumVariantData, FieldData, VersionData};
-use crate::utils::string::snake_case_to_lower_camel;
+use crate::{
+    api::{ApiData, ClassData, EnumVariantData, FieldData, VersionData},
+    utils::string::snake_case_to_lower_camel,
+};
 
 // ============================================================================
 // IR Builder
@@ -91,7 +94,8 @@ impl<'a> IRBuilder<'a> {
     ///
     /// This checks for:
     /// 1. Array types like [T; N] - should be replaced with proper structs
-    /// 2. Direct type aliases without generics - should be replaced with actual struct/enum definitions
+    /// 2. Direct type aliases without generics - should be replaced with actual struct/enum
+    ///    definitions
     /// 3. Non-FFI-safe types (NonZeroUsize, std library types, etc.)
     fn validate_api_json(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
@@ -181,15 +185,15 @@ impl<'a> IRBuilder<'a> {
                         for (field_name, field_data) in field_map {
                             if is_array_type(&field_data.r#type) {
                                 errors.push(format!(
-                                    "Array type not allowed: {}.{} has type '{}'. \
-                                     Use a dedicated struct instead (e.g., PixelValueSize).",
+                                    "Array type not allowed: {}.{} has type '{}'. Use a dedicated \
+                                     struct instead (e.g., PixelValueSize).",
                                     class_name, field_name, field_data.r#type
                                 ));
                             }
                             if let Some(bad_type) = contains_non_ffi_safe_type(&field_data.r#type) {
                                 errors.push(format!(
-                                    "Non-FFI-safe type in struct field: {}.{} uses '{}'. \
-                                     Remove this type from api.json or wrap it in an FFI-safe wrapper.",
+                                    "Non-FFI-safe type in struct field: {}.{} uses '{}'. Remove \
+                                     this type from api.json or wrap it in an FFI-safe wrapper.",
                                     class_name, field_name, bad_type
                                 ));
                             }
@@ -234,15 +238,16 @@ impl<'a> IRBuilder<'a> {
                             if let Some(variant_type) = &variant_data.r#type {
                                 if is_array_type(variant_type) {
                                     errors.push(format!(
-                                        "Array type not allowed: {}::{} has type '{}'. \
-                                         Use a dedicated struct instead.",
+                                        "Array type not allowed: {}::{} has type '{}'. Use a \
+                                         dedicated struct instead.",
                                         class_name, variant_name, variant_type
                                     ));
                                 }
                                 if let Some(bad_type) = contains_non_ffi_safe_type(variant_type) {
                                     errors.push(format!(
                                         "Non-FFI-safe type in enum variant: {}::{} uses '{}'. \
-                                         Remove this type from api.json or wrap it in an FFI-safe wrapper.",
+                                         Remove this type from api.json or wrap it in an FFI-safe \
+                                         wrapper.",
                                         class_name, variant_name, bad_type
                                     ));
                                 }
@@ -259,8 +264,8 @@ impl<'a> IRBuilder<'a> {
                             for (_arg_name, arg_type) in arg {
                                 if let Some(bad_type) = contains_non_ffi_safe_type(arg_type) {
                                     errors.push(format!(
-                                        "Non-FFI-safe type in function argument: {}.{}() uses '{}'. \
-                                         Remove this function from api.json.",
+                                        "Non-FFI-safe type in function argument: {}.{}() uses \
+                                         '{}'. Remove this function from api.json.",
                                         class_name, fn_name, bad_type
                                     ));
                                 }
@@ -270,8 +275,8 @@ impl<'a> IRBuilder<'a> {
                         if let Some(ret_type) = &fn_data.returns {
                             if let Some(bad_type) = contains_non_ffi_safe_type(&ret_type.r#type) {
                                 errors.push(format!(
-                                    "Non-FFI-safe return type: {}.{}() returns '{}'. \
-                                     Remove this function from api.json.",
+                                    "Non-FFI-safe return type: {}.{}() returns '{}'. Remove this \
+                                     function from api.json.",
                                     class_name, fn_name, bad_type
                                 ));
                             }
@@ -308,7 +313,8 @@ impl<'a> IRBuilder<'a> {
                 //
                 // NOT allowed (must use newtype struct instead):
                 // - `type XmlTagName = String` -> struct XmlTagName { inner: String }
-                // - `type XmlAttributeMap = StringPairVec` -> struct XmlAttributeMap { inner: StringPairVec }
+                // - `type XmlAttributeMap = StringPairVec` -> struct XmlAttributeMap { inner:
+                //   StringPairVec }
                 if let Some(type_alias) = &class_data.type_alias {
                     if type_alias.generic_args.is_empty() {
                         let target = &type_alias.target;
@@ -340,44 +346,35 @@ impl<'a> IRBuilder<'a> {
 
                         if !is_primitive_alias && !is_pointer_alias {
                             errors.push(format!(
-                                "Simple type alias not allowed: {} = {}. \n\
-                                 Simple type aliases cause codegen issues (type ordering, FFI complexity).\n\
-                                 Please convert to a newtype struct instead:\n\
-                                 \n\
-                                 In Rust source:\n\
-                                 ```rust\n\
-                                 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]\n\
-                                 #[repr(C)]\n\
-                                 pub struct {} {{\n\
-                                     pub inner: {},\n\
-                                 }}\n\
-                                 \n\
-                                 impl From<{}> for {} {{\n\
-                                     fn from(v: {}) -> Self {{ Self {{ inner: v }} }}\n\
-                                 }}\n\
-                                 ```\n\
-                                 \n\
-                                 In api.json, change from:\n\
-                                 ```json\n\
-                                 \"{}\": {{ \"type_alias\": {{ \"target\": \"{}\" }} }}\n\
-                                 ```\n\
-                                 \n\
-                                 To:\n\
-                                 ```json\n\
-                                 \"{}\": {{ \"struct_fields\": [{{ \"inner\": {{ \"type\": \"{}\" }} }}], \"derive\": [...] }}\n\
-                                 ```",
-                                class_name, target,
-                                class_name, target,
-                                target, class_name, target,
-                                class_name, target,
-                                class_name, target
+                                "Simple type alias not allowed: {} = {}. \nSimple type aliases \
+                                 cause codegen issues (type ordering, FFI complexity).\nPlease \
+                                 convert to a newtype struct instead:\n\nIn Rust \
+                                 source:\n```rust\n#[derive(Default, Debug, Clone, PartialEq, Eq, \
+                                 PartialOrd, Ord, Hash)]\n#[repr(C)]\npub struct {} {{\npub \
+                                 inner: {},\n}}\n\nimpl From<{}> for {} {{\nfn from(v: {}) -> \
+                                 Self {{ Self {{ inner: v }} }}\n}}\n```\n\nIn api.json, change \
+                                 from:\n```json\n\"{}\": {{ \"type_alias\": {{ \"target\": \"{}\" \
+                                 }} }}\n```\n\nTo:\n```json\n\"{}\": {{ \"struct_fields\": [{{ \
+                                 \"inner\": {{ \"type\": \"{}\" }} }}], \"derive\": [...] }}\n```",
+                                class_name,
+                                target,
+                                class_name,
+                                target,
+                                target,
+                                class_name,
+                                target,
+                                class_name,
+                                target,
+                                class_name,
+                                target
                             ));
                         }
                     }
                 }
 
                 // Validate repr annotation consistency
-                // Convention: structs → "C", simple enums (no data) → "C", enums with data → "C, u8"
+                // Convention: structs → "C", simple enums (no data) → "C", enums with data → "C,
+                // u8"
                 if let Some(repr) = &class_data.repr {
                     if class_data.struct_fields.is_some() {
                         // Struct: must be repr(C)
@@ -398,8 +395,8 @@ impl<'a> IRBuilder<'a> {
                             // Tagged union: must be repr(C, u8)
                             if repr != "C, u8" {
                                 errors.push(format!(
-                                    "Invalid repr for tagged enum {}: got repr({}), expected repr(C, u8). \
-                                     Enums with variant data must use #[repr(C, u8)].",
+                                    "Invalid repr for tagged enum {}: got repr({}), expected \
+                                     repr(C, u8). Enums with variant data must use #[repr(C, u8)].",
                                     class_name, repr
                                 ));
                             }
@@ -407,8 +404,8 @@ impl<'a> IRBuilder<'a> {
                             // Simple enum: must be repr(C)
                             if repr != "C" {
                                 errors.push(format!(
-                                    "Invalid repr for simple enum {}: got repr({}), expected repr(C). \
-                                     Enums without variant data must use #[repr(C)].",
+                                    "Invalid repr for simple enum {}: got repr({}), expected \
+                                     repr(C). Enums without variant data must use #[repr(C)].",
                                     class_name, repr
                                 ));
                             }
@@ -416,7 +413,8 @@ impl<'a> IRBuilder<'a> {
                     }
                 }
 
-                // Check for reserved function names that conflict with auto-generated trait functions
+                // Check for reserved function names that conflict with auto-generated trait
+                // functions
                 const RESERVED_FN_NAMES: &[&str] = &[
                     "hash",
                     "partialEq",
@@ -435,9 +433,9 @@ impl<'a> IRBuilder<'a> {
                     for (fn_name, _fn_data) in functions {
                         if RESERVED_FN_NAMES.contains(&fn_name.as_str()) {
                             errors.push(format!(
-                                "Reserved function name not allowed: {}.{}(). \
-                                 This name conflicts with auto-generated trait functions. \
-                                 Please rename the function (e.g., 'hash' -> 'nodeDataHash').",
+                                "Reserved function name not allowed: {}.{}(). This name conflicts \
+                                 with auto-generated trait functions. Please rename the function \
+                                 (e.g., 'hash' -> 'nodeDataHash').",
                                 class_name, fn_name
                             ));
                         }
@@ -466,11 +464,11 @@ impl<'a> IRBuilder<'a> {
             // `azul_core::gl::GlContextPtr` / `core::prop_cache::CssPropertyCachePtr` for the
             // pattern (Vec/String use the equivalent `destructor` enum gate instead).
             eprintln!(
-                "\n[azul-doc] WARNING — {} non-Copy FFI type(s) own a heap resource (raw pointer / \
-                 Box) WITHOUT a `run_destructor`/`destructor` gate field and will DOUBLE-FREE when \
-                 nested in another Az wrapper and dropped by value:\n  - {}\n\
-                 Gate each one (ManuallyDrop + run_destructor, freeing only while run_destructor; \
-                 see GlContextPtr), or mark it Copy if it owns nothing. See the comment in \
+                "\n[azul-doc] WARNING — {} non-Copy FFI type(s) own a heap resource (raw pointer \
+                 / Box) WITHOUT a `run_destructor`/`destructor` gate field and will DOUBLE-FREE \
+                 when nested in another Az wrapper and dropped by value:\n  - {}\nGate each one \
+                 (ManuallyDrop + run_destructor, freeing only while run_destructor; see \
+                 GlContextPtr), or mark it Copy if it owns nothing. See the comment in \
                  ir_builder.rs::validate_api_json for the full rationale.\n",
                 double_drop_risks.len(),
                 double_drop_risks.join("\n  - ")
@@ -1174,7 +1172,8 @@ impl<'a> IRBuilder<'a> {
                                     _ => ArgRefKind::Owned,
                                 },
                                 doc: arg_data.doc.as_ref().and_then(|d| d.first().cloned()),
-                                callback_info: None, // Callback typedef args don't have nested callbacks
+                                callback_info: None, /* Callback typedef args don't have nested
+                                                      * callbacks */
                             }
                         })
                         .collect();
@@ -1448,7 +1447,8 @@ impl<'a> IRBuilder<'a> {
                 }
             }
 
-            // If we found both a callback typedef field and a ctx/callable field, this is a callback wrapper
+            // If we found both a callback typedef field and a ctx/callable field, this is a
+            // callback wrapper
             if let Some((field_name, typedef_name)) = callback_field {
                 if let Some(ctx_name) = context_field_name {
                     struct_def.callback_wrapper_info = Some(CallbackWrapperInfo {
@@ -1633,10 +1633,9 @@ impl<'a> IRBuilder<'a> {
             .unwrap_or(false)
         {
             return Err(format!(
-                "[ERROR] Function uses 'self.' in fn_body but has no 'self' parameter. \
-                 This is an error in api.json. The function should have \
-                 {{\"self\": \"ref\"}} or {{\"self\": \"value\"}} as the first fn_arg. \
-                 fn_body: {:?}",
+                "[ERROR] Function uses 'self.' in fn_body but has no 'self' parameter. This is an \
+                 error in api.json. The function should have {{\"self\": \"ref\"}} or {{\"self\": \
+                 \"value\"}} as the first fn_arg. fn_body: {:?}",
                 fn_data.fn_body
             ));
         }
@@ -2062,15 +2061,13 @@ impl<'a> IRBuilder<'a> {
     fn detect_callback_arg_info(&self, type_name: &str) -> Option<CallbackArgInfo> {
         // Two shapes are recognized as callback arguments:
         //
-        //  1. The raw function-pointer typedef itself, e.g. "CallbackType",
-        //     "LayoutCallbackType", "ButtonOnClickCallbackType" — present on
-        //     api.json entries that take a bare fn pointer (legacy shape).
+        //  1. The raw function-pointer typedef itself, e.g. "CallbackType", "LayoutCallbackType",
+        //     "ButtonOnClickCallbackType" — present on api.json entries that take a bare fn pointer
+        //     (legacy shape).
         //
-        //  2. The *wrapper struct*, e.g. "Callback", "LayoutCallback",
-        //     "ButtonOnClickCallback" — present on api.json entries that
-        //     take the full `{ cb, ctx }` wrapper. Managed-FFI bindings
-        //     prefer this shape because the host-handle ctx survives the
-        //     C-ABI round trip.
+        //  2. The *wrapper struct*, e.g. "Callback", "LayoutCallback", "ButtonOnClickCallback" —
+        //     present on api.json entries that take the full `{ cb, ctx }` wrapper. Managed-FFI
+        //     bindings prefer this shape because the host-handle ctx survives the C-ABI round trip.
         //
         // Both map to the same `CallbackArgInfo` so language adapters can
         // route through `azul._register_callback` / the host-invoker path

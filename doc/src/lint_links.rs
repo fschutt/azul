@@ -9,13 +9,11 @@
 //! where a contributor meets it before pushing. The two overlap deliberately
 //! on stale source paths and diverge either side of that:
 //!
-//!   - docproof proves DRIFT from history: a path that once existed and moved.
-//!     A path that never existed is not a finding there, because there is no
-//!     deletion to point at.
-//!   - this lint proves RESOLUTION against the tree: a `[text](../dom.md)`
-//!     whose page is not there, an image that is not on disk, a `#anchor` with
-//!     no heading behind it, a typo'd source path. No history involved, so a
-//!     path invented yesterday is caught just as well as one that rotted.
+//!   - docproof proves DRIFT from history: a path that once existed and moved. A path that never
+//!     existed is not a finding there, because there is no deletion to point at.
+//!   - this lint proves RESOLUTION against the tree: a `[text](../dom.md)` whose page is not there,
+//!     an image that is not on disk, a `#anchor` with no heading behind it, a typo'd source path.
+//!     No history involved, so a path invented yesterday is caught just as well as one that rotted.
 //!
 //! What it deliberately does NOT check: external `http(s)` links. That would
 //! put the network in the build, and a rate-limited host would fail a run for

@@ -13,24 +13,27 @@
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
 use azul_core::{
-    callbacks::Update,
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
+    dom::Dom,
     refany::RefAny,
     task::{ThreadId, ThreadReceiver},
 };
 use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
-use crate::callbacks::CallbackInfo;
-use crate::thread::{
-    Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
-    WriteBackCallbackType,
+use crate::{
+    callbacks::CallbackInfo,
+    thread::{
+        Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallbackType,
+    },
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType},
+        check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
+        text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState},
+        text_input::{OnTextInputReturn, TextInputValid},
+    },
 };
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use crate::widgets::check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState};
-use crate::widgets::text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState};
-use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
-use azul_core::dom::Dom;
 
 /// Where the report currently is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -486,10 +489,12 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let mut children: Vec<Dom> = vec![Dom::create_h2_with_text("Report a problem")];
     match &snapshot.email {
         Some(to) => children.push(Dom::create_p_with_text(format!(
-            "Describe what went wrong. The report goes to {to} — nothing is sent until you press Send."
+            "Describe what went wrong. The report goes to {to} — nothing is sent until you press \
+             Send."
         ))),
         None => children.push(Dom::create_p_with_text(
-            "Describe what went wrong. The report is saved to disk (no support address is configured).",
+            "Describe what went wrong. The report is saved to disk (no support address is \
+             configured).",
         )),
     }
 
@@ -659,8 +664,8 @@ fn preview_section(snapshot: &ReportProblemState, state: &RefAny) -> Vec<Dom> {
 
     vec![
         Dom::create_p_with_text(
-            "Drag on the preview to black out anything private - the blackout is \
-             applied to the image that is sent.",
+            "Drag on the preview to black out anything private - the blackout is applied to the \
+             image that is sent.",
         ),
         Dom::create_div()
             .with_css_props({

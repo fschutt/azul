@@ -2,8 +2,10 @@
 //!
 //! Downloads W3C CSS specifications and stores them locally for offline analysis.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 /// Known W3C specifications with their download URLs
 pub struct SpecRegistry {

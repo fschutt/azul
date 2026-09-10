@@ -474,7 +474,12 @@ const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = 
     // inherited, so the cell states its own dark colour.
     CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
-            inner: ColorU { r: 230, g: 230, b: 230, a: 255 },
+            inner: ColorU {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
         },
     ))),
 ];
@@ -510,9 +515,14 @@ const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = 
         )),
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            &[StyleBackgroundContent::Color(ColorU { r: 43, g: 43, b: 43, a: 255 })],
-        )),
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(ColorU {
+                r: 43,
+                g: 43,
+                b: 43,
+                a: 255,
+            }),
+        ])),
     )),
 ];
 const CSS_MATCH_15315949193378715186: CssPropertyWithConditionsVec =
@@ -547,7 +557,14 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutAlignItems::Center,
     ))),
     CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+        StyleTextColor {
+            inner: ColorU {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+        },
     ))),
 ];
 const CSS_MATCH_15673486787900743642: CssPropertyWithConditionsVec =
@@ -569,12 +586,24 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
     // matching property wins, so each dark value sits after the light one it
     // replaces. A list is a FIELD: in a dark window it must not stay white.
     CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            &[StyleBackgroundContent::Color(ColorU { r: 31, g: 31, b: 31, a: 255 })],
-        )),
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(ColorU {
+                r: 31,
+                g: 31,
+                b: 31,
+                a: 255,
+            }),
+        ])),
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+        StyleTextColor {
+            inner: ColorU {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+        },
     ))),
 ];
 const CSS_MATCH_17553577885456905601: CssPropertyWithConditionsVec =
@@ -1277,7 +1306,9 @@ const SORT_ARROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CL
 /// header's own colour.
 fn sort_arrow() -> Dom {
     Dom::create_icon(AzString::from_const_str("arrow_drop_up"))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SORT_ARROW_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            SORT_ARROW_STYLE,
+        ))
         .with_ids_and_classes(SORT_ARROW_CLASS)
 }
 
@@ -1821,7 +1852,8 @@ mod list_view_click_tests {
     /// Rows must carry a click callback exactly when `on_row_click` is set —
     /// previously `dom()` wired nothing, so the hook was dead.
     #[test]
-    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a
+                                                  // struct literal is not clearer here
     fn rows_get_a_click_callback_only_when_on_row_click_is_set() {
         let mut lv = ListView::default();
         lv.rows = ListViewRowVec::from_vec(vec![empty_row(), empty_row()]);
@@ -1853,7 +1885,8 @@ mod list_view_click_tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)] // exact float compares are deliberate here (saturation / identity checks)
+#[allow(clippy::float_cmp)] // exact float compares are deliberate here (saturation / identity
+                            // checks)
 mod autotest_generated {
     use azul_core::{
         dom::NodeType,

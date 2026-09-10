@@ -40,18 +40,16 @@
 //! the original.
 //!
 //! Correctness notes:
-//! - The KEY includes the whole original `NodeData` + `StyledNode`, because a
-//!   custom resolver may read anything from `original_icon_dom` (the default
-//!   one copies inline styles and accessibility info). Same name with
-//!   different inline styles → separate entries; a hover-state flip on the
+//! - The KEY includes the whole original `NodeData` + `StyledNode`, because a custom resolver may
+//!   read anything from `original_icon_dom` (the default one copies inline styles and accessibility
+//!   info). Same name with different inline styles → separate entries; a hover-state flip on the
 //!   node → different `StyledNode` → re-resolve.
-//! - The icon SET and the resolver are frozen once the provider is shared
-//!   (`App::run` consumes the handle; `SharedIconProvider` exposes no
-//!   registration), so registration invalidation cannot be needed post-share.
-//! - "Animated icons" remain compatible: animation is carried by the DATA the
-//!   resolver returns (e.g. an image-callback node that animates per frame),
-//!   not by re-resolving per frame — re-resolution only ever happened on DOM
-//!   regeneration anyway.
+//! - The icon SET and the resolver are frozen once the provider is shared (`App::run` consumes the
+//!   handle; `SharedIconProvider` exposes no registration), so registration invalidation cannot be
+//!   needed post-share.
+//! - "Animated icons" remain compatible: animation is carried by the DATA the resolver returns
+//!   (e.g. an image-callback node that animates per frame), not by re-resolving per frame —
+//!   re-resolution only ever happened on DOM regeneration anyway.
 //!
 //! # Custom Resolvers
 //!
@@ -75,9 +73,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use core::fmt;
-use core::mem::ManuallyDrop;
-
+use core::{fmt, mem::ManuallyDrop};
 #[cfg(feature = "std")]
 use std::sync::Mutex;
 
@@ -88,9 +84,11 @@ use self::nostd_lock::Mutex;
 /// API actually used by this module (`new` + `lock` returning a `Result`).
 #[cfg(not(feature = "std"))]
 mod nostd_lock {
-    use core::cell::UnsafeCell;
-    use core::ops::{Deref, DerefMut};
-    use core::sync::atomic::{AtomicBool, Ordering};
+    use core::{
+        cell::UnsafeCell,
+        ops::{Deref, DerefMut},
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
     pub struct Mutex<T> {
         locked: AtomicBool,
@@ -171,14 +169,16 @@ const FONT_ICON_DATA_TYPE_NAME: &str = "FontIconData";
 ///
 /// Parameters:
 /// - `icon_data`: The `RefAny` data from the icon pack (cloned, or None if not found)
-/// - `original_icon_dom`: The original icon node's `StyledDom` (contains inline styles, a11y info, `icon_name`)
+/// - `original_icon_dom`: The original icon node's `StyledDom` (contains inline styles, a11y info,
+///   `icon_name`)
 /// - `system_style`: Current system style (theme, colors, etc.)
 ///
 /// Returns: A `StyledDom` that will replace the icon node.
 /// The resolver should copy relevant styles from `original_icon_dom` to the result.
 /// Return an empty `StyledDom` to show a placeholder or nothing.
 ///
-/// Note: `icon_name` is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
+/// Note: `icon_name` is accessible via `original_icon_dom.node_data[0].get_node_type()` →
+/// `NodeType::Icon(name)`
 pub type IconResolverCallbackType = extern "C" fn(
     icon_data: OptionRefAny,
     original_icon_node: &NodeData,
@@ -392,7 +392,8 @@ impl IconProviderHandle {
         self.inner.icons.remove(pack_name);
     }
 
-    /// Look up an icon across all packs, returning the pack name and data reference (first match wins)
+    /// Look up an icon across all packs, returning the pack name and data reference (first match
+    /// wins)
     fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
         let icon_name_lower = icon_name.to_lowercase();
         for (pack_name, pack) in &self.inner.icons {
@@ -709,14 +710,13 @@ const MAX_ICON_INDIRECTION: usize = 8;
 /// That cost three things:
 ///
 /// * **A wasted cascade per icon**, whose result was discarded.
-/// * **Any icon that is not one node was impossible.** Registering a styled
-///   `Dom` as an icon could not work, because only the root survived.
-/// * **A stale property cache.** Rewriting a node's inline `style` after the
-///   cascade left the precomputed per-node arrays describing the PRE-resolution
-///   node. For a font icon that hid `font-family: StyleFontFamily::Ref(face)` -
-///   the only place that face is named - from font collection, so shaping fell
-///   back to a face with no glyph at the icon's private-use codepoint and drew
-///   `.notdef`. It needed an explicit cache rebuild to paper over.
+/// * **Any icon that is not one node was impossible.** Registering a styled `Dom` as an icon could
+///   not work, because only the root survived.
+/// * **A stale property cache.** Rewriting a node's inline `style` after the cascade left the
+///   precomputed per-node arrays describing the PRE-resolution node. For a font icon that hid
+///   `font-family: StyleFontFamily::Ref(face)` - the only place that face is named - from font
+///   collection, so shaping fell back to a face with no glyph at the icon's private-use codepoint
+///   and drew `.notdef`. It needed an explicit cache rebuild to paper over.
 ///
 /// Running on the `Dom` removes all three by construction. A `Dom` is a real
 /// tree (`root` + `children` + its own `css`), so a replacement is spliced whole;

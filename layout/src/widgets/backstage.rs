@@ -53,13 +53,12 @@ use azul_css::{
     },
     *,
 };
-
-use azul_css::system::SystemStyle;
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
-
-use crate::callbacks::CallbackInfo;
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, system::SystemStyle,
+};
 
 use super::button::{Button, ButtonOnClick, OptionButtonOnClick};
+use crate::callbacks::CallbackInfo;
 
 // -- Callbacks --
 

@@ -11,13 +11,12 @@
 //! The triage, so the next person does not repeat it. Building it with
 //! `--features DISABLED_hint_vs_freetype` yields **16 compile errors**:
 //!
-//!   * 11 x `tiny_skia` — the crate is no longer a dependency of this
-//!     workspace anywhere (the CPU rasteriser is `agg-rust` now). Every use is
-//!     a debug-PNG dump into `/tmp`, i.e. none of them assert anything.
-//!   * `allsorts::gsub::Features` moved, and `gpos::apply` grew a
-//!     `&[FeatureInfo]` parameter (allsorts-azul 0.17.2).
-//!   * `build_glyph_path` takes `&OwnedGlyph`; the call sites pass
-//!     `Arc<OwnedGlyph>` (3 sites).
+//!   * 11 x `tiny_skia` — the crate is no longer a dependency of this workspace anywhere (the CPU
+//!     rasteriser is `agg-rust` now). Every use is a debug-PNG dump into `/tmp`, i.e. none of them
+//!     assert anything.
+//!   * `allsorts::gsub::Features` moved, and `gpos::apply` grew a `&[FeatureInfo]` parameter
+//!     (allsorts-azul 0.17.2).
+//!   * `build_glyph_path` takes `&OwnedGlyph`; the call sites pass `Arc<OwnedGlyph>` (3 sites).
 //!
 //! Even with those fixed it would not be a gate: every one of the 36 tests
 //! opens a hard-coded macOS system font
@@ -78,12 +77,10 @@
 //! - `test_flag_changes_after_hinting`: Checks FLIPPT/FLIPRGON/FLIPRGOFF effects
 //! - `test_times_serif_hinting`: Visual check of serif characters at 16px
 
-use std::fmt::Write as FmtWrite;
-use std::fs;
+use std::{fmt::Write as FmtWrite, fs};
 
 use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::glyph_cache::build_path_from_contours;
+use azul_layout::{font::parsed::ParsedFont, glyph_cache::build_path_from_contours};
 
 fn load_helvetica_neue() -> Option<ParsedFont> {
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
@@ -516,10 +513,21 @@ fn test_hint_vs_freetype() {
                 if max_d > max_delta {
                     max_delta = max_d;
                 }
-                writeln!(report,
-                    "  pt[{:2}]: allsorts=({:6},{:6}) freetype=({:6},{:6}) delta=({:+4},{:+4}) = ({:+.4},{:+.4}) px",
-                    i, ax, ay, fx, fy, dx, dy, dx as f64 / 64.0, dy as f64 / 64.0
-                ).unwrap();
+                writeln!(
+                    report,
+                    "  pt[{:2}]: allsorts=({:6},{:6}) freetype=({:6},{:6}) delta=({:+4},{:+4}) = \
+                     ({:+.4},{:+.4}) px",
+                    i,
+                    ax,
+                    ay,
+                    fx,
+                    fy,
+                    dx,
+                    dy,
+                    dx as f64 / 64.0,
+                    dy as f64 / 64.0
+                )
+                .unwrap();
             }
         }
 
@@ -2053,7 +2061,10 @@ fn test_compare_path_ops() {
     let path = "/tmp/compare_path_ops.png";
     pixmap.save_png(path).unwrap();
     eprintln!("Wrote {}", path);
-    eprintln!("Cols: 0=visitor+Winding, 1=contour(F26)+Winding, 2=contour(raw<<6)+Winding, 3=contour(F26)+EvenOdd");
+    eprintln!(
+        "Cols: 0=visitor+Winding, 1=contour(F26)+Winding, 2=contour(raw<<6)+Winding, \
+         3=contour(F26)+EvenOdd"
+    );
 }
 
 /// Debug kerning: check if GPOS kern is applied for "Te" pair in Times New Roman.
@@ -2105,8 +2116,10 @@ fn test_debug_kerning() {
     }
 
     // Shape "Test" and check kerning values
-    use allsorts::gpos;
-    use allsorts::gsub::{self, Features, RawGlyph, RawGlyphFlags};
+    use allsorts::{
+        gpos,
+        gsub::{self, Features, RawGlyph, RawGlyphFlags},
+    };
 
     let text = "Test passes";
     let opt_gdef = font.opt_gdef_table.as_ref().map(|v| &**v);
@@ -2222,7 +2235,10 @@ fn test_hinting_at_small_ppem() {
                     let has_flags = owned.raw_on_curve.is_some();
                     let has_ends = owned.raw_contour_ends.is_some();
                     let has_instr = owned.instructions.is_some();
-                    eprintln!("  ppem={ppem} '{ch}' FAILED: pts={has_pts} flags={has_flags} ends={has_ends} instr={has_instr}");
+                    eprintln!(
+                        "  ppem={ppem} '{ch}' FAILED: pts={has_pts} flags={has_flags} \
+                         ends={has_ends} instr={has_instr}"
+                    );
                     fail += 1;
                 }
             }
@@ -2516,8 +2532,11 @@ fn test_total_width_64px() {
         total_our += our_adv;
         total_ft += ft_adv;
         if (our_adv - ft_adv).abs() > 0.01 {
-            eprintln!("'{ch}' our={our_adv:.2}px ft={ft_adv:.2}px diff={:.2}px total_our={total_our:.1}px total_ft={total_ft:.1}px",
-                our_adv - ft_adv);
+            eprintln!(
+                "'{ch}' our={our_adv:.2}px ft={ft_adv:.2}px diff={:.2}px \
+                 total_our={total_our:.1}px total_ft={total_ft:.1}px",
+                our_adv - ft_adv
+            );
         }
     }
     eprintln!(
@@ -3144,8 +3163,12 @@ fn test_cvt0_at_mismatch_ppem() {
         } else {
             String::new()
         };
-        eprintln!("ppem={ppem:2}: CVT[0]={cvt0:5} round={rounded:5} ({:2}px)  raw={raw:5} expected={expected:5} ({:2}px){flag}",
-            rounded/64, expected/64);
+        eprintln!(
+            "ppem={ppem:2}: CVT[0]={cvt0:5} round={rounded:5} ({:2}px)  raw={raw:5} \
+             expected={expected:5} ({:2}px){flag}",
+            rounded / 64,
+            expected / 64
+        );
     }
 }
 

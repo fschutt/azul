@@ -49,16 +49,15 @@ use azul_css::{
     },
     *,
 };
-
-use azul_css::system::SystemStyle;
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
-
-use crate::callbacks::CallbackInfo;
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, system::SystemStyle,
+};
 
 use super::{
     button::{Button, OptionButtonOnClick},
     slider::{OptionSliderOnValueChange, Slider},
 };
+use crate::callbacks::CallbackInfo;
 
 // -- Callbacks --
 
@@ -937,7 +936,6 @@ impl_option!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct StatusBarZoom {
-
     /// Optional − button callback.
     pub on_zoom_out: OptionButtonOnClick,
 
@@ -1104,7 +1102,11 @@ impl StatusBar {
     /// some other widget's type. Returns `true` without re-rendering when the
     /// text is unchanged, so calling it on every keystroke is free when
     /// nothing moved.
-    pub fn update_segment_label(info: &mut CallbackInfo, node_id: DomNodeId, label: AzString) -> bool {
+    pub fn update_segment_label(
+        info: &mut CallbackInfo,
+        node_id: DomNodeId,
+        label: AzString,
+    ) -> bool {
         let Some(mut dataset) = info.get_dataset(node_id) else {
             return false;
         };
@@ -1369,7 +1371,8 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
         .with_children(DomVec::from_vec(children))
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout numeric
+                                                                        // cast
 fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
     let StatusBarZoom {
         percent,
@@ -1494,7 +1497,10 @@ mod tests {
             StatusBarTheme::from_system(sys.clone()),
             StatusBarTheme::office_2013()
         );
-        assert_eq!(StatusBarStyle::from_system(sys), StatusBarStyle::office_2013());
+        assert_eq!(
+            StatusBarStyle::from_system(sys),
+            StatusBarStyle::office_2013()
+        );
     }
 
     #[test]
@@ -1532,8 +1538,7 @@ mod tests {
         assert_eq!(
             t.hover_bg,
             StatusBarTheme::office_2013().hover_bg,
-            "an unreported colour falls back to its OWN office value, never to \
-             another derived one"
+            "an unreported colour falls back to its OWN office value, never to another derived one"
         );
     }
 

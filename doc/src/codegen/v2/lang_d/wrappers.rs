@@ -43,27 +43,22 @@
 //!
 //! Conventions (identical to the Zig / Go backends):
 //!
-//! * The wrapper struct uses the **unprefixed** type name (`App`, not
-//!   `AzApp`). The raw C type stays reachable as `AzApp`, the raw
-//!   functions as `AzApp_*` / the `App_*` aliases.
-//! * Heap-owning types (those with an `Az<T>_delete`) get an explicit
-//!   `void deinit()`. We deliberately do NOT emit a D `~this()`
-//!   destructor: D copies structs by value freely, and an automatic
-//!   destructor would double-free the shared `inner`. Explicit
-//!   `scope(exit) x.deinit();` is the safe idiom, matching Zig's
-//!   `defer x.deinit();` and Go's `defer x.Close()`.
-//! * Constructors / static factories become `static Self <name>(...)`.
-//!   The api.json `new` method is renamed to `create` (`new` is a D
-//!   keyword).
-//! * Instance methods forward to the C function with `&this.inner`
-//!   (pointer self) or `this.inner` (by-value self, detected from the
-//!   first arg's ref-kind). A by-value consume flips `_consumed` so the
-//!   later `deinit` skips the now-double-free `_delete`.
-//! * Members are referenced through `this.` so a user parameter that
-//!   happens to be named `inner` / `_consumed` can shadow harmlessly.
-//! * Callback-wrapper arguments bind the RAW fn-pointer typedef variant,
-//!   exactly like `functions.rs` — so a plain `extern(C)` function's
-//!   address passes straight through, no host-invoker.
+//! * The wrapper struct uses the **unprefixed** type name (`App`, not `AzApp`). The raw C type
+//!   stays reachable as `AzApp`, the raw functions as `AzApp_*` / the `App_*` aliases.
+//! * Heap-owning types (those with an `Az<T>_delete`) get an explicit `void deinit()`. We
+//!   deliberately do NOT emit a D `~this()` destructor: D copies structs by value freely, and an
+//!   automatic destructor would double-free the shared `inner`. Explicit `scope(exit) x.deinit();`
+//!   is the safe idiom, matching Zig's `defer x.deinit();` and Go's `defer x.Close()`.
+//! * Constructors / static factories become `static Self <name>(...)`. The api.json `new` method is
+//!   renamed to `create` (`new` is a D keyword).
+//! * Instance methods forward to the C function with `&this.inner` (pointer self) or `this.inner`
+//!   (by-value self, detected from the first arg's ref-kind). A by-value consume flips `_consumed`
+//!   so the later `deinit` skips the now-double-free `_delete`.
+//! * Members are referenced through `this.` so a user parameter that happens to be named `inner` /
+//!   `_consumed` can shadow harmlessly.
+//! * Callback-wrapper arguments bind the RAW fn-pointer typedef variant, exactly like
+//!   `functions.rs` — so a plain `extern(C)` function's address passes straight through, no
+//!   host-invoker.
 //!
 //! # Skipped categories
 //!
@@ -74,15 +69,19 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+        managed_host_invoker::{
+            callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
+        },
+    },
+    arg_type_for_ref_kind, ffi_type_name, map_type_to_d, sanitize_identifier,
 };
-use super::super::managed_host_invoker::{
-    callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
-};
-use super::{arg_type_for_ref_kind, ffi_type_name, map_type_to_d, sanitize_identifier};
 
 /// Emit the idiomatic wrapper-struct section.
 pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {

@@ -2,30 +2,31 @@
 //! Racket generator.
 //!
 //! Strategy (mirrors the CFFI generator, adapted to `ffi/unsafe`):
-//! - **Unit-only enums** → integer `(define AzUpdate_RefreshDom 1)`
-//!   constants plus a `(define _AzUpdate _uint32)` ctype alias. The C ABI
-//!   passes fieldless enums as their repr int, so a plain int alias is the
-//!   right ctype for a by-value arg/field.
-//! - **Tagged-union enums** → one `define-cstruct` per variant payload
-//!   (each leading with a `tag` slot, matching the C ABI's
-//!   tag-then-payload layout) + a wrapping `(define _AzFoo (_union …))`
-//!   so a by-value arg/field gets the correct max-variant size. Tag
-//!   constants (`AzFoo_Tag_Bar`) are emitted for inspection.
-//! - **POD structs** → `(define-cstruct _AzFoo ([slot _uint32] …))`,
-//!   which also binds `make-AzFoo`, `AzFoo-slot`, `set-AzFoo-slot!`, and
-//!   `_AzFoo-pointer`.
+//! - **Unit-only enums** → integer `(define AzUpdate_RefreshDom 1)` constants plus a `(define
+//!   _AzUpdate _uint32)` ctype alias. The C ABI passes fieldless enums as their repr int, so a
+//!   plain int alias is the right ctype for a by-value arg/field.
+//! - **Tagged-union enums** → one `define-cstruct` per variant payload (each leading with a `tag`
+//!   slot, matching the C ABI's tag-then-payload layout) + a wrapping `(define _AzFoo (_union …))`
+//!   so a by-value arg/field gets the correct max-variant size. Tag constants (`AzFoo_Tag_Bar`) are
+//!   emitted for inspection.
+//! - **POD structs** → `(define-cstruct _AzFoo ([slot _uint32] …))`, which also binds `make-AzFoo`,
+//!   `AzFoo-slot`, `set-AzFoo-slot!`, and `_AzFoo-pointer`.
 //! - **Callback typedefs** → `(define _AzFooCallbackType _fpointer)`.
 //! - **Generic / Recursive** types are skipped (internal to the Rust side).
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+            MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+        },
+    },
+    c_name, ctype_name, field_ident, map_type_to_racket,
 };
-use super::{c_name, ctype_name, field_ident, map_type_to_racket};
 
 pub fn generate_types(
     builder: &mut CodeBuilder,

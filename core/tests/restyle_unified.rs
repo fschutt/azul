@@ -8,7 +8,7 @@
 //!
 //! The architecture ensures that:
 //! - FocusManager state → StyledNodeState.focused is synchronized
-//! - HoverManager state → StyledNodeState.hover is synchronized  
+//! - HoverManager state → StyledNodeState.hover is synchronized
 //! - ActiveChange state → StyledNodeState.active is synchronized
 
 use azul_core::{

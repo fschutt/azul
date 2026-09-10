@@ -7,43 +7,40 @@
 //!
 //! Strategy:
 //!
-//! - **Unit (simple) enums** -> `AzFoo* {.pure, size: 4.} = enum` with
-//!   each member pinned to its explicit ordinal (`A = 0`). A C `enum`
-//!   is `int`-wide (4 bytes) — matching Rust `#[repr(C)]` — so we pin the
-//!   size at 4. The enum is `{.pure.}` so its members are scoped under the
-//!   type (`AzFoo.A`) and never injected into the top-level namespace.
-//!   This is load-bearing: Nim identifiers are style-insensitive (case-
-//!   and underscore-insensitive after the first char), so an un-pure
-//!   member `AzShape_Ellipse` would collide with the payload struct
-//!   `AzShapeEllipse` (`Az<Enum>_<Variant>` == `Az<Enum><Variant>`).
-//!   Scoping the members removes the top-level `AzFoo_Bar` identifier
-//!   entirely, so no such clash can exist. Call sites use `AzFoo.Bar`.
-//! - **Tagged-union enums** -> one `{.bycopy.} object` per variant, each
-//!   starting with a `tag*: uint8` field (mirroring the C header's
-//!   `uint8_t tag;`) followed by the payload fields, grouped under a
-//!   `{.union.} object` whose members are named after the variants. This
-//!   is a byte-for-byte match of the C-API layout the prebuilt `libazul`
-//!   was compiled against.
-//! - **POD structs** -> `{.bycopy.} object` with fields resolved via
-//!   `map_type_to_nim`. Empty (opaque) structs become a field-less
-//!   `object` (Nim allows this; such types are only ever held by pointer
-//!   or moved by value as an opaque blob).
-//! - **Callback typedefs** -> `AzFooCallbackType* = proc (...): Ret
-//!   {.cdecl.}` proc-pointer types.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with a `# SKIPPED: <reason>` comment.
+//! - **Unit (simple) enums** -> `AzFoo* {.pure, size: 4.} = enum` with each member pinned to its
+//!   explicit ordinal (`A = 0`). A C `enum` is `int`-wide (4 bytes) — matching Rust `#[repr(C)]` —
+//!   so we pin the size at 4. The enum is `{.pure.}` so its members are scoped under the type
+//!   (`AzFoo.A`) and never injected into the top-level namespace. This is load-bearing: Nim
+//!   identifiers are style-insensitive (case- and underscore-insensitive after the first char), so
+//!   an un-pure member `AzShape_Ellipse` would collide with the payload struct `AzShapeEllipse`
+//!   (`Az<Enum>_<Variant>` == `Az<Enum><Variant>`). Scoping the members removes the top-level
+//!   `AzFoo_Bar` identifier entirely, so no such clash can exist. Call sites use `AzFoo.Bar`.
+//! - **Tagged-union enums** -> one `{.bycopy.} object` per variant, each starting with a `tag*:
+//!   uint8` field (mirroring the C header's `uint8_t tag;`) followed by the payload fields, grouped
+//!   under a `{.union.} object` whose members are named after the variants. This is a byte-for-byte
+//!   match of the C-API layout the prebuilt `libazul` was compiled against.
+//! - **POD structs** -> `{.bycopy.} object` with fields resolved via `map_type_to_nim`. Empty
+//!   (opaque) structs become a field-less `object` (Nim allows this; such types are only ever held
+//!   by pointer or moved by value as an opaque blob).
+//! - **Callback typedefs** -> `AzFooCallbackType* = proc (...): Ret {.cdecl.}` proc-pointer types.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with a `# SKIPPED:
+//!   <reason>` comment.
+
+use std::collections::HashSet;
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use std::collections::HashSet;
-
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    FunctionArg, MonomorphizedKind, StructDef, TypeAliasDef,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, FunctionArg, MonomorphizedKind, StructDef, TypeAliasDef,
+        },
+    },
+    ffi_type_name, map_type_to_nim, ptr_type_for, sanitize_comment, sanitize_identifier,
 };
-use super::{ffi_type_name, map_type_to_nim, ptr_type_for, sanitize_comment, sanitize_identifier};
 
 pub fn generate_types(
     builder: &mut CodeBuilder,

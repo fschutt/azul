@@ -15,25 +15,33 @@
 //! the drained changes are applied before `regenerate_layout` returns.
 //! We then inspect the cache directly.
 
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, Update};
-use azul_core::dom::{Dom, DomId, NodeData};
-use azul_core::events::{ComponentEventFilter, EventFilter};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::id::NodeId;
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_css::props::layout::dimensions::LayoutWidth;
-use azul_css::props::property::{CssProperty, CssPropertyType};
-use azul_layout::callbacks::{Callback, CallbackInfo};
-use azul_layout::window_state::WindowCreateOptions;
+use azul::desktop::shell2::{common::PlatformWindow, headless::HeadlessWindow};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
+    dom::{Dom, DomId, NodeData},
+    events::{ComponentEventFilter, EventFilter},
+    icon::{IconProviderHandle, SharedIconProvider},
+    id::NodeId,
+    refany::RefAny,
+    resources::AppConfig,
+};
+use azul_css::props::{
+    layout::dimensions::LayoutWidth,
+    property::{CssProperty, CssPropertyType},
+};
+use azul_layout::{
+    callbacks::{Callback, CallbackInfo},
+    window_state::WindowCreateOptions,
+};
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
 
 #[derive(Clone)]
 struct TestState {
@@ -169,8 +177,7 @@ fn override_node_css_properties_lands_in_user_overridden_cache() {
 
     let cache = layout_result.styled_dom.get_css_property_cache();
     let vec_for_node = cache.user_overridden_properties.get(1).expect(
-        "user_overridden_properties vec must cover node 1 after the \
-             writer grew it to node_count",
+        "user_overridden_properties vec must cover node 1 after the writer grew it to node_count",
     );
 
     let width_entry = vec_for_node

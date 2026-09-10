@@ -7,10 +7,9 @@ use azul_core::{
     prop_cache::{CssPropertyOrigin, CssPropertyWithOrigin},
     styled_dom::StyledDom,
 };
-use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::{
-    css::Css,
-    css::CssPropertyValue,
+    css::{Css, CssPropertyValue},
+    dynamic_selector::CssPropertyWithConditions,
     props::{
         basic::{font::StyleFontSize, length::SizeMetric},
         property::{CssProperty, CssPropertyType},
@@ -69,15 +68,24 @@ fn test_computed_values_exist_for_all_nodes() {
     let node_2 = azul_core::dom::NodeId::new(2);
 
     assert!(
-        cache.computed_values.values_for_opt(node_0.index()).is_some(),
+        cache
+            .computed_values
+            .values_for_opt(node_0.index())
+            .is_some(),
         "Node 0 should have computed values"
     );
     assert!(
-        cache.computed_values.values_for_opt(node_1.index()).is_some(),
+        cache
+            .computed_values
+            .values_for_opt(node_1.index())
+            .is_some(),
         "Node 1 should have computed values"
     );
     assert!(
-        cache.computed_values.values_for_opt(node_2.index()).is_some(),
+        cache
+            .computed_values
+            .values_for_opt(node_2.index())
+            .is_some(),
         "Node 2 should have computed values"
     );
 }
@@ -376,7 +384,10 @@ fn test_no_computed_values_for_nonexistent_node() {
 
     // Node 100 doesn't exist
     let nonexistent_id = azul_core::dom::NodeId::new(100);
-    assert!(cache.computed_values.values_for_opt(nonexistent_id.index()).is_none());
+    assert!(cache
+        .computed_values
+        .values_for_opt(nonexistent_id.index())
+        .is_none());
 }
 
 #[test]
@@ -557,9 +568,11 @@ fn test_text_node_inherits_from_parent() {
     }
 }
 
-use azul_core::dom::{NodeData, NodeId};
-use azul_core::prop_cache::*;
-use azul_core::styled_dom::StyledNodeState;
+use azul_core::{
+    dom::{NodeData, NodeId},
+    prop_cache::*,
+    styled_dom::StyledNodeState,
+};
 use azul_css::props::layout::LayoutDisplay;
 
 #[test]
@@ -873,7 +886,6 @@ fn has_compact_encoding_covers_all_compact_properties() {
     }
 }
 
-
 /// `values_for_opt` must distinguish "no such node" from "this node resolved
 /// nothing".
 ///
@@ -890,13 +902,16 @@ fn values_for_opt_separates_an_empty_node_from_a_missing_one() {
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
     let n = cache.computed_values.len();
-    assert!(n >= 3, "expected at least the div, p and text nodes, got {n}");
+    assert!(
+        n >= 3,
+        "expected at least the div, p and text nodes, got {n}"
+    );
 
     for i in 0..n {
         assert!(
             cache.computed_values.values_for_opt(i).is_some(),
-            "node {i} is within the store, so it must answer Some - even with \
-             no inherited properties of its own",
+            "node {i} is within the store, so it must answer Some - even with no inherited \
+             properties of its own",
         );
     }
 

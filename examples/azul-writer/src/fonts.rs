@@ -12,21 +12,23 @@
 //! "Liberation Sans" is metric-compatible with Arial — the closest
 //! stand-in for the Office-2013-era Segoe UI that ships on stock Ubuntu.
 
-use azul::css::{
-    ColorU, CssProperty, CssPropertyWithConditions, LayoutMarginBottom, LayoutMarginTop,
-    PixelValue, StyleFontFamily, StyleFontSize, StyleTextColor,
+use azul::{
+    css::{
+        ColorU, CssProperty, CssPropertyWithConditions, LayoutMarginBottom, LayoutMarginTop,
+        PixelValue, StyleFontFamily, StyleFontSize, StyleTextColor,
+    },
+    dom::Dom,
+    vec::{CssPropertyWithConditionsVec, StyleFontFamilyVec},
 };
-use azul::dom::Dom;
-use azul::vec::{CssPropertyWithConditionsVec, StyleFontFamilyVec};
 
 /// The pinned UI family, as a CSS string fragment for `with_css` blocks.
 pub const UI_FONT_CSS: &str = "font-family: \"Liberation Sans\";";
 
 /// One `font-family: "Liberation Sans"` declaration.
 fn ui_font_cond() -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(
-        StyleFontFamilyVec::from(vec![StyleFontFamily::System("Liberation Sans".into())]),
-    ))
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(StyleFontFamilyVec::from(
+        vec![StyleFontFamily::System("Liberation Sans".into())],
+    )))
 }
 
 /// Appends the pinned family to a widget part style. Inline properties

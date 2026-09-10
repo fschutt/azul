@@ -35,8 +35,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{
@@ -123,7 +123,9 @@ pub enum ToastKind {
 
 impl ToastKind {
     /// Returns the `(background, border, text)` colours for this toast kind.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
@@ -1051,8 +1053,8 @@ mod autotest_generated {
         assert_eq!(
             info.len(),
             32,
-            "the container style declares 32 properties (pin: adding/removing one is a \
-             deliberate change)"
+            "the container style declares 32 properties (pin: adding/removing one is a deliberate \
+             change)"
         );
 
         for kind in ALL_KINDS {

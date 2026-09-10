@@ -8,20 +8,21 @@
 //!   /tmp/phase2_hinting_allsorts.txt   — hinted point output from allsorts
 //!   /tmp/font_data_allsorts.txt        — font-level data (CVT, fpgm, prep, maxp)
 
-use std::fmt::Write as FmtWrite;
-use std::fs;
+use std::{fmt::Write as FmtWrite, fs};
 
+use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
+    hinting::f26dot6::{compute_scale, F26Dot6},
+    tables::FontTableProvider,
+    tag,
+};
 use azul_layout::font::parsed::ParsedFont;
 
-use allsorts::binary::read::ReadScope;
-use allsorts::font_data::FontData;
-use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
-use allsorts::tables::FontTableProvider;
-use allsorts::tag;
-
 fn load_helvetica_neue() -> Option<ParsedFont> {
-    use rust_fontconfig::FontBytes;
     use std::sync::Arc;
+
+    use rust_fontconfig::FontBytes;
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
     let font_bytes = fs::read(font_path).ok()?;
     let mut warnings = Vec::new();

@@ -15,8 +15,8 @@ use azul_core::{
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{
-        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector,
-        PseudoStateType, ThemeCondition,
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector, PseudoStateType,
+        ThemeCondition,
     },
     props::{
         basic::{
@@ -30,7 +30,6 @@ use azul_css::{
     },
     *,
 };
-
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
 };
@@ -1684,8 +1683,8 @@ mod autotest_generated {
             assert_eq!(
                 rendered_pairs(dom.children.as_ref()),
                 expected_of(&shape, 0),
-                "dom() must index nodes pre-order over the whole tree, \
-                 including the collapsed ones it does not draw"
+                "dom() must index nodes pre-order over the whole tree, including the collapsed \
+                 ones it does not draw"
             );
         }
     }

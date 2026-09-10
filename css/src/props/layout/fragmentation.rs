@@ -193,12 +193,12 @@ impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    use core::num::ParseIntError;
+
     #[allow(clippy::wildcard_imports)]
     // parser submodule reuses the parent module's value types
     use super::*;
-    use crate::corety::AzString;
-    use crate::props::layout::position::ParseIntErrorWithInput;
-    use core::num::ParseIntError;
+    use crate::{corety::AzString, props::layout::position::ParseIntErrorWithInput};
 
     // -- PageBreak parser (`break-before`, `break-after`)
 

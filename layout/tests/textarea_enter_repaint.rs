@@ -2,17 +2,15 @@
 //! host (`white-space: pre-wrap`), where Enter inserts an
 //! `InlineContent::LineBreak` through text3 rather than splitting blocks.
 //!
-//! - A. Enter at the end of the text: the caret must LAND ON THE NEW EMPTY
-//!   LINE — a rect must exist (it vanished: the cursor addresses the empty
-//!   run after the trailing break, which shapes to no cluster), sit BELOW the
-//!   previous line, and lie inside the host's border box.
-//! - B. After Enter mid-text every shifted line must repaint: an incremental
-//!   frame (damage-diff + clipped raster, the path every shell presents
-//!   through) must be pixel-identical to a full repaint. Same for a plain
-//!   character insert (device: typing under-damages, Enter eventually covers).
-//! - C. A TextArea whose content overflows must actually BE a scroller: the
-//!   container registers a scroll node and the scroll-target walk finds IT,
-//!   not the page.
+//! - A. Enter at the end of the text: the caret must LAND ON THE NEW EMPTY LINE — a rect must exist
+//!   (it vanished: the cursor addresses the empty run after the trailing break, which shapes to no
+//!   cluster), sit BELOW the previous line, and lie inside the host's border box.
+//! - B. After Enter mid-text every shifted line must repaint: an incremental frame (damage-diff +
+//!   clipped raster, the path every shell presents through) must be pixel-identical to a full
+//!   repaint. Same for a plain character insert (device: typing under-damages, Enter eventually
+//!   covers).
+//! - C. A TextArea whose content overflows must actually BE a scroller: the container registers a
+//!   scroll node and the scroll-target walk finds IT, not the page.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -273,9 +271,8 @@ fn pixel_diff_bbox(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, u32, u32
 // C. The overflowing TextArea is a scroller
 // =========================================================================
 
-const TEN_LINES: &str =
-    "line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline \
-     eight\nline nine\nline ten";
+const TEN_LINES: &str = "line one\nline two\nline three\nline four\nline five\nline six\nline \
+                         seven\nline eight\nline nine\nline ten";
 
 #[test]
 fn an_overflowing_text_area_registers_as_a_scroller() {
@@ -349,8 +346,8 @@ fn enter_at_end_of_text_keeps_the_caret_on_the_new_empty_line() {
     h.type_str("\n");
 
     let after = h.lw.get_focused_cursor_rect().expect(
-        "the caret must still have a rect after Enter on the last line \
-         (cursor after a trailing LineBreak)",
+        "the caret must still have a rect after Enter on the last line (cursor after a trailing \
+         LineBreak)",
     );
     eprintln!("  [caret] after Enter: {after:?}");
 
@@ -477,9 +474,9 @@ fn assert_incremental_identity(h: &mut Harness, edit: &str) -> Option<Vec<Logica
     let offsets = cpurender::ScrollOffsetMap::new();
 
     let present_frame = |h: &mut Harness,
-                             base: &mut AzulPixmap,
-                             prev: &azul_layout::solver3::display_list::DisplayList,
-                             tag: &str| {
+                         base: &mut AzulPixmap,
+                         prev: &azul_layout::solver3::display_list::DisplayList,
+                         tag: &str| {
         let dl = h.dl();
         let damage = cpurender::compute_display_list_damage(prev, &dl, &offsets, &offsets);
         eprintln!(

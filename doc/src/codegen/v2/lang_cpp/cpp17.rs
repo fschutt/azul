@@ -7,10 +7,13 @@
 //! - std::string_view support for String type
 //! - std::variant support for tagged unions (future)
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::{common::*, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    CppDialect,
+};
 
 /// C++17 dialect generator
 pub struct Cpp17Generator;
@@ -27,7 +30,10 @@ impl CppDialect for Cpp17Generator {
         // Header comment
         code.push_str(&generate_header_comment(std));
         code.push_str(&generate_feature_docs(std));
-        code.push_str("// =============================================================================\r\n\r\n");
+        code.push_str(
+            "// =============================================================================\r\n\\
+             r\n",
+        );
 
         // Include guards
         code.push_str(&generate_include_guards_begin(std));
@@ -103,7 +109,10 @@ impl CppDialect for Cpp17Generator {
 
         // Method implementations
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -236,7 +245,8 @@ impl CppDialect for Cpp17Generator {
                 c_type_name, c_type_name
             ));
             code.push_str(&format!(
-                "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+                "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return \
+                 result; }}\r\n",
                 c_type_name, c_type_name
             ));
         }
@@ -499,7 +509,8 @@ impl CppDialect for Cpp17Generator {
                 class_name, class_name
             ));
             code.push_str(&format!(
-                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return *this; }}\r\n",
+                "    {}& operator=(const {}& other) noexcept {{ inner_ = other.inner_; return \
+                 *this; }}\r\n",
                 class_name, class_name
             ));
         } else if needs_destructor {
@@ -596,7 +607,8 @@ impl CppDialect for Cpp17Generator {
             c_elem_type, c_elem_type
         ));
         code.push_str(&format!(
-            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); }}\r\n",
+            "    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); \
+             }}\r\n",
             c_elem_type, c_elem_type
         ));
     }
@@ -608,18 +620,35 @@ impl CppDialect for Cpp17Generator {
         _config: &CodegenConfig,
     ) {
         code.push_str("\r\n    // String methods\r\n");
-        code.push_str("    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
-        code.push_str("    String(const std::string& s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, s.size())) {}\r\n");
+        code.push_str(
+            "    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const \
+             uint8_t*>(s), 0, std::strlen(s))) {}\r\n",
+        );
+        code.push_str(
+            "    String(const std::string& s) : \
+             inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, \
+             s.size())) {}\r\n",
+        );
         // C++17: std::string_view
-        code.push_str("    String(std::string_view sv) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(sv.data()), 0, sv.size())) {}\r\n");
-        code.push_str("    const char* c_str() const { return reinterpret_cast<const char*>(inner_.vec.ptr); }\r\n");
+        code.push_str(
+            "    String(std::string_view sv) : \
+             inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(sv.data()), 0, \
+             sv.size())) {}\r\n",
+        );
+        code.push_str(
+            "    const char* c_str() const { return reinterpret_cast<const \
+             char*>(inner_.vec.ptr); }\r\n",
+        );
         code.push_str("    size_t length() const { return inner_.vec.len; }\r\n");
         code.push_str(
             "    std::string toStdString() const { return std::string(c_str(), length()); }\r\n",
         );
         code.push_str("    operator std::string() const { return toStdString(); }\r\n");
         // C++17: std::string_view
-        code.push_str("    std::string_view toStringView() const { return std::string_view(c_str(), length()); }\r\n");
+        code.push_str(
+            "    std::string_view toStringView() const { return std::string_view(c_str(), \
+             length()); }\r\n",
+        );
         code.push_str("    operator std::string_view() const { return toStringView(); }\r\n");
     }
 
@@ -658,7 +687,8 @@ impl CppDialect for Cpp17Generator {
             c_inner_type
         ));
         code.push_str(&format!(
-            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
+            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; \
+             }}\r\n",
             c_inner_type, c_inner_type
         ));
         // C++17: std::optional — yields std::optional<Wrapper> when the
@@ -821,5 +851,4 @@ impl Cpp17Generator {
             }
         }
     }
-
 }

@@ -3,47 +3,39 @@
 //! Architecture (per the user's design in MOBILE_SESSION_LOG and the
 //! follow-up clarification):
 //!
-//! - **Widget, not a NodeType.** `MapWidget` builds a regular `<div>`
-//!   that owns a `MapTileCache` `RefAny` dataset. The cache holds
-//!   decoded SVG bytes per `MapTileId`; the dataset is the unit of
-//!   persistence across relayout.
-//! - **Tile cache survives relayout** via a `DatasetMergeCallback`.
-//!   Every relayout creates a fresh `MapTileCache` skeleton; the
-//!   merge callback transfers all `Ready` / `Pending` entries from
-//!   the old dataset into the new one, so in-flight fetches and
-//!   already-decoded SVGs aren't dropped.
-//! - **VirtualView drives lazy rendering.** The widget's body is a
-//!   `VirtualView` callback that:
-//!     1. Computes which tile XYZs are visible from the current
-//!        viewport + viewport size.
-//!     2. For each visible tile not yet in the cache, marks it
-//!        `Pending` and (eventually) enqueues an HTTP fetch.
-//!     3. Returns a `Dom` whose children are one `<div>` per visible
-//!        tile, GPU-translated into screen space via
-//!        `transform: translate(x, y) scale(z)`. Each tile div's
-//!        inner content is the cached SVG DOM, or an empty
-//!        placeholder while the fetch is in flight.
-//! - **MVT + MapCSS → SVG → DOM.** The decode pipeline (MVT protobuf
-//!   bytes + a MapCSS stylesheet → an `<svg>` tree → the framework's
-//!   existing svg-to-dom path) lands in a follow-up tick. This tick
-//!   provides the widget shell + the dataset / merge-callback / virtual-
-//!   view wiring; tiles render as empty placeholders.
-//! - **Geolocation dot composes on top.** Users stack a normal child
-//!   `Dom` (with a `NodeType::GeolocationProbe` deeper in the
-//!   subtree) on top of the map widget - the widget doesn't bake in
-//!   any geolocation feature itself.
+//! - **Widget, not a NodeType.** `MapWidget` builds a regular `<div>` that owns a `MapTileCache`
+//!   `RefAny` dataset. The cache holds decoded SVG bytes per `MapTileId`; the dataset is the unit
+//!   of persistence across relayout.
+//! - **Tile cache survives relayout** via a `DatasetMergeCallback`. Every relayout creates a fresh
+//!   `MapTileCache` skeleton; the merge callback transfers all `Ready` / `Pending` entries from the
+//!   old dataset into the new one, so in-flight fetches and already-decoded SVGs aren't dropped.
+//! - **VirtualView drives lazy rendering.** The widget's body is a `VirtualView` callback that:
+//!     1. Computes which tile XYZs are visible from the current viewport + viewport size.
+//!     2. For each visible tile not yet in the cache, marks it `Pending` and (eventually) enqueues
+//!        an HTTP fetch.
+//!     3. Returns a `Dom` whose children are one `<div>` per visible tile, GPU-translated into
+//!        screen space via `transform: translate(x, y) scale(z)`. Each tile div's inner content is
+//!        the cached SVG DOM, or an empty placeholder while the fetch is in flight.
+//! - **MVT + MapCSS → SVG → DOM.** The decode pipeline (MVT protobuf bytes + a MapCSS stylesheet →
+//!   an `<svg>` tree → the framework's existing svg-to-dom path) lands in a follow-up tick. This
+//!   tick provides the widget shell + the dataset / merge-callback / virtual- view wiring; tiles
+//!   render as empty placeholders.
+//! - **Geolocation dot composes on top.** Users stack a normal child `Dom` (with a
+//!   `NodeType::GeolocationProbe` deeper in the subtree) on top of the map widget - the widget
+//!   doesn't bake in any geolocation feature itself.
 //!
 //! Compile gate: no new HTTP / MVT / proj4 dependencies in this tick.
 //! Those land alongside the actual decode pipeline.
 
 use alloc::collections::btree_map::BTreeMap;
 
-use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{DatasetMergeCallbackType, Dom, OptionDom};
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
+use azul_core::{
+    callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{DatasetMergeCallbackType, Dom, OptionDom},
+    refany::{OptionRefAny, RefAny},
+};
 use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
-use azul_css::AzString;
+use azul_css::{dynamic_selector::CssPropertyWithConditionsVec, AzString};
 
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
@@ -649,15 +641,12 @@ impl MapWidget {
 
     /// Construct the rendered `Dom`. The returned `Dom` is a single
     /// `<div>` with:
-    /// - A `MapTileCache` `RefAny` dataset (initialised from this
-    ///   widget's `viewport` + `layer`).
+    /// - A `MapTileCache` `RefAny` dataset (initialised from this widget's `viewport` + `layer`).
     /// - A `DatasetMergeCallback` so the cache survives relayout.
-    /// - A `VirtualView` child that re-renders the visible-tile grid
-    ///   on bounds change.
-    /// - Mouse-down / mouse-move / mouse-up callbacks that pan the
-    ///   viewport while a drag is active (the widget owns the
-    ///   pan state via `MapTileCache::drag_anchor`, so user code
-    ///   doesn't have to wire anything).
+    /// - A `VirtualView` child that re-renders the visible-tile grid on bounds change.
+    /// - Mouse-down / mouse-move / mouse-up callbacks that pan the viewport while a drag is active
+    ///   (the widget owns the pan state via `MapTileCache::drag_anchor`, so user code doesn't have
+    ///   to wire anything).
     /// - Pinch callbacks that zoom in / out.
     ///
     /// No tile-fetch worker is wired - tiles render as placeholders.
@@ -1133,7 +1122,8 @@ impl MapTileCache {
 /// both the fetch order (nearest first) and the cache eviction (farthest
 /// first), so the two can never disagree about what "near the user" means.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 fn tile_viewport_score(viewport: &MapViewport, layer: &MapTileLayer, id: MapTileId) -> f64 {
     let z = (viewport.zoom.floor() as i32)
         .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
@@ -1266,11 +1256,15 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
 
 // ────────── Pan + zoom callbacks ─────────────────────────────────────
 
-use crate::callbacks::CallbackInfo;
-use crate::timer::{Timer, TimerCallback, TimerCallbackInfo};
-use azul_core::callbacks::TimerCallbackReturn;
-use azul_core::callbacks::Update;
-use azul_core::task::{Duration, SystemTimeDiff, TerminateTimer, TimerId};
+use azul_core::{
+    callbacks::{TimerCallbackReturn, Update},
+    task::{Duration, SystemTimeDiff, TerminateTimer, TimerId},
+};
+
+use crate::{
+    callbacks::CallbackInfo,
+    timer::{Timer, TimerCallback, TimerCallbackInfo},
+};
 
 // --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
 
@@ -1551,7 +1545,8 @@ extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) ->
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Cursor + container size for tap projection (read before borrowing data).
     let up_pos = info
@@ -1783,7 +1778,8 @@ fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
 /// Verified against the forward direction in the tests below; the
 /// upcoming tap-to-pin handler reuses it to turn a tap into a lat/lon.
 #[allow(dead_code)]
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
     x / tile_count * 360.0 - 180.0
 }
@@ -1873,9 +1869,8 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][svg] svg_string_to_dom called, but this build has no `xml` \
-             feature — SVG-to-DOM always returns None. Rebuild azul-layout with \
-             the `xml` feature"
+            "[azul][svg] svg_string_to_dom called, but this build has no `xml` feature — \
+             SVG-to-DOM always returns None. Rebuild azul-layout with the `xml` feature"
         );
     });
     None
@@ -1921,14 +1916,15 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// per tile (capped per call so a big viewport jump doesn't spawn
 /// hundreds at once). Each thread gets:
 /// - init `RefAny` = `TileFetchInit { tile, url }`
-/// - writeback `RefAny` = a clone of the cache dataset, so
-///   `map_tile_writeback` mutates the same cache the `VirtualView` reads.
+/// - writeback `RefAny` = a clone of the cache dataset, so `map_tile_writeback` mutates the same
+///   cache the `VirtualView` reads.
 ///
 /// Tiles transition `Pending → Fetching` here so they aren't
 /// re-spawned next frame. No-op when the cache has no `fetch_callback`.
 fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
-    use crate::thread::Thread;
     use azul_core::task::ThreadId;
+
+    use crate::thread::Thread;
 
     // Per-call spawn cap — bounds the burst on a big viewport jump.
     const MAX_SPAWN_PER_CALL: usize = 16;
@@ -1963,8 +1959,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 std::eprintln!(
-                    "[map] spawn_pending: ABORT — no fetch_callback on the cache \
-                     ({} tiles held)",
+                    "[map] spawn_pending: ABORT — no fetch_callback on the cache ({} tiles held)",
                     cache.tiles.len()
                 );
             }
@@ -2147,8 +2142,11 @@ pub extern "C" fn map_tile_writeback(
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 std::eprintln!(
-                    "[map] writeback: DROPPED tile=({},{},{}) — target dataset is not a MapTileCache",
-                    msg.0.z, msg.0.x, msg.0.y
+                    "[map] writeback: DROPPED tile=({},{},{}) — target dataset is not a \
+                     MapTileCache",
+                    msg.0.z,
+                    msg.0.x,
+                    msg.0.y
                 );
             }
             return Update::DoNothing;
@@ -2186,8 +2184,8 @@ pub extern "C" fn map_tile_writeback(
         #[cfg(feature = "std")]
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             eprintln!(
-                "[map] writeback tile=({},{},{}) theme={:?} stored={} svg_len={} \
-                 bytes_cached={} err={:?}",
+                "[map] writeback tile=({},{},{}) theme={:?} stored={} svg_len={} bytes_cached={} \
+                 err={:?}",
                 msg.0.z,
                 msg.0.x,
                 msg.0.y,
@@ -2219,7 +2217,8 @@ pub extern "C" fn map_tile_writeback(
 /// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
 /// loop - what decides which tiles get fetched.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render
+                                                                       // numeric cast
 fn visible_tile_range(
     centre_x: f32,
     centre_y: f32,
@@ -2258,7 +2257,8 @@ fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 fn map_visible_tiles(
     viewport: &MapViewport,
     bounds: azul_core::geom::LogicalSize,
@@ -2300,7 +2300,8 @@ fn map_visible_tiles(
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )] // bounded layout/render numeric cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     enum TileDisplay {
         Glyph(&'static str),
@@ -2393,8 +2394,17 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // grid (the usual causes of a blank map).
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         eprintln!(
-            "[map] render bounds={:.0}x{:.0} z={} centre_tile=({:.2},{:.2}) tiles x{}..{} y{}..{} = {}",
-            width_px, height_px, z_int, centre_x, centre_y, x_min, x_max, y_min, y_max,
+            "[map] render bounds={:.0}x{:.0} z={} centre_tile=({:.2},{:.2}) tiles x{}..{} y{}..{} \
+             = {}",
+            width_px,
+            height_px,
+            z_int,
+            centre_x,
+            centre_y,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
             (x_max - x_min + 1).max(0) * (y_max - y_min + 1).max(0)
         );
     }
@@ -2466,7 +2476,8 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // GPU: WebRender's 3D transforms).
     let grid_css = match camera_transform_css(&viewport, width_px, height_px) {
         Some(camera) => format!(
-            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; {camera}"
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; \
+             {camera}"
         ),
         None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;"
             .to_string(),
@@ -2480,8 +2491,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // nothing). `data` is the shared cache the handlers mutate; the in-place
     // re-render they trigger re-reads it.
     {
-        use crate::callbacks::{Callback, CallbackType};
         use azul_core::dom::{EventFilter, HoverEventFilter};
+
+        use crate::callbacks::{Callback, CallbackType};
         grid = grid
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -2616,8 +2628,8 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 "background: #e7e9ec; border: 1px solid #d0d4d9;"
             };
             let style = alloc::format!(
-                "position: absolute; left: {screen_x}px; top: {screen_y}px; \
-                 width: {size_w}px; height: {size_h}px; {chrome}"
+                "position: absolute; left: {screen_x}px; top: {screen_y}px; width: {size_w}px; \
+                 height: {size_h}px; {chrome}"
             );
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
@@ -2633,8 +2645,13 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            crate::widgets::widget_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
-                                .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
+                            crate::widgets::widget_p_with_text(alloc::format!(
+                                "✓? z{z_int}/{x}/{y}"
+                            ))
+                            .with_css(
+                                "position: absolute; left: 4px; top: 4px; font-size: 11px; color: \
+                                 #888;",
+                            ),
                         );
                     }
                 },
@@ -2644,8 +2661,13 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        crate::widgets::widget_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
-                            .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
+                        crate::widgets::widget_p_with_text(alloc::format!(
+                            "{state_tag} z{z_int}/{x}/{y}"
+                        ))
+                        .with_css(
+                            "position: absolute; left: 4px; top: 4px; font-size: 11px; color: \
+                             #888;",
+                        ),
                     );
                 }
             }
@@ -2741,8 +2763,9 @@ mod camera_tests {
 
 #[cfg(test)]
 mod theme_tests {
-    use super::*;
     use azul_core::window::WindowTheme;
+
+    use super::*;
 
     #[test]
     fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
@@ -3340,6 +3363,7 @@ mod autotest_generated {
         hit_test::ScrollPosition,
         resources::{DpiScaleFactor, ImageCache, RendererResources},
         styled_dom::NodeHierarchyItemId,
+        task::ThreadReceiver,
         window::{MonitorVec, RawWindowHandle, WindowTheme},
     };
     use azul_css::system::SystemStyle;
@@ -3348,8 +3372,6 @@ mod autotest_generated {
     use super::*;
     #[cfg(feature = "icu")]
     use crate::icu::IcuLocalizerHandle;
-    use azul_core::task::ThreadReceiver;
-
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         thread::{ThreadCallback, ThreadCallbackType, ThreadSender},
@@ -4351,7 +4373,10 @@ mod autotest_generated {
         let mut plain = MapWidget::create(MapTileLayer::default()).dom();
         let dataset = plain.root.get_dataset_mut().expect("dataset");
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-        assert!(cache.fetch_callback.is_none(), "dom() renders placeholders only");
+        assert!(
+            cache.fetch_callback.is_none(),
+            "dom() renders placeholders only"
+        );
     }
 
     #[test]
@@ -4772,9 +4797,8 @@ mod autotest_generated {
     #[cfg(all(feature = "xml", feature = "cpurender"))]
     #[test]
     fn svg_raster_unicode_content_does_not_panic() {
-        let svg = "<svg viewBox=\"0 0 16 16\"><title>\u{1F600} \u{4F60}\u{597D} \
-                   e\u{0301} \u{202E}</title><rect width=\"16\" height=\"16\" \
-                   fill=\"red\"/></svg>";
+        let svg = "<svg viewBox=\"0 0 16 16\"><title>\u{1F600} \u{4F60}\u{597D} e\u{0301} \
+                   \u{202E}</title><rect width=\"16\" height=\"16\" fill=\"red\"/></svg>";
         assert!(svg_string_to_dom(svg).is_some());
     }
 
@@ -5480,8 +5504,8 @@ mod autotest_generated {
                 cache.tiles.get(&TileStyleKey { tile, theme: light }),
                 Some(TileEntry::Ready { .. })
             ),
-            "the light tile is still correct data for the light look and must \
-             survive the flip — re-key, never invalidate"
+            "the light tile is still correct data for the light look and must survive the flip — \
+             re-key, never invalidate"
         );
         assert_eq!(cache.active_theme, dark);
     }
@@ -5545,8 +5569,8 @@ mod autotest_generated {
                 }),
                 Some(TileEntry::Ready { .. })
             ),
-            "a result for a look the widget has since left is still correct data \
-             for that look: it must be filed, not re-queued"
+            "a result for a look the widget has since left is still correct data for that look: \
+             it must be filed, not re-queued"
         );
         assert_eq!(
             cache.tile_bytes.get(&tile).map(|b| b.as_ref().to_vec()),

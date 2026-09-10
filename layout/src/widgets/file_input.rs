@@ -191,6 +191,7 @@ impl FileInput {
 
         Button {
             label: button_label,
+            theme: None.into(),
             image: self.image,
             icon: AzString::from_const_str(""),
             icon_dom: None.into(),
@@ -245,8 +246,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     // reports its (unchanged) state so an app can still react to the click.
     #[cfg(not(feature = "extra"))]
     {
-        let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>()
-        else {
+        let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
             return Update::DoNothing;
         };
         let fileinputstatewrapper = &mut *fileinputstatewrapper;

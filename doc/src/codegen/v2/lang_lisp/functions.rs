@@ -12,11 +12,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::super::managed_host_invoker::managed_c_symbol;
-use super::{ident_to_kebab, map_type_to_cffi, raw_fn_name};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+        managed_host_invoker::managed_c_symbol,
+    },
+    ident_to_kebab, map_type_to_cffi, raw_fn_name,
+};
 
 pub fn generate_defcfuns(
     builder: &mut CodeBuilder,

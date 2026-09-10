@@ -20,10 +20,14 @@
 //! collapse to `'opaque'` — the C ABI is still pointer-sized; callers just
 //! lose the field accessors on the Perl side.
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, FunctionKind};
-use super::types::{should_emit_enum, should_emit_struct, type_with_ref_to_perl};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, FunctionKind},
+    },
+    types::{should_emit_enum, should_emit_struct, type_with_ref_to_perl},
+};
 
 /// Emit `$Azul::ffi->attach(...)` lines for every IR function.
 pub fn emit_attach_functions(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {

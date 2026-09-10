@@ -393,28 +393,28 @@ sleep 1
 # Step 8: Take screenshot
 log_step 8 "Taking screenshot..."
 
-SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
-JSON_RESPONSE_FILE="$TEMP_DIR/screenshot_response.json"
+take_screenshot() {
+    local suffix=$1
+    local out_file="$TEMP_DIR/${EXAMPLE_NAME}_screenshot${suffix}.png"
+    local json_file="$TEMP_DIR/screenshot_response${suffix}.json"
 
-log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"take_native_screenshot\"}"
+    log_info "Taking screenshot (suffix: '${suffix}') -> $out_file"
 
-# Save raw response to file immediately, avoiding memory/ARG_MAX limits
-curl -s -X POST "http://localhost:$PORT/" \
-    -H "Content-Type: application/json" \
-    -d '{"op":"take_native_screenshot"}' \
-    --max-time 60 \
-    -o "$JSON_RESPONSE_FILE"
+    curl -s -X POST "http://localhost:$PORT/" \
+        -H "Content-Type: application/json" \
+        -d '{"op":"take_native_screenshot"}' \
+        --max-time 60 \
+        -o "$json_file"
 
-log_info "Response saved to $JSON_RESPONSE_FILE ($(ls -lh "$JSON_RESPONSE_FILE" | awk '{print $5}'))"
+    log_info "Response saved to $json_file ($(ls -lh "$json_file" | awk '{print $5}'))"
 
-# Check status and extract screenshot using Python (avoids jq pipe issues with large files)
-python3 << EOF
+    python3 << EOF
 import json
 import base64
 import sys
 
 try:
-    with open("$JSON_RESPONSE_FILE", "r") as f:
+    with open("$json_file", "r") as f:
         data = json.load(f)
     
     if data.get("status") != "ok":
@@ -425,7 +425,7 @@ try:
     base64_data = img_data.replace("data:image/png;base64,", "")
     img_bytes = base64.b64decode(base64_data)
     
-    with open("$SCREENSHOT_FILE", "wb") as f:
+    with open("$out_file", "wb") as f:
         f.write(img_bytes)
     
     print("OK: {} bytes".format(len(img_bytes)))
@@ -435,12 +435,47 @@ except Exception as e:
     sys.exit(1)
 EOF
 
-python_result=$?
-if [ $python_result -eq 0 ] && [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
-    log_success "Screenshot saved: $SCREENSHOT_FILE"
-    log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
+    local python_result=$?
+    if [ $python_result -eq 0 ] && [ -f "$out_file" ] && [ -s "$out_file" ]; then
+        log_success "Screenshot saved: $out_file"
+        log_info "Size: $(ls -lh "$out_file" | awk '{print $5}')"
+    else
+        log_error "Screenshot extraction failed for $out_file"
+    fi
+}
+
+if is_macos; then
+    log_info "macOS detected: taking light mode screenshot..."
+    osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false'
+    sleep 2
+    take_screenshot ".mac.light"
+
+    log_info "macOS detected: taking dark mode screenshot..."
+    osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true'
+    sleep 2
+    take_screenshot ".mac.dark"
+elif is_windows; then
+    log_info "Windows detected: taking light mode screenshot..."
+    powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value 1 -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value 1 -Type Dword -Force"
+    sleep 2
+    take_screenshot ".windows.light"
+
+    log_info "Windows detected: taking dark mode screenshot..."
+    powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value 0 -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value 0 -Type Dword -Force"
+    sleep 2
+    take_screenshot ".windows.dark"
+elif is_linux; then
+    log_info "Linux detected: taking light mode screenshot..."
+    gsettings set org.gnome.desktop.interface color-scheme 'default' || true
+    sleep 2
+    take_screenshot ".linux.light"
+
+    log_info "Linux detected: taking dark mode screenshot..."
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' || true
+    sleep 2
+    take_screenshot ".linux.dark"
 else
-    log_error "Screenshot extraction failed"
+    take_screenshot ""
 fi
 
 # Wait before shutdown

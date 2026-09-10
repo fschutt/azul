@@ -33,9 +33,11 @@
 //! back - preferring `_raw` would silently apply a scale to an
 //! already-scaled value.
 
-use std::fs;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
@@ -62,8 +64,8 @@ pub fn poll() {
             static UNREADABLE: std::sync::Once = std::sync::Once::new();
             UNREADABLE.call_once(|| {
                 crate::plog_warn!(
-                    "[sensors] /sys/bus/iio/devices exists but cannot be read ({}) — \
-                     motion sensors will report nothing",
+                    "[sensors] /sys/bus/iio/devices exists but cannot be read ({}) — motion \
+                     sensors will report nothing",
                     e
                 );
             });
@@ -114,10 +116,22 @@ pub fn poll() {
                 SensorKind::AmbientLight,
                 None::<fn(f32) -> f32>,
             ),
-            ("in_pressure", SensorKind::Barometer, Some(units::kpa_to_hpa as fn(f32) -> f32)),
-            ("in_proximity", SensorKind::Proximity, Some(units::m_to_cm as fn(f32) -> f32)),
+            (
+                "in_pressure",
+                SensorKind::Barometer,
+                Some(units::kpa_to_hpa as fn(f32) -> f32),
+            ),
+            (
+                "in_proximity",
+                SensorKind::Proximity,
+                Some(units::m_to_cm as fn(f32) -> f32),
+            ),
             ("in_steps", SensorKind::StepCounter, None),
-            ("in_angl", SensorKind::HingeAngle, Some(units::rad_to_deg as fn(f32) -> f32)),
+            (
+                "in_angl",
+                SensorKind::HingeAngle,
+                Some(units::rad_to_deg as fn(f32) -> f32),
+            ),
         ] {
             if let Some(v) = read_scalar(&dev, prefix) {
                 push_sensor_reading(SensorReading {

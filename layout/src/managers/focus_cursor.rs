@@ -71,7 +71,8 @@ pub struct FocusManager {
     pub focus_is_visible: bool,
 
     // --- W3C "flag and defer" pattern fields ---
-    /// Flag indicating that cursor initialization is pending (set during focus, consumed after layout)
+    /// Flag indicating that cursor initialization is pending (set during focus, consumed after
+    /// layout)
     pub cursor_needs_initialization: bool,
     /// Information about the pending contenteditable focus
     pub pending_contenteditable_focus: Option<PendingContentEditableFocus>,
@@ -409,8 +410,8 @@ impl crate::managers::NodeIdRemap for FocusManager {
             }
         }
 
-        // 2. pending contenteditable focus (set during focus handling, consumed
-        //    after layout — a DOM rebuild can land in between).
+        // 2. pending contenteditable focus (set during focus handling, consumed after layout — a
+        //    DOM rebuild can land in between).
         if let Some(ref mut pending) = self.pending_contenteditable_focus {
             if pending.dom_id != dom_id {
                 return;
@@ -470,7 +471,10 @@ fn collect_tab_order(
             .map(NodeId::new)
             .filter(|n| {
                 node_data.get(*n).is_some_and(|nd| {
-                    matches!(nd.get_node_type(), azul_core::dom::NodeType::TransientWindow(_))
+                    matches!(
+                        nd.get_node_type(),
+                        azul_core::dom::NodeType::TransientWindow(_)
+                    )
                 })
             })
             .collect();
@@ -479,7 +483,10 @@ fn collect_tab_order(
                 return false;
             }
             let mut guard = 0usize;
-            while let Some(parent) = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+            while let Some(parent) = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
                 guard += 1;
                 if guard > 65_536 {
                     break;
@@ -596,7 +603,9 @@ impl<'a> FocusSearchContext<'a> {
     }
 
     /// Get the layout for a DOM ID, or return an error if invalid.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     fn get_layout(&self, dom_id: &DomId) -> Result<&'a DomLayoutResult, UpdateFocusWarning> {
         self.layout_results
             .get(dom_id)
@@ -625,7 +634,9 @@ impl<'a> FocusSearchContext<'a> {
 /// * `Ok(Some(node))` - Found a matching focusable node
 /// * `Ok(None)` - No matching focusable node exists
 /// * `Err(_)` - CSS path could not be matched (malformed selector)
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn find_first_matching_focusable_node(
     layout: &DomLayoutResult,
     dom_id: &DomId,
@@ -885,11 +896,20 @@ mod tab_order_tests {
         }
         // The bounded rearm still has its FULL budget afterwards.
         let pending = fm.take_pending_contenteditable_focus().expect("armed");
-        assert!(fm.rearm_pending_contenteditable_focus(pending), "retry 1 must be available");
+        assert!(
+            fm.rearm_pending_contenteditable_focus(pending),
+            "retry 1 must be available"
+        );
         let pending = fm.take_pending_contenteditable_focus().expect("armed");
-        assert!(fm.rearm_pending_contenteditable_focus(pending), "retry 2 must be available");
+        assert!(
+            fm.rearm_pending_contenteditable_focus(pending),
+            "retry 2 must be available"
+        );
         let pending = fm.take_pending_contenteditable_focus().expect("armed");
-        assert!(!fm.rearm_pending_contenteditable_focus(pending), "budget is 2");
+        assert!(
+            !fm.rearm_pending_contenteditable_focus(pending),
+            "budget is 2"
+        );
     }
 
     fn nid(dom: usize, node: usize) -> DomNodeId {
@@ -1122,10 +1142,7 @@ mod autotest_generated {
             "a node inside the panel must resolve to the panel",
         );
         // Self-inclusive: the panel is its own container.
-        assert_eq!(
-            spatial_navigation_container(&contained, panel),
-            Some(panel)
-        );
+        assert_eq!(spatial_navigation_container(&contained, panel), Some(panel));
         // A sibling OUTSIDE the panel is in no container.
         assert_eq!(spatial_navigation_container(&contained, nid(0, 1)), None);
 
@@ -1142,9 +1159,7 @@ mod autotest_generated {
         use azul_css::{css::CssPropertyValue, props::property::CssProperty};
 
         let mut panel = azul_core::dom::NodeData::create_div();
-        panel.upsert_inline_css_property(CssProperty::OverflowY(CssPropertyValue::Exact(
-            overflow,
-        )));
+        panel.upsert_inline_css_property(CssProperty::OverflowY(CssPropertyValue::Exact(overflow)));
         StyledDom::create_from_dom(
             Dom::create_body()
                 .with_child(Dom::create_node(NodeType::Button))
@@ -1165,7 +1180,11 @@ mod autotest_generated {
 
         let panel = nid(0, 3);
         let inside = nid(0, 4);
-        for scrolling in [LayoutOverflow::Auto, LayoutOverflow::Scroll, LayoutOverflow::Hidden] {
+        for scrolling in [
+            LayoutOverflow::Auto,
+            LayoutOverflow::Scroll,
+            LayoutOverflow::Hidden,
+        ] {
             let w = window(vec![(dom(0), scroll_fixture(scrolling))]);
             assert_eq!(
                 spatial_navigation_container(&w, inside),
@@ -1228,7 +1247,10 @@ mod autotest_generated {
         assert!(is_within(&w, nid(0, 4), panel));
         assert!(is_within(&w, nid(0, 5), panel));
         assert!(!is_within(&w, nid(0, 1), panel), "a sibling is not inside");
-        assert!(!is_within(&w, nid(0, 0), panel), "an ancestor is not inside");
+        assert!(
+            !is_within(&w, nid(0, 0), panel),
+            "an ancestor is not inside"
+        );
 
         // Same index, different DOM: a VirtualView page is a separate tree and
         // treating it as contained would let the filter admit everything.
@@ -1315,7 +1337,11 @@ mod autotest_generated {
         assert_eq!(fm.get_focused_node(), Some(&nid(0, 1)));
         assert_eq!(fm.focused_node_for(0), Some(nid(0, 1)));
         assert_eq!(fm.focused_node_for(7), Some(nid(0, 2)));
-        assert_eq!(fm.focused_node_for(8), None, "an unknown seat focuses nothing");
+        assert_eq!(
+            fm.focused_node_for(8),
+            None,
+            "an unknown seat focuses nothing"
+        );
         assert!(fm.has_focus_for(7, &nid(0, 2)));
         assert!(!fm.has_focus_for(7, &nid(0, 1)));
         assert_eq!(fm.seats_focusing(&nid(0, 2)), vec![7]);
@@ -1738,7 +1764,10 @@ mod autotest_generated {
 
     #[test]
     fn collect_tab_order_empty_window_is_empty() {
-        assert_eq!(collect_tab_order(&BTreeMap::new(), &BTreeSet::new()), Vec::new());
+        assert_eq!(
+            collect_tab_order(&BTreeMap::new(), &BTreeSet::new()),
+            Vec::new()
+        );
     }
 
     #[test]
@@ -1780,8 +1809,8 @@ mod autotest_generated {
     fn collect_tab_order_huge_tabindex_truncates_at_28_bits() {
         // `NodeFlags` packs the tabindex into 28 bits, so:
         //   * tabindex = u32::MAX  -> stored as 2^28-1  -> still POSITIVE
-        //   * tabindex = 1 << 28   -> stored as 0       -> demoted to the AUTO
-        //                                                  bucket (0 is not > 0)
+        //   * tabindex = 1 << 28   -> stored as 0       -> demoted to the AUTO bucket (0 is not >
+        //     0)
         // The truncation is silent, so pin the observable ordering consequence.
         //
         // Document order: 1 = u32::MAX, 2 = 1<<28, 3 = tabindex 1, 4 = button.
@@ -1796,8 +1825,8 @@ mod autotest_generated {
         assert_eq!(
             tab_order_of(sd),
             vec![nid(0, 3), nid(0, 1), nid(0, 2), nid(0, 4)],
-            "u32::MAX stays positive (sorts after tabindex=1); 1<<28 truncates to 0 and \
-             falls back into the auto bucket behind every positive"
+            "u32::MAX stays positive (sorts after tabindex=1); 1<<28 truncates to 0 and falls \
+             back into the auto bucket behind every positive"
         );
     }
 
@@ -1838,10 +1867,7 @@ mod autotest_generated {
             ),
         );
 
-        let order = collect_tab_order(
-            &window(vec![(dom(0), sd)]),
-            &BTreeSet::new(),
-        );
+        let order = collect_tab_order(&window(vec![(dom(0), sd)]), &BTreeSet::new());
         assert_eq!(
             order,
             vec![nid(0, 1)],
@@ -1876,10 +1902,10 @@ mod autotest_generated {
     fn collect_tab_order_tab_order_is_global_across_doms() {
         // A positive-tabindex node in DOM 1 must outrank an auto node in DOM 0:
         // the tab order is a single sequence over all DOMs, not per-DOM chunks.
-        let order = collect_tab_order(&window(vec![
-            (dom(0), tab_fixture()),
-            (dom(1), tab_fixture()),
-        ]), &BTreeSet::new());
+        let order = collect_tab_order(
+            &window(vec![(dom(0), tab_fixture()), (dom(1), tab_fixture())]),
+            &BTreeSet::new(),
+        );
 
         assert_eq!(
             order,
@@ -2023,8 +2049,8 @@ mod autotest_generated {
     #[test]
     fn resolve_focus_target_empty_window_short_circuits_every_variant() {
         // The `layout_results.is_empty()` guard runs BEFORE any validation, so
-        // even a structurally invalid target resolves to `Ok(FocusResolution::NotFound)` — never Err,
-        // never a panic.
+        // even a structurally invalid target resolves to `Ok(FocusResolution::NotFound)` — never
+        // Err, never a panic.
         let empty = BTreeMap::new();
         let targets = vec![
             FocusTarget::Id(nid(usize::MAX, 0)),
@@ -2048,7 +2074,12 @@ mod autotest_generated {
         // The explicit clear stays answerable — and distinguishable — even
         // with no layout at all.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::NoFocus, &empty, Some(nid(0, 1)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::NoFocus,
+                &empty,
+                Some(nid(0, 1)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::ClearRequested),
         );
     }
@@ -2057,7 +2088,12 @@ mod autotest_generated {
     fn resolve_focus_target_id_rejects_unknown_dom() {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(1, 2)), &results, None, &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Id(nid(1, 2)),
+                &results,
+                None,
+                &BTreeSet::new()
+            ),
             Err(UpdateFocusWarning::FocusInvalidDomId(dom(1)))
         );
     }
@@ -2094,11 +2130,21 @@ mod autotest_generated {
         // Node 0 is the body and node 4 is tabindex=-1: both resolve.
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(0, 0)), &results, None, &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Id(nid(0, 0)),
+                &results,
+                None,
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 0)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(0, 4)), &results, None, &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Id(nid(0, 4)),
+                &results,
+                None,
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 4)))
         );
     }
@@ -2127,7 +2173,10 @@ mod autotest_generated {
             dom: dom(0),
             css_path: class_path("no-such-class"),
         });
-        assert_eq!(resolve_focus_target(&target, &results, None, &BTreeSet::new()), Ok(FocusResolution::NotFound));
+        assert_eq!(
+            resolve_focus_target(&target, &results, None, &BTreeSet::new()),
+            Ok(FocusResolution::NotFound)
+        );
     }
 
     /// A `VirtualView` mounts its DOM under its OWN DomId, so a selector the
@@ -2158,9 +2207,9 @@ mod autotest_generated {
         assert_eq!(
             resolve_focus_target(&target, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(1, 1))),
-            "the selector must resolve into the dom the VirtualView mounted; \
-             answering None here is applied by every caller as 'clear focus', \
-             which is why the editor opened with no caret"
+            "the selector must resolve into the dom the VirtualView mounted; answering None here \
+             is applied by every caller as 'clear focus', which is why the editor opened with no \
+             caret"
         );
     }
 
@@ -2204,7 +2253,12 @@ mod autotest_generated {
     fn resolve_focus_target_no_focus_is_an_explicit_clear() {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::NoFocus, &results, Some(nid(0, 5)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::NoFocus,
+                &results,
+                Some(nid(0, 5)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::ClearRequested),
             "the app's explicit clear must stay distinguishable from a miss"
         );
@@ -2225,7 +2279,12 @@ mod autotest_generated {
         );
         // `current_focus` must not influence First/Last.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::First, &results, Some(nid(0, 7)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::First,
+                &results,
+                Some(nid(0, 7)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
     }
@@ -2247,7 +2306,12 @@ mod autotest_generated {
             Ok(FocusResolution::NotFound)
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 0)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Previous,
+                &results,
+                Some(nid(0, 0)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::NotFound)
         );
     }
@@ -2257,20 +2321,40 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         // Tab order [5, 3, 2, 6, 7]: stepping off either end wraps.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 7)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Next,
+                &results,
+                Some(nid(0, 7)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 5)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Previous,
+                &results,
+                Some(nid(0, 5)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 7)))
         );
         // ...and step normally in the middle.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 3)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Next,
+                &results,
+                Some(nid(0, 3)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 2)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 2)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Previous,
+                &results,
+                Some(nid(0, 2)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 3)))
         );
     }
@@ -2283,14 +2367,24 @@ mod autotest_generated {
         // (the nearest preceding tab stop by DOCUMENT position), NOT on the tab
         // order's neighbour of any element.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 4)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Previous,
+                &results,
+                Some(nid(0, 4)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 3)))
         );
         // Focus on the plain, non-focusable div (index 1): Tab goes to the next
         // tab stop in DOCUMENT order (node 2, the button) — not to the tab
         // order's first entry (node 5).
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 1)), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Next,
+                &results,
+                Some(nid(0, 1)),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 2)))
         );
     }
@@ -2313,7 +2407,12 @@ mod autotest_generated {
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(alien), &BTreeSet::new()),
+            resolve_focus_target(
+                &FocusTarget::Previous,
+                &results,
+                Some(alien),
+                &BTreeSet::new()
+            ),
             Ok(FocusResolution::Resolved(nid(0, 7)))
         );
     }
@@ -2437,8 +2536,7 @@ fn spatial_navigation_containers(
     for _ in 0..hierarchy.internal.len().saturating_add(1) {
         if let Some(sn) = states.get(node) {
             let state = &sn.styled_node_state;
-            let is_container = match get_spatial_navigation_contain(&lr.styled_dom, node, state)
-            {
+            let is_container = match get_spatial_navigation_contain(&lr.styled_dom, node, state) {
                 MultiValue::Exact(StyleSpatialNavigationContain::Contain) => true,
                 // `auto`, and unset (whose initial value is `auto`): a
                 // container exactly when the box is a scroll container.
@@ -2454,7 +2552,10 @@ fn spatial_navigation_containers(
                 });
             }
         }
-        match hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+        match hierarchy
+            .get(node)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        {
             Some(parent) => node = parent,
             None => break,
         }

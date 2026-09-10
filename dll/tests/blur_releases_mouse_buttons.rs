@@ -75,12 +75,11 @@ fn every_blur_handler_releases_the_mouse_buttons() {
 
     assert!(
         missing.is_empty(),
-        "these blur handlers do not release the mouse buttons: {missing:?}\n\n\
-         A button held when focus leaves has its button-UP delivered to whoever \
-         took focus. `left_down` stays latched, every later move reads as a drag, \
-         and the window is left selecting text instead of clicking buttons with \
-         no way back. Clear left/right/middle_down in the blur handler and let \
-         the state diff emit the MouseUp."
+        "these blur handlers do not release the mouse buttons: {missing:?}\n\nA button held when \
+         focus leaves has its button-UP delivered to whoever took focus. `left_down` stays \
+         latched, every later move reads as a drag, and the window is left selecting text instead \
+         of clicking buttons with no way back. Clear left/right/middle_down in the blur handler \
+         and let the state diff emit the MouseUp."
     );
 }
 
@@ -101,9 +100,8 @@ fn every_blur_handler_drops_held_keys() {
     }
     assert!(
         missing.is_empty(),
-        "these blur handlers do not drop held keys: {missing:?}\n\n\
-         The key-UP of whatever caused the focus change is delivered to the app \
-         that took focus — the Cmd of Cmd-Tab, the Alt of Alt-Tab — so it stays \
-         latched and every later keystroke is read as a shortcut."
+        "these blur handlers do not drop held keys: {missing:?}\n\nThe key-UP of whatever caused \
+         the focus change is delivered to the app that took focus — the Cmd of Cmd-Tab, the Alt \
+         of Alt-Tab — so it stays latched and every later keystroke is read as a shortcut."
     );
 }

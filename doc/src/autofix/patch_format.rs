@@ -1493,9 +1493,10 @@ mod tests {
 /// * `dependency_type` - The type name to generate (e.g., "OptionMenuItem" or "MenuItemVecSlice")
 /// * `dependency_kind` - Either "option" or "slice"
 /// * `element_type` - The element type this depends on (e.g., "MenuItem")
-/// * `element_external_path` - The external path of the element type (e.g., "azul_layout::widgets::ribbon::RibbonSection"),
-///   used to derive the correct module path for the generated Option/Slice type.
-///   If None, falls back to `azul_core::option::` for options and `azul_css::` for slices.
+/// * `element_external_path` - The external path of the element type (e.g.,
+///   "azul_layout::widgets::ribbon::RibbonSection"), used to derive the correct module path for the
+///   generated Option/Slice type. If None, falls back to `azul_core::option::` for options and
+///   `azul_css::` for slices.
 ///
 /// # Returns
 /// A ClassPatch that can be applied to add the type to api.json

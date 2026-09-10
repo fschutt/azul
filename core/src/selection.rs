@@ -44,12 +44,13 @@
 //! };
 //! ```
 
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::dom::{DomId, DomNodeId, NodeId};
-use crate::geom::{LogicalPosition, LogicalRect};
+use crate::{
+    dom::{DomId, DomNodeId, NodeId},
+    geom::{LogicalPosition, LogicalRect},
+};
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
 ///
@@ -362,11 +363,10 @@ impl SelectionOwner {
 ///
 /// ## Invariants
 ///
-/// - `selections` is sorted by owner, then by position, and non-overlapping
-///   within one owner.
-/// - The **primary** selection is identified by the stable `primary_id`, NOT by
-///   vector position: `merge_overlapping()` re-sorts `selections` by position,
-///   so "last index" is not the most-recently-added cursor.
+/// - `selections` is sorted by owner, then by position, and non-overlapping within one owner.
+/// - The **primary** selection is identified by the stable `primary_id`, NOT by vector position:
+///   `merge_overlapping()` re-sorts `selections` by position, so "last index" is not the
+///   most-recently-added cursor.
 /// - After any mutation, `merge_overlapping()` is called to maintain invariants.
 ///
 /// ## Who a selection belongs to (U3)
@@ -374,16 +374,15 @@ impl SelectionOwner {
 /// A selection is identified by an OWNER-SCOPED id: `(owner, id)`. The engine
 /// acts on the [`SelectionOwner::LOCAL`] set and on nothing else:
 ///
-/// - the PRIMARY is always local - `get_primary` never answers with a peer's
-///   selection, and `primary_id` is re-pointed only at a local one;
-/// - the EDIT SET (`to_selections`, what typing / Backspace / paste apply
-///   to) is the local set, and `update_from_edit_result` writes back to it
-///   alone, leaving every peer's entry untouched;
-/// - a plain click (`set_single_cursor` / `set_single_range`) collapses the
-///   LOCAL set to one and keeps the peers in view;
+/// - the PRIMARY is always local - `get_primary` never answers with a peer's selection, and
+///   `primary_id` is re-pointed only at a local one;
+/// - the EDIT SET (`to_selections`, what typing / Backspace / paste apply to) is the local set, and
+///   `update_from_edit_result` writes back to it alone, leaving every peer's entry untouched;
+/// - a plain click (`set_single_cursor` / `set_single_range`) collapses the LOCAL set to one and
+///   keeps the peers in view;
 /// - cursor movement (`move_all_cursors*`) moves local carets only;
-/// - the platform's idea of "the selection" (`selectedTextRange`, the IME's
-///   marked range, the Android selection bridge) is the local primary.
+/// - the platform's idea of "the selection" (`selectedTextRange`, the IME's marked range, the
+///   Android selection bridge) is the local primary.
 ///
 /// Peers' selections are DISPLAY-ONLY SNAPSHOTS: they enter through
 /// `set_owner_selections`, leave through `remove_owner`, and are painted in
@@ -527,7 +526,11 @@ impl MultiCursorState {
     /// become "the selection" because the local one went away.
     fn ensure_primary_valid(&mut self) {
         let pid = self.primary_id;
-        if !self.selections.iter().any(|s| s.id == pid && s.owner.is_local()) {
+        if !self
+            .selections
+            .iter()
+            .any(|s| s.id == pid && s.owner.is_local())
+        {
             if let Some(last) = self.local_selections().last() {
                 self.primary_id = last.id;
             }
@@ -679,7 +682,8 @@ impl MultiCursorState {
     /// The id a collapsed local set keeps: the local primary's when there is
     /// one, so a caller tracking it sees the same selection continue.
     fn surviving_local_id(&self) -> SelectionId {
-        self.get_primary().map_or_else(SelectionId::new, |primary| primary.id)
+        self.get_primary()
+            .map_or_else(SelectionId::new, |primary| primary.id)
     }
 
     /// Collapse the LOCAL selections to a single cursor (a plain click without
@@ -1477,7 +1481,11 @@ impl_vec!(
     OptionDocumentTextEdit
 );
 impl_vec_debug!(DocumentTextEdit, DocumentTextEditVec);
-impl_vec_clone!(DocumentTextEdit, DocumentTextEditVec, DocumentTextEditVecDestructor);
+impl_vec_clone!(
+    DocumentTextEdit,
+    DocumentTextEditVec,
+    DocumentTextEditVecDestructor
+);
 impl_vec_partialeq!(DocumentTextEdit, DocumentTextEditVec);
 impl_vec_partialord!(DocumentTextEdit, DocumentTextEditVec);
 

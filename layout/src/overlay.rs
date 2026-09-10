@@ -13,17 +13,16 @@
 //!
 //! The rules this module enforces:
 //!
-//! 1. **One write chokepoint**: [`crate::window::LayoutWindow::apply_content_change`]
-//!    is the only way content state changes. It validates, writes the overlay
-//!    arm, journals the change, and returns the dirty tier the frame loop must
-//!    honor. Backends never see content — they receive a tier.
-//! 2. **One read order**: overlay first, immutable DOM second, via
-//!    [`ResolvedContent`]. Every consumer (display-list build, IFC build,
-//!    raster, hit-test, a11y, exports) resolves through it.
-//! 3. **One retention clock**: [`ContentJournal`] entries are retired by frame
-//!    age (swapchain depth), never by document size or session length.
-//!    Journal = what the RENDERER may still need; the `UndoRedoManager`
-//!    (user intent) is fed separately by the same chokepoint.
+//! 1. **One write chokepoint**: [`crate::window::LayoutWindow::apply_content_change`] is the only
+//!    way content state changes. It validates, writes the overlay arm, journals the change, and
+//!    returns the dirty tier the frame loop must honor. Backends never see content — they receive a
+//!    tier.
+//! 2. **One read order**: overlay first, immutable DOM second, via [`ResolvedContent`]. Every
+//!    consumer (display-list build, IFC build, raster, hit-test, a11y, exports) resolves through
+//!    it.
+//! 3. **One retention clock**: [`ContentJournal`] entries are retired by frame age (swapchain
+//!    depth), never by document size or session length. Journal = what the RENDERER may still need;
+//!    the `UndoRedoManager` (user intent) is fed separately by the same chokepoint.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -35,8 +34,10 @@ use azul_core::{
 };
 use azul_css::AzString;
 
-use crate::managers::{NodeIdMap, NodeIdRemap};
-use crate::text3::cache::InlineContent;
+use crate::{
+    managers::{NodeIdMap, NodeIdRemap},
+    text3::cache::InlineContent,
+};
 
 /// The text overlay entry: an IFC root's edited inline content, layered over
 /// the immutable DOM's (now stale) text until the app's next generation
@@ -164,9 +165,9 @@ impl ContentDirtyTier {
     /// The ONE mapping from content dirty tier to the event-loop result every
     /// host consumes. Defined here — next to the tier — so a backend cannot
     /// invent its own interpretation:
-    /// - `Paint`: the DL was already patched in place; a re-render picks it up
-    ///   (CPU: the DL diff sees the `ImageRef` identity change and damages those
-    ///   bounds; GPU: the translator re-reads the patched DL).
+    /// - `Paint`: the DL was already patched in place; a re-render picks it up (CPU: the DL diff
+    ///   sees the `ImageRef` identity change and damages those bounds; GPU: the translator re-reads
+    ///   the patched DL).
     /// - `RebuildDisplayList`: DL regeneration + re-render.
     /// - `Relayout`: incremental relayout (which rebuilds the DL).
     pub const fn to_process_event_result(self) -> azul_core::events::ProcessEventResult {
@@ -454,9 +455,8 @@ impl ContentOverlay {
         if acked == 0 {
             return;
         }
-        self.text.retain(|&(d, _), dirty| {
-            d != dom_id || dirty.revision == 0 || dirty.revision > acked
-        });
+        self.text
+            .retain(|&(d, _), dirty| d != dom_id || dirty.revision == 0 || dirty.revision > acked);
     }
 
     /// Drop every pending structural delta of `dom` — called when a new
@@ -942,13 +942,16 @@ mod tests {
 
     #[test]
     fn structural_previews_adjust_the_resolved_child_list() {
+        use azul_core::{
+            dom::{Dom, DomNodeId},
+            styled_dom::NodeHierarchyItemId,
+            task::{Instant, SystemTick},
+        };
+
         use crate::managers::changeset::{
             DocOpInsertChildren, DocOpRemoveChildren, DocumentChangeset, DocumentOperation,
             EditResumePoint, NodePosition,
         };
-        use azul_core::dom::{Dom, DomNodeId};
-        use azul_core::styled_dom::NodeHierarchyItemId;
-        use azul_core::task::{Instant, SystemTick};
 
         // DOM: div > [p, p] (nodes 1, 2 with their text children 3, 4… the
         // exact ids come from creation order; resolve them dynamically).
@@ -1048,8 +1051,9 @@ mod tests {
 
     #[test]
     fn acked_revision_gc_converges_where_text_equality_cannot() {
-        use crate::text3::cache::{InlineContent, StyledRun};
         use std::sync::Arc;
+
+        use crate::text3::cache::{InlineContent, StyledRun};
 
         fn dirty_rev(text: &str, revision: u64) -> DirtyTextNode {
             DirtyTextNode {
@@ -1080,9 +1084,9 @@ mod tests {
         overlay.gc_acked_text(dom0(), 3);
         assert!(
             overlay.text_for_node(dom0(), committed).is_none(),
-            "an acked entry retires even though the app NORMALIZED the text \
-             (\"  hello  \" vs whatever the DOM now carries) — the case the \
-             equality rule keeps authoritative forever"
+            "an acked entry retires even though the app NORMALIZED the text (\"  hello  \" vs \
+             whatever the DOM now carries) — the case the equality rule keeps authoritative \
+             forever"
         );
         assert!(
             overlay.text_for_node(dom0(), unacked).is_some(),
@@ -1096,8 +1100,9 @@ mod tests {
 
     #[test]
     fn text_gc_drops_converged_entries_and_keeps_diverged_ones() {
-        use crate::text3::cache::{InlineContent, StyledRun};
         use std::sync::Arc;
+
+        use crate::text3::cache::{InlineContent, StyledRun};
 
         fn dirty(text: &str) -> DirtyTextNode {
             DirtyTextNode {

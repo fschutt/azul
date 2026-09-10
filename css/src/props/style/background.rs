@@ -587,7 +587,8 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundPositionVec {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Horizontal component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -617,7 +618,8 @@ impl PrintAsCssValue for BackgroundPositionHorizontal {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Vertical component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -647,7 +649,8 @@ impl PrintAsCssValue for BackgroundPositionVertical {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// The `background-size` property: `contain`, `cover`, or an exact size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -1616,13 +1619,15 @@ pub mod parser {
 
     macro_rules! impl_get_normalized_stops {
         (
-            fn $fn_name:ident($input_stop:ty) -> Vec<$output_stop:ident>,
-            pos_type = $pos_ty:ty,
-            default_start = $default_start:expr,
-            default_end = $default_end:expr,
-            pos_ctor = $pos_ctor:expr,
-            pos_to_f32 = $pos_to_f32:expr,
-            output_field = $out_field:ident,
+            fn
+            $fn_name:ident($input_stop:ty) -> Vec <
+            $output_stop:ident > ,pos_type =
+            $pos_ty:ty,default_start =
+            $default_start:expr,default_end =
+            $default_end:expr,pos_ctor =
+            $pos_ctor:expr,pos_to_f32 =
+            $pos_to_f32:expr,output_field =
+            $out_field:ident,
         ) => {
             #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
             fn $fn_name(stops: &[$input_stop]) -> Vec<$output_stop> {
@@ -1797,21 +1802,24 @@ pub mod parser {
     mod autotest_generated {
         // `super::*` = the private parser helpers under test; the second glob pulls in
         // the value/error types from the enclosing `background` module.
+        use alloc::{string::ToString, vec::Vec};
+
         use super::*;
-        use crate::props::style::background::*;
         use crate::{
-            props::basic::{
-                angle::CssAngleValueParseError,
-                color::{CssColorParseError, OptionColorU, SystemColorRef},
-                direction::CssDirectionParseError,
-                error::InvalidValueErr,
-                length::PercentageParseError,
-                parse::{CssImageParseError, ParenthesisParseError},
-                pixel::CssPixelValueParseError,
+            props::{
+                basic::{
+                    angle::CssAngleValueParseError,
+                    color::{CssColorParseError, OptionColorU, SystemColorRef},
+                    direction::CssDirectionParseError,
+                    error::InvalidValueErr,
+                    length::PercentageParseError,
+                    parse::{CssImageParseError, ParenthesisParseError},
+                    pixel::CssPixelValueParseError,
+                },
+                style::background::*,
             },
             system::SystemColors,
         };
-        use alloc::{string::ToString, vec::Vec};
 
         // ---------------------------------------------------------------
         // fixtures
@@ -4362,8 +4370,7 @@ mod tests {
         // System variant and resolve against a populated `SystemColors` to
         // the live accent color, falling back to the supplied default when
         // the key is unset.
-        use crate::props::basic::color::ColorOrSystem;
-        use crate::system::SystemColors;
+        use crate::{props::basic::color::ColorOrSystem, system::SystemColors};
 
         let lg = parse_style_background_content("linear-gradient(red, system:accent)").unwrap();
         let StyleBackgroundContent::LinearGradient(grad) = lg else {

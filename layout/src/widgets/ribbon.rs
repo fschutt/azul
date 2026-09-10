@@ -65,11 +65,10 @@ use azul_css::{
     },
     *,
 };
-
-use azul_css::system::{Handedness, SystemStyle};
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
-
-use crate::callbacks::{Callback, CallbackInfo};
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    system::{Handedness, SystemStyle},
+};
 
 use super::{
     button::{Button, OptionButtonOnClick},
@@ -77,6 +76,7 @@ use super::{
     combobox::ComboBox,
     drop_down::DropDown,
 };
+use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callbacks --
 
@@ -723,7 +723,9 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     // Erase the underline below the active tab: the bottom border matches
     // the chrome so the tab visually merges with the ribbon content.
     v.push(Cond::simple(P::const_border_bottom_color(
-        StyleBorderBottomColor { inner: t.content_bg },
+        StyleBorderBottomColor {
+            inner: t.content_bg,
+        },
     )));
     // One line, like every other tab - see `theme_tab`.
     v.push(Cond::simple(P::WhiteSpace(

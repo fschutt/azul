@@ -9,16 +9,13 @@
 //! across window resizes and DOM updates.
 //!
 //! Key subsystems managed by `LayoutWindow`:
-//! - **Text editing**: cursor/selection management, IME preedit,
-//!   undo/redo, and incremental text relayout
-//! - **Accessibility**: tree construction and incremental updates
-//!   for screen readers via accesskit
-//! - **VirtualView**: callback invocation and recursive layout for
-//!   virtualized scrollable content
-//! - **Scrolling**: scroll state, scrollbar opacity, and
-//!   scroll-into-view for cursors and selections
+//! - **Text editing**: cursor/selection management, IME preedit, undo/redo, and incremental text
+//!   relayout
+//! - **Accessibility**: tree construction and incremental updates for screen readers via accesskit
+//! - **VirtualView**: callback invocation and recursive layout for virtualized scrollable content
+//! - **Scrolling**: scroll state, scrollbar opacity, and scroll-into-view for cursors and
+//!   selections
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
@@ -38,10 +35,9 @@ use azul_core::{
     gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::{OptionRefAny, RefAny},
-    resources::UpdateImageType,
     resources::{
         Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
-        OpacityKey, RendererResources,
+        OpacityKey, RendererResources, UpdateImageType,
     },
     selection::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
@@ -81,8 +77,10 @@ use crate::{
         virtual_view::VirtualViewManager,
     },
     solver3::{
-        self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
-        layout_tree::LayoutTree,
+        self,
+        cache::LayoutCache as Solver3LayoutCache,
+        display_list::DisplayList,
+        layout_tree::{LayoutNodeId, LayoutTree},
     },
     text3::{
         cache::{
@@ -205,8 +203,10 @@ pub extern "C" fn cursor_blink_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
-    use azul_core::callbacks::{TimerCallbackReturn, Update};
-    use azul_core::task::TerminateTimer;
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        task::TerminateTimer,
+    };
 
     // Get current time
     let now = info.get_current_time();
@@ -343,7 +343,8 @@ pub fn system_natural_scroll() -> Option<bool> {
 /// App-global `AppConfig::expose_system_media_controls`, published the same way
 /// and for the same reason: the Linux media-key backend starts from a place
 /// with no path back to the `AppConfig` the app was built with.
-static EXPOSE_SYSTEM_MEDIA_CONTROLS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static EXPOSE_SYSTEM_MEDIA_CONTROLS: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// Install the app-global MPRIS setting.
 pub fn set_global_expose_system_media_controls(enabled: bool) {
@@ -414,8 +415,10 @@ pub extern "C" fn tooltip_delay_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
-    use azul_core::callbacks::{TimerCallbackReturn, Update};
-    use azul_core::task::TerminateTimer;
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        task::TerminateTimer,
+    };
 
     let layout_window = info.callback_info.get_layout_window();
     let hover_node_id = layout_window
@@ -512,14 +515,12 @@ impl FrameDamage {
     /// (`XPutImage` sub-rects / `wl_surface_damage` / partial `StretchDIBits`
     /// / `setNeedsDisplayInRect:`).
     ///
-    /// - `None` → returns `None`: the previous frame is still on screen and
-    ///   valid — present nothing. Callers must STILL present in full when the
-    ///   OS asked for a re-present (Expose / WM_PAINT-from-uncover / drawRect)
-    ///   — pass `force_full = true` there.
-    /// - `Rects` → `Some(rects)` as `(x, y, w, h)` physical px, rounded
-    ///   OUTWARD (floor origin / ceil far edge — truncation would under-cover
-    ///   fractional edges and leave 1px stale seams), clamped to the buffer.
-    ///   More than 16 rects collapses to one full-buffer rect (bounded cost,
+    /// - `None` → returns `None`: the previous frame is still on screen and valid — present
+    ///   nothing. Callers must STILL present in full when the OS asked for a re-present (Expose /
+    ///   WM_PAINT-from-uncover / drawRect) — pass `force_full = true` there.
+    /// - `Rects` → `Some(rects)` as `(x, y, w, h)` physical px, rounded OUTWARD (floor origin /
+    ///   ceil far edge — truncation would under-cover fractional edges and leave 1px stale seams),
+    ///   clamped to the buffer. More than 16 rects collapses to one full-buffer rect (bounded cost,
     ///   per `DAMAGE_REGION_PLAN` §3).
     /// - `Full` → one full-buffer rect.
     ///
@@ -1812,19 +1813,16 @@ impl LayoutWindow {
     /// observably branch on size fires:
     ///
     /// 1. a recorded window-size query answer flips (`window_width_less_than` & co.)
-    ///    ([`Self::size_queries_would_flip`], the sanctioned imperative
-    ///    channel — incl. the recording having overflowed);
-    /// 2. a HARVESTED viewport breakpoint is crossed on either axis, or the
-    ///    orientation flips (the declarative `@media`/conditional-property
-    ///    channel). The thresholds come from the laid-out DOMs themselves
-    ///    ([`azul_core::styled_dom::StyledDom::viewport_breakpoints`]:
-    ///    author `@media` bounds + inline `ViewportWidth`/`Height`
-    ///    conditions). The old hardcoded `CSS_BREAKPOINTS` guess list
-    ///    failed both ways — the ribbon's 720px was not on it (shrinking
-    ///    onto the mobile layout never regenerated), and its eight guessed
-    ///    thresholds fired ~66ms full regenerations on every drag across
-    ///    640/768/1024/... It remains only as the fallback for a DOM with
-    ///    no styling pass yet (unknown ⇒ conservative);
+    ///    ([`Self::size_queries_would_flip`], the sanctioned imperative channel — incl. the
+    ///    recording having overflowed);
+    /// 2. a HARVESTED viewport breakpoint is crossed on either axis, or the orientation flips (the
+    ///    declarative `@media`/conditional-property channel). The thresholds come from the laid-out
+    ///    DOMs themselves ([`azul_core::styled_dom::StyledDom::viewport_breakpoints`]: author
+    ///    `@media` bounds + inline `ViewportWidth`/`Height` conditions). The old hardcoded
+    ///    `CSS_BREAKPOINTS` guess list failed both ways — the ribbon's 720px was not on it
+    ///    (shrinking onto the mobile layout never regenerated), and its eight guessed thresholds
+    ///    fired ~66ms full regenerations on every drag across 640/768/1024/... It remains only as
+    ///    the fallback for a DOM with no styling pass yet (unknown ⇒ conservative);
     /// 3. there is no previous layout to reuse.
     ///
     /// Shared by every desktop shell (via
@@ -2216,18 +2214,15 @@ impl LayoutWindow {
     ///
     /// Two things retire ONLY here, because both mean "the app re-rendered":
     ///
-    /// - text-overlay entries the app has ACKED
-    ///   ([`Self::mark_text_revision_synced`]) — the ack says the app's
-    ///   MODEL has the text; the overlay must still paint it until a DOM
-    ///   built from that model arrives, which is this pass. Retiring them
-    ///   on the relayout entry instead deleted the typed text from the
-    ///   screen: an app that acks from its `TextChanged` callback (without
-    ///   rebuilding — the live word count) had every acked entry dropped by
-    ///   the next line-growth relayout, which then laid out the DOM's
-    ///   PRE-EDIT text.
-    /// - a NOTIFIED structural edit the app neither applied nor rejected —
-    ///   the documented "re-rendered without acking = rejection" promise,
-    ///   which a relayout of the unchanged DOM is not.
+    /// - text-overlay entries the app has ACKED ([`Self::mark_text_revision_synced`]) — the ack
+    ///   says the app's MODEL has the text; the overlay must still paint it until a DOM built from
+    ///   that model arrives, which is this pass. Retiring them on the relayout entry instead
+    ///   deleted the typed text from the screen: an app that acks from its `TextChanged` callback
+    ///   (without rebuilding — the live word count) had every acked entry dropped by the next
+    ///   line-growth relayout, which then laid out the DOM's PRE-EDIT text.
+    /// - a NOTIFIED structural edit the app neither applied nor rejected — the documented
+    ///   "re-rendered without acking = rejection" promise, which a relayout of the unchanged DOM is
+    ///   not.
     ///
     /// # Errors
     ///
@@ -2296,8 +2291,8 @@ impl LayoutWindow {
             if new_generation && self.document_edit_notified == Some(pending.id) {
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "[azul][document-edit] dropping un-acked structural edit #{} - the app \
-                     was notified and re-rendered without applying or rejecting it",
+                    "[azul][document-edit] dropping un-acked structural edit #{} - the app was \
+                     notified and re-rendered without applying or rejecting it",
                     pending.id
                 );
                 self.pending_document_edit = None;
@@ -2532,8 +2527,8 @@ impl LayoutWindow {
             let mismatches = self.verify_patched_display_list(DomId::ROOT_ID);
             assert!(
                 mismatches.is_empty(),
-                "AZ_PATCH_VERIFY: the patched display list differs from the wholesale build \
-                 of the same layout results in {} item(s):\n{}",
+                "AZ_PATCH_VERIFY: the patched display list differs from the wholesale build of \
+                 the same layout results in {} item(s):\n{}",
                 mismatches.len(),
                 mismatches.join("\n")
             );
@@ -2586,8 +2581,8 @@ impl LayoutWindow {
         if let Some(stale) = self.pending_document_edit.replace(changeset) {
             #[cfg(debug_assertions)]
             eprintln!(
-                "[azul][document-edit] replacing un-acked structural edit #{} — the app \
-                 neither applied nor rejected it before the next was recorded",
+                "[azul][document-edit] replacing un-acked structural edit #{} — the app neither \
+                 applied nor rejected it before the next was recorded",
                 stale.id
             );
             #[cfg(not(debug_assertions))]
@@ -2700,9 +2695,7 @@ impl LayoutWindow {
     /// yields one span. Spans are normalized (`start <= end`, logical
     /// order) — a backward or RTL drag reads the same as a forward one.
     #[must_use]
-    pub fn document_selection_spans(
-        &self,
-    ) -> Vec<azul_core::selection::DocumentSelectionSpan> {
+    pub fn document_selection_spans(&self) -> Vec<azul_core::selection::DocumentSelectionSpan> {
         use azul_core::selection::{DocumentSelectionSpan, Selection};
         let mut out = Vec::new();
         if let Some(cross) = &self.text_edit_manager.cross_block {
@@ -2758,11 +2751,7 @@ impl LayoutWindow {
     /// vocabulary): `[]` when `node == ancestor`, `None` when `node` is not
     /// in `ancestor`'s subtree (or another dom).
     #[must_use]
-    pub fn node_child_index_path(
-        &self,
-        ancestor: DomNodeId,
-        node: DomNodeId,
-    ) -> Option<Vec<u32>> {
+    pub fn node_child_index_path(&self, ancestor: DomNodeId, node: DomNodeId) -> Option<Vec<u32>> {
         if ancestor.dom != node.dom {
             return None;
         }
@@ -2924,8 +2913,9 @@ impl LayoutWindow {
         // `white-space`: when newlines are preserved, `"\n"` is the native
         // line separator and Enter inserts one instead of splitting blocks.
         let host_preserves_newlines = self.layout_results.get(&focus.dom).is_some_and(|lr| {
-            use crate::solver3::getters::{get_white_space_property, MultiValue};
             use azul_css::props::style::StyleWhiteSpace;
+
+            use crate::solver3::getters::{get_white_space_property, MultiValue};
             lr.styled_dom
                 .styled_nodes
                 .as_container()
@@ -2950,29 +2940,29 @@ impl LayoutWindow {
         let (at_start, at_end) = self
             .cursor_of_seat(seat_id)
             .map_or((false, false), |cursor| {
-                    let content = self.get_text_before_textinput(focus.dom, node_id);
-                    let at_start = cursor.cluster_id.source_run == 0
-                        && cursor.cluster_id.start_byte_in_run == 0;
-                    let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
-                        if let InlineContent::Text(run) = c {
-                            Some((
-                                u32::try_from(i).unwrap_or(u32::MAX),
-                                u32::try_from(run.text.len()).unwrap_or(u32::MAX),
-                            ))
-                        } else {
-                            None
-                        }
-                    });
-                    let at_end = match last_text {
-                        Some((last_run, last_len)) => {
-                            cursor.cluster_id.source_run >= last_run
-                                && cursor.cluster_id.start_byte_in_run >= last_len
-                        }
-                        // No text at all: the caret is at both boundaries.
-                        None => true,
-                    };
-                    (at_start, at_end)
+                let content = self.get_text_before_textinput(focus.dom, node_id);
+                let at_start =
+                    cursor.cluster_id.source_run == 0 && cursor.cluster_id.start_byte_in_run == 0;
+                let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
+                    if let InlineContent::Text(run) = c {
+                        Some((
+                            u32::try_from(i).unwrap_or(u32::MAX),
+                            u32::try_from(run.text.len()).unwrap_or(u32::MAX),
+                        ))
+                    } else {
+                        None
+                    }
                 });
+                let at_end = match last_text {
+                    Some((last_run, last_len)) => {
+                        cursor.cluster_id.source_run >= last_run
+                            && cursor.cluster_id.start_byte_in_run >= last_len
+                    }
+                    // No text at all: the caret is at both boundaries.
+                    None => true,
+                };
+                (at_start, at_end)
+            });
 
         Some(crate::default_actions::EditingQueryState {
             is_contenteditable: true,
@@ -3230,10 +3220,11 @@ impl LayoutWindow {
         seat_id: u64,
         action: &azul_core::events::DefaultAction,
     ) -> Option<u64> {
+        use azul_core::events::DefaultAction;
+
         use crate::managers::changeset::{
             DocOpMergeNodes, DocOpSplitNode, DocumentChangeset, DocumentOperation,
         };
-        use azul_core::events::DefaultAction;
 
         // C12 IME x structural interlock: while a composition (preedit) is
         // active, the IME owns Enter / Backspace / Delete. A key event that
@@ -3250,8 +3241,8 @@ impl LayoutWindow {
         {
             #[cfg(debug_assertions)]
             eprintln!(
-                "[azul][document-edit] structural default action suppressed: \
-                 IME composition active (preedit present)"
+                "[azul][document-edit] structural default action suppressed: IME composition \
+                 active (preedit present)"
             );
             return None;
         }
@@ -3554,7 +3545,10 @@ impl LayoutWindow {
 
         // Only a TEXT child carries a byte offset; anything else is a
         // boundary before/after it (after = caret at the child's end).
-        if let Some(NodeType::Text(t)) = node_data.get(direct_child).map(azul_core::dom::NodeData::get_node_type) {
+        if let Some(NodeType::Text(t)) = node_data
+            .get(direct_child)
+            .map(azul_core::dom::NodeData::get_node_type)
+        {
             // Affinity resolved against the text: a Trailing caret sits AFTER
             // its grapheme, so the raw start_byte_in_run is one cluster short
             // — an end-of-paragraph Enter split "hello worl|d", not
@@ -3769,10 +3763,12 @@ impl LayoutWindow {
     /// `first-kept + insert + last-kept` and the caret resumes AFTER the
     /// inserted text.
     pub fn replace_cross_block_selection(&mut self, insert: &str) -> Option<u64> {
-        use crate::managers::changeset::{
-            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
+        use crate::{
+            managers::changeset::{
+                DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
+            },
+            text3::cache::InlineContent,
         };
-        use crate::text3::cache::InlineContent;
 
         let sel = self.text_edit_manager.take_cross_block_selection()?;
         let dom_id = sel.dom_id;
@@ -3948,13 +3944,13 @@ impl LayoutWindow {
     /// Walks siblings in the given direction, SKIPPING whitespace-only text
     /// runs (XML pretty-printing between blocks), and returns the first real
     /// sibling iff it is a mergeable flow container:
-    /// - an element (a text run has no child list to receive the merged
-    ///   content; a replaced node has nothing to merge into),
-    /// - not a `<pagebreak/>` marker (Backspace never merges across a page
-    ///   break by default — that is an app-level decision),
-    /// - whose computed display is flow-block-ish (`Block` / `FlowRoot` /
-    ///   `ListItem`). Merging INTO a table / flex / grid container or an
-    ///   inline is not a Backspace/Delete merge, it is a caret move.
+    /// - an element (a text run has no child list to receive the merged content; a replaced node
+    ///   has nothing to merge into),
+    /// - not a `<pagebreak/>` marker (Backspace never merges across a page break by default — that
+    ///   is an app-level decision),
+    /// - whose computed display is flow-block-ish (`Block` / `FlowRoot` / `ListItem`). Merging INTO
+    ///   a table / flex / grid container or an inline is not a Backspace/Delete merge, it is a
+    ///   caret move.
     ///
     /// The walk STOPS at the first non-skippable sibling — Word does not
     /// merge across an obstacle either — and never invents a partner where
@@ -4294,11 +4290,8 @@ impl LayoutWindow {
     ///
     /// The same run-count limit as U3-a applies (see `run_text_changes`).
     fn shift_carets_across_generation(&mut self) {
-        let Some((key, dom_id, node_id)) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .and_then(|mc| {
+        let Some((key, dom_id, node_id)) =
+            self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
                 Some((
                     mc.contenteditable_key,
                     mc.node_id.dom,
@@ -4649,7 +4642,7 @@ impl LayoutWindow {
             false,
             Vec::new(),
             Default::default(), // owner_colors (U1): geometry pass paints nothing
-            Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): geometry pass paints no ring
+            Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii): geometry pass paints no ring
             false,              // paint_selection_handles (U2-a): likewise
             None,
             &self.image_cache,
@@ -5177,7 +5170,7 @@ impl LayoutWindow {
     /// window smaller than its insets collapses to zero rather than going
     /// negative. Only absolute (px) insets count - that is what every
     /// platform reports.
-    #[must_use] 
+    #[must_use]
     pub fn inset_by_safe_area(
         full: &LogicalRect,
         insets: &azul_css::system::SafeAreaInsets,
@@ -5348,10 +5341,8 @@ impl LayoutWindow {
                 stale.len()
             )));
         }
-        self.frame_report.virtual_view_size_passes = self
-            .frame_report
-            .virtual_view_size_passes
-            .saturating_add(1);
+        self.frame_report.virtual_view_size_passes =
+            self.frame_report.virtual_view_size_passes.saturating_add(1);
         let Some(previous) = self.layout_results.remove(&dom_id) else {
             return Ok(());
         };
@@ -5381,11 +5372,11 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         stale: Vec<NodeId>,
-    ) -> Option<(DomId, Vec<(NodeId, azul_css::props::property::RelayoutScope)>)> {
-        let displaced = self
-            .pending_css_dirty
-            .take()
-            .filter(|(d, _)| *d != dom_id);
+    ) -> Option<(
+        DomId,
+        Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    )> {
+        let displaced = self.pending_css_dirty.take().filter(|(d, _)| *d != dom_id);
         self.pending_css_dirty = Some((
             dom_id,
             stale
@@ -5426,10 +5417,8 @@ impl LayoutWindow {
         let Some(previous) = self.layout_results.remove(&dom_id) else {
             return false;
         };
-        self.frame_report.virtual_view_size_passes = self
-            .frame_report
-            .virtual_view_size_passes
-            .saturating_add(1);
+        self.frame_report.virtual_view_size_passes =
+            self.frame_report.virtual_view_size_passes.saturating_add(1);
         // A child dom's viewport is its host view's box (recorded on its
         // result); the root's is the window (`None`).
         let child_viewport = if dom_id == DomId::ROOT_ID {
@@ -5459,7 +5448,10 @@ impl LayoutWindow {
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     fn layout_dom_recursive_impl(
         &mut self,
         styled_dom: StyledDom,
@@ -5663,7 +5655,8 @@ impl LayoutWindow {
                         &platform,
                     )
                 };
-                // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
+                // [g80] localize where font_chain_cache drops to 0: chains right after
+                // collect_and_resolve.
                 unsafe {
                     crate::az_mark(0x60770_u32, chains.chains.len() as u32);
                 }
@@ -5682,7 +5675,8 @@ impl LayoutWindow {
                 // via the 0x406C0=0xC0DE0007 marker: the explicit `for …values_mut()` loop ABOVE
                 // lifts fine, only this closure-iterator form traps — same class as the css.rs
                 // `map+collect → for-loop` lift fix). It was revert-able scaffolding; the chains
-                // are sound (the for-loop iterated them), so load_missing_for_chains below proceeds.
+                // are sound (the for-loop iterated them), so load_missing_for_chains below
+                // proceeds.
                 crate::probe::sample_peak_rss("rss:after_font_chain");
 
                 // The resolver scanned the DOM's text; the content overlay
@@ -5810,8 +5804,8 @@ impl LayoutWindow {
                         }
                     } else if let Some(msgs) = debug_messages.as_mut() {
                         msgs.push(LayoutDebugMessage::info(
-                            "[FontLoading] font GC skipped: compact cache absent \
-                             (runtime patch pass) — keep-set unknown"
+                            "[FontLoading] font GC skipped: compact cache absent (runtime patch \
+                             pass) — keep-set unknown"
                                 .to_string(),
                         ));
                     }
@@ -5821,13 +5815,15 @@ impl LayoutWindow {
                 // `prev_font_hashes` signature so the next layout with
                 // an identical DOM skips the resolver entirely).
                 let fc_chains = chains.into_fontconfig_chains();
-                // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
+                // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it
+                // drop them?
                 unsafe {
                     crate::az_mark(0x60778_u32, fc_chains.len() as u32);
                 }
                 self.font_manager
                     .set_font_chain_cache_with_sig(fc_chains, font_stacks_sig);
-                // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
+                // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig
+                // persist it?).
                 unsafe {
                     crate::az_mark(
                         0x6077C_u32,
@@ -6181,7 +6177,8 @@ impl LayoutWindow {
                 // The paint-run derivation retained at store time (#25).
                 if tr.glyph_run_count > 0 {
                     eprintln!(
-                        "[MEM]     glyph_runs       {:>6} KiB  ({} runs, {} instances, {} B/instance amortized)",
+                        "[MEM]     glyph_runs       {:>6} KiB  ({} runs, {} instances, {} \
+                         B/instance amortized)",
                         tr.glyph_run_bytes / 1024,
                         tr.glyph_run_count,
                         tr.glyph_instance_count,
@@ -6194,8 +6191,8 @@ impl LayoutWindow {
                 // character of document costs to keep shaped.
                 if tr.shaped_cluster_count > 0 {
                     eprintln!(
-                        "[MEM]       clusters       {:>6}    glyphs {}  ({} B/cluster, \
-                         of which {} B is its own text copy)",
+                        "[MEM]       clusters       {:>6}    glyphs {}  ({} B/cluster, of which \
+                         {} B is its own text copy)",
                         tr.shaped_cluster_count,
                         tr.shaped_glyph_count,
                         tr.warm_inline_layout_bytes / tr.shaped_cluster_count,
@@ -6260,7 +6257,8 @@ impl LayoutWindow {
                 sc.scroll_ids_bytes / 1024
             );
             eprintln!(
-                "[MEM]   cached_display    {:>7} KiB  ({} items x {} B/slot + {} Text glyph instances — offset copies of glyph_runs)",
+                "[MEM]   cached_display    {:>7} KiB  ({} items x {} B/slot + {} Text glyph \
+                 instances — offset copies of glyph_runs)",
                 sc.cached_display_list_bytes / 1024,
                 sc.cached_display_list_items,
                 size_of::<solver3::display_list::DisplayListItem>(),
@@ -6319,8 +6317,8 @@ impl LayoutWindow {
             // from a walk that stopped deduplicating, and this figure exists
             // precisely to make the correction auditable.
             eprintln!(
-                "[MEM]   (shared Arcs deduplicated: {} KiB the per-key walk would \
-                 have double-charged; NOT part of any total)",
+                "[MEM]   (shared Arcs deduplicated: {} KiB the per-key walk would have \
+                 double-charged; NOT part of any total)",
                 tc.shared_bytes_avoided / 1024,
             );
             if tc.combined_block_glyph_bytes > 0 {
@@ -6358,8 +6356,13 @@ impl LayoutWindow {
             }
 
             let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
-            eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB = {:.2} MB ---",
-                grand_total / 1024, grand_total as f64 / 1_048_576.0, grand_total as f64 / 1_000_000.0);
+            eprintln!(
+                "[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB = \
+                 {:.2} MB ---",
+                grand_total / 1024,
+                grand_total as f64 / 1_048_576.0,
+                grand_total as f64 / 1_000_000.0
+            );
             // UNITS. This report prints KiB, as does /proc/<pid>/smaps despite
             // its "kB" label. heaptrack prints DECIMAL MB. Mixing them silently
             // is a 4.9% error, and it has produced at least three wrong
@@ -6432,7 +6435,10 @@ impl LayoutWindow {
                 // than letting a silent shortfall look like attributed memory.
                 let missed = m.total_kib.saturating_sub(m.categorised_kib());
                 if missed > 0 {
-                    eprintln!("[MEM]   !! {missed} KiB fell into no category — the census is not exhaustive");
+                    eprintln!(
+                        "[MEM]   !! {missed} KiB fell into no category — the census is not \
+                         exhaustive"
+                    );
                 }
                 // THE HEADLINE RATIO, with both sides in the same unit.
                 let walked_kib = (grand_total / 1024) as u64;
@@ -6456,10 +6462,17 @@ impl LayoutWindow {
                 if let Some(a) = crate::probe::allocator_stats() {
                     let mb = |b: u64| b as f64 / 1_048_576.0;
                     eprintln!("[MEM] === ALLOCATOR (glibc mallinfo2) ===");
-                    eprintln!("[MEM]   live (uordblks)        {:>8.1} MiB  <- compare with the walk above",
-                        mb(a.live_bytes));
-                    eprintln!("[MEM]   freed, still held      {:>8.1} MiB  ({:.0}% of arena) <- CHURN, not data",
-                        mb(a.free_in_arena_bytes), a.fragmentation_pct());
+                    eprintln!(
+                        "[MEM]   live (uordblks)        {:>8.1} MiB  <- compare with the walk \
+                         above",
+                        mb(a.live_bytes)
+                    );
+                    eprintln!(
+                        "[MEM]   freed, still held      {:>8.1} MiB  ({:.0}% of arena) <- CHURN, \
+                         not data",
+                        mb(a.free_in_arena_bytes),
+                        a.fragmentation_pct()
+                    );
                     eprintln!(
                         "[MEM]   arena                  {:>8.1} MiB",
                         mb(a.arena_bytes)
@@ -6468,8 +6481,11 @@ impl LayoutWindow {
                         "[MEM]   releasable by trim     {:>8.1} MiB",
                         mb(a.releasable_bytes)
                     );
-                    eprintln!("[MEM]   mmapped (hblkhd)       {:>8.1} MiB  <- lands in [anon], NOT [heap]",
-                        mb(a.mmapped_bytes));
+                    eprintln!(
+                        "[MEM]   mmapped (hblkhd)       {:>8.1} MiB  <- lands in [anon], NOT \
+                         [heap]",
+                        mb(a.mmapped_bytes)
+                    );
                 } else {
                     eprintln!(
                         "[MEM] ALLOCATOR: mallinfo2 unavailable (musl / glibc < 2.33 / macOS)."
@@ -6537,9 +6553,13 @@ impl LayoutWindow {
             {
                 let (rss, _virt) = crate::probe::current_rss_bytes();
                 let peak = crate::probe::peak_rss_bytes_pub();
-                eprintln!("[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  (unreturned={:.1} MiB)",
-                    rss as f64 / 1_048_576.0, peak as f64 / 1_048_576.0,
-                    (peak.saturating_sub(rss)) as f64 / 1_048_576.0);
+                eprintln!(
+                    "[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  \
+                     (unreturned={:.1} MiB)",
+                    rss as f64 / 1_048_576.0,
+                    peak as f64 / 1_048_576.0,
+                    (peak.saturating_sub(rss)) as f64 / 1_048_576.0
+                );
                 // `grand_total` is the layout_cache walk ONLY. `layout_results`
                 // holds a second StyledDom + LayoutTree and is measured later
                 // in the frame (see the walk at the insert site), so the best
@@ -6548,8 +6568,11 @@ impl LayoutWindow {
                 // exists to expose: an "accounted" line that silently omits a
                 // known owner reads as coverage it does not have.
                 let lr = LAST_LAYOUT_RESULTS_BYTES.load(Relaxed);
-                eprintln!("[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
-                    grand_total as f64 * 100.0 / (rss as f64).max(1.0));
+                eprintln!(
+                    "[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is \
+                     allocator overhead + unreturned transient pages + fonts/images + misc",
+                    grand_total as f64 * 100.0 / (rss as f64).max(1.0)
+                );
                 if lr > 0 {
                     eprintln!(
                         "[MEM]   incl. layout_results ({:.1} MiB, previous frame) = {:.1}%",
@@ -6557,7 +6580,10 @@ impl LayoutWindow {
                         (grand_total as u64 + lr) as f64 * 100.0 / (rss as f64).max(1.0)
                     );
                 } else {
-                    eprintln!("[MEM]   layout_results not yet measured this run — the ratio above is a FLOOR.");
+                    eprintln!(
+                        "[MEM]   layout_results not yet measured this run — the ratio above is a \
+                         FLOOR."
+                    );
                 }
             }
         }
@@ -6650,8 +6676,10 @@ impl LayoutWindow {
                         // (KDE Breeze, Windows) got overlay bars that vanish a
                         // moment after scrolling, which reads as "the scrollbar
                         // is not persistent".
-                        use azul_css::props::style::scrollbar::ScrollbarVisibilityMode;
-                        use azul_css::system::ScrollbarVisibility as OsScrollbarVisibility;
+                        use azul_css::{
+                            props::style::scrollbar::ScrollbarVisibilityMode,
+                            system::ScrollbarVisibility as OsScrollbarVisibility,
+                        };
                         let os_wants_always = self.system_style.as_deref().is_some_and(|s| {
                             s.scrollbar_preferences.visibility == OsScrollbarVisibility::Always
                         });
@@ -6751,8 +6779,11 @@ impl LayoutWindow {
                         } if *placeholder_nid == node_id => {
                             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                                 eprintln!(
-                                    "[vview] placeholder swap: node={} placeholder_bounds={:?} scan_bounds={:?}",
-                                    node_id.index(), placeholder_bounds.inner(), bounds
+                                    "[vview] placeholder swap: node={} placeholder_bounds={:?} \
+                                     scan_bounds={:?}",
+                                    node_id.index(),
+                                    placeholder_bounds.inner(),
+                                    bounds
                                 );
                             }
                             // Place the materialized window: it begins at
@@ -6958,12 +6989,11 @@ impl LayoutWindow {
     /// lives HERE so a backend cannot get it wrong or skip a piece of it:
     /// backends never see content state — they blit what this prepared.
     ///
-    /// 1. advances the content-journal frame clock (retires entries older than
-    ///    the swapchain depth),
-    /// 2. invokes every `RenderImageCallback` and funnels produced frames
-    ///    through [`Self::apply_content_change`] (which patches the display
-    ///    list in place — damage falls out of `ImageRef` identity in the
-    ///    backend's display-list diff),
+    /// 1. advances the content-journal frame clock (retires entries older than the swapchain
+    ///    depth),
+    /// 2. invokes every `RenderImageCallback` and funnels produced frames through
+    ///    [`Self::apply_content_change`] (which patches the display list in place — damage falls
+    ///    out of `ImageRef` identity in the backend's display-list diff),
     /// 3. refreshes the scrollbar GPU-value cache for CPU rasterization.
     ///
     /// Returns [`Self::refresh_scrollbar_gpu_cache_for_cpu_frame`]'s result
@@ -7249,10 +7279,16 @@ impl LayoutWindow {
                 };
             };
             let anims = cache
-                .get_property(nd, &node_id, &state.styled_node_state,
-                    &azul_css::props::property::CssPropertyType::Animation)
+                .get_property(
+                    nd,
+                    &node_id,
+                    &state.styled_node_state,
+                    &azul_css::props::property::CssPropertyType::Animation,
+                )
                 .and_then(|p| match p {
-                    azul_css::props::property::CssProperty::Animation(v) => v.get_property().cloned(),
+                    azul_css::props::property::CssProperty::Animation(v) => {
+                        v.get_property().cloned()
+                    }
                     _ => None,
                 });
             match anims {
@@ -7273,9 +7309,10 @@ impl LayoutWindow {
                         }
                         // A LIST scopes properties independently; the last
                         // covering entry wins, web-cascade style.
-                        let anim = anims.as_ref().iter().rev().find(|a| {
-                            a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
-                        })?;
+                        let anim =
+                            anims.as_ref().iter().rev().find(|a| {
+                                a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
+                            })?;
                         let from = cache
                             .get_property(nd, &node_id, &state.styled_node_state, &ty)
                             .cloned()
@@ -7679,7 +7716,8 @@ impl LayoutWindow {
         states.get(&node_id).copied()
     }
 
-    /// Set selection state for a DOM (no-op: `selection_manager` removed, `multi_cursor` handles this)
+    /// Set selection state for a DOM (no-op: `selection_manager` removed, `multi_cursor` handles
+    /// this)
     pub fn set_selection(&mut self, _dom_id: DomId, _selection: SelectionState) {
         // no-op: selection_manager removed
     }
@@ -8302,7 +8340,8 @@ impl LayoutWindow {
     /// and collects the deterministic `FontKey` derived from the font hash.
     /// Callers can diff the result against `renderer_resources.currently_registered_fonts`
     /// to find fonts that are no longer used.
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input
+                                      // variant (or cross-type bindings that can't merge)
     pub fn scan_used_fonts(&self) -> BTreeSet<FontKey> {
         use crate::solver3::display_list::DisplayListItem;
 
@@ -8597,8 +8636,9 @@ impl LayoutWindow {
     /// stylesheet's `5t` reaches `Timer::invoke` as five frames rather than as a
     /// millisecond count someone already rounded.
     pub fn create_cursor_blink_timer(&self, _window_state: &FullWindowState) -> Timer {
-        use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
+
+        use crate::timer::{Timer, TimerCallback};
 
         let interval = self.text_edit_manager.blink.blink_interval;
 
@@ -8625,8 +8665,9 @@ impl LayoutWindow {
     /// callback self-terminates the tick after both tweens finish.
     #[must_use]
     pub fn create_caret_tween_timer(&self) -> Timer {
-        use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
+
+        use crate::timer::{Timer, TimerCallback};
 
         let refany = RefAny::new(TweenTimerData {
             active: self.text_edit_manager.tween.tick_flag.clone(),
@@ -8687,7 +8728,9 @@ impl LayoutWindow {
         scroll_manager: &ScrollManager,
         layout_result: &DomLayoutResult,
     ) -> Option<u64> {
-        let mut cur = node_hierarchy.get(node.index()).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        let mut cur = node_hierarchy
+            .get(node.index())
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         let mut guard = 0usize;
         while let Some(parent) = cur {
             guard += 1;
@@ -9116,11 +9159,11 @@ impl LayoutWindow {
                 // The ring is a plain Border item, no new item kind — every
                 // renderer already draws it. Word accent blue, 2px solid,
                 // subtly rounded.
+                use azul_css::{css::CssPropertyValue, props::basic::PixelValue};
+
                 use crate::solver3::display_list::{
                     DisplayListItem, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
                 };
-                use azul_css::css::CssPropertyValue;
-                use azul_css::props::basic::PixelValue;
                 let accent = azul_css::props::basic::ColorU {
                     r: 43,
                     g: 87,
@@ -9212,9 +9255,12 @@ impl LayoutWindow {
     /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
     /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
     pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
+        use azul_core::{
+            refany::RefAny,
+            task::{Duration, SystemTimeDiff},
+        };
+
         use crate::timer::{Timer, TimerCallback};
-        use azul_core::refany::RefAny;
-        use azul_core::task::{Duration, SystemTimeDiff};
 
         Timer {
             refany: RefAny::new(()),
@@ -9238,12 +9284,11 @@ impl LayoutWindow {
     /// hit-testing has updated `hover_manager`). It compares the current and
     /// previous deepest hovered nodes and returns:
     ///
-    /// - `Start` if the user just hovered onto a node that has a tooltip
-    ///   source (`title` / `alt` / `aria-label`) — the shell should (re)start
-    ///   `TOOLTIP_DELAY_TIMER_ID` with the returned Timer.
-    /// - `Stop` if the hover moved off a tooltip-bearing node (or left the
-    ///   window) — the shell should stop `TOOLTIP_DELAY_TIMER_ID` and hide
-    ///   any currently-visible tooltip.
+    /// - `Start` if the user just hovered onto a node that has a tooltip source (`title` / `alt` /
+    ///   `aria-label`) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
+    ///   Timer.
+    /// - `Stop` if the hover moved off a tooltip-bearing node (or left the window) — the shell
+    ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
     /// - `NoChange` if the hovered node hasn't changed between frames.
     pub fn handle_hover_change_for_tooltip(&self, hover_time_ms: u32) -> TooltipTimerAction {
         let current_hover = self.hover_manager.current_hover_node();
@@ -9868,8 +9913,11 @@ impl LayoutWindow {
         });
         if std::env::var_os("AZ_FOCUS_DEBUG").is_some() {
             eprintln!(
-                "[finalize_pending_focus] editing initialized: node {:?} cursor {:?} (had_layout={})",
-                pending.text_node_id, cursor, text_layout.is_some()
+                "[finalize_pending_focus] editing initialized: node {:?} cursor {:?} \
+                 (had_layout={})",
+                pending.text_node_id,
+                cursor,
+                text_layout.is_some()
             );
         }
         let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
@@ -10190,7 +10238,9 @@ impl LayoutWindow {
             .unwrap_or(node_id);
         let (first, last) = {
             let dense = self.get_dense_for_node(dom_id, ifc_node);
-            if let Some(d) = dense { (d.first_cluster_cursor(), d.last_cluster_cursor()) } else {
+            if let Some(d) = dense {
+                (d.first_cluster_cursor(), d.last_cluster_cursor())
+            } else {
                 let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
                     return false;
                 };
@@ -10242,7 +10292,11 @@ impl LayoutWindow {
         let mut out = String::new();
         for (run, text) in runs.iter().enumerate().take(b.0 + 1).skip(a.0) {
             let lo = if run == a.0 { a.1.min(text.len()) } else { 0 };
-            let hi = if run == b.0 { b.1.min(text.len()) } else { text.len() };
+            let hi = if run == b.0 {
+                b.1.min(text.len())
+            } else {
+                text.len()
+            };
             if lo < hi && text.is_char_boundary(lo) && text.is_char_boundary(hi) {
                 out.push_str(&text[lo..hi]);
             }
@@ -10291,7 +10345,8 @@ impl LayoutWindow {
                 cursor: end,
                 anchor: None,
             });
-        let step = |c: &TextCursor| Self::resolve_step_with(dense, layout, c, op.direction, op.step);
+        let step =
+            |c: &TextCursor| Self::resolve_step_with(dense, layout, c, op.direction, op.step);
 
         match op.mode {
             SelectionMode::Move => {
@@ -10326,8 +10381,12 @@ impl LayoutWindow {
                 for _ in 0..op.repeat.max(1) {
                     caret.cursor = step(&caret.cursor);
                 }
-                self.text_edit_manager
-                    .set_seat_selection(seat_id, target, caret.cursor, Some(anchor));
+                self.text_edit_manager.set_seat_selection(
+                    seat_id,
+                    target,
+                    caret.cursor,
+                    Some(anchor),
+                );
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
@@ -10354,7 +10413,14 @@ impl LayoutWindow {
                         crate::text3::edit::EditOutcome::NoOp(_) => return false,
                     };
                 let changes = crate::text3::edit::run_text_diff(&content, &new_content);
-                self.record_delete_undo(target, node_id, content, new_content.clone(), &current, seat_id);
+                self.record_delete_undo(
+                    target,
+                    node_id,
+                    content,
+                    new_content.clone(),
+                    &current,
+                    seat_id,
+                );
                 if let Some(Selection::Cursor(cursor)) = new_selections.first() {
                     self.text_edit_manager
                         .set_seat_selection(seat_id, target, *cursor, None);
@@ -10364,8 +10430,11 @@ impl LayoutWindow {
                         mc.shift_all_across_diff(&changes);
                     }
                 }
-                self.text_edit_manager
-                    .shift_seat_carets_across_diff(target, &changes, Some(seat_id));
+                self.text_edit_manager.shift_seat_carets_across_diff(
+                    target,
+                    &changes,
+                    Some(seat_id),
+                );
                 self.update_text_cache_after_edit(dom_id, node_id, new_content);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
@@ -10626,8 +10695,7 @@ impl LayoutWindow {
     /// 1. `reconcile_dom` — which old node became which new one,
     /// 2. `transfer_states` — `RefAny` state follows identity,
     /// 3. `migrate_user_overrides_from` — runtime CSS patches follow identity,
-    /// 4. `remap_node_ids` — focus, scroll, hover, text-edit and every other
-    ///    node-keyed manager,
+    /// 4. `remap_node_ids` — focus, scroll, hover, text-edit and every other node-keyed manager,
     /// 5. capture First (and departing) geometry before it is lost.
     ///
     /// Steps 2-4 are one rule: **anything that can be remapped moves; only what
@@ -11646,7 +11714,8 @@ impl LayoutWindow {
         !self.animations.is_empty() || self.has_track_work()
     }
 
-    #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural split
+    #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
+                                     // split
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
@@ -12342,7 +12411,11 @@ impl LayoutWindow {
     /// `get_focused_cursor_rect` for any caret: `cursor` in `session_node`'s
     /// inline layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
     #[must_use]
-    pub fn cursor_rect_for(&self, session_node: DomNodeId, cursor: &TextCursor) -> Option<LogicalRect> {
+    pub fn cursor_rect_for(
+        &self,
+        session_node: DomNodeId,
+        cursor: &TextCursor,
+    ) -> Option<LogicalRect> {
         let cursor = *cursor;
         // Keyed on the SESSION's node, not the focused node: focus lands on the
         // contenteditable container while the caret is anchored on the IFC root
@@ -12406,7 +12479,11 @@ impl LayoutWindow {
     /// vertical positions disagreeing, and the START's line wins.
     #[must_use]
     pub fn focused_rect_for_byte_range(&self, start: usize, end: usize) -> Option<LogicalRect> {
-        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        let (lo, hi) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
         let first = self.focused_rect_for_byte_offset(lo)?;
         if lo == hi {
             return Some(first);
@@ -12601,8 +12678,7 @@ impl LayoutWindow {
         let Some(handle) = self.selection_handle_at(point) else {
             return false;
         };
-        let Some([(lo_block, lo), (hi_block, hi)]) = self.selection_ends_in_document_order()
-        else {
+        let Some([(lo_block, lo), (hi_block, hi)]) = self.selection_ends_in_document_order() else {
             return false;
         };
         // The anchor is the OTHER end, in document order: dragging the start
@@ -12636,8 +12712,12 @@ impl LayoutWindow {
                 .as_ref()
                 .is_some_and(|mc| mc.node_id == anchor_block);
             if !already_there {
-                self.text_edit_manager
-                    .initialize_editing(anchor, anchor_block.dom, anchor_node, key);
+                self.text_edit_manager.initialize_editing(
+                    anchor,
+                    anchor_block.dom,
+                    anchor_node,
+                    key,
+                );
             } else if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
                 mc.set_single_cursor(anchor);
             }
@@ -12683,7 +12763,9 @@ impl LayoutWindow {
                     return false;
                 }
             }
-            return self.process_mouse_drag_for_selection(point, point).is_some();
+            return self
+                .process_mouse_drag_for_selection(point, point)
+                .is_some();
         }
         let Some(focus) = self.focused_cursor_for_point(point) else {
             return false;
@@ -12698,9 +12780,7 @@ impl LayoutWindow {
             start: drag.anchor,
             end: focus,
         };
-        if let Some(Selection::Range(current)) =
-            mc.get_primary().map(|p| p.selection)
-        {
+        if let Some(Selection::Range(current)) = mc.get_primary().map(|p| p.selection) {
             if current == new_range {
                 return false;
             }
@@ -12811,15 +12891,24 @@ impl LayoutWindow {
     pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
         use azul_core::selection::SelectionRange;
 
-        let Some(session_node) = self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id)
+        let Some(session_node) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| mc.node_id)
         else {
             return false;
         };
         let Some((inline_layout, _)) = self.session_inline_geometry(session_node) else {
             return false;
         };
-        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
-        let from = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(lo).unwrap_or(u32::MAX));
+        let (lo, hi) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        let from =
+            Self::byte_offset_to_cursor(&inline_layout, u32::try_from(lo).unwrap_or(u32::MAX));
         let to = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(hi).unwrap_or(u32::MAX));
         drop(inline_layout);
 
@@ -13021,10 +13110,13 @@ impl LayoutWindow {
         // The last LOCAL selection (U3): a plain `last()` is a peer's entry
         // whenever one exists, and Ctrl+D would have searched on from the
         // peer's caret.
-        let last_end_byte = mc.local_selections().last().map_or(0, |s| match &s.selection {
-            Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
-            Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
-        });
+        let last_end_byte = mc
+            .local_selections()
+            .last()
+            .map_or(0, |s| match &s.selection {
+                Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
+                Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
+            });
 
         let search_run = word_range.start.cluster_id.source_run;
 
@@ -13317,11 +13409,10 @@ impl LayoutWindow {
     /// ## Algorithm
     /// 1. Get bounds to scroll (cursor rect or selection rect)
     /// 2. Find the scrollable ancestor of the SESSION's node
-    /// 3. Compute the instant scroll delta ([`calculate_instant_scroll_delta`],
-    ///    a fixed 5px padding on every edge)
-    /// 4. Apply it — as a glide through the physics `AnimateTo` spring when the
-    ///    system allows caret-scroll animation, as a zero-duration jump when it
-    ///    does not
+    /// 3. Compute the instant scroll delta ([`calculate_instant_scroll_delta`], a fixed 5px padding
+    ///    on every edge)
+    /// 4. Apply it — as a glide through the physics `AnimateTo` spring when the system allows
+    ///    caret-scroll animation, as a zero-duration jump when it does not
     ///
     /// [`ScrollMode`] has exactly one variant, [`ScrollMode::Instant`]. The
     /// distance-accelerated drag mode this doc once described had zero call
@@ -13871,8 +13962,9 @@ impl LayoutWindow {
                         false,
                         Vec::new(),
                         Default::default(), // owner_colors (U1)
-                        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): geometry pass paints no ring
-                        false,              // paint_selection_handles (U2-a)
+                        Vec::new(),         /* seat_focus_rings (9b-ii-a-i-d-iii): geometry pass
+                                             * paints no ring */
+                        false, // paint_selection_handles (U2-a)
                         None,
                         &self.image_cache,
                         Some(&self.content_overlay),
@@ -14077,7 +14169,8 @@ impl LayoutWindow {
     #[cfg(feature = "std")]
     /// Run all thread writeback callbacks and return raw changes + update.
     // system_style is an Arc<SystemStyle> handed to this layout entry point by every dll backend;
-    // taking the Arc by value (one refcount) matches that boundary and avoids a cross-backend &-ripple.
+    // taking the Arc by value (one refcount) matches that boundary and avoids a cross-backend
+    // &-ripple.
     #[allow(clippy::needless_pass_by_value)]
     pub fn run_all_threads(
         &mut self,
@@ -14523,7 +14616,9 @@ impl LayoutWindow {
         // re-resolves an icon node later, so skipping it here would leave the
         // icon empty for the life of that DOM.
         let fallback;
-        let system_style = if let Some(s) = self.system_style.as_deref() { s } else {
+        let system_style = if let Some(s) = self.system_style.as_deref() {
+            s
+        } else {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
@@ -14621,8 +14716,10 @@ mod tests {
     /// NOTHING — the dom just disappears without an animation.
     #[test]
     fn unknown_names_resolve_to_no_animation_at_all() {
-        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
-        use azul_css::props::basic::time::CssDuration;
+        use azul_css::props::basic::{
+            animation::{AnimationTiming, StyleAnimation},
+            time::CssDuration,
+        };
         let rect = LogicalRect::new(
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(300.0, 500.0),
@@ -14651,8 +14748,10 @@ mod tests {
     #[test]
     fn node_attached_animation_functions_resolve_by_name() {
         use azul_core::resources::{ZombieAnimCallback, ZombieAnimInfo, ZombieFrame};
-        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
-        use azul_css::props::basic::time::CssDuration;
+        use azul_css::props::basic::{
+            animation::{AnimationTiming, StyleAnimation},
+            time::CssDuration,
+        };
 
         extern "C" fn half_width(
             _data: &mut RefAny,
@@ -14706,11 +14805,13 @@ mod tests {
     /// node's rect.
     #[test]
     fn stylesheet_keyframes_resolve_last_definition_wins() {
-        use azul_css::props::basic::animation::{AnimationTiming, StyleAnimation};
-        use azul_css::props::basic::time::CssDuration;
+        use azul_css::props::basic::{
+            animation::{AnimationTiming, StyleAnimation},
+            time::CssDuration,
+        };
 
-        let css_src = "@keyframes fade { from { opacity: 0.5; } to { opacity: 0.6; } }\n\
-                       @keyframes fade { from { opacity: 1; } to { opacity: 0; } }";
+        let css_src = "@keyframes fade { from { opacity: 0.5; } to { opacity: 0.6; } \
+                       }\n@keyframes fade { from { opacity: 1; } to { opacity: 0; } }";
         let (css, _warnings) = azul_css::parser2::new_from_str(css_src);
         assert_eq!(css.keyframes.as_ref().len(), 2, "both blocks parse");
 
@@ -14754,8 +14855,9 @@ mod tests {
     /// — momentum is motion, not a stored number.
     #[test]
     fn momentum_kick_creates_reads_and_moves() {
-        use crate::xml::DomXmlExt;
         use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
+
+        use crate::xml::DomXmlExt;
 
         let fc = crate::font::loading::build_font_cache();
         let Ok(mut window) = LayoutWindow::new(fc) else {
@@ -14807,14 +14909,13 @@ mod tests {
     /// manager. Two different places later recover it, and they use the SAME
     /// destructive drain:
     ///
-    ///   1. `common::layout::regenerate_layout`'s tail calls
-    ///      `finalize_pending_focus_changes()`, which calls
-    ///      `drain_deferred_focus_target()` and puts the returned blink `Timer`
-    ///      in the ENGINE's timer map.
+    ///   1. `common::layout::regenerate_layout`'s tail calls `finalize_pending_focus_changes()`,
+    ///      which calls `drain_deferred_focus_target()` and puts the returned blink `Timer` in the
+    ///      ENGINE's timer map.
     ///   2. the shell's `SystemChange::FinalizePendingFocusChanges` arm calls
-    ///      `drain_deferred_focus_target()` again and, on `Some`, arms the OS
-    ///      timer (`start_timer` -> `timerfd_create`). Only the shell can do
-    ///      that; the engine map alone drives nothing on a desktop backend.
+    ///      `drain_deferred_focus_target()` again and, on `Some`, arms the OS timer (`start_timer`
+    ///      -> `timerfd_create`). Only the shell can do that; the engine map alone drives nothing
+    ///      on a desktop backend.
     ///
     /// Step 1 always runs first, and it TAKES the target - so step 2 sees
     /// `None` and no OS timer is ever armed. Measured on KDE Plasma Wayland,
@@ -14830,8 +14931,7 @@ mod tests {
     fn a_focus_deferred_until_first_layout_still_tells_the_shell_to_arm_the_blink() {
         use azul_core::{
             callbacks::FocusTarget,
-            dom::DomNodeId,
-            dom::{AttributeType, Dom, IdOrClass},
+            dom::{AttributeType, Dom, DomNodeId, IdOrClass},
             geom::LogicalSize,
             resources::RendererResources,
             styled_dom::StyledDom,
@@ -14893,14 +14993,14 @@ mod tests {
         // ...and the destructive drain the shell relies on is now empty.
         assert!(
             window.drain_deferred_focus_target().is_none(),
-            "the layout tail already took the deferred target - this is why the \
-             shell's arm sees nothing"
+            "the layout tail already took the deferred target - this is why the shell's arm sees \
+             nothing"
         );
         // So the shell needs THIS, or the OS timer is never armed.
         assert!(
             window.take_unarmed_blink_timer().is_some(),
-            "a blink timer the engine installed itself must be offered to the \
-             shell exactly once, or the caret never blinks"
+            "a blink timer the engine installed itself must be offered to the shell exactly once, \
+             or the caret never blinks"
         );
         assert!(
             window.take_unarmed_blink_timer().is_none(),
@@ -14911,8 +15011,9 @@ mod tests {
     /// covers the pagination entry point.
     #[test]
     fn changing_the_font_family_still_resolves_on_the_window_path() {
-        use crate::xml::DomXmlExt;
         use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
+
+        use crate::xml::DomXmlExt;
 
         fn doc(family: &str) -> String {
             format!(
@@ -14957,9 +15058,8 @@ mod tests {
         let mono_sig = window.font_manager.last_resolved_font_stacks_sig;
         assert_ne!(
             mono_sig, sans_sig,
-            "a new font family must re-resolve — otherwise the skip is a gate \
-             that starves changed fonts and the document renders in the \
-             previous family"
+            "a new font family must re-resolve — otherwise the skip is a gate that starves \
+             changed fonts and the document renders in the previous family"
         );
         let mono_families: Vec<String> = window
             .font_manager
@@ -15068,14 +15168,22 @@ mod tests {
             .layout_and_generate_display_list(styled(), &ws, &rr, &sc, &mut dbg)
             .expect("layout");
         assert_eq!(padding_bottom(root_dom(&window)), 7.0);
-        assert_eq!(foot_rect(&window).size.height, 17.0, "10px content + 7px fallback");
+        assert_eq!(
+            foot_rect(&window).size.height,
+            17.0,
+            "10px content + 7px fallback"
+        );
 
         window.safe_area_insets = inset(34.0);
         window
             .layout_and_generate_display_list(styled(), &ws, &rr, &sc, &mut dbg)
             .expect("layout");
         assert_eq!(padding_bottom(root_dom(&window)), 34.0);
-        assert_eq!(foot_rect(&window).size.height, 44.0, "10px content + the 34px inset");
+        assert_eq!(
+            foot_rect(&window).size.height,
+            44.0,
+            "10px content + the 34px inset"
+        );
 
         // A window that carries a different inset, re-offering the context to
         // the DOM it already has (what the layout funnel does on every pass):
@@ -15533,9 +15641,9 @@ impl LayoutWindow {
         let styled_nodes = styled_dom.styled_nodes.as_container();
         if node_id.index() >= styled_nodes.len() {
             eprintln!(
-                "[azul][dom] stale NodeId {} used against a DOM of {} nodes in \
-                 is_text_selectable - a caller is holding a node id across a DOM \
-                 regeneration. Treated as not-selectable instead of panicking.",
+                "[azul][dom] stale NodeId {} used against a DOM of {} nodes in is_text_selectable \
+                 - a caller is holding a node id across a DOM regeneration. Treated as \
+                 not-selectable instead of panicking.",
                 node_id.index(),
                 styled_nodes.len(),
             );
@@ -15566,7 +15674,10 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[allow(clippy::needless_pass_by_value)] // public action-dispatch API called across the dll shell backends; by-value AccessibilityAction is the natural shape and avoids churning every platform caller for a perf-neutral change
+    #[allow(clippy::needless_pass_by_value)] // public action-dispatch API called across the dll
+                                             // shell backends; by-value AccessibilityAction is the
+                                             // natural shape and avoids churning every platform
+                                             // caller for a perf-neutral change
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
@@ -16168,8 +16279,10 @@ impl LayoutWindow {
         changeset: PendingTextEdit,
         seat_id: u64,
     ) -> TextChangesetResult {
-        use crate::managers::changeset::{TextOpInsertText, TextOperation};
-        use crate::text3::edit::{edit_text, TextEdit};
+        use crate::{
+            managers::changeset::{TextOpInsertText, TextOperation},
+            text3::edit::{edit_text, TextEdit},
+        };
 
         // A non-primary seat's edit (9b-ii-a-i-d-ii) is applied at THAT
         // seat's caret - never at the primary's, which may sit in another
@@ -16340,8 +16453,8 @@ impl LayoutWindow {
                     // nothing).
                     debug_assert!(
                         false,
-                        "insert missed every selection ({reason:?}) despite the empty-run seed \
-                         — cursor points outside the content ({} runs)",
+                        "insert missed every selection ({reason:?}) despite the empty-run seed — \
+                         cursor points outside the content ({} runs)",
                         content.len(),
                     );
                     return empty;
@@ -16371,8 +16484,11 @@ impl LayoutWindow {
             }
         }
         // The other seats' carets on this node move too (9b-ii-a-i-d-ii).
-        self.text_edit_manager
-            .shift_seat_carets_across_diff(changeset.node, &changes, Some(seat_id));
+        self.text_edit_manager.shift_seat_carets_across_diff(
+            changeset.node,
+            &changes,
+            Some(seat_id),
+        );
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
@@ -16407,10 +16523,9 @@ impl LayoutWindow {
             CursorPosition::Uninitialized
         };
 
-        let old_cursor_pos = old_cursor
-            .as_ref()
-            .filter(|_| is_primary_seat)
-            .map_or(CursorPosition::Uninitialized, |_| {
+        let old_cursor_pos = old_cursor.as_ref().filter(|_| is_primary_seat).map_or(
+            CursorPosition::Uninitialized,
+            |_| {
                 // The old cursor position was before the edit — the layout may
                 // have already updated so we use the same rect as new_cursor.
                 // This is acceptable for undo: the exact pre-edit position is
@@ -16419,7 +16534,8 @@ impl LayoutWindow {
                     .map_or(CursorPosition::Uninitialized, |r| {
                         CursorPosition::InWindow(r.origin)
                     })
-            });
+            },
+        );
 
         // The record pipeline's provider already dispatched this edit's Input
         // event at determination time — commit without a second notification.
@@ -16759,7 +16875,9 @@ impl LayoutWindow {
             .into_iter()
             .find(|c| {
                 matches!(
-                    node_data.get(c.index()).map(azul_core::dom::NodeData::get_node_type),
+                    node_data
+                        .get(c.index())
+                        .map(azul_core::dom::NodeData::get_node_type),
                     Some(NodeType::Text(_))
                 )
             })
@@ -16895,10 +17013,7 @@ impl LayoutWindow {
             if idx >= run {
                 break;
             }
-            offset += crate::overlay::flatten_inline_content(
-                core::slice::from_ref(item),
-            )
-            .len();
+            offset += crate::overlay::flatten_inline_content(core::slice::from_ref(item)).len();
         }
         offset += cursor.cluster_id.start_byte_in_run as usize;
         // Clamp: a stale cursor from before an edit must not produce an
@@ -16919,7 +17034,8 @@ impl LayoutWindow {
     ///
     /// This function:
     /// 1. Stores the new content in `dirty_text_nodes` for tracking
-    /// 2. Re-runs the text3 layout pipeline (`create_logical_items` -> reorder -> shape -> fragment)
+    /// 2. Re-runs the text3 layout pipeline (`create_logical_items` -> reorder -> shape ->
+    ///    fragment)
     /// 3. Updates the `inline_layout_result` on the IFC root node in the layout tree
     // called by the dll text-edit backends (event.rs/macos) with freshly-built content;
     // it is both cloned into the dirty-node cache and re-read for relayout, so it is taken
@@ -17055,7 +17171,10 @@ impl LayoutWindow {
     /// clean+preedit, so committing a composition inserted the composed text a
     /// second time and cancelling one left the fragment behind.
     #[allow(clippy::needless_pass_by_value)]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     pub fn reshape_text_node(
         &mut self,
         dom_id: DomId,
@@ -17278,7 +17397,8 @@ impl LayoutWindow {
             };
             reshape_extent = Some(content_extent);
 
-            // Update the inline layout result with the new layout but preserve constraints (warm data)
+            // Update the inline layout result with the new layout but preserve constraints (warm
+            // data)
             if let Some(warm_node) = layout_result
                 .layout_tree
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
@@ -17314,16 +17434,14 @@ impl LayoutWindow {
         // did nothing on overflow no matter how much was typed.
         //
         // What may happen in place, and what must escalate:
-        //   - OVERLAY scrollbars (`reserve_width_px == 0`, the macOS
-        //     default) are space-neutral: necessity may flip HERE, in both
-        //     directions, and the scroller registers immediately — the
-        //     keystroke that first overflows the box scrolls and shows its
-        //     bar on this very frame.
-        //   - SPACE-RESERVING bars change the content-box width; flipping
-        //     the flag inline renders the box with geometry that never
-        //     reserved room (the "TextArea rendered blank" incident). That
-        //     transition latches `needs_ancestor_relayout` and the real
-        //     reflow runs through the escalation channel.
+        //   - OVERLAY scrollbars (`reserve_width_px == 0`, the macOS default) are space-neutral:
+        //     necessity may flip HERE, in both directions, and the scroller registers immediately —
+        //     the keystroke that first overflows the box scrolls and shows its bar on this very
+        //     frame.
+        //   - SPACE-RESERVING bars change the content-box width; flipping the flag inline renders
+        //     the box with geometry that never reserved room (the "TextArea rendered blank"
+        //     incident). That transition latches `needs_ancestor_relayout` and the real reflow runs
+        //     through the escalation channel.
         let mut escalate_for_scrollbar_geometry = false;
         {
             struct HostPlan {
@@ -17463,9 +17581,14 @@ impl LayoutWindow {
                 }
                 if std::env::var("AZ_SCROLL_CONTRACT_TRACE").is_ok() {
                     eprintln!(
-                        "[contract] host={:?} extent={:?} port={:?} was_reflow={} now={:?} trans={}",
-                        plan.host_dom, plan.merged_extent, plan.scrollport,
-                        plan.was_reflow, plan.now_reqs, plan.transitioned
+                        "[contract] host={:?} extent={:?} port={:?} was_reflow={} now={:?} \
+                         trans={}",
+                        plan.host_dom,
+                        plan.merged_extent,
+                        plan.scrollport,
+                        plan.was_reflow,
+                        plan.now_reqs,
+                        plan.transitioned
                     );
                 }
                 if plan.transitioned {
@@ -17539,7 +17662,10 @@ impl LayoutWindow {
         let mut inserts: Vec<(usize, usize, u64, String)> = Vec::new();
         if self.preedit_shaped_node == Some((dom_id, node_id)) {
             if let (Some(p), Some(cursor)) = (
-                self.text_edit_manager.preedit_text.as_ref().filter(|p| !p.is_empty()),
+                self.text_edit_manager
+                    .preedit_text
+                    .as_ref()
+                    .filter(|p| !p.is_empty()),
                 self.text_edit_manager.get_primary_cursor(),
             ) {
                 inserts.push((
@@ -17554,7 +17680,10 @@ impl LayoutWindow {
             if *shaped != (dom_id, node_id) {
                 continue;
             }
-            let Some(p) = self.text_edit_manager.seat_preedit(*seat).filter(|p| !p.text.is_empty())
+            let Some(p) = self
+                .text_edit_manager
+                .seat_preedit(*seat)
+                .filter(|p| !p.text.is_empty())
             else {
                 continue;
             };
@@ -17657,7 +17786,6 @@ impl LayoutWindow {
         self.reshape_text_node(dom_id, node_id, base);
         self.regenerate_display_list_for_dom(dom_id);
     }
-
 
     /// Re-apply a dirty text node's content to the layout cache after a full DOM rebuild.
     ///
@@ -18165,10 +18293,10 @@ impl LayoutWindow {
     /// re-running line-breaking (stage 4).
     ///
     /// Returns `Some((new_layout, skipped_fragment_layout))`:
-    ///   - `skipped_fragment_layout == true` means we took the incremental
-    ///     fast path and returned a patched cached layout.
-    ///   - `skipped_fragment_layout == false` means we fell back to full
-    ///     `fragment_layout` (stage 4) but reused shape output from stages 1-3.
+    ///   - `skipped_fragment_layout == true` means we took the incremental fast path and returned a
+    ///     patched cached layout.
+    ///   - `skipped_fragment_layout == false` means we fell back to full `fragment_layout` (stage
+    ///     4) but reused shape output from stages 1-3.
     ///
     /// Returns `None` only if `logical_items` + reorder + shape itself fails.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -18196,11 +18324,11 @@ impl LayoutWindow {
     /// `inclusivity` is mandatory because the two answers are different
     /// questions and used to be two similarly-named helpers:
     ///
-    /// * [`Inclusivity::AncestorsOnly`] — "where is this node's BOX?" A
-    ///   container's own scrolling moves its content, never its own border
-    ///   box. This is what [`crate::headless::node_rect_to_screen`] does.
-    /// * [`Inclusivity::SelfAndAncestors`] — "where is this node's CONTENT?"
-    ///   The caret and the glyphs inside a scroll box DO move with it.
+    /// * [`Inclusivity::AncestorsOnly`] — "where is this node's BOX?" A container's own scrolling
+    ///   moves its content, never its own border box. This is what
+    ///   [`crate::headless::node_rect_to_screen`] does.
+    /// * [`Inclusivity::SelfAndAncestors`] — "where is this node's CONTENT?" The caret and the
+    ///   glyphs inside a scroll box DO move with it.
     fn accumulated_scroll(
         &self,
         dom_id: DomId,
@@ -18249,8 +18377,8 @@ impl LayoutWindow {
                             (sparse.position.x - x).abs() < 0.01
                                 && (sparse.position.y - y).abs() < 0.01
                                 && sparse.line_index == li,
-                            "d6g verify: positioned_cluster({i}) diverged: \
-                             sparse ({}, {}, {}) vs dense ({x}, {y}, {li})",
+                            "d6g verify: positioned_cluster({i}) diverged: sparse ({}, {}, {}) vs \
+                             dense ({x}, {y}, {li})",
                             sparse.position.x,
                             sparse.position.y,
                             sparse.line_index,
@@ -18278,7 +18406,8 @@ impl LayoutWindow {
                 InlineContent::Text(run) => {
                     let s = &run.style;
                     format!(
-                        "T{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                        "T{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?\
+                         }|{:?}|{:?}",
                         s.font_stack,
                         s.font_size_px.to_bits(),
                         s.letter_spacing,
@@ -18334,10 +18463,10 @@ impl LayoutWindow {
 
         // Incremental patching requires:
         //   - The cached layout came with line-break metadata.
-        //   - No overflow in the cached layout (patching positions around
-        //     overflow is not supported).
-        //   - The new shape output has the same number of items as the
-        //     cached positioned items, so we can zip 1:1.
+        //   - No overflow in the cached layout (patching positions around overflow is not
+        //     supported).
+        //   - The new shape output has the same number of items as the cached positioned items, so
+        //     we can zip 1:1.
         // (d6h) The overflow guard reads the CAPTURED overflow (the
         // stored layout may be the retirement sentinel); the count
         // guard is dense-first for the same reason.
@@ -18476,9 +18605,7 @@ impl LayoutWindow {
     /// app-set owner colour when there is one, else the seat palette the
     /// seat carets use. The primary's focus keeps its `:focus` CSS.
     #[must_use]
-    pub fn seat_focus_rings(
-        &self,
-    ) -> Vec<(DomNodeId, azul_css::props::basic::color::ColorU)> {
+    pub fn seat_focus_rings(&self) -> Vec<(DomNodeId, azul_css::props::basic::color::ColorU)> {
         self.focus_manager
             .seat_focus
             .iter()
@@ -18667,7 +18794,8 @@ impl LayoutWindow {
     /// for re-layout. The caller MUST use this return value to trigger layout.
     #[must_use = "Returned nodes must be marked dirty for re-layout"]
     #[cfg(feature = "a11y")]
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input
+                                      // variant (or cross-type bindings that can't merge)
     pub fn edit_text_node(
         &mut self,
         dom_id: DomId,
@@ -18720,9 +18848,9 @@ impl LayoutWindow {
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             eprintln!(
-                "[azul][a11y] an accessibility action arrived, but this build has no \
-                 `a11y` feature — screen-reader actions are DISCARDED. Rebuild \
-                 azul-layout with the `a11y` feature"
+                "[azul][a11y] an accessibility action arrived, but this build has no `a11y` \
+                 feature — screen-reader actions are DISCARDED. Rebuild azul-layout with the \
+                 `a11y` feature"
             );
         });
         BTreeMap::new()
@@ -18755,12 +18883,10 @@ impl LayoutWindow {
     /// of this arithmetic, no two of which agreed:
     ///
     /// * the click path added the box's own scroll but not the content inset;
-    /// * the drag path and `hittest_text_position_global` recomputed the
-    ///   node-local point from `calculated_positions` and also skipped the
-    ///   content inset;
-    /// * the CPU hit tester subtracted the content inset while `WebRender`
-    ///   did not, so the SAME click resolved to different characters in
-    ///   headless E2E and in production.
+    /// * the drag path and `hittest_text_position_global` recomputed the node-local point from
+    ///   `calculated_positions` and also skipped the content inset;
+    /// * the CPU hit tester subtracted the content inset while `WebRender` did not, so the SAME
+    ///   click resolved to different characters in headless E2E and in production.
     ///
     /// `content_local` arrives already normalised by both hit-test producers
     /// (see [`HitTestItem::point_relative_to_item`]), so the only step left is
@@ -18985,15 +19111,19 @@ impl LayoutWindow {
     /// * `time_ms` - Current time in milliseconds (for multi-click detection)
     ///
     /// ## Returns
-    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit text
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit
+    ///   text
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     pub fn process_mouse_click_for_selection(
         &mut self,
         position: LogicalPosition,
         time_ms: u64,
     ) -> Option<Vec<DomNodeId>> {
-        use crate::managers::hover::InputPointId;
-        use crate::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
+        use crate::{
+            managers::hover::InputPointId,
+            text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
+        };
 
         // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
         // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
@@ -19001,7 +19131,8 @@ impl LayoutWindow {
         let mut found_selection: Option<(DomId, NodeId, SelectionRange, ScrolledContentPoint)> =
             None;
 
-        // Try to get hit test from HoverManager first (fast path, uses WebRender's point_relative_to_item)
+        // Try to get hit test from HoverManager first (fast path, uses WebRender's
+        // point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
@@ -19069,7 +19200,8 @@ impl LayoutWindow {
                             // This node IS an IFC root - use its own NodeId
                             (cached, *node_id, layout_node_idx)
                         } else if let Some(ref membership) = warm_node.ifc_membership {
-                            // This node participates in an IFC - get layout and NodeId from IFC root
+                            // This node participates in an IFC - get layout and NodeId from IFC
+                            // root
                             let root_idx = membership.ifc_root_layout_index;
                             match tree.warm(LayoutNodeId::new(root_idx)) {
                                 Some(ifc_root_warm) => match (
@@ -19295,7 +19427,8 @@ impl LayoutWindow {
             let layout_result = self.layout_results.get(&dom_id)?;
             let tree = &layout_result.layout_tree;
 
-            // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
+            // Find layout node - ifc_root_node_id is always the IFC root, so it has
+            // inline_layout_result
             let layout_idx = tree
                 .nodes
                 .iter()
@@ -19319,11 +19452,12 @@ impl LayoutWindow {
 
         // CRITICAL FIX 1: Set focus on the clicked node
         // Without this, clicking on a contenteditable element shows a cursor but
-        // text input doesn't work because record_text_input() checks focus_manager.get_focused_node()
-        // and returns early if there's no focus.
+        // text input doesn't work because record_text_input() checks
+        // focus_manager.get_focused_node() and returns early if there's no focus.
         //
         // Check if the node OR ANY ANCESTOR is contenteditable before setting focus
-        // The contenteditable attribute is typically on a parent div, not on the IFC root or text node
+        // The contenteditable attribute is typically on a parent div, not on the IFC root or text
+        // node
         let is_contenteditable = self.layout_results.get(&dom_id).is_some_and(|lr| {
             let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
             let node_data = lr.styled_dom.node_data.as_ref();
@@ -19429,7 +19563,8 @@ impl LayoutWindow {
     /// - Affected nodes between anchor and focus are computed in DOM order
     ///
     /// ## Parameters
-    /// * `start_position` - Initial click position in logical coordinates (unused, anchor is stored)
+    /// * `start_position` - Initial click position in logical coordinates (unused, anchor is
+    ///   stored)
     /// * `current_position` - Current mouse position in logical coordinates
     ///
     /// ## Returns
@@ -19665,8 +19800,10 @@ impl LayoutWindow {
         current_selections: &[Selection],
         seat_id: u64,
     ) {
-        use crate::managers::changeset::{TextOpDeleteText, TextOperation};
-        use crate::managers::undo_redo::NodeStateSnapshot;
+        use crate::managers::{
+            changeset::{TextOpDeleteText, TextOperation},
+            undo_redo::NodeStateSnapshot,
+        };
 
         let pre_text = self.extract_text_from_inline_content(&content);
         let old_cursor = current_selections.first().and_then(|sel| match sel {
@@ -19722,7 +19859,6 @@ impl LayoutWindow {
             TextEditNotify::QueueInput,
             seat_id,
         );
-
     }
 
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
@@ -19772,7 +19908,14 @@ impl LayoutWindow {
         // a DeleteText operation with styled pre/post snapshots; the actual
         // undo/redo restore uses the snapshots (keyed by changeset id),
         // deleted_text/range are informational for the C-API inspect fns.
-        self.record_delete_undo(target, node_id, content, new_content.clone(), &current_selections, azul_core::window::PRIMARY_POINTER_SEAT);
+        self.record_delete_undo(
+            target,
+            node_id,
+            content,
+            new_content.clone(),
+            &current_selections,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+        );
 
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
@@ -19965,8 +20108,8 @@ impl LayoutWindow {
         let Some(node_id) = mc.node_id.node.into_crate_internal() else {
             copy_trace(|| {
                 format!(
-                    "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — \
-                     nothing to extract",
+                    "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — nothing \
+                     to extract",
                     mc.node_id.dom
                 )
             });
@@ -20039,8 +20182,8 @@ impl LayoutWindow {
         if out.is_none() {
             copy_trace(|| {
                 format!(
-                    "[copy] every range resolved to zero bytes against {dom_id:?}/{node_id:?}'s inline \
-                     content — the ranges and the runs disagree (dual text path?)"
+                    "[copy] every range resolved to zero bytes against {dom_id:?}/{node_id:?}'s \
+                     inline content — the ranges and the runs disagree (dual text path?)"
                 )
             });
         }
@@ -20087,9 +20230,10 @@ impl LayoutWindow {
 
     /// Process `VirtualView` updates requested by callbacks
     ///
-    /// This method handles manual `VirtualView` re-rendering triggered by `trigger_virtual_view_rerender()`.
-    /// It invokes the `VirtualView` callback with `DomRecreated` reason and performs layout on the
-    /// returned DOM, then submits a new display list to `WebRender` for that pipeline.
+    /// This method handles manual `VirtualView` re-rendering triggered by
+    /// `trigger_virtual_view_rerender()`. It invokes the `VirtualView` callback with
+    /// `DomRecreated` reason and performs layout on the returned DOM, then submits a new
+    /// display list to `WebRender` for that pipeline.
     ///
     /// # Arguments
     ///
@@ -20651,7 +20795,7 @@ impl LayoutWindow {
             monitors: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,
-        seat_preedit_shaped: _,
+            seat_preedit_shaped: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
@@ -20994,8 +21138,8 @@ mod autotest_generated {
         assert_eq!(
             DRAIN_DELIVERED.load(std::sync::atomic::Ordering::SeqCst),
             3,
-            "all three writebacks must be delivered — a progress-reporting \
-             worker must not lose messages to thread retirement"
+            "all three writebacks must be delivered — a progress-reporting worker must not lose \
+             messages to thread retirement"
         );
     }
 
@@ -21282,7 +21426,10 @@ mod autotest_generated {
             .expect("a caret must be presented");
         assert_eq!(got, vec![(660, 279, 2, 18)]);
 
-        let uploaded: u64 = got.iter().map(|(_, _, w, h)| u64::from(*w) * u64::from(*h)).sum();
+        let uploaded: u64 = got
+            .iter()
+            .map(|(_, _, w, h)| u64::from(*w) * u64::from(*h))
+            .sum();
         assert!(
             uploaded * 1000 < 1920 * 1036,
             "a caret must cost under a thousandth of the window, uploaded {uploaded}px"
@@ -22340,13 +22487,11 @@ mod autotest_generated {
         };
 
         fn editable(text: &str) -> StyledDom {
-            StyledDom::create_from_dom(
-                Dom::create_div()
-                    .with_contenteditable(true)
-                    .with_child(Dom::create_p().with_child(
-                        Dom::create_text_do_not_use_without_block_level_wrapper(text),
-                    )),
-            )
+            StyledDom::create_from_dom(Dom::create_div().with_contenteditable(true).with_child(
+                Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(text),
+                ),
+            ))
         }
         fn at(byte: u32) -> TextCursor {
             TextCursor {
@@ -22373,10 +22518,16 @@ mod autotest_generated {
         assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(6)));
 
         // The app's next generation carries a remote insert of "XX" at 0.
-        w.layout_results
-            .insert(DomId::ROOT_ID, bare_layout_result(editable("XXhello world")));
+        w.layout_results.insert(
+            DomId::ROOT_ID,
+            bare_layout_result(editable("XXhello world")),
+        );
         w.shift_carets_across_generation();
-        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(8)), "local");
+        assert_eq!(
+            w.text_edit_manager.get_primary_cursor(),
+            Some(at(8)),
+            "local"
+        );
         let peer = w
             .text_edit_manager
             .multi_cursor
@@ -23225,8 +23376,10 @@ mod autotest_generated {
     /// returned root fills the view, and percentages resolve inside it.
     #[test]
     fn a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window() {
-        use azul_core::callbacks::{VirtualViewCallbackInfo, VirtualViewReturn};
-        use azul_core::refany::RefAny;
+        use azul_core::{
+            callbacks::{VirtualViewCallbackInfo, VirtualViewReturn},
+            refany::RefAny,
+        };
 
         extern "C" fn half_split(
             _data: RefAny,
@@ -23272,14 +23425,14 @@ mod autotest_generated {
         let root = win.get_node_size(node(0)).expect("child root laid out");
         assert!(
             (root.width - 140.0).abs() < 1.0,
-            "the child ROOT must fill the view bounds (140px), got {root:?} — \
-             a window-sized root means percents resolve against the window"
+            "the child ROOT must fill the view bounds (140px), got {root:?} — a window-sized root \
+             means percents resolve against the window"
         );
         let bar = win.get_node_size(node(1)).expect("bar laid out");
         assert!(
             (bar.width - 70.0).abs() < 1.0,
-            "width:50% inside a 140px view must be 70px, got {bar:?} \
-             (320px = it resolved against the 640px window)"
+            "width:50% inside a 140px view must be 70px, got {bar:?} (320px = it resolved against \
+             the 640px window)"
         );
         let rest = win.get_node_size(node(2)).expect("rest laid out");
         assert!(
@@ -23695,12 +23848,12 @@ mod autotest_generated {
     /// contenteditable, `overflow-y: auto`) — used to be measured against
     /// three different rectangles:
     ///
-    ///   * the caret rect was anchored on the BORDER-box origin, though the
-    ///     display list paints it at the CONTENT-box origin (5px lower here);
-    ///   * `scroll_selection_into_view` built `visible_area` from `used_size`,
-    ///     the BORDER box (2px taller than the scrollport);
-    ///   * `register_scroll_nodes` published a PADDING-box size at a
-    ///     BORDER-box origin — a rectangle that is not any CSS box at all.
+    ///   * the caret rect was anchored on the BORDER-box origin, though the display list paints it
+    ///     at the CONTENT-box origin (5px lower here);
+    ///   * `scroll_selection_into_view` built `visible_area` from `used_size`, the BORDER box (2px
+    ///     taller than the scrollport);
+    ///   * `register_scroll_nodes` published a PADDING-box size at a BORDER-box origin — a
+    ///     rectangle that is not any CSS box at all.
     ///
     /// Net effect: the reveal believed the caret was comfortably inside while
     /// it was already past the bottom of the scrollport, and scrolled nothing.
@@ -24453,8 +24606,7 @@ pub fn compile_keyframes_track(
     duration_s: f32,
     timing: azul_css::props::basic::animation::AnimationTiming,
 ) -> AnimTrack {
-    use azul_css::props::property::CssProperty;
-    use azul_css::props::style::transform::StyleTransform;
+    use azul_css::props::{property::CssProperty, style::transform::StyleTransform};
     const DEFAULT_FONT_SIZE: f32 = 16.0;
 
     let mut track = AnimTrack {
@@ -25275,9 +25427,8 @@ mod tween_clock_unit_tests {
         info.current
     }
 
-    const CSS: &str = "* { margin: 0; padding: 0; } \
-                       body { font-size: 16px; width: 600px; } \
-                       .p { display: block; }";
+    const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; }";
 
     fn animations(caret_ms: u32, sel_ms: u32, ring_ms: u32) -> SystemAnimations {
         let mut anim = SystemAnimations {
@@ -25598,7 +25749,6 @@ mod tween_clock_unit_tests {
     }
 }
 
-
 /// The `firstRectForRange:` span between two caret rects.
 ///
 /// Pulled out of [`LayoutWindow::focused_rect_for_byte_range`] because it is
@@ -25709,7 +25859,11 @@ pub fn byte_offset_to_utf16(text: &str, byte_offset: usize) -> usize {
 /// A byte range as an `(location, length)` pair in UTF-16 units, ordered.
 #[must_use]
 pub fn byte_range_to_utf16(text: &str, range: (usize, usize)) -> (usize, usize) {
-    let (lo, hi) = if range.0 <= range.1 { range } else { (range.1, range.0) };
+    let (lo, hi) = if range.0 <= range.1 {
+        range
+    } else {
+        (range.1, range.0)
+    };
     let a = byte_offset_to_utf16(text, lo);
     let b = byte_offset_to_utf16(text, hi);
     (a, b.saturating_sub(a))
@@ -25726,18 +25880,16 @@ pub fn utf16_range_to_bytes(text: &str, location: usize, length: usize) -> (usiz
 /// WHAT "THE SELECTION" IS while a platform text-input client asks
 /// (10b-i-b-i), in BYTES of the IME document (see `LayoutWindow::ime_document`).
 ///
-/// - With a composition open, the selection lives INSIDE the marked text:
-///   the IME's own `selectedRange` from `setMarkedText:`, which is relative to
-///   the marked string, rebased onto the document and clamped to the marked
-///   span. That is what `AppKit` reads back to place the candidate window and
-///   to decide which part of the composition a keystroke edits; reporting the
-///   committed caret there instead put the candidate window a preedit-length
-///   away from the text being composed.
+/// - With a composition open, the selection lives INSIDE the marked text: the IME's own
+///   `selectedRange` from `setMarkedText:`, which is relative to the marked string, rebased onto
+///   the document and clamped to the marked span. That is what `AppKit` reads back to place the
+///   candidate window and to decide which part of the composition a keystroke edits; reporting the
+///   committed caret there instead put the candidate window a preedit-length away from the text
+///   being composed.
 /// - Otherwise the committed selection, if the engine can name one.
-/// - Otherwise a caret at the END of the document - a real insertion point
-///   rather than "none", because an unanswerable selection stops the IME
-///   talking (`insertText:` is never sent). This is the `(0, 0)` stub's one
-///   valid reason, now with the right location.
+/// - Otherwise a caret at the END of the document - a real insertion point rather than "none",
+///   because an unanswerable selection stops the IME talking (`insertText:` is never sent). This is
+///   the `(0, 0)` stub's one valid reason, now with the right location.
 #[must_use]
 pub fn ime_selected_byte_range(
     document_len: usize,
@@ -25746,14 +25898,19 @@ pub fn ime_selected_byte_range(
     committed_selection: Option<(usize, usize)>,
 ) -> (usize, usize) {
     if let Some((mark_start, mark_end)) = marked {
-        let (begin, end) = preedit_selection.unwrap_or((mark_end - mark_start, mark_end - mark_start));
+        let (begin, end) =
+            preedit_selection.unwrap_or((mark_end - mark_start, mark_end - mark_start));
         let span = mark_end.saturating_sub(mark_start);
         let begin = begin.min(span);
         let end = end.clamp(begin, span);
         return (mark_start + begin, mark_start + end);
     }
     if let Some((start, end)) = committed_selection {
-        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        let (lo, hi) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
         return (lo.min(document_len), hi.min(document_len));
     }
     (document_len, document_len)
@@ -25796,7 +25953,11 @@ pub fn ime_replacement_action(
     let Some((start, end)) = explicit else {
         return ImeReplacement::Implicit;
     };
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     if start == end {
         // An empty range is an insertion point, and the only insertion point
         // this client has is its caret.
@@ -25823,7 +25984,10 @@ mod ime_replacement_tests {
 
     #[test]
     fn an_implicit_or_empty_range_acts_at_the_caret() {
-        assert_eq!(ime_replacement_action(None, None, None), ImeReplacement::Implicit);
+        assert_eq!(
+            ime_replacement_action(None, None, None),
+            ImeReplacement::Implicit
+        );
         assert_eq!(
             ime_replacement_action(Some((3, 3)), None, Some((1, 5))),
             ImeReplacement::Implicit
@@ -25898,7 +26062,11 @@ mod ime_offset_tests {
         // its bytes.
         assert_eq!(utf16_offset_to_byte("a😀b", 2), 1);
         assert_eq!(byte_offset_to_utf16("a😀b", 5), 3);
-        assert_eq!(byte_offset_to_utf16("a😀b", 3), 1, "mid-scalar: not yet reached");
+        assert_eq!(
+            byte_offset_to_utf16("a😀b", 3),
+            1,
+            "mid-scalar: not yet reached"
+        );
     }
 
     #[test]
@@ -25930,15 +26098,29 @@ mod ime_offset_tests {
         );
         // No preedit selection reported: the caret sits at the END of the
         // marked text.
-        assert_eq!(ime_selected_byte_range(8, marked, None, Some((1, 1))), (7, 7));
+        assert_eq!(
+            ime_selected_byte_range(8, marked, None, Some((1, 1))),
+            (7, 7)
+        );
         // Clamped to the marked span.
-        assert_eq!(ime_selected_byte_range(8, marked, Some((2, 99)), None), (3, 7));
+        assert_eq!(
+            ime_selected_byte_range(8, marked, Some((2, 99)), None),
+            (3, 7)
+        );
     }
 
     #[test]
     fn without_a_composition_it_is_the_committed_selection_or_a_caret_at_the_end() {
-        assert_eq!(ime_selected_byte_range(5, None, None, Some((4, 1))), (1, 4), "ordered");
-        assert_eq!(ime_selected_byte_range(5, None, None, Some((2, 99))), (2, 5), "clamped");
+        assert_eq!(
+            ime_selected_byte_range(5, None, None, Some((4, 1))),
+            (1, 4),
+            "ordered"
+        );
+        assert_eq!(
+            ime_selected_byte_range(5, None, None, Some((2, 99))),
+            (2, 5),
+            "clamped"
+        );
         assert_eq!(ime_selected_byte_range(5, None, None, None), (5, 5));
     }
 }
@@ -25958,8 +26140,14 @@ mod splice_preedit_tests {
 
     #[test]
     fn a_caret_at_either_end_still_works() {
-        assert_eq!(splice_preedit("abc", "X", 0), (String::from("Xabc"), (0, 1)));
-        assert_eq!(splice_preedit("abc", "X", 3), (String::from("abcX"), (3, 4)));
+        assert_eq!(
+            splice_preedit("abc", "X", 0),
+            (String::from("Xabc"), (0, 1))
+        );
+        assert_eq!(
+            splice_preedit("abc", "X", 3),
+            (String::from("abcX"), (3, 4))
+        );
     }
 
     /// An offset past the end is clamped rather than panicking: it arrives
@@ -25978,7 +26166,10 @@ mod splice_preedit_tests {
     fn an_offset_inside_a_multibyte_character_snaps_down() {
         // "日本" is 6 bytes; 4 is inside the second character.
         let (text, marked) = splice_preedit("日本", "X", 4);
-        assert_eq!(text, "日X本", "the splice must land on a character boundary");
+        assert_eq!(
+            text, "日X本",
+            "the splice must land on a character boundary"
+        );
         assert_eq!(marked, (3, 4));
     }
 
@@ -26021,7 +26212,10 @@ mod first_line_span_tests {
     fn a_range_across_lines_gives_only_the_first_line() {
         let first = caret(10.0, 40.0);
         let r = first_line_span(first, caret(90.0, 62.0));
-        assert_eq!(r, first, "a multi-line range must not become a bounding box");
+        assert_eq!(
+            r, first,
+            "a multi-line range must not become a bounding box"
+        );
     }
 
     /// Two carets on one line can differ by a rounding sub-pixel, and treating
@@ -26029,7 +26223,10 @@ mod first_line_span_tests {
     #[test]
     fn a_subpixel_difference_is_still_one_line() {
         let r = first_line_span(caret(10.0, 40.0), caret(90.0, 40.2));
-        assert_eq!(r.size.width, 80.0, "a 0.2px difference is rounding, not a line break");
+        assert_eq!(
+            r.size.width, 80.0,
+            "a 0.2px difference is rounding, not a line break"
+        );
     }
 
     /// A zero-length range is a CARET, and a zero-width rect makes UIKit place

@@ -1,14 +1,14 @@
 //! SVG tessellation, rendering, and geometric operations.
 //!
 //! This module provides:
-//! - **Tessellation** of SVG primitives (paths, circles, rects, multi-polygons)
-//!   via the lyon tessellation library (behind the `svg` feature flag).
+//! - **Tessellation** of SVG primitives (paths, circles, rects, multi-polygons) via the lyon
+//!   tessellation library (behind the `svg` feature flag).
 //! - **CPU clip-mask rendering** via the agg-rust rasterizer (`render_node_clipmask_cpu`).
 //! - **FXAA post-processing** for GPU-rendered textures (`apply_fxaa`).
-//! - **Boolean polygon operations** (union, intersection, difference, XOR)
-//!   on `SvgMultiPolygon` shapes via agg scanline boolean algebra.
-//! - **SVG parsing and rendering** (`svg_parse`, `svg_render`) using an
-//!   XML parser and the agg-rust rendering pipeline.
+//! - **Boolean polygon operations** (union, intersection, difference, XOR) on `SvgMultiPolygon`
+//!   shapes via agg scanline boolean algebra.
+//! - **SVG parsing and rendering** (`svg_parse`, `svg_render`) using an XML parser and the agg-rust
+//!   rendering pipeline.
 
 use alloc::boxed::Box;
 use core::fmt;
@@ -562,7 +562,8 @@ pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLi
     }
 }
 
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
     let dx = line.end.x - line.start.x;
     let dy = line.end.y - line.start.y;
@@ -578,7 +579,8 @@ fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
     }
 }
 
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 fn shorten_line_start_by(line: SvgLine, distance: f32) -> SvgLine {
     let dx = line.end.x - line.start.x;
     let dy = line.end.y - line.start.y;
@@ -1558,7 +1560,8 @@ pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
     clippy::cast_sign_loss
 )] // bounded layout/render numeric cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 pub fn apply_fxaa_with_config(
     texture: &mut Texture,
     config: &azul_core::gl_fxaa::FxaaConfig,
@@ -1758,7 +1761,8 @@ pub fn apply_fxaa_with_config(
 
 #[cfg(feature = "svg")]
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 pub fn render_node_clipmask_cpu(
     image: &mut RawImage,
     node: &SvgNode,
@@ -1783,8 +1787,10 @@ pub fn render_node_clipmask_cpu(
 
     #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     #[allow(clippy::match_same_arms)]
-    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that
+    // can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn agg_translate_node(node: &SvgNode) -> Option<PathStorage> {
         macro_rules! build_path {
             ($path:expr, $p:expr) => {{
@@ -2468,9 +2474,9 @@ pub fn svg_render(_s: &ParsedSvg, _options: SvgRenderOptions) -> Option<RawImage
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][svg] svg_render called, but this build has no `cpurender` \
-             feature — SVG rasterization always returns None (parsing/layout are \
-             unaffected). Rebuild azul-layout with the `cpurender` feature"
+            "[azul][svg] svg_render called, but this build has no `cpurender` feature — SVG \
+             rasterization always returns None (parsing/layout are unaffected). Rebuild \
+             azul-layout with the `cpurender` feature"
         );
     });
     None

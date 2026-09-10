@@ -3,13 +3,13 @@
 //!
 //! The split this exists to make:
 //!
-//!   - **Finding out what is true** is agentic work. It means reading the
-//!     source at HEAD, following a call, checking that a type still has the
-//!     field a paragraph claims, noticing that a function was renamed. Tools,
-//!     many turns, a lot of tokens spent on things that never reach the page.
-//!   - **Writing the page** is not. Given the current page, a list of its
-//!     factual errors, and verbatim source excerpts that settle them, a strong
-//!     writing model produces a better page in ONE turn with no tools at all.
+//!   - **Finding out what is true** is agentic work. It means reading the source at HEAD, following
+//!     a call, checking that a type still has the field a paragraph claims, noticing that a
+//!     function was renamed. Tools, many turns, a lot of tokens spent on things that never reach
+//!     the page.
+//!   - **Writing the page** is not. Given the current page, a list of its factual errors, and
+//!     verbatim source excerpts that settle them, a strong writing model produces a better page in
+//!     ONE turn with no tools at all.
 //!
 //! So this command does the first half and hands over a file. Each bundle
 //! carries five sections: the page exactly as it ships, the machine checks
@@ -21,20 +21,17 @@
 //!
 //! Three properties are deliberate:
 //!
-//!   - **The bundle names its commit.** An excerpt is only evidence if you know
-//!     which tree it came from. Every bundle records `git rev-parse HEAD`, and
-//!     a bundle whose SHA is not HEAD is stale by inspection rather than by
-//!     belief.
-//!   - **The deterministic checks run whether or not an agent does.** File
-//!     existence, per-file staleness since `last_generated_rev`, unknown public
-//!     API names, dangling links — azul-doc knows all of these for certain, and
-//!     `--no-agent` produces a bundle carrying exactly them. The agent is asked
-//!     only for what needs judgement.
-//!   - **The bundle cannot hide unfinished work.** Section 2b lists every
-//!     `TODO` / `FIXME` / `todo!(` / `unimplemented!(` in the files the page
-//!     tracks. A model that never sees them cannot tell a shipped feature from
-//!     an aspirational one, and writes confident prose about both; a model that
-//!     sees an EMPTY list learns something equally useful — the hedging in the
+//!   - **The bundle names its commit.** An excerpt is only evidence if you know which tree it came
+//!     from. Every bundle records `git rev-parse HEAD`, and a bundle whose SHA is not HEAD is stale
+//!     by inspection rather than by belief.
+//!   - **The deterministic checks run whether or not an agent does.** File existence, per-file
+//!     staleness since `last_generated_rev`, unknown public API names, dangling links — azul-doc
+//!     knows all of these for certain, and `--no-agent` produces a bundle carrying exactly them.
+//!     The agent is asked only for what needs judgement.
+//!   - **The bundle cannot hide unfinished work.** Section 2b lists every `TODO` / `FIXME` /
+//!     `todo!(` / `unimplemented!(` in the files the page tracks. A model that never sees them
+//!     cannot tell a shipped feature from an aspirational one, and writes confident prose about
+//!     both; a model that sees an EMPTY list learns something equally useful — the hedging in the
 //!     page is obsolete and should go.
 //!
 //! Which pages count as shipping is `docgen::guide::get_guide_list()` — the
@@ -369,10 +366,7 @@ fn api_like_identifiers(body: &str) -> BTreeSet<String> {
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
         let looks_like_api = !screaming
             && !PRELUDE.contains(&token)
-            && token
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_uppercase())
+            && token.chars().next().is_some_and(|c| c.is_ascii_uppercase())
             && token
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':' || c == '.');
@@ -491,8 +485,8 @@ fn machine_checks(
 ) -> Vec<Check> {
     let mut checks = Vec::new();
 
-    // 1. Do the tracked files still exist? A page whose subject moved is not
-    //    merely stale, it documents a path that is not there.
+    // 1. Do the tracked files still exist? A page whose subject moved is not merely stale, it
+    //    documents a path that is not there.
     if fm.tracked_files.is_empty() {
         checks.push(Check {
             severity: "note",
@@ -513,8 +507,8 @@ fn machine_checks(
         }
     }
 
-    // 2. What has changed under the page since it was last generated? This is
-    //    the list of commits the prose has never seen.
+    // 2. What has changed under the page since it was last generated? This is the list of commits
+    //    the prose has never seen.
     match &fm.last_generated_rev {
         None => checks.push(Check {
             severity: "note",
@@ -551,10 +545,9 @@ fn machine_checks(
         }
     }
 
-    // 3. Names the page presents as API that this project does not export
-    //    under ANY binding's spelling. Either the name is wrong, or it is
-    //    internal and the page should not present it as the reader's API, or
-    //    it is a placeholder the example invented.
+    // 3. Names the page presents as API that this project does not export under ANY binding's
+    //    spelling. Either the name is wrong, or it is internal and the page should not present it
+    //    as the reader's API, or it is a placeholder the example invented.
     //
     //    "Under any binding's spelling" is the whole point: a C page writes
     //    `AzDom_createBody` for what api.json calls `Dom::create_body`, and
@@ -594,9 +587,9 @@ fn machine_checks(
         });
     }
 
-    // 4. Pointers that do not resolve. `check_guide_links` already proved
-    //    these against the worktree; carry this page's share into the bundle so
-    //    the writer sees them without running anything.
+    // 4. Pointers that do not resolve. `check_guide_links` already proved these against the
+    //    worktree; carry this page's share into the bundle so the writer sees them without running
+    //    anything.
     let rel = page_path
         .strip_prefix(project_root)
         .unwrap_or(page_path)
@@ -669,10 +662,10 @@ fn render_bundle(
     // cannot vouch for. Excerpts were read from disk, and disk is not the SHA.
     if head.dirty {
         out.push_str(
-            "> ⚠ **The working tree has UNCOMMITTED CHANGES.** Everything below was read from \
-             the working tree, not from the commit named above. Excerpts and line numbers \
-             describe the files as they are on disk; they may not match that commit, and the \
-             commit alone will not reproduce them.\n\n",
+            "> ⚠ **The working tree has UNCOMMITTED CHANGES.** Everything below was read from the \
+             working tree, not from the commit named above. Excerpts and line numbers describe \
+             the files as they are on disk; they may not match that commit, and the commit alone \
+             will not reproduce them.\n\n",
         );
     }
 
@@ -719,17 +712,17 @@ fn render_bundle(
 
     if agent_pass {
         out.push_str(
-            "## 3. Fact-check\n\n<!-- assemble-context: the agent replaces this block. -->\n\n_Not \
-             filled in yet._\n\n## 4. Sources\n\n<!-- assemble-context: the agent replaces this \
-             block. -->\n\n_Not filled in yet._\n\n",
+            "## 3. Fact-check\n\n<!-- assemble-context: the agent replaces this block. \
+             -->\n\n_Not filled in yet._\n\n## 4. Sources\n\n<!-- assemble-context: the agent \
+             replaces this block. -->\n\n_Not filled in yet._\n\n",
         );
     } else {
         out.push_str(
-            "## 3. Fact-check\n\n_Skipped: this bundle was assembled with `--no-agent`, so nothing \
-             read the prose against the source. Sections 2 and 2b are still authoritative._\n\n## \
-             4. Sources\n\n_Skipped: `--no-agent`. Every code example in the page is therefore \
-             unverified: do not add new ones, and delete any you cannot justify from the page \
-             itself._\n\n",
+            "## 3. Fact-check\n\n_Skipped: this bundle was assembled with `--no-agent`, so \
+             nothing read the prose against the source. Sections 2 and 2b are still \
+             authoritative._\n\n## 4. Sources\n\n_Skipped: `--no-agent`. Every code example in \
+             the page is therefore unverified: do not add new ones, and delete any you cannot \
+             justify from the page itself._\n\n",
         );
     }
 
@@ -763,16 +756,17 @@ fn render_maturity_section(fm: &Frontmatter, m: &MaturityReport) -> String {
     if fm.tracked_files.is_empty() {
         out.push_str(
             "- the page tracks no files, so nothing could be scanned. THIS IS NOT EVIDENCE THAT \
-             THE FEATURE IS FINISHED — it is evidence that nobody said which source to look at.\n\n",
+             THE FEATURE IS FINISHED — it is evidence that nobody said which source to look \
+             at.\n\n",
         );
         return out;
     }
 
     if m.markers.is_empty() {
         out.push_str(&format!(
-            "- **{} tracked file(s) scanned; NO markers found.** The code behind this page carries \
-             no admission of unfinished work. If the page hedges — a `maturity: wip` key, a \
-             `*WIP.*` paragraph, \"not yet\", \"planned\" — the hedge is unsupported and should \
+            "- **{} tracked file(s) scanned; NO markers found.** The code behind this page \
+             carries no admission of unfinished work. If the page hedges — a `maturity: wip` key, \
+             a `*WIP.*` paragraph, \"not yet\", \"planned\" — the hedge is unsupported and should \
              go.\n\n",
             m.files_scanned,
         ));
@@ -965,7 +959,10 @@ When you are done, reply with one line: the number of findings and the number of
         // commit, saying "at commit X" in section 4 is a claim the bundle
         // cannot back, so the agent is told to describe the tree it can see.
         dirty_note = if head.dirty {
-            "\nThe working tree has UNCOMMITTED CHANGES. Read the files as they are on disk, and\nwherever these instructions say \"at this commit\", read \"in the working tree\": your excerpts\nand line numbers must match what is on disk, not what that commit holds. Say so in section 4 if\nan excerpt comes from a modified file."
+            "\nThe working tree has UNCOMMITTED CHANGES. Read the files as they are on disk, \
+             and\nwherever these instructions say \"at this commit\", read \"in the working \
+             tree\": your excerpts\nand line numbers must match what is on disk, not what that \
+             commit holds. Say so in section 4 if\nan excerpt comes from a modified file."
         } else {
             ""
         },

@@ -488,8 +488,8 @@ mod tests {
         let node = core::mem::size_of::<crate::dom::NodeType>();
         assert!(
             cfg < node,
-            "TransientWindowConfig is {cfg} bytes, NodeType is {node}: the config \
-             has become the largest payload and is now what sets NodeType's size"
+            "TransientWindowConfig is {cfg} bytes, NodeType is {node}: the config has become the \
+             largest payload and is now what sets NodeType's size"
         );
     }
 }
@@ -575,10 +575,10 @@ fn build_subtree(
 ///
 /// - every node gets its matched author properties (`css_props`), keeping the
 ///   `:hover`/`:active`/`:focus` variants as conditional inline rules;
-/// - the ROOT additionally gets every inheritable property it computed - its
-///   ancestors stay behind in the parent tree, so `body { font-family }` or a
-///   panel's `color` would otherwise be cut off at the popup's edge. Inside the
-///   subtree, inheritance is re-derived from the root by the normal cascade.
+/// - the ROOT additionally gets every inheritable property it computed - its ancestors stay behind
+///   in the parent tree, so `body { font-family }` or a panel's `color` would otherwise be cut off
+///   at the popup's edge. Inside the subtree, inheritance is re-derived from the root by the normal
+///   cascade.
 ///
 /// Inline rules outrank author rules in the new cascade, which is the intent:
 /// these ARE the author's resolved values, nothing in the popup's own tree

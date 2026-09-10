@@ -143,7 +143,11 @@ impl NodeUndoRedoStack {
     /// edits gets `None` - the interleaved case needs operational
     /// transformation, which is 9b-ii-a-i-d-ii-d-i.
     pub fn pop_undo_for_seat(&mut self, seat_id: u64) -> Option<UndoableOperation> {
-        if self.undo_stack.back().is_some_and(|op| op.seat_id == seat_id) {
+        if self
+            .undo_stack
+            .back()
+            .is_some_and(|op| op.seat_id == seat_id)
+        {
             self.undo_stack.pop_back()
         } else {
             None
@@ -152,7 +156,11 @@ impl NodeUndoRedoStack {
 
     /// Per-person redo: the counterpart of [`Self::pop_undo_for_seat`].
     pub fn pop_redo_for_seat(&mut self, seat_id: u64) -> Option<UndoableOperation> {
-        if self.redo_stack.back().is_some_and(|op| op.seat_id == seat_id) {
+        if self
+            .redo_stack
+            .back()
+            .is_some_and(|op| op.seat_id == seat_id)
+        {
             self.redo_stack.pop_back()
         } else {
             None
@@ -422,13 +430,23 @@ impl UndoRedoManager {
 
     /// Per-person undo on `node_id` (9b-ii-a-i-d-ii-d); see
     /// [`NodeUndoRedoStack::pop_undo_for_seat`].
-    pub fn pop_undo_for_seat(&mut self, node_id: NodeId, seat_id: u64) -> Option<UndoableOperation> {
-        self.get_or_create_stack_mut(node_id).pop_undo_for_seat(seat_id)
+    pub fn pop_undo_for_seat(
+        &mut self,
+        node_id: NodeId,
+        seat_id: u64,
+    ) -> Option<UndoableOperation> {
+        self.get_or_create_stack_mut(node_id)
+            .pop_undo_for_seat(seat_id)
     }
 
     /// Per-person redo on `node_id`.
-    pub fn pop_redo_for_seat(&mut self, node_id: NodeId, seat_id: u64) -> Option<UndoableOperation> {
-        self.get_or_create_stack_mut(node_id).pop_redo_for_seat(seat_id)
+    pub fn pop_redo_for_seat(
+        &mut self,
+        node_id: NodeId,
+        seat_id: u64,
+    ) -> Option<UndoableOperation> {
+        self.get_or_create_stack_mut(node_id)
+            .pop_redo_for_seat(seat_id)
     }
 
     /// Check if undo is available for a node
@@ -600,12 +618,15 @@ fn remap_operation(
 
 #[cfg(test)]
 mod undo_redo_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        styled_dom::NodeHierarchyItemId,
+        task::SystemTick,
+        window::CursorPosition,
+    };
+
     use super::*;
     use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::styled_dom::NodeHierarchyItemId;
-    use azul_core::task::SystemTick;
-    use azul_core::window::CursorPosition;
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick { tick_counter: 0 })
@@ -635,7 +656,7 @@ mod undo_redo_tests {
             },
             seat_id: 0,
         }
-        }
+    }
 
     #[test]
     fn push_undo_clears_redo_but_reinstate_preserves_it() {
@@ -698,13 +719,16 @@ mod undo_redo_tests {
 
 #[cfg(test)]
 mod structural_history_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+        styled_dom::NodeHierarchyItemId,
+    };
+
     use super::*;
     use crate::managers::changeset::{
         DocOpRemoveChildren, DocOpSplitNode, DocumentOperation, EditResumePoint, NodePosition,
     };
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-    use azul_core::styled_dom::NodeHierarchyItemId;
 
     fn entry(tag: u32) -> StructuralUndoEntry {
         let node = DomNodeId {
@@ -827,12 +851,12 @@ mod autotest_generated {
             },
             seat_id: 0,
         }
-        }
+    }
 
     /// Operation on DOM 0 (the common case).
     fn op(id: usize, node: usize) -> UndoableOperation {
         op_full(id, 0, node, "x")
-        }
+    }
 
     /// Operation whose changeset target node is `None` — the input every
     /// `expect()` in this module is documented to panic on.
@@ -840,7 +864,7 @@ mod autotest_generated {
         let mut o = op(id, 0);
         o.changeset.target.node = NodeHierarchyItemId::from_crate_internal(None);
         o
-        }
+    }
 
     fn text_of(o: &UndoableOperation) -> &str {
         match &o.changeset.operation {
@@ -1681,7 +1705,7 @@ mod seat_attribution_tests {
             },
             seat_id: 0,
         }
-        }
+    }
 
     fn op_for(seat_id: u64) -> UndoableOperation {
         let mut o = sample(1, 1);
@@ -1696,15 +1720,25 @@ mod seat_attribution_tests {
     fn a_seats_undo_pops_only_its_own_top_edit() {
         let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
         stack.push_undo(op_for(7));
-        assert!(stack.pop_undo_for_seat(0).is_none(), "the primary cannot undo the seat's edit");
+        assert!(
+            stack.pop_undo_for_seat(0).is_none(),
+            "the primary cannot undo the seat's edit"
+        );
         assert_eq!(stack.pop_undo_for_seat(7).map(|o| o.seat_id), Some(7));
         assert!(stack.pop_undo_for_seat(7).is_none(), "nothing left");
 
         stack.push_undo(op_for(7));
         stack.push_undo(op_for(0));
-        assert!(stack.pop_undo_for_seat(7).is_none(), "buried under the primary's edit");
+        assert!(
+            stack.pop_undo_for_seat(7).is_none(),
+            "buried under the primary's edit"
+        );
         assert_eq!(stack.pop_undo_for_seat(0).map(|o| o.seat_id), Some(0));
-        assert_eq!(stack.pop_undo_for_seat(7).map(|o| o.seat_id), Some(7), "unburied");
+        assert_eq!(
+            stack.pop_undo_for_seat(7).map(|o| o.seat_id),
+            Some(7),
+            "unburied"
+        );
     }
 
     #[test]

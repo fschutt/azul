@@ -1,27 +1,34 @@
 //! The break-Y -> DOM-path keystone of the DOM-materialized-breaks editor
 //! architecture (pdf2html AZUL-STILL-TODO section A):
 //!
-//! - `compute_document_pagination` estimates break Y coordinates without
-//!   materializing pages, leaving tree + positions in the caller's cache.
-//! - `pagination_to_dom_breaks` maps every break to the child-index path of
-//!   the first block at/after it (the spine the cut runs along) so the
-//!   application can insert its break nodes at DOM positions.
-//! - Forced breaks carry `causing_node` end to end (display-list recording
-//!   through `PageBreakPosition`).
+//! - `compute_document_pagination` estimates break Y coordinates without materializing pages,
+//!   leaving tree + positions in the caller's cache.
+//! - `pagination_to_dom_breaks` maps every break to the child-index path of the first block
+//!   at/after it (the spine the cut runs along) so the application can insert its break nodes at
+//!   DOM positions.
+//! - Forced breaks carry `causing_node` end to end (display-list recording through
+//!   `PageBreakPosition`).
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::{compute_document_pagination, pagination_to_dom_breaks};
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::{BreakKind, Solver3LayoutCache};
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        paged_layout::{compute_document_pagination, pagination_to_dom_breaks},
+        pagination::FakePageConfig,
+        LayoutNodeId,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    BreakKind, Solver3LayoutCache,
+};
 
 fn paginate(
     html: &str,
@@ -262,11 +269,11 @@ fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
 /// margins put block 2's top at exactly y=300 = the 300px page boundary:
 ///
 /// - the estimator yields one break at 300 whose spine path addresses block 2,
-/// - inserting `Dom::create_page_break()` (an empty UA-styled block) there
-///   must NOT move block 2 (margins keep collapsing through the empty
-///   element — the doc's explicit margin-collapse worry), and
-/// - re-estimating the materialized document yields the same boundary,
-///   now FORCED (the forced break wins over the coinciding interval).
+/// - inserting `Dom::create_page_break()` (an empty UA-styled block) there must NOT move block 2
+///   (margins keep collapsing through the empty element — the doc's explicit margin-collapse
+///   worry), and
+/// - re-estimating the materialized document yields the same boundary, now FORCED (the forced break
+///   wins over the coinciding interval).
 ///
 /// For boundaries that fall MID-block, block-granular materialization
 /// legitimately snaps to the spine block's top — asserted separately below.
@@ -356,8 +363,8 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         .unwrap();
     assert!(
         (block2_y - 300.0).abs() < 1.0,
-        "inserting the empty break element must not move block 2 (margin \
-         collapse-through): got y={block2_y}"
+        "inserting the empty break element must not move block 2 (margin collapse-through): got \
+         y={block2_y}"
     );
 
     // Same boundary, now forced.
@@ -425,8 +432,8 @@ fn midblock_breaks_materialize_at_the_spine_block_top() {
             .breaks
             .iter()
             .any(|b| b.kind == BreakKind::Forced && (b.y - 300.0).abs() < 1.0),
-        "the materialized break lands at the spine block's top (300), not at \
-         the mid-block estimate (200): {:?}",
+        "the materialized break lands at the spine block's top (300), not at the mid-block \
+         estimate (200): {:?}",
         pagination_b.breaks
     );
 }
@@ -533,14 +540,13 @@ fn mid_paragraph_break_exposes_the_line_start_byte() {
             saw_line_start += 1;
             assert!(
                 ls.item_index > 0,
-                "a mid-paragraph break never starts at byte 0 (that would \
-                 be a block boundary): {b:?}"
+                "a mid-paragraph break never starts at byte 0 (that would be a block boundary): \
+                 {b:?}"
             );
             if let Some(prev) = prev_byte {
                 assert!(
                     ls.item_index > prev,
-                    "line-start bytes must increase page over page: \
-                     {prev} then {ls:?}"
+                    "line-start bytes must increase page over page: {prev} then {ls:?}"
                 );
             }
             prev_byte = Some(ls.item_index);
@@ -548,8 +554,7 @@ fn mid_paragraph_break_exposes_the_line_start_byte() {
     }
     assert!(
         saw_line_start >= 1,
-        "at least one interval break lands mid-paragraph and must carry \
-         line_start: {breaks:?}"
+        "at least one interval break lands mid-paragraph and must carry line_start: {breaks:?}"
     );
 }
 
@@ -673,8 +678,7 @@ fn deletion_shifts_the_window_via_breaks_delta() {
         .expect("caret lands on a page");
     assert!(
         caret_page >= delta.first_changed_page,
-        "the caret's page ({caret_page}) is in the re-derived region \
-         (>= {})",
+        "the caret's page ({caret_page}) is in the re-derived region (>= {})",
         delta.first_changed_page
     );
     // Structural mapping stays available for the re-derived region.
@@ -853,20 +857,22 @@ fn estimator_root_height(xml: &str) -> f32 {
 /// XML path the app uses.
 #[test]
 fn wrapped_pure_text_measures_via_the_unstyled_xml_path() {
-    let long = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do\neiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad\nminim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip\nex ea commodo consequat. Duis aute irure dolor in reprehenderit in\nvoluptate velit esse cillum dolore eu fugiat nulla pariatur.";
+    let long = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do\neiusmod tempor \
+                incididunt ut labore et dolore magna aliqua. Ut enim ad\nminim veniam, quis \
+                nostrud exercitation ullamco laboris nisi ut aliquip\nex ea commodo consequat. \
+                Duis aute irure dolor in reprehenderit in\nvoluptate velit esse cillum dolore eu \
+                fugiat nulla pariatur.";
     let xml = format!(
-        "<html><head><style>\n\
-            body {{ font-family: 'Liberation Sans', sans-serif; font-size: 15px;\n\
-                    color: #1a1a1a; line-height: 1.35; }}\n\
-            p {{ margin-bottom: 11px; }}\n\
-        </style></head>\n\
-        <body>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n</body></html>"
+        "<html><head><style>\nbody {{ font-family: 'Liberation Sans', sans-serif; font-size: \
+         15px;\ncolor: #1a1a1a; line-height: 1.35; }}\np {{ margin-bottom: 11px; \
+         }}\n</style></head>\n<body>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\n<p>{long}</p>\\
+         n<p>{long}</p>\n<p>{long}</p>\n</body></html>"
     );
     let h = estimator_root_height(&xml);
     assert!(
         h > 400.0,
-        "six wrapped paragraphs must measure (>700px), got {h}px \
-         (miniword: multi-line pure-text <p>s measured 0.0)"
+        "six wrapped paragraphs must measure (>700px), got {h}px (miniword: multi-line pure-text \
+         <p>s measured 0.0)"
     );
 }
 
@@ -886,8 +892,8 @@ fn estimator_is_insensitive_to_leading_body_whitespace() {
     let h_good = estimator_root_height(&good);
     assert!(
         (h_bad - h_good).abs() < 1.0 && h_good > 1000.0,
-        "one whitespace character must not change document measurement: \
-         <body><h1> measured {h_bad}px, <body>-newline-<h1> measured {h_good}px"
+        "one whitespace character must not change document measurement: <body><h1> measured \
+         {h_bad}px, <body>-newline-<h1> measured {h_good}px"
     );
 }
 
@@ -1089,7 +1095,7 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     assert_ne!(
         block_texts(&model2),
         before,
-        "control: the forward resume must NOT undo correctly (if it does, \
-         inverse_resume is not carrying its weight)"
+        "control: the forward resume must NOT undo correctly (if it does, inverse_resume is not \
+         carrying its weight)"
     );
 }

@@ -555,9 +555,9 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     }
     if let Some(inner) = trimmed.strip_prefix("&") {
         return (
-        format!("*const {}", inner.trim()),
-        Some("unsafe { &*{} }".to_string()),
-    );
+            format!("*const {}", inner.trim()),
+            Some("unsafe { &*{} }".to_string()),
+        );
     }
 
     // No conversion needed
@@ -789,24 +789,22 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         // ref to a VALUE (the old behavior) generated a call that MOVED a
         // struct the caller still owns: broken codegen, silently, on the
         // first imported method with a reference argument.
-        let (ffi_type, accessor) = if accessor.is_none()
-            && ffi_type != "String"
-            && !ffi_type.ends_with("VecRef")
-        {
-            match arg.ref_kind {
-                crate::api::RefKind::Ref => (
-                    format!("*const {ffi_type}"),
-                    Some("unsafe { &*{} }".to_string()),
-                ),
-                crate::api::RefKind::RefMut => (
-                    format!("*mut {ffi_type}"),
-                    Some("unsafe { &mut *{} }".to_string()),
-                ),
-                _ => (ffi_type, accessor),
-            }
-        } else {
-            (ffi_type, accessor)
-        };
+        let (ffi_type, accessor) =
+            if accessor.is_none() && ffi_type != "String" && !ffi_type.ends_with("VecRef") {
+                match arg.ref_kind {
+                    crate::api::RefKind::Ref => (
+                        format!("*const {ffi_type}"),
+                        Some("unsafe { &*{} }".to_string()),
+                    ),
+                    crate::api::RefKind::RefMut => (
+                        format!("*mut {ffi_type}"),
+                        Some("unsafe { &mut *{} }".to_string()),
+                    ),
+                    _ => (ffi_type, accessor),
+                }
+            } else {
+                (ffi_type, accessor)
+            };
         arg_map.insert(arg.name.clone(), ffi_type);
         fn_args.push(arg_map);
         arg_accessors.push((arg.name.clone(), accessor));

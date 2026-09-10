@@ -71,7 +71,8 @@ fn a_scroll_container_with_direct_text_still_paints_after_scrolling_past_its_own
                 long_text,
             )),
     );
-    let (css, _) = azul_css::parser2::new_from_str("* { margin: 0; padding: 0; } body { background: white; }");
+    let (css, _) =
+        azul_css::parser2::new_from_str("* { margin: 0; padding: 0; } body { background: white; }");
     let styled = StyledDom::create(&mut dom, css);
     let mut dbg = None;
     lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
@@ -88,11 +89,19 @@ fn a_scroll_container_with_direct_text_still_paints_after_scrolling_past_its_own
     // Sanity: unscrolled, glyphs paint inside the box.
     let state0 = cpurender::CpuRenderState::new(cpurender::ScrollOffsetMap::new());
     let pix0 = cpurender::render_with_font_manager_and_scroll(
-        &dl, &rr, &lw.font_manager, opts, &mut glyphs, &state0,
+        &dl,
+        &rr,
+        &lw.font_manager,
+        opts,
+        &mut glyphs,
+        &state0,
     )
     .unwrap();
     let ink0 = non_white_pixels_in(&pix0, 0, 0, 260, BOX_H as usize);
-    assert!(ink0 > 50, "premise: the unscrolled box paints text (ink {ink0})");
+    assert!(
+        ink0 > 50,
+        "premise: the unscrolled box paints text (ink {ink0})"
+    );
 
     // Scroll PAST the box's own height and re-render with the offset applied
     // the same way the shells do (scroll_id-keyed offsets at raster time).
@@ -109,7 +118,9 @@ fn a_scroll_container_with_direct_text_still_paints_after_scrolling_past_its_own
         .count();
     assert!(
         !lr.scroll_ids.is_empty(),
-        "premise: the box registered a scroll id (DL has {n_scroll_frames}          scroll frames, {} items) — if this fails, the degenerate topology          never even became scrollable: the necessity check missed the IFC's          own content extension",
+        "premise: the box registered a scroll id (DL has {n_scroll_frames}          scroll \
+         frames, {} items) — if this fails, the degenerate topology          never even became \
+         scrollable: the necessity check missed the IFC's          own content extension",
         dl.items.len(),
     );
     for (_layout_idx, scroll_id) in lr.scroll_ids.iter() {
@@ -117,14 +128,18 @@ fn a_scroll_container_with_direct_text_still_paints_after_scrolling_past_its_own
     }
     let state1 = cpurender::CpuRenderState::new(offsets);
     let pix1 = cpurender::render_with_font_manager_and_scroll(
-        &dl, &rr, &lw.font_manager, opts, &mut glyphs, &state1,
+        &dl,
+        &rr,
+        &lw.font_manager,
+        opts,
+        &mut glyphs,
+        &state1,
     )
     .unwrap();
     let ink1 = non_white_pixels_in(&pix1, 0, 0, 260, BOX_H as usize);
     assert!(
         ink1 > 50,
-        "scrolled 140px into a {BOX_H}px-tall degenerate scroller the box \
-         paints NOTHING (ink {ink1}) — the whole run was early-skipped \
-         against the pre-extension clip"
+        "scrolled 140px into a {BOX_H}px-tall degenerate scroller the box paints NOTHING (ink \
+         {ink1}) — the whole run was early-skipped against the pre-extension clip"
     );
 }

@@ -19,18 +19,17 @@ use crate::desktop::shell2::common::debug_server::LogCategory;
 /// see the Wayland `CONFIGURES_SEEN` for why the count matters.
 pub(super) static WM_SIZE_SEEN: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(0);
-use crate::impl_platform_window_getters;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
 pub mod accessibility;
 pub mod clipboard;
+pub mod direct_manipulation;
 pub mod dlopen;
 pub mod dnd;
-pub mod direct_manipulation;
-pub mod radial_controller;
 mod dpi;
 mod gl;
 pub mod menu;
+pub mod radial_controller;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
@@ -905,8 +904,7 @@ impl Win32Window {
             // so this happens here rather than in the struct literal.
             // `None` (no Dial paired, or a Windows build without the
             // interface) is the ordinary outcome and changes nothing else.
-            result.radial_controller =
-                radial_controller::RadialControllerOwner::new(hwnd as isize);
+            result.radial_controller = radial_controller::RadialControllerOwner::new(hwnd as isize);
 
             let initial_material = result
                 .common
@@ -1302,9 +1300,9 @@ impl Win32Window {
                                                     } else {
                                                         log_warn!(
                                                             LogCategory::Rendering,
-                                                            "[native-bb] GDI ignores RGBA \
-                                                             DIB masks (probe read {:#08x}) \
-                                                             — legacy path for this process",
+                                                            "[native-bb] GDI ignores RGBA DIB \
+                                                             masks (probe read {:#08x}) — legacy \
+                                                             path for this process",
                                                             col
                                                         );
                                                         NATIVE_DIB_SUPPORTED.store(
@@ -1995,14 +1993,13 @@ impl Win32Window {
     /// WM_PAINT then just repainted the STALE layout.
     ///
     /// Mirrors the `WM_COMMAND` `match event_result` arm:
-    /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing
-    ///   StyledDom + `request_relayout_only()`, then invalidate (WM_PAINT's
-    ///   relayout-only branch sends the frame).
-    /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` →
-    ///   `request_regeneration()` + invalidate (full `regenerate_layout()` in
-    ///   WM_PAINT).
-    /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` →
-    ///   invalidate only (preserves the old `!DoNothing` repaint).
+    /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing StyledDom +
+    ///   `request_relayout_only()`, then invalidate (WM_PAINT's relayout-only branch sends the
+    ///   frame).
+    /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` → `request_regeneration()` +
+    ///   invalidate (full `regenerate_layout()` in WM_PAINT).
+    /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` → invalidate only
+    ///   (preserves the old `!DoNothing` repaint).
     /// - `DoNothing` → nothing (preserves the old no-op).
     fn route_main_window_result(
         &mut self,
@@ -2573,10 +2570,11 @@ impl Win32Window {
         // Win32): `csd_resize_edge_at` is pure and unit-tested on every CI
         // host, so the band geometry cannot drift per platform. Everything
         // here is in PHYSICAL screen pixels — position, size and band alike.
+        use azul_core::geom::{LogicalPosition, LogicalSize};
+
         use crate::desktop::shell2::common::event::{
             csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
         };
-        use azul_core::geom::{LogicalPosition, LogicalSize};
         let band = libm::roundf(CSD_RESIZE_BAND_PX * dpi_factor).max(1.0);
         let edge = csd_resize_edge_at(
             LogicalPosition::new((x - wr.left) as f32, (y - wr.top) as f32),
@@ -3100,8 +3098,8 @@ impl Win32Window {
             let backdrop_type = match material {
                 WindowBackgroundMaterial::Sidebar
                 | WindowBackgroundMaterial::Menu
-                | WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, // Acrylic
-                WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, // Mica
+                | WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, /* Acrylic */
+                WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, /* Mica */
                 WindowBackgroundMaterial::MicaAlt => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TABBEDWINDOW,
                 _ => return, // Already handled above
             };
@@ -3119,8 +3117,8 @@ impl Win32Window {
                 // HRESULT != S_OK - this is expected on Windows 10 or older Windows 11 versions
                 log_debug!(
                     LogCategory::Platform,
-                    "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - \
-                     likely Windows 10 or pre-22H2 Windows 11",
+                    "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - likely \
+                     Windows 10 or pre-22H2 Windows 11",
                     result as u32
                 );
                 return;
@@ -3233,15 +3231,12 @@ impl Win32Window {
         // --- Drain the THREAD queue (hwnd filter = NULL) ---
         // The hwnd-filtered peek above cannot see two whole classes of
         // message (same hole run.rs's Win32 loop had, fixed the same way):
-        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which
-        //     is associated with no window at all — an hwnd-filtered
-        //     PeekMessage/GetMessage can NEVER retrieve it, so a
-        //     PostQuitMessage from user or library code was invisible to
-        //     this pump;
-        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL),
-        //     which stayed in the queue forever and, being "available",
-        //     defeat any WaitMessage a caller blocks on between polls — an
-        //     idle block turns into a spin.
+        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which is associated with no
+        //     window at all — an hwnd-filtered PeekMessage/GetMessage can NEVER retrieve it, so a
+        //     PostQuitMessage from user or library code was invisible to this pump;
+        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL), which stayed in the
+        //     queue forever and, being "available", defeat any WaitMessage a caller blocks on
+        //     between polls — an idle block turns into a spin.
         // An hwnd filter of NULL retrieves messages for any window of this
         // thread PLUS thread messages, which is exactly the remainder;
         // DispatchMessageW routes window messages by msg.hwnd, so nothing is
@@ -3425,8 +3420,10 @@ impl Win32Window {
         // The event loop will create the window with Win32Window::new()
         log_debug!(
             LogCategory::Window,
-            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop Phase 3",
-            pt.x, pt.y
+            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop \
+             Phase 3",
+            pt.x,
+            pt.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -3896,27 +3893,22 @@ fn pump_modal_loop_work() {
 /// Either of two things says "appearance", and both tests are needed because
 /// they cover disjoint senders:
 ///
-///   * `lParam` naming one of the documented theme sections. "ImmersiveColorSet"
-///     is THE dark-mode / accent-colour notification — it is what Windows sends
-///     when the user flips Settings > Personalisation > Colours, and it arrives
-///     with `wParam` 0, so the wParam test below would never catch it.
-///   * a non-zero `wParam`, which means the message came from
-///     `SystemParametersInfo` and names an `SPI_*` action. Every metric
-///     `discover()` reads — non-client fonts, caret width and blink, wheel
-///     scroll lines, hover time, double-click time and distance, high contrast,
-///     client-area animation — changes through one of those, and enumerating
-///     them individually would be a list to keep in sync with a discovery
-///     function that reads more of them over time. The noisy broadcasts above
-///     all carry `wParam` 0, so the coarse test is enough to exclude them.
+///   * `lParam` naming one of the documented theme sections. "ImmersiveColorSet" is THE dark-mode /
+///     accent-colour notification — it is what Windows sends when the user flips Settings >
+///     Personalisation > Colours, and it arrives with `wParam` 0, so the wParam test below would
+///     never catch it.
+///   * a non-zero `wParam`, which means the message came from `SystemParametersInfo` and names an
+///     `SPI_*` action. Every metric `discover()` reads — non-client fonts, caret width and blink,
+///     wheel scroll lines, hover time, double-click time and distance, high contrast, client-area
+///     animation — changes through one of those, and enumerating them individually would be a list
+///     to keep in sync with a discovery function that reads more of them over time. The noisy
+///     broadcasts above all carry `wParam` 0, so the coarse test is enough to exclude them.
 ///
 /// A NULL `lParam` with `wParam` 0 is accepted: some senders pass neither, and
 /// paying a discovery for an ambiguous message is the safe side of this filter
 /// — the failure mode of being too strict is silently keeping the old theme,
 /// which is the entire bug being fixed.
-unsafe fn settingchange_touches_appearance(
-    wparam: dlopen::WPARAM,
-    lparam: dlopen::LPARAM,
-) -> bool {
+unsafe fn settingchange_touches_appearance(wparam: dlopen::WPARAM, lparam: dlopen::LPARAM) -> bool {
     if wparam != 0 {
         return true;
     }
@@ -4224,8 +4216,8 @@ unsafe extern "system" fn window_proc(
                 ) {
                     log_error!(
                         LogCategory::Layout,
-                        "[Win32] resize fast-path relayout failed: {e} — falling back to a \
-                         full regeneration"
+                        "[Win32] resize fast-path relayout failed: {e} — falling back to a full \
+                         regeneration"
                     );
                     resize_relayout_failed = true;
                 }
@@ -5464,15 +5456,14 @@ unsafe extern "system" fn window_proc(
                 const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
                 let scale = 1.0 + scroll_amount * PINCH_STEP_PER_NOTCH;
                 if let Some(ref mut lw) = window.common.layout_window {
-                    lw.gesture_drag_manager.inject_native_gesture(
-                        NativeGestureEvent::Pinch(DetectedPinch {
+                    lw.gesture_drag_manager
+                        .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                             scale,
                             center: logical_pos,
                             initial_distance: PINCH_NOMINAL_DISTANCE,
                             current_distance: PINCH_NOMINAL_DISTANCE * scale,
                             duration_ms: 0,
-                        }),
-                    );
+                        }));
                 }
             }
 
@@ -5543,13 +5534,14 @@ unsafe extern "system" fn window_proc(
                 // Start the scroll momentum timer if this is the first input
                 if should_start_timer {
                     if let Some(queue) = input_queue_clone {
-                        use azul_core::refany::RefAny;
-                        use azul_core::task::Duration;
-                        use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                        use azul_layout::scroll_timer::{
-                            scroll_physics_timer_callback, ScrollPhysicsState,
+                        use azul_core::{
+                            refany::RefAny,
+                            task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
                         };
-                        use azul_layout::timer::{Timer, TimerCallbackType};
+                        use azul_layout::{
+                            scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                            timer::{Timer, TimerCallbackType},
+                        };
 
                         let physics_state = ScrollPhysicsState::new(
                             queue,
@@ -5588,7 +5580,8 @@ unsafe extern "system" fn window_proc(
             let vk_code = wparam as u32;
             let scan_code = ((lparam >> 16) & 0xFF) as u32;
             let repeat_count = (lparam & 0xFFFF) as u16;
-            let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key state
+            let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key
+                                                                           // state
 
             // Translate virtual key to azul key. `None` — a key the table has
             // no entry for — is NOT a reason to skip the handler: the SCANCODE
@@ -6265,8 +6258,9 @@ unsafe extern "system" fn window_proc(
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
-                        // queued in layout_window.pending_virtual_view_updates and will be processed
-                        // in the render path — no full layout regeneration needed.
+                        // queued in layout_window.pending_virtual_view_updates and will be
+                        // processed in the render path — no full layout
+                        // regeneration needed.
                         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         | ProcessEventResult::ShouldReRenderCurrentWindow => {
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -7775,8 +7769,9 @@ mod tests {
     /// compile this module at all.
     #[test]
     fn xbutton_wparam_names_the_thumb_buttons() {
-        use crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button;
         use azul_core::events::MouseButton;
+
+        use crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button;
 
         assert_eq!(
             win32_xbutton_to_mouse_button(0x0001 << 16),
@@ -7794,13 +7789,12 @@ mod tests {
 /// Three traps, each of which silently produces a wrong icon rather than an
 /// error:
 ///
-/// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` /
-///    `UpdateLayeredWindow` which want premultiplied. Feeding it premultiplied
-///    pixels gives dark fringes on every antialiased edge.
+/// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` / `UpdateLayeredWindow`
+///    which want premultiplied. Feeding it premultiplied pixels gives dark fringes on every
+///    antialiased edge.
 /// 2. **Channel order is B,G,R,A**, not the R,G,B,A we are handed.
-/// 3. **Rows are bottom-up unless the height is NEGATIVE.** A positive height
-///    with top-down data yields a vertically mirrored icon, which reads as
-///    "wrong icon" rather than as a bug.
+/// 3. **Rows are bottom-up unless the height is NEGATIVE.** A positive height with top-down data
+///    yields a vertically mirrored icon, which reads as "wrong icon" rather than as a bug.
 ///
 /// The 1bpp AND mask is required by `ICONINFO` even though a 32bpp colour
 /// bitmap blends by its own alpha; all-zero means "draw every pixel".

@@ -8,12 +8,10 @@
 //! the ICU segmenter dictionaries.
 
 use alloc::{string::String, vec::Vec};
-use core::cmp::Ordering;
-use core::ops::Deref;
+use core::{cmp::Ordering, ops::Deref};
 
 use azul_css::AzString;
-use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
+use objc2::{rc::Retained, runtime::AnyObject};
 use objc2_foundation::{
     NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSDate, NSDateComponents, NSDateFormatter,
     NSDateFormatterStyle, NSListFormatter, NSLocale, NSNumber, NSNumberFormatter,

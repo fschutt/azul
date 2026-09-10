@@ -4,13 +4,6 @@
 
 use std::sync::Arc;
 
-use api::{FontKey, FontRenderMode, GlyphDimensions};
-use azul_core::resources::{
-    GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
-};
-use azul_css::props::basic::font::FontRef;
-use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
-
 use agg_rust::{
     basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
     color::Rgba8,
@@ -24,6 +17,12 @@ use agg_rust::{
     scanline_u::ScanlineU8,
     trans_affine::TransAffine,
 };
+use api::{FontKey, FontRenderMode, GlyphDimensions};
+use azul_core::resources::{
+    GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
+};
+use azul_css::props::basic::font::FontRef;
+use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
 
 use crate::{
     rasterizer::{

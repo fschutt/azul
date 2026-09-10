@@ -84,7 +84,8 @@ fn component_css_descendant_selectors_apply_in_subtree() {
         .cloned();
 
     eprintln!(
-        "[component-css test] container.min_width={container_minwidth:?} item.display={item_display:?}"
+        "[component-css test] container.min_width={container_minwidth:?} \
+         item.display={item_display:?}"
     );
     assert!(
         container_minwidth.is_some(),

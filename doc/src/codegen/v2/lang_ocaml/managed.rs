@@ -11,23 +11,23 @@
 //! Emitted into `azul.ml` between the regular `foreign` bindings and the
 //! wrapper records:
 //!
-//! 1. **Foreign bindings** for the host-invoker C-ABI exports
-//!    (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`,
-//!    `AzRefAny_getHostHandle`, per-kind `AzApp_set<K>Invoker` /
+//! 1. **Foreign bindings** for the host-invoker C-ABI exports (`AzApp_setHostHandleReleaser`,
+//!    `AzRefAny_newHostHandle`, `AzRefAny_getHostHandle`, per-kind `AzApp_set<K>Invoker` /
 //!    `Az<K>_createFromHostHandle`).
-//! 2. **Handle table + releaser** — a `Hashtbl` keyed by `Unsigned.UInt64.t`
-//!    holding either a user callback or a `RefAny` user value. The releaser
-//!    closure is pinned in a top-level `let` so it isn't GC'd.
-//! 3. **Per-kind invoker closures** — one per host-invoker kind, dispatching
-//!    through the handle table.
-//! 4. **`Azul.register_callback`** — wrap an OCaml closure in the matching
-//!    `Az<Kind>` cdata struct.
-//! 5. **`Azul.refany_create` / `Azul.refany_get`** — user-data helpers
-//!    sharing the same handle table.
+//! 2. **Handle table + releaser** — a `Hashtbl` keyed by `Unsigned.UInt64.t` holding either a user
+//!    callback or a `RefAny` user value. The releaser closure is pinned in a top-level `let` so it
+//!    isn't GC'd.
+//! 3. **Per-kind invoker closures** — one per host-invoker kind, dispatching through the handle
+//!    table.
+//! 4. **`Azul.register_callback`** — wrap an OCaml closure in the matching `Az<Kind>` cdata struct.
+//! 5. **`Azul.refany_create` / `Azul.refany_get`** — user-data helpers sharing the same handle
+//!    table.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use super::super::{
+    generator::CodeBuilder,
+    ir::{CallbackTypedefDef, CodegenIR},
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+};
 
 /// Emit the managed-FFI prelude. Must be called *after* the regular
 /// `foreign` bindings (so the wrapper records the prelude references
@@ -408,11 +408,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     // the user's closure signature must match what we cast it to here.
     //
     // Return handling depends on the callback's return type:
-    // - struct returns (e.g. `Dom` from LayoutCallback): user fn returns
-    //   the corresponding wrapper record; we extract `.raw` and write
-    //   the struct bytes through the typed out-pointer.
-    // - enum returns (e.g. `Update` from Callback): user fn returns
-    //   an `int`; we write it as `int32_t` through out_ptr.
+    // - struct returns (e.g. `Dom` from LayoutCallback): user fn returns the corresponding wrapper
+    //   record; we extract `.raw` and write the struct bytes through the typed out-pointer.
+    // - enum returns (e.g. `Update` from Callback): user fn returns an `int`; we write it as
+    //   `int32_t` through out_ptr.
     // - void returns: ignore.
     // We dispatch with pattern matching: the user registered with
     // `register_callback` so the Hashtbl entry is the closure itself.
@@ -560,7 +559,8 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option");
     builder.line("val azul_consume : 'a -> unit");
     builder.line(
-        "val azul_window_create_options_with_layout : 'a -> az_window_create_options Ctypes.structure",
+        "val azul_window_create_options_with_layout : 'a -> az_window_create_options \
+         Ctypes.structure",
     );
     // Per-kind callback registration helpers (mirror those emitted by
     // emit_managed_module). User passes a host-side closure; we

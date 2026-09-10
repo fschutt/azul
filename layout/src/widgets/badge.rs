@@ -7,8 +7,8 @@
 //! Key types: [`Badge`], [`BadgeKind`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -47,7 +47,9 @@ pub enum BadgeKind {
 
 impl BadgeKind {
     /// Returns the `(background, text)` colours for this badge kind.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU {
             r: 255,
@@ -616,7 +618,8 @@ mod autotest_generated {
             let rejected = (luma(bg) - luma(other)).abs();
             assert!(
                 chosen > rejected,
-                "{kind:?}: text {text:?} (Δluma {chosen:.1}) is less readable on {bg:?} than {other:?} (Δluma {rejected:.1})"
+                "{kind:?}: text {text:?} (Δluma {chosen:.1}) is less readable on {bg:?} than \
+                 {other:?} (Δluma {rejected:.1})"
             );
             assert!(
                 chosen >= 60.0,

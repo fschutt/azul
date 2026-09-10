@@ -130,8 +130,7 @@ pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
         // uniq), or by being the only pad of its kind: the gilrs poll lays
         // this motion over its own state, nothing to publish here.
         let serial = device.serial.as_str();
-        let paired_by_serial =
-            !serial.is_empty() && identities.iter().any(|i| i.serial == serial);
+        let paired_by_serial = !serial.is_empty() && identities.iter().any(|i| i.serial == serial);
         let twins = identities
             .iter()
             .filter(|i| i.vendor == device.vendor_id && i.product == device.product_id)
@@ -201,7 +200,10 @@ pub fn overlay_hid_motion(
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-fn apply_sample_motion(state: &mut azul_core::gamepad::GamepadState, sample: &playstation::PadSample) {
+fn apply_sample_motion(
+    state: &mut azul_core::gamepad::GamepadState,
+    sample: &playstation::PadSample,
+) {
     state.gyro_x = sample.gyro[0];
     state.gyro_y = sample.gyro[1];
     state.gyro_z = sample.gyro[2];
@@ -338,14 +340,15 @@ impl PadAccumulator {
         id: u32,
         f: impl FnOnce(&mut azul_core::gamepad::GamepadState),
     ) -> azul_core::gamepad::GamepadState {
-        let slot = self.pads.entry(id).or_insert_with(|| {
-            azul_core::gamepad::GamepadState {
+        let slot = self
+            .pads
+            .entry(id)
+            .or_insert_with(|| azul_core::gamepad::GamepadState {
                 id: azul_core::gamepad::GamepadId { id },
                 connected: true,
                 battery: -1.0,
                 ..Default::default()
-            }
-        });
+            });
         f(slot);
         *slot
     }
@@ -392,14 +395,14 @@ pub struct RumblePlan {
 /// Turn a rumble request into a [`RumblePlan`], or `None` for one that must
 /// not play. Pure so it is tested on the host; the iOS backend applies it.
 ///
-/// - Intensity at or below zero is "do not play", not "play at zero": a
-///   zero-intensity continuous event still occupies the actuator and STOPS
-///   whatever was playing, which is not what a caller sending 0 meant.
-/// - `strong` picks the MOTOR, not the loudness: the low-frequency one thuds
-///   (sharpness 0), the high-frequency one buzzes (sharpness 1). Driving both
-///   at once is a muddier sensation, not a louder one - the gilrs rule.
-/// - `duration_ms` is the ALREADY-RESOLVED duration (`rumble_duration_ms`
-///   turned 0 into the 150 ms default); this only converts units.
+/// - Intensity at or below zero is "do not play", not "play at zero": a zero-intensity continuous
+///   event still occupies the actuator and STOPS whatever was playing, which is not what a caller
+///   sending 0 meant.
+/// - `strong` picks the MOTOR, not the loudness: the low-frequency one thuds (sharpness 0), the
+///   high-frequency one buzzes (sharpness 1). Driving both at once is a muddier sensation, not a
+///   louder one - the gilrs rule.
+/// - `duration_ms` is the ALREADY-RESOLVED duration (`rumble_duration_ms` turned 0 into the 150 ms
+///   default); this only converts units.
 #[must_use]
 pub fn rumble_plan(intensity: f32, duration_ms: u32, strong: bool) -> Option<RumblePlan> {
     if intensity.is_nan() || intensity <= 0.0 {
@@ -466,7 +469,10 @@ mod pad_accumulator_tests {
         });
         let after_button = acc.update(7, |p| p.buttons |= GamepadButton::South.bit());
 
-        assert_eq!(after_button.left_stick_x, 0.5, "a button press zeroed a stick");
+        assert_eq!(
+            after_button.left_stick_x, 0.5,
+            "a button press zeroed a stick"
+        );
         assert_eq!(after_button.left_stick_y, -0.25);
         assert_eq!(after_button.right_z, 1.0);
         assert_ne!(after_button.buttons & GamepadButton::South.bit(), 0);
@@ -504,7 +510,10 @@ mod pad_accumulator_tests {
         let mut acc = PadAccumulator::default();
         acc.update(1, |p| p.left_stick_x = 1.0);
         let other = acc.update(2, |_| {});
-        assert_eq!(other.left_stick_x, 0.0, "one pad's stick leaked into another");
+        assert_eq!(
+            other.left_stick_x, 0.0,
+            "one pad's stick leaked into another"
+        );
     }
 
     /// A pad that reconnects on the same id must not come back mid-press.
@@ -517,7 +526,10 @@ mod pad_accumulator_tests {
         });
         acc.forget(3);
         let back = acc.update(3, |_| {});
-        assert_eq!(back.buttons, 0, "a reconnecting pad came back with buttons held");
+        assert_eq!(
+            back.buttons, 0,
+            "a reconnecting pad came back with buttons held"
+        );
         assert_eq!(back.gyro_x, 0.0, "and with a stale gyro reading");
     }
 }

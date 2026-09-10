@@ -8,8 +8,9 @@
 
 use std::sync::Arc;
 
-use super::super::common::debug_server::LogCategory;
-use super::super::common::{dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError};
+use super::super::common::{
+    debug_server::LogCategory, dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError,
+};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // Re-export types that will be used by Win32 API
@@ -532,8 +533,8 @@ impl DynamicLibraryTrait for DynamicLibrary {
                     name: name.to_string(),
                     tried: vec![name.to_string()],
                     suggestion: format!(
-                        "LoadLibraryW failed for '{}'. The DLL may be missing or \
-                         architecturally incompatible.",
+                        "LoadLibraryW failed for '{}'. The DLL may be missing or architecturally \
+                         incompatible.",
                         name
                     ),
                 }),
@@ -676,8 +677,7 @@ pub struct User32Functions {
     /// pointer messages Windows uses it to say a pen or a finger produced
     /// them; an ordinary mouse leaves it clear.
     pub GetMessageExtraInfo: unsafe extern "system" fn() -> isize,
-    pub RegisterRawInputDevices:
-        unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
+    pub RegisterRawInputDevices: unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
     /// Returns the byte count written, or `u32::MAX` on error — NOT a BOOL.
     pub GetRawInputData:
         unsafe extern "system" fn(isize, u32, *mut core::ffi::c_void, *mut u32, u32) -> u32,
@@ -1171,8 +1171,8 @@ impl Win32Libraries {
             ANNOUNCE_OPTIONAL.call_once(|| {
                 if pointer_missing {
                     crate::plog_warn!(
-                        "[Win32] GetPointer* APIs unavailable (pre-Windows 8 user32?) — \
-                         pen/touch input will NOT work (mouse unaffected)"
+                        "[Win32] GetPointer* APIs unavailable (pre-Windows 8 user32?) — pen/touch \
+                         input will NOT work (mouse unaffected)"
                     );
                 }
                 if shell32_missing {
@@ -1183,14 +1183,14 @@ impl Win32Libraries {
                 }
                 if imm32_missing {
                     crate::plog_warn!(
-                        "[Win32] imm32.dll IME symbols unavailable — input-method \
-                         composition (CJK text entry) is disabled"
+                        "[Win32] imm32.dll IME symbols unavailable — input-method composition \
+                         (CJK text entry) is disabled"
                     );
                 }
                 if kernel32_missing {
                     crate::plog_warn!(
-                        "[Win32] kernel32 SetThreadExecutionState unavailable — \
-                         screensaver/sleep suppression is disabled"
+                        "[Win32] kernel32 SetThreadExecutionState unavailable — screensaver/sleep \
+                         suppression is disabled"
                     );
                 }
             });

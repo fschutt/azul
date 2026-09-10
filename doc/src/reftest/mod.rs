@@ -114,8 +114,8 @@ impl ReftestOutcome {
     pub fn failure_reason(&self) -> Option<String> {
         if !self.chrome_available {
             return Some(
-                "Chrome was not found, so no reftest ran. This is a failure, not a skip: the \
-                 gate exists to compare azul's rendering against Chrome's."
+                "Chrome was not found, so no reftest ran. This is a failure, not a skip: the gate \
+                 exists to compare azul's rendering against Chrome's."
                     .to_string(),
             );
         }

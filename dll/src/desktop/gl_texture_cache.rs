@@ -7,9 +7,9 @@
 //! ## Architecture
 //!
 //! - Textures are stored as `DocumentId -> ExternalImageId -> TextureEntry`.
-//! - Callers compute the `ExternalImageId` from whatever stable identity they have
-//!   (a (DomId, NodeId) pair via `TextureSlotKey::to_external_image_id`, or an
-//!   `ImageRefHash` via `ExternalImageId { inner: hash.inner as u64 }`).
+//! - Callers compute the `ExternalImageId` from whatever stable identity they have (a (DomId,
+//!   NodeId) pair via `TextureSlotKey::to_external_image_id`, or an `ImageRefHash` via
+//!   `ExternalImageId { inner: hash.inner as u64 }`).
 //! - Old textures are cleaned up when their epoch is outdated.
 //!
 //! ## Why Stable IDs Matter
@@ -216,8 +216,9 @@ pub fn clear_all() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::resources::IdNamespace;
+
+    use super::*;
 
     fn create_test_document_id(id: u32) -> DocumentId {
         DocumentId {

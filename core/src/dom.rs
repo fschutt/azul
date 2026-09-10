@@ -15,6 +15,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     codegen::format::GetHash,
     css::{BoxOrStatic, Css, NodeTypeTag},
@@ -28,11 +29,6 @@ use azul_css::{
 
 // Re-exported from a11y.rs and events.rs
 pub use crate::a11y::*;
-pub use crate::events::{
-    ApplicationEventFilter, ComponentEventFilter, EventFilter, ExternalEventFilter,
-    FocusEventFilter, HoverEventFilter, WindowEventFilter,
-};
-pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{
     callbacks::{
         CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, VirtualViewCallback,
@@ -52,7 +48,13 @@ use crate::{
     },
     window::OptionVirtualKeyCodeCombo,
 };
-pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+pub use crate::{
+    events::{
+        ApplicationEventFilter, ComponentEventFilter, EventFilter, ExternalEventFilter,
+        FocusEventFilter, HoverEventFilter, WindowEventFilter,
+    },
+    id::{Node, NodeHierarchy, NodeId},
+};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -394,7 +396,8 @@ pub enum NodeType {
     Strong,
     /// Bold text (deprecated - use `Dom::create_strong()` for semantic importance).
     B,
-    /// Italic text (deprecated - use `Dom::create_em()` for emphasis or `Dom::create_cite()` for citations).
+    /// Italic text (deprecated - use `Dom::create_em()` for emphasis or `Dom::create_cite()` for
+    /// citations).
     I,
     /// Underline text.
     U,
@@ -684,7 +687,8 @@ impl_option!(
 );
 
 impl NodeType {
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     fn to_library_owned_nodetype(&self) -> Self {
         use self::NodeType::{
             Abbr, Acronym, Address, After, Area, Article, Aside, Audio, Base, Bdi, Bdo, Before,
@@ -1151,14 +1155,16 @@ impl NodeType {
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, Copy, PartialEq, Eq)]
-// [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset 0 instead of letting
-// Rust niche-pack the other variants' discriminants into the payload variants' (Block{bool}/Float/OutOfFlow)
-// invalid byte values. The remill lift mis-decodes that niche encoding: `Block` (byte 0/1) reads correctly
-// but `Inline` (a niche value) reads as garbage → `match` falls to `_` → nested <div>text</div> dispatches
-// to layout_bfc instead of layout_ifc and its text never lays out (g147 root cause). Same fix pattern as the
-// text3 enums (InlineContent/LogicalItem/ShapedItem/FontStack/LayoutError). Harmless + correct for native.
+// [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset 0 instead of
+// letting Rust niche-pack the other variants' discriminants into the payload variants'
+// (Block{bool}/Float/OutOfFlow) invalid byte values. The remill lift mis-decodes that niche
+// encoding: `Block` (byte 0/1) reads correctly but `Inline` (a niche value) reads as garbage →
+// `match` falls to `_` → nested <div>text</div> dispatches to layout_bfc instead of layout_ifc and
+// its text never lays out (g147 root cause). Same fix pattern as the text3 enums
+// (InlineContent/LogicalItem/ShapedItem/FontStack/LayoutError). Harmless + correct for native.
 #[repr(C, u8)]
-// +spec:display-property:844893 - block-level box establishing a new formatting context (BFC) modeled here
+// +spec:display-property:844893 - block-level box establishing a new formatting context (BFC)
+// modeled here
 pub enum FormattingContext {
     /// Block-level formatting context
     Block {
@@ -2500,9 +2506,10 @@ impl NodeDataVec {
     }
 }
 
-// SAFETY: All fields in NodeData are either Send (NodeType, NodeFlags, CssPropertyWithConditionsVec),
-// Arc-wrapped (RefAny), or plain data (Box<AccessibilityInfo>, Box<NodeDataExt>).
-// Function pointers (callbacks) are inherently Send. The RefAny uses atomic reference counting.
+// SAFETY: All fields in NodeData are either Send (NodeType, NodeFlags,
+// CssPropertyWithConditionsVec), Arc-wrapped (RefAny), or plain data (Box<AccessibilityInfo>,
+// Box<NodeDataExt>). Function pointers (callbacks) are inherently Send. The RefAny uses atomic
+// reference counting.
 unsafe impl Send for NodeData {}
 
 /// Determines the behavior of an element in sequential focus navigation
@@ -2699,9 +2706,11 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         class_string = format!(" class=\"{classes}\" ");
     }
 
-    let tabindex_string = node_data.get_tab_index().map_or_else(String::new, |tab_index| {
-        format!(" tabindex=\"{}\" ", tab_index.get_index())
-    });
+    let tabindex_string = node_data
+        .get_tab_index()
+        .map_or_else(String::new, |tab_index| {
+            format!(" tabindex=\"{}\" ", tab_index.get_index())
+        });
 
     format!("{id_string}{class_string}{tabindex_string}")
 }
@@ -3220,7 +3229,8 @@ impl NodeData {
     /// `AttributeType::Id`/`AttributeType::Class` and merging them into `self.attributes`.
     /// Any existing Id/Class attributes are removed first.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
         // Remove existing Id/Class from attributes
         let mut v: AttributeTypeVec = Vec::new().into();
@@ -3535,8 +3545,7 @@ impl NodeData {
     /// preserving cursor position and selection state.
     #[must_use]
     pub fn calculate_structural_hash(&self) -> DomNodeHash {
-        use core::hash::Hasher;
-        use core::hash::Hasher as StdHasher;
+        use core::hash::{Hasher, Hasher as StdHasher};
 
         let mut hasher = crate::hash::DefaultHasher::new();
 
@@ -3682,8 +3691,7 @@ impl NodeData {
     /// # Example
     /// ```rust
     /// # use azul_core::dom::NodeData;
-    /// NodeData::create_div()
-    ///     .with_key("user-avatar-123");
+    /// NodeData::create_div().with_key("user-avatar-123");
     /// ```
     #[inline]
     #[must_use]
@@ -3740,11 +3748,13 @@ impl NodeData {
     /// # Examples
     /// ```rust
     /// # use azul_core::dom::NodeData;
-    /// NodeData::create_div().with_css("
+    /// NodeData::create_div().with_css(
+    ///     "
     ///     color: blue;
     ///     :hover { color: red; }
     ///     @os linux { font-size: 14px; }
-    /// ");
+    /// ",
+    /// );
     /// ```
     pub fn set_css(&mut self, style: &str) {
         // Parse via Css::parse_inline so the inline path goes through the same
@@ -4632,7 +4642,8 @@ impl Dom {
     ///
     /// Use [`Dom::create_summary_with_text_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_summary_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_summary_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
@@ -4697,9 +4708,9 @@ impl Dom {
     }
     /// Creates an icon node with the given icon name.
     ///
-    /// The icon name should match names from the icon provider (e.g., "home", "settings", "search").
-    /// Icons are resolved to actual content (font glyph, image, etc.) during `StyledDom` creation
-    /// based on the configured `IconProvider`.
+    /// The icon name should match names from the icon provider (e.g., "home", "settings",
+    /// "search"). Icons are resolved to actual content (font glyph, image, etc.) during
+    /// `StyledDom` creation based on the configured `IconProvider`.
     ///
     /// # Example
     /// ```rust,ignore
@@ -6143,7 +6154,8 @@ impl Dom {
     ///
     /// Use [`Dom::create_menuitem_with_text_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_menuitem_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_menuitem_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
@@ -6703,7 +6715,8 @@ impl Dom {
     /// - `text`: The visible button text
     /// - `aria`: Accessibility information (role, description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_button<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         let mut btn = Self::create_button_no_a11y(text.into());
         btn.root.set_accessibility_info(aria.to_full_info());
@@ -6720,7 +6733,8 @@ impl Dom {
     /// - `text`: The visible link text
     /// - `aria`: Accessibility information (expanded description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_a<S1: Into<AzString>, S2: Into<AzString>>(
         href: S1,
         text: S2,
@@ -6741,7 +6755,8 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_input<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
         input_type: S1,
         name: S2,
@@ -6762,7 +6777,8 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_textarea<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
@@ -6782,7 +6798,8 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_select<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
@@ -6802,7 +6819,8 @@ impl Dom {
     /// - `caption`: Table caption (visible title)
     /// - `aria`: Accessibility information describing table purpose
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
         let mut table = Self::create_table_no_a11y().with_child(Self::create_caption().with_child(
             Self::create_text_do_not_use_without_block_level_wrapper(caption),
@@ -6820,7 +6838,8 @@ impl Dom {
     /// - `text`: The visible label text
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI
+                                             // ownership-transfer convention)
     pub fn create_label<S1: Into<AzString>, S2: Into<AzString>>(
         for_id: S1,
         text: S2,
@@ -6921,8 +6940,8 @@ impl Dom {
                     .iter()
                     .map(|g| g.estimated_total_children + 1)
                     .sum::<usize>()),
-            "Dom.estimated_total_children desynced in set_children; a child's own \
-             estimate was stale — call fixup_children_estimated() first",
+            "Dom.estimated_total_children desynced in set_children; a child's own estimate was \
+             stale — call fixup_children_estimated() first",
         );
         let children_estimated = children
             .iter()
@@ -7182,8 +7201,7 @@ impl Dom {
     /// # Example
     /// ```rust
     /// # use azul_core::dom::Dom;
-    /// Dom::create_div()
-    ///     .with_key("user-avatar-123");
+    /// Dom::create_div().with_key("user-avatar-123");
     /// ```
     #[inline]
     #[must_use]
@@ -7222,18 +7240,22 @@ impl Dom {
     /// Dom::create_div().with_css("color: red; font-size: 14px;");
     ///
     /// // With hover and active states
-    /// Dom::create_div().with_css("
+    /// Dom::create_div().with_css(
+    ///     "
     ///     color: blue;
     ///     :hover { color: red; }
     ///     :active { color: green; }
-    /// ");
+    /// ",
+    /// );
     ///
     /// // OS-specific with nested hover
-    /// Dom::create_div().with_css("
+    /// Dom::create_div().with_css(
+    ///     "
     ///     font-size: 12px;
     ///     @os linux { font-size: 14px; :hover { color: red; }}
     ///     @os windows { font-size: 13px; }
-    /// ");
+    /// ",
+    /// );
     /// ```
     pub fn set_css(&mut self, style: &str) {
         // Unified, `@scope`-like model: a CSS string parses into a `Css` struct that is

@@ -20,31 +20,24 @@
 //!
 //! # Deviations from `lang_odin` (Julia-specific)
 //!
-//! 1. **Topological type ordering.** Julia has no forward declaration for
-//!    concrete structs, so — unlike order-independent Odin — types are
-//!    emitted in `sort_order` (the topological order the IR builder
-//!    computed for C/C++). By-value struct dependencies are provably
-//!    acyclic, so this order always resolves.
-//! 2. **Tagged unions.** Julia has no C `union`. A `#[repr(C, u8)]` tagged
-//!    union is emitted as one isbits `struct` per variant (so its
-//!    `sizeof` is known) plus an `@eval`'d blob struct whose size and
-//!    alignment are computed *at module load* from the variant structs.
-//!    The blob is isbits and byte-for-byte ABI-compatible with the C
-//!    union; the counter only ever constructs unions via C functions and
-//!    passes them straight back, never reading union fields in Julia.
-//! 3. **Opaque pointers.** Every pointer/reference maps to `Ptr{Cvoid}`
-//!    (ABI-identical to any typed pointer), which removes all type
-//!    *ordering* hazards from by-pointer references (e.g. `Vec.ptr`
-//!    fields, recursive `Box` fields) — only by-value deps constrain the
-//!    order.
-//! 4. **`@enum` variant names are `Az`-prefixed** (`AzUpdate_RefreshDom`)
-//!    because `@enum` injects variant names into the enclosing module
-//!    scope; prefixing avoids collisions between enums that share a
-//!    variant name (`None`, `Some`, …).
-//! 5. **`setfields` helper.** isbits structs are immutable, so nested
-//!    field assignment (`window.window_state.title = …`) is expressed as
-//!    a functional update `setfields(x; field = …)` that reconstructs the
-//!    value via the default positional constructor.
+//! 1. **Topological type ordering.** Julia has no forward declaration for concrete structs, so —
+//!    unlike order-independent Odin — types are emitted in `sort_order` (the topological order the
+//!    IR builder computed for C/C++). By-value struct dependencies are provably acyclic, so this
+//!    order always resolves.
+//! 2. **Tagged unions.** Julia has no C `union`. A `#[repr(C, u8)]` tagged union is emitted as one
+//!    isbits `struct` per variant (so its `sizeof` is known) plus an `@eval`'d blob struct whose
+//!    size and alignment are computed *at module load* from the variant structs. The blob is isbits
+//!    and byte-for-byte ABI-compatible with the C union; the counter only ever constructs unions
+//!    via C functions and passes them straight back, never reading union fields in Julia.
+//! 3. **Opaque pointers.** Every pointer/reference maps to `Ptr{Cvoid}` (ABI-identical to any typed
+//!    pointer), which removes all type *ordering* hazards from by-pointer references (e.g.
+//!    `Vec.ptr` fields, recursive `Box` fields) — only by-value deps constrain the order.
+//! 4. **`@enum` variant names are `Az`-prefixed** (`AzUpdate_RefreshDom`) because `@enum` injects
+//!    variant names into the enclosing module scope; prefixing avoids collisions between enums that
+//!    share a variant name (`None`, `Some`, …).
+//! 5. **`setfields` helper.** isbits structs are immutable, so nested field assignment
+//!    (`window.window_state.title = …`) is expressed as a functional update `setfields(x; field =
+//!    …)` that reconstructs the value via the default positional constructor.
 //!
 //! # Build / link requirements
 //!
@@ -58,10 +51,10 @@ pub mod types;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory,
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory},
 };
 
 /// Generate the full `azul.jl` source file.

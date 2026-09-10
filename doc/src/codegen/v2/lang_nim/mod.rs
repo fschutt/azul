@@ -7,38 +7,33 @@
 //!
 //! Nim compiles to C and speaks the C ABI natively:
 //!
-//! - C structs map to `{.bycopy.} object` records whose fields match the
-//!   Rust `#[repr(C)]` layout one-for-one. A plain (non-`ref`) `object`
-//!   carries no hidden RTTI field, so its layout *is* the C struct
-//!   layout; `{.bycopy.}` forces it to be passed by value across the FFI
-//!   boundary, exactly like a C struct argument.
+//! - C structs map to `{.bycopy.} object` records whose fields match the Rust `#[repr(C)]` layout
+//!   one-for-one. A plain (non-`ref`) `object` carries no hidden RTTI field, so its layout *is* the
+//!   C struct layout; `{.bycopy.}` forces it to be passed by value across the FFI boundary, exactly
+//!   like a C struct argument.
 //! - C unions map to `{.union.} object`.
-//! - C `enum`s map to size-pinned Nim enums (`{.size: 4.}` — a C `enum`
-//!   is `int`-wide; tagged-union *tags* are a separate `uint8` field,
-//!   modelled faithfully below).
-//! - Every `AzFoo_bar` C function is imported with
-//!   `{.importc: "AzFoo_bar", cdecl, dynlib: azulLib.}` — the `importc`
-//!   string carries the real symbol so Nim's identifier
-//!   style-insensitivity never mangles it, and `dynlib` dlopens the
-//!   shared library at run time (no link flags required).
-//! - CRUCIALLY: a top-level `proc (data: AzRefAny; info: AzCallbackInfo):
-//!   AzUpdate {.cdecl.}` is a *real* C function pointer. It is passed
-//!   straight to `AzButton_setOnClick` with no trampoline, host-invoker,
-//!   or handle table. Nim callbacks pass through directly.
+//! - C `enum`s map to size-pinned Nim enums (`{.size: 4.}` — a C `enum` is `int`-wide; tagged-union
+//!   *tags* are a separate `uint8` field, modelled faithfully below).
+//! - Every `AzFoo_bar` C function is imported with `{.importc: "AzFoo_bar", cdecl, dynlib:
+//!   azulLib.}` — the `importc` string carries the real symbol so Nim's identifier
+//!   style-insensitivity never mangles it, and `dynlib` dlopens the shared library at run time (no
+//!   link flags required).
+//! - CRUCIALLY: a top-level `proc (data: AzRefAny; info: AzCallbackInfo): AzUpdate {.cdecl.}` is a
+//!   *real* C function pointer. It is passed straight to `AzButton_setOnClick` with no trampoline,
+//!   host-invoker, or handle table. Nim callbacks pass through directly.
 //!
 //! # Output layout
 //!
 //! 1. A banner + the per-OS `azulLib` dynlib constant.
-//! 2. One big `type` section (Nim resolves forward references within a
-//!    single `type` block, so declaration order is irrelevant): enums,
-//!    `{.cdecl.}` proc-type callback typedefs, POD `object` records, and
-//!    tagged unions modelled as per-variant `{tag: uint8, payload…}`
-//!    structs grouped under a `{.union.} object`.
-//! 3. `proc AzFoo_bar*(...) {.importc, cdecl, dynlib.}` declarations for
-//!    every C-ABI function (the raw layer — this is the path the example
-//!    and the e2e test exercise, mirroring Zig's `azul.C.*`).
-//! 4. Idiomatic non-`Az`-prefixed wrapper procs (`domCreateBody()`,
-//!    `button.setOnClick(...)`) that forward to the raw layer.
+//! 2. One big `type` section (Nim resolves forward references within a single `type` block, so
+//!    declaration order is irrelevant): enums, `{.cdecl.}` proc-type callback typedefs, POD
+//!    `object` records, and tagged unions modelled as per-variant `{tag: uint8, payload…}` structs
+//!    grouped under a `{.union.} object`.
+//! 3. `proc AzFoo_bar*(...) {.importc, cdecl, dynlib.}` declarations for every C-ABI function (the
+//!    raw layer — this is the path the example and the e2e test exercise, mirroring Zig's
+//!    `azul.C.*`).
+//! 4. Idiomatic non-`Az`-prefixed wrapper procs (`domCreateBody()`, `button.setOnClick(...)`) that
+//!    forward to the raw layer.
 //!
 //! # Wiring
 //!
@@ -50,9 +45,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod types;

@@ -2,10 +2,10 @@
 //!
 //! This module is the canonical home for paged-media page *decoration*. It provides:
 //!
-//! - `FakePageConfig` / `HeaderFooterConfig` — programmatic header/footer setup
-//!   (a temporary interface until full CSS `@page` rule parsing exists)
-//! - `MarginBoxContent` / `CounterFormat` — the CSS GCPM margin-box content model and
-//!   page-counter number formatting (formatting delegates to `super::counters`)
+//! - `FakePageConfig` / `HeaderFooterConfig` — programmatic header/footer setup (a temporary
+//!   interface until full CSS `@page` rule parsing exists)
+//! - `MarginBoxContent` / `CounterFormat` — the CSS GCPM margin-box content model and page-counter
+//!   number formatting (formatting delegates to `super::counters`)
 //! - `PageInfo` — per-page metadata passed to content generators
 //! - `TableHeaderInfo` / `TableHeaderTracker` — repeated table headers across pages
 //!
@@ -21,10 +21,9 @@
 //!
 //! See: <https://www.w3.org/TR/css-gcpm-3>/
 
+pub use azul_core::paged::PageMargins;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_css::{impl_option_inner, props::basic::ColorU, AzString, OptionString};
-
-pub use azul_core::paged::PageMargins;
 
 /// Content that can appear in a page margin box.
 ///
@@ -103,7 +102,11 @@ azul_css::impl_vec!(
     MarginBoxContentVecSlice,
     OptionMarginBoxContent
 );
-azul_css::impl_vec_clone!(MarginBoxContent, MarginBoxContentVec, MarginBoxContentVecDestructor);
+azul_css::impl_vec_clone!(
+    MarginBoxContent,
+    MarginBoxContentVec,
+    MarginBoxContentVecDestructor
+);
 azul_css::impl_vec_partialeq!(MarginBoxContent, MarginBoxContentVec);
 azul_css::impl_vec_debug!(MarginBoxContent, MarginBoxContentVec);
 
@@ -330,7 +333,8 @@ impl HeaderFooterConfig {
 
     /// Generate the text content for a margin box given page info.
     // `&self` is only reached via the recursive Combined arm; it is kept because this is a
-    // public method and converting to an associated fn would break the `x.generate_content(..)` API.
+    // public method and converting to an associated fn would break the `x.generate_content(..)`
+    // API.
     #[allow(clippy::only_used_in_recursion)]
     #[must_use]
     pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
@@ -755,7 +759,12 @@ pub struct PageSetup {
     pub margins: PageMargins,
 }
 
-azul_css::impl_option!(PageSetup, OptionPageSetup, copy = false, [Debug, Clone, PartialEq]);
+azul_css::impl_option!(
+    PageSetup,
+    OptionPageSetup,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// One page's explicit setup in a [`PageSequence`] (9g-ii-f-i): the C shape
 /// of what was a `BTreeMap<usize, PageSetup>` entry.
@@ -781,7 +790,11 @@ azul_css::impl_vec!(
     PageSetupOverrideVecSlice,
     OptionPageSetupOverride
 );
-azul_css::impl_vec_clone!(PageSetupOverride, PageSetupOverrideVec, PageSetupOverrideVecDestructor);
+azul_css::impl_vec_clone!(
+    PageSetupOverride,
+    PageSetupOverrideVec,
+    PageSetupOverrideVecDestructor
+);
 azul_css::impl_vec_partialeq!(PageSetupOverride, PageSetupOverrideVec);
 azul_css::impl_vec_debug!(PageSetupOverride, PageSetupOverrideVec);
 
@@ -840,7 +853,12 @@ pub struct PageSequence {
     pub even_pages: OptionPageSetup,
 }
 
-azul_css::impl_option!(PageSequence, OptionPageSequence, copy = false, [Debug, Clone, PartialEq]);
+azul_css::impl_option!(
+    PageSequence,
+    OptionPageSequence,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl PageSequence {
     /// A uniform sequence (every page identical).
@@ -1004,8 +1022,9 @@ pub fn collect_table_headers(
     display_list: &super::display_list::DisplayList,
     styled_dom: &azul_core::styled_dom::StyledDom,
 ) -> TableHeaderTracker {
-    use azul_core::dom::{NodeId, NodeType};
     use std::collections::BTreeMap;
+
+    use azul_core::dom::{NodeId, NodeType};
 
     // Per table: bounds union; per (table with thead): thead item indices +
     // thead bounds union.
@@ -1113,8 +1132,9 @@ pub fn collect_table_row_ranges(
     display_list: &super::display_list::DisplayList,
     styled_dom: &azul_core::styled_dom::StyledDom,
 ) -> Vec<(f32, f32)> {
-    use azul_core::dom::{NodeId, NodeType};
     use std::collections::BTreeMap;
+
+    use azul_core::dom::{NodeId, NodeType};
 
     let node_data = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -1177,8 +1197,7 @@ mod autotest_generated {
         Arc,
     };
 
-    use super::super::display_list::DisplayListItem;
-    use super::*;
+    use super::{super::display_list::DisplayListItem, *};
 
     // ------------------------------------------------------------------
     // Independent decoders — used to round-trip `CounterFormat::format`
@@ -1580,10 +1599,7 @@ mod autotest_generated {
         let cfg = HeaderFooterConfig::default();
         let info = PageInfo::new(4, 9);
         assert_eq!(cfg.generate_content(&MarginBoxContent::None, info), "");
-        assert_eq!(
-            cfg.generate_content(&MarginBoxContent::text(""), info),
-            ""
-        );
+        assert_eq!(cfg.generate_content(&MarginBoxContent::text(""), info), "");
         assert_eq!(
             cfg.generate_content(&MarginBoxContent::PageCounter, info),
             "4"
@@ -1636,7 +1652,9 @@ mod autotest_generated {
     #[test]
     fn header_footer_generate_content_calls_a_custom_hook_exactly_once() {
         extern "C" fn page_of_total(data: &mut RefAny, info: PageInfo) -> AzString {
-            let calls = data.downcast_ref::<Arc<AtomicUsize>>().expect("the app's data");
+            let calls = data
+                .downcast_ref::<Arc<AtomicUsize>>()
+                .expect("the app's data");
             calls.fetch_add(1, Ordering::SeqCst);
             format!("{}/{}", info.page_number, info.total_pages).into()
         }
@@ -1664,7 +1682,9 @@ mod autotest_generated {
         // show_header == false must win even when header_content would panic-free
         // produce text — otherwise a disabled box still costs a callback call.
         extern "C" fn leaked(data: &mut RefAny, _: PageInfo) -> AzString {
-            let calls = data.downcast_ref::<Arc<AtomicUsize>>().expect("the app's data");
+            let calls = data
+                .downcast_ref::<Arc<AtomicUsize>>()
+                .expect("the app's data");
             calls.fetch_add(1, Ordering::SeqCst);
             "leaked".into()
         }
@@ -1800,7 +1820,9 @@ mod autotest_generated {
         let hf = FakePageConfig::new()
             .with_footer_text("plain")
             .to_header_footer_config();
-        assert!(matches!(hf.footer_content, MarginBoxContent::Text(ref s) if s.as_str() == "plain"));
+        assert!(
+            matches!(hf.footer_content, MarginBoxContent::Text(ref s) if s.as_str() == "plain")
+        );
         assert_eq!(hf.footer_text(PageInfo::new(1, 1)), "plain");
     }
 
@@ -1950,7 +1972,9 @@ mod autotest_generated {
         ) {
             MarginBoxContent::Combined(parts) => {
                 assert_eq!(parts.len(), 6, "text + sep + label + counter + of + total");
-                assert!(matches!(parts.as_ref()[1], MarginBoxContent::Text(ref s) if s.as_str() == " - "));
+                assert!(
+                    matches!(parts.as_ref()[1], MarginBoxContent::Text(ref s) if s.as_str() == " - ")
+                );
                 assert!(matches!(
                     parts.as_ref()[3],
                     MarginBoxContent::PageCounterFormatted(..)

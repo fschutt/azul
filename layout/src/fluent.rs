@@ -46,22 +46,23 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt::Write;
-use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-use std::io::{Cursor, Read, Seek, Write as IoWrite};
-use std::sync::Mutex;
+use core::{
+    fmt::Write,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+use std::{
+    io::{Cursor, Read, Seek, Write as IoWrite},
+    sync::Mutex,
+};
 
 use azul_css::{
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, AzString,
     OptionStringVec, StringVec, U8Vec,
 };
-
-use fluent::concurrent::FluentBundle;
-use fluent::{FluentArgs, FluentResource, FluentValue};
+use fluent::{concurrent::FluentBundle, FluentArgs, FluentResource, FluentValue};
 use fluent_syntax::parser;
 use unic_langid::LanguageIdentifier;
-use zip::write::SimpleFileOptions;
-use zip::{ZipArchive, ZipWriter};
+use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 /// Error type for Fluent operations
 #[derive(Debug, Clone, PartialEq)]
@@ -475,8 +476,8 @@ impl FluentLocalizerHandle {
     ///
     /// # Arguments
     /// * `data` - The ZIP file contents
-    /// * `locale_override` - If Some, all files in the ZIP will be loaded for this locale.
-    ///                       If None, the locale is detected from the file path.
+    /// * `locale_override` - If Some, all files in the ZIP will be loaded for this locale. If None,
+    ///   the locale is detected from the file path.
     ///
     /// # Examples of valid ZIP structures:
     ///
@@ -1963,7 +1964,8 @@ mod autotest_generated {
 
         assert_eq!(tr(&g, "de-CH", "only-ch"), "CH"); // direct
         assert_eq!(tr(&g, "de-CH", "only-de"), "DE"); // one hop
-                                                      // the chain is NOT transitive: de-CH -> de-DE -> en-US never reaches en-US
+                                                      // the chain is NOT transitive: de-CH -> de-DE
+                                                      // -> en-US never reaches en-US
         assert_eq!(tr(&g, "de-CH", "only-en"), "only-en");
         // an unreachable default locale simply means the id is echoed back
         assert_eq!(tr(&g, "qq-QQ", "only-en"), "only-en");

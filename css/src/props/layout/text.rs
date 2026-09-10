@@ -3,11 +3,12 @@
 //! Defines [`LayoutTextJustify`] and its parser [`parse_layout_text_justify`],
 //! used by the CSS property parsing pipeline.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
+use crate::{
+    codegen::format::FormatAsRustCode, corety::AzString, props::formatter::PrintAsCssValue,
+};
 
 /// CSS `text-justify` property value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -617,8 +618,10 @@ mod autotest_generated {
 
     #[test]
     fn equal_variants_hash_equally_and_distinct_variants_do_not_collide() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use std::{
+            collections::hash_map::DefaultHasher,
+            hash::{Hash, Hasher},
+        };
 
         fn hash_of(j: LayoutTextJustify) -> u64 {
             let mut hasher = DefaultHasher::new();

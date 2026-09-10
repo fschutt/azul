@@ -8,7 +8,11 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{api::ApiData, dllgen::{bundles, license::License}, docgen::HTML_ROOT};
+use crate::{
+    api::ApiData,
+    dllgen::{bundles, license::License},
+    docgen::HTML_ROOT,
+};
 
 /// Verifies that all example files referenced in api.json exist on the filesystem.
 ///
@@ -47,11 +51,14 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
                 }
                 for (lang, rel) in example.code.all_paths() {
                     let path = examples_dir.join(&rel);
-                    let Ok(src) = fs::read_to_string(&path) else { continue };
+                    let Ok(src) = fs::read_to_string(&path) else {
+                        continue;
+                    };
                     for tok in FILLER_TOKENS {
                         if src.contains(tok) {
                             filler.push(format!(
-                                "[{}] {} ({}): demo filler `{}` in {} — a hello-world is model/layout/on_click/main, nothing else",
+                                "[{}] {} ({}): demo filler `{}` in {} — a hello-world is \
+                                 model/layout/on_click/main, nothing else",
                                 version, example.name, lang, tok, rel
                             ));
                         }
@@ -1596,15 +1603,14 @@ pub fn create_examples(
     source_zip.start_file("README.md", options)?;
     source_zip.write_all(
         format!(
-            "# Azul GUI Framework v{version}\n\n\
-             Cross-platform GUI framework with bindings for Rust, C, C++, Python and \
-             20+ other languages (all per-language `hello-world` / `widgets` sources are \
-             bundled here, one directory per language).\n\n\
-             This archive demonstrates the \"one dll, many small binaries\" model: a single \
-             shared library (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled \
-             demo apps under `demos/` (added by CI) — every app links the same one library \
-             instead of bundling its own runtime. Build any example against the bundled lib; \
-             headers are in `include/`.\n",
+            "# Azul GUI Framework v{version}\n\nCross-platform GUI framework with bindings for \
+             Rust, C, C++, Python and 20+ other languages (all per-language `hello-world` / \
+             `widgets` sources are bundled here, one directory per language).\n\nThis archive \
+             demonstrates the \"one dll, many small binaries\" model: a single shared library \
+             (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled demo apps under \
+             `demos/` (added by CI) — every app links the same one library instead of bundling \
+             its own runtime. Build any example against the bundled lib; headers are in \
+             `include/`.\n",
         )
         .as_bytes(),
     )?;
@@ -1631,7 +1637,8 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
     let java_dir = codegen_dir.join("java");
     if !java_dir.is_dir() {
         eprintln!(
-            "  [WARN] Java bindings dir {} missing — skipping azul-java.zip (run `azul-doc codegen all`?)",
+            "  [WARN] Java bindings dir {} missing — skipping azul-java.zip (run `azul-doc \
+             codegen all`?)",
             java_dir.display()
         );
         return Ok(());
@@ -1682,14 +1689,14 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
 /// URL and would break if the link moved to the GitHub Release:
 ///
 /// * `libazul.so`   — api.json install steps (×34 `curl`s)
-/// * `libazul.dylib` — api.json (×34) **and** the Homebrew formula's `url` +
-///   `sha256` (`build_registry_mirrors.sh` `build_homebrew`)
+/// * `libazul.dylib` — api.json (×34) **and** the Homebrew formula's `url` + `sha256`
+///   (`build_registry_mirrors.sh` `build_homebrew`)
 /// * `libazul.x86_64.dylib` — the same formula's `on_intel` block
-/// * `azul.dll`     — api.json (×43) **and** the Chocolatey package's
-///   `chocolateyInstall.ps1` `-Url64bit` + `-Checksum64` (`build_choco`)
+/// * `azul.dll`     — api.json (×43) **and** the Chocolatey package's `chocolateyInstall.ps1`
+///   `-Url64bit` + `-Checksum64` (`build_choco`)
 /// * `azul.i686.dll` — api.json (×1)
-/// * `azul.dll.lib` — api.json (×10); this is the ~4 MB *import* lib, not the
-///   ~300 MB static `azul.lib`
+/// * `azul.dll.lib` — api.json (×10); this is the ~4 MB *import* lib, not the ~300 MB static
+///   `azul.lib`
 ///
 /// Moving any of these trades a size problem for a dead-link problem. If one
 /// ever has to move, update every reference above in the same commit.
@@ -2015,11 +2022,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // the azul-css/azul-core/azul-layout test suites and uploads `coverage/`
     // (an HTML report whose entry point is index.html) as the `coverage-report`
     // artifact. The deploy lays it out at release/{version}/coverage/.
-    let coverage_link = release_link_li(
-        version,
-        "coverage",
-        "Code coverage report",
-    );
+    let coverage_link = release_link_li(version, "coverage", "Code coverage report");
 
     // ---- Statistics / CI reports ----------------------------------------
     // Reports each CI job produces, laid out under release/{version}/statistics/
@@ -2090,26 +2093,11 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // generate_license_files writes the bundled third-party license text per
     // platform into release/{version}/. The project itself is MIT-licensed.
     const LICENSE_FILES: &[(&str, &str)] = &[
-        (
-            "LICENSE-LINUX.txt",
-            "Third-party licenses (Linux)",
-        ),
-        (
-            "LICENSE-MACOS.txt",
-            "Third-party licenses (macOS)",
-        ),
-        (
-            "LICENSE-WINDOWS.txt",
-            "Third-party licenses (Windows)",
-        ),
-        (
-            "LICENSE-IOS.txt",
-            "Third-party licenses (iOS)",
-        ),
-        (
-            "LICENSE-ANDROID.txt",
-            "Third-party licenses (Android)",
-        ),
+        ("LICENSE-LINUX.txt", "Third-party licenses (Linux)"),
+        ("LICENSE-MACOS.txt", "Third-party licenses (macOS)"),
+        ("LICENSE-WINDOWS.txt", "Third-party licenses (Windows)"),
+        ("LICENSE-IOS.txt", "Third-party licenses (iOS)"),
+        ("LICENSE-ANDROID.txt", "Third-party licenses (Android)"),
     ];
     let license_links: String = LICENSE_FILES
         .iter()
@@ -2208,11 +2196,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "mobile-apps/{c}-ios.ipa",
             |_| true,
         ),
-        (
-            "iOS device (.app)",
-            "mobile-apps/{c}-ios.app.zip",
-            |_| true,
-        ),
+        ("iOS device (.app)", "mobile-apps/{c}-ios.app.zip", |_| true),
         (
             "iOS Simulator (.app)",
             "mobile-apps/{c}-ios-sim.app.zip",
@@ -2261,9 +2245,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             // crate it happens to be built from.
             let tag = friendly.to_lowercase();
             format!(
-                "<li><strong>{friendly}</strong>\n                      \
-                 <pre>\
-                 <code class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 {tag}</code></pre></li>",
+                "<li><strong>{friendly}</strong>\n                      <pre><code \
+                 class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 \
+                 {tag}</code></pre></li>",
                 friendly = friendly,
                 url = url,
                 tag = tag
@@ -2550,15 +2534,13 @@ pub fn generate_releases_index(versions: &[String]) -> String {
 /// (e.g. `/ui/guide/dom`).
 fn redirect_stub_html(target: &str) -> String {
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-         <title>Redirecting\u{2026}</title>\n\
-         <link rel=\"canonical\" href=\"{target}\">\n\
-         <meta name=\"robots\" content=\"noindex\">\n\
-         <meta http-equiv=\"refresh\" content=\"0; url={target}\">\n\
-         <script>location.replace(\"{target}\" + location.search + location.hash);</script>\n\
-         </head><body>\n\
-         <p>This page has moved to <a href=\"{target}\">{target}</a>.</p>\n\
-         </body></html>\n"
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta \
+         charset=\"utf-8\">\n<title>Redirecting\u{2026}</title>\n<link rel=\"canonical\" \
+         href=\"{target}\">\n<meta name=\"robots\" content=\"noindex\">\n<meta \
+         http-equiv=\"refresh\" content=\"0; \
+         url={target}\">\n<script>location.replace(\"{target}\" + location.search + \
+         location.hash);</script>\n</head><body>\n<p>This page has moved to <a \
+         href=\"{target}\">{target}</a>.</p>\n</body></html>\n"
     )
 }
 

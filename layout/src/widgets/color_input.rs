@@ -285,7 +285,8 @@ impl ColorInput {
             swatch = swatch
                 .with_child(checkerboard(w, h, (w.min(h) / 2.0).max(1.0)))
                 .with_child(Dom::create_div().with_css(&format!(
-                    "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
+                    "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+                     background: {};",
                     css_rgba(ColorU { a: 255, ..color }, color.a)
                 )));
         }
@@ -563,7 +564,8 @@ fn plane_background_css(hue: f32) -> String {
 
 /// The plane's shade overlay: transparent at the top, black at the bottom.
 const SHADE_CSS: &str = "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
-    border-radius: 4px; background: linear-gradient(to bottom, rgba(0, 0, 0, 0), #000000);";
+                         border-radius: 4px; background: linear-gradient(to bottom, rgba(0, 0, 0, \
+                         0), #000000);";
 
 /// `rgba(r, g, b, a)` for CSS, alpha as a fraction.
 fn css_rgba(color: ColorU, alpha: u8) -> String {
@@ -649,8 +651,8 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
     let mut board = Dom::create_div()
         .with_ids_and_classes(vec![Class(CHECKERBOARD_CLASS.into())].into())
         .with_css(&format!(
-            "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; \
-             display: flex; flex-direction: column; overflow: hidden;"
+            "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; display: flex; \
+             flex-direction: column; overflow: hidden;"
         ));
     for y in 0..rows {
         let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");
@@ -672,8 +674,8 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
     board
 }
 
-const HUE_BACKGROUND_CSS: &str = "linear-gradient(to right, #ff0000 0%, #ffff00 17%, \
-    #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)";
+const HUE_BACKGROUND_CSS: &str = "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, \
+                                  #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)";
 
 /// A property parsed from its CSS text; `None` if the text does not parse.
 fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
@@ -706,12 +708,13 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
 
 /// The picker panel that lives inside the popup.
 fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
-    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter, IdOrClass::Class},
     };
+
+    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
 
     let hsv = Hsv::from_color(color);
     let hex = color_to_hex(color);
@@ -745,9 +748,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Saturation/value plane with its ring marker.
     let plane_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; \
-             margin-left: -6px; margin-top: -6px; border: 2px solid #ffffff; \
-             border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; margin-left: \
+         -6px; margin-top: -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px \
+         0px 2px rgba(0, 0, 0, 0.6);",
         hsv.s * 100.0,
         (1.0 - hsv.v) * 100.0
     ));
@@ -781,9 +784,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Hue bar with its marker.
     let hue_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
-             margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
-             box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; margin-left: \
+         -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, \
+         0, 0.6);",
         hsv.h / 360.0 * 100.0
     ));
     let hue = Dom::create_div()
@@ -814,9 +817,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // Alpha bar: checkerboard, then transparent→colour over it, then the marker.
     let opaque = ColorU { a: 255, ..color };
     let alpha_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
-         margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
-         box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; margin-left: \
+         -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, \
+         0, 0.6);",
         f32::from(color.a) / 255.0 * 100.0
     ));
     let alpha_fill = Dom::create_div().with_css(&format!(
@@ -854,8 +857,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // Preview + hex. A translucent colour shows the checkerboard through it.
     let mut preview = Dom::create_div()
         .with_css(
-            "position: relative; width: 28px; height: 28px; border-radius: 4px; \
-             border: 1px solid #c8c8c8; overflow: hidden;",
+            "position: relative; width: 28px; height: 28px; border-radius: 4px; border: 1px solid \
+             #c8c8c8; overflow: hidden;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
@@ -885,9 +888,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let eyedropper = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
         .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 28px; \
-             height: 28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; \
-             background: #f4f4f4; color: #404040; font-size: 18px;",
+            "display: flex; align-items: center; justify-content: center; width: 28px; height: \
+             28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: \
+             #f4f4f4; color: #404040; font-size: 18px;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
@@ -955,8 +958,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_ids_and_classes(vec![Class(COLOR_PICKER_GRIP_CLASS.into())].into())
         .with_css(
             "display: flex; flex-direction: row; justify-content: center; align-items: center; \
-             height: 10px; margin-top: -4px; margin-bottom: -2px; cursor: grab; \
-             -azul-app-region: drag;",
+             height: 10px; margin-top: -4px; margin-bottom: -2px; cursor: grab; -azul-app-region: \
+             drag;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Separator,
@@ -971,9 +974,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
         .with_css(
-            "display: flex; flex-direction: column; gap: 8px; padding: 8px; \
-             background: #ffffff; border: 1px solid #c8c8c8; border-radius: 6px; \
-             box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); font-size: 12px; color: #202020;",
+            "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; \
+             border: 1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, \
+             0, 0.25); font-size: 12px; color: #202020;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,
@@ -1183,7 +1186,11 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
         // Alpha is a channel of the COLOUR, not of `hsv` - go through the
         // same `set_color` the alpha drag uses.
         (NudgeAxis::Alpha, K::Left | K::Down | K::Right | K::Up) => {
-            let dir = if matches!(key, K::Left | K::Down) { -1.0 } else { 1.0 };
+            let dir = if matches!(key, K::Left | K::Down) {
+                -1.0
+            } else {
+                1.0
+            };
             let mut c = picker.color();
             let a = f32::from(c.a) / 255.0;
             c.a = channel_value((a + dir * step).clamp(0.0, 1.0) * 255.0);
@@ -2550,10 +2557,9 @@ mod autotest_generated {
             assert_eq!(
                 callbacks[0].event,
                 EventFilter::Hover(HoverEventFilter::Click),
-                "{c:?}: the swatch must fire on ACTIVATION (Click), not on a \
-                 raw MouseUp - a real pointer release emits BOTH, so a MouseUp \
-                 handler ran the open/close toggle twice and the picker opened \
-                 and instantly closed (2026-09-01)",
+                "{c:?}: the swatch must fire on ACTIVATION (Click), not on a raw MouseUp - a real \
+                 pointer release emits BOTH, so a MouseUp handler ran the open/close toggle twice \
+                 and the picker opened and instantly closed (2026-09-01)",
             );
             assert_eq!(
                 callbacks[0].callback.cb, on_color_input_clicked as usize,
@@ -3321,8 +3327,14 @@ mod autotest_generated {
         };
 
         let stepped = |s0: f32, step: f32| (s0 + step).clamp(0.0, 1.0);
-        assert!((stepped(mid.s, 0.01) - 0.51).abs() < 1e-6, "fine step is 1%");
-        assert!((stepped(mid.s, 0.10) - 0.60).abs() < 1e-6, "coarse step is 10%");
+        assert!(
+            (stepped(mid.s, 0.01) - 0.51).abs() < 1e-6,
+            "fine step is 1%"
+        );
+        assert!(
+            (stepped(mid.s, 0.10) - 0.60).abs() < 1e-6,
+            "coarse step is 10%"
+        );
 
         // Clamping at both ends, so holding an arrow cannot walk out of range.
         assert!((stepped(1.0, 0.10) - 1.0).abs() < 1e-6);
@@ -3330,8 +3342,13 @@ mod autotest_generated {
 
         // Hue WRAPS instead of clamping - it is an angle.
         let hue_after = |h: f32, d: f32| (h + d * 360.0).rem_euclid(360.0);
-        assert!((hue_after(355.0, 0.10) - 31.0).abs() < 1e-4, "hue wraps past 360");
-        assert!((hue_after(5.0, -0.10) - 329.0).abs() < 1e-4, "and wraps below 0");
+        assert!(
+            (hue_after(355.0, 0.10) - 31.0).abs() < 1e-4,
+            "hue wraps past 360"
+        );
+        assert!(
+            (hue_after(5.0, -0.10) - 329.0).abs() < 1e-4,
+            "and wraps below 0"
+        );
     }
-
 }

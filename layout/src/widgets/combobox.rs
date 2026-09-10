@@ -53,8 +53,8 @@ use azul_core::{
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     window::VirtualKeyCode,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
         basic::{
@@ -895,13 +895,13 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
 /// share (list, and the node above it), does the state + `on_select` work first,
 /// and treats the field re-text as best-effort:
 ///
-///   * parent dom: `popup` is the `<transient-window>` node — closing it releases
-///     the engine's forced-open latch, and the field text is written directly;
-///   * popup dom: `popup` is the popup's ROOT — `set_transient_window_open(false)`
-///     on it is recognised by the shell as "this popup dismisses itself" (it posts
-///     `dismissed` to the parent's mailbox and closes the window), and the parent
-///     applies the field text in its `Dismissed` handler, where the parent's
-///     field node is addressable ([`on_combobox_dismissed`]).
+///   * parent dom: `popup` is the `<transient-window>` node — closing it releases the engine's
+///     forced-open latch, and the field text is written directly;
+///   * popup dom: `popup` is the popup's ROOT — `set_transient_window_open(false)` on it is
+///     recognised by the shell as "this popup dismisses itself" (it posts `dismissed` to the
+///     parent's mailbox and closes the window), and the parent applies the field text in its
+///     `Dismissed` handler, where the parent's field node is addressable
+///     ([`on_combobox_dismissed`]).
 extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let option = info.get_hit_node();
 
@@ -1094,8 +1094,8 @@ mod autotest_generated {
         let popup = &children[1];
         assert!(
             matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
-            "the list must live in a <transient-window> so it can escape the \
-             parent's stacking context and the window bounds",
+            "the list must live in a <transient-window> so it can escape the parent's stacking \
+             context and the window bounds",
         );
         let popup_children = popup.children.as_ref();
         assert_eq!(
@@ -1443,8 +1443,8 @@ mod autotest_generated {
             assert_ne!(
                 position_of(&props),
                 Some(LayoutPosition::Absolute),
-                "open={open}: absolute positioning belonged to the old in-DOM panel; \
-                 inside a popup window it would offset the list away from the window origin",
+                "open={open}: absolute positioning belonged to the old in-DOM panel; inside a \
+                 popup window it would offset the list away from the window origin",
             );
         }
     }
@@ -2750,11 +2750,9 @@ mod autotest_generated {
     /// Returns the styled popup dom plus the flattened option indices.
     fn popup_window_fixture(items: &[&str]) -> (StyledDom, Vec<usize>) {
         let fx = fixture(items);
-        let extracted = azul_core::transient::extract_subtree_as_dom(
-            &fx.styled,
-            NodeId::new(fx.popup),
-        )
-        .expect("the popup node is a <transient-window>, extraction must succeed");
+        let extracted =
+            azul_core::transient::extract_subtree_as_dom(&fx.styled, NodeId::new(fx.popup))
+                .expect("the popup node is a <transient-window>, extraction must succeed");
         assert!(
             matches!(extracted.root.get_node_type(), NodeType::Div),
             "inside its own window the transient container is a plain div"
@@ -2830,20 +2828,23 @@ mod autotest_generated {
         let logged = log
             .downcast_ref::<SelectLog>()
             .expect("log payload survived");
-        assert_eq!(logged.calls.len(), 1, "on_select must fire inside the popup");
+        assert_eq!(
+            logged.calls.len(),
+            1,
+            "on_select must fire inside the popup"
+        );
         assert_eq!(logged.calls[0].selected, 1);
 
         // Root of the extracted dom = flattened index 0.
         assert_eq!(
             transient_writes(&changes),
             alloc::vec![(0, false)],
-            "the close request names the popup's ROOT — the shell's cue to \
-             dismiss the popup window itself",
+            "the close request names the popup's ROOT — the shell's cue to dismiss the popup \
+             window itself",
         );
         assert!(
             text_writes(&changes).is_empty(),
-            "no field exists in the popup dom — a text write here would land \
-             on an arbitrary node",
+            "no field exists in the popup dom — a text write here would land on an arbitrary node",
         );
     }
 

@@ -38,7 +38,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
@@ -60,8 +62,10 @@ use azul_css::{
     AzString, OptionString, U32Vec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
-use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::text_input::{OnTextInputReturn, TextInputValid},
+};
 
 // ---- colours ----
 const BACKGROUND_COLOR: ColorU = ColorU {
@@ -104,7 +108,7 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 const MIN_HEIGHT_PX: isize = 64;
 
 // -- container style (cross-platform single style) --
-static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -240,7 +244,7 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 // -- label style (the `<p>` block wrapping the multi-line value) --
-static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // See text_input: the prompt's colour through the `::placeholder`
     // cascade, overridable by any app rule.
     CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(StyleTextColor {
@@ -259,19 +263,19 @@ static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     ))),
 ];
 
-
 /// Multi-line text input widget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextArea {
     pub text_area_state: TextAreaStateWrapper,
-    pub container_style: CssPropertyWithConditionsVec,
-    pub label_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    pub label_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    pub theme: crate::widgets::themes::OptionTheme,
 }
 
 /// Editable state of a text area (text buffer + cursor position).
@@ -412,11 +416,10 @@ impl Default for TextArea {
     fn default() -> Self {
         Self {
             text_area_state: TextAreaStateWrapper::default(),
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                TEXT_AREA_CONTAINER_PROPS,
-            ),
-            label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_AREA_LABEL_PROPS),
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
         }
     }
 }
@@ -435,7 +438,8 @@ impl TextArea {
     }
 
     /// Sets the (multi-line) text. Newlines in `text` are preserved.
-    #[allow(clippy::needless_pass_by_value)] // public by-value setter; builder with_text moves the arg in
+    #[allow(clippy::needless_pass_by_value)] // public by-value setter; builder with_text moves the
+                                             // arg in
     pub fn set_text(&mut self, text: AzString) {
         self.text_area_state.inner.text = text
             .as_str()
@@ -527,12 +531,12 @@ impl TextArea {
         self
     }
 
-    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
+    pub fn set_container_style(&mut self, style: OptionCssPropertyWithConditionsVec) {
         self.container_style = style;
     }
 
     #[must_use]
-    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    pub fn with_container_style(mut self, style: OptionCssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -552,101 +556,16 @@ impl TextArea {
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node.
     #[must_use]
-    pub fn dom(mut self) -> Dom {
-        // Read before the state is moved into the DOM below.
-        let ta_name: Option<AzString> = self.text_area_state.inner.placeholder.as_ref().cloned();
-
-        use azul_core::dom::{
-            AttributeType, DomVec, EventFilter, FocusEventFilter, IdOrClass::Class, TabIndex,
-        };
-
-        self.text_area_state.inner.cursor_pos = self.text_area_state.inner.text.len();
-
-        let label_text: String = self
-            .text_area_state
-            .inner
-            .text
-            .iter()
-            .filter_map(|s| core::char::from_u32(*s))
-            .collect();
-
-        let placeholder = self
-            .text_area_state
-            .inner
-            .placeholder
-            .as_ref()
-            .map(|s| s.as_str().to_string())
-            .unwrap_or_default();
-
-        let state_ref = RefAny::new(self.text_area_state);
-
-        Dom::create_div()
-            .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
-            .with_css_props(self.container_style)
-            .with_tab_index(TabIndex::Auto)
-            // Same as text_input: an edit field with no name announces as
-            // "edit" and the user cannot tell what it is for.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Text,
-                accessibility_name: ta_name.into(),
-                ..Default::default()
-            })
-            .with_contenteditable(true)
-            .with_dataset(Some(state_ref.clone()).into())
-            .with_callbacks(
-                vec![
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_received as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_lost as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::TextInput),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_text_input as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        refany: state_ref,
-                        callback: CoreCallback {
-                            cb: default_on_virtual_key_down as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                ]
-                .into(),
-            )
-            .with_children(
-                vec![
-                    // ONE child: the value <p>, carrying the prompt as an
-                    // ATTRIBUTE the engine paints while the value is empty
-                    // and unfocused. See text_input::dom for the full why.
-                    crate::widgets::widget_p()
-                        .with_ids_and_classes(
-                            vec![Class("__azul-native-text-area-label".into())].into(),
-                        )
-                        .with_css_props(self.label_style)
-                        // appended, never `with_attributes`: that one replaces
-                        // the whole vector, classes included
-                        .with_attribute(AttributeType::Placeholder(placeholder.into()))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
-                ]
-                .into(),
-            )
+    pub fn dom(self) -> Dom {
+        match self.theme {
+            crate::widgets::themes::OptionTheme::None => Dom::create_div(),
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+                crate::widgets::themes::flat::text_area(self)
+            }
+            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+                crate::widgets::themes::flora::text_area(self)
+            }
+        }
     }
 }
 
@@ -671,7 +590,6 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
     }
     Some(child)
 }
-
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
@@ -716,7 +634,10 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
-extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_focus_received(
+    mut text_area: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
     let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -741,7 +662,7 @@ extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: Callbac
     Update::DoNothing
 }
 
-extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -769,7 +690,7 @@ extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInf
     }
 }
 
-extern "C" fn default_on_text_input(text_area: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_text_input(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_area, info).unwrap_or(Update::DoNothing)
 }
 
@@ -882,7 +803,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     Some(result.update)
 }
 
-extern "C" fn default_on_virtual_key_down(text_area: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn default_on_virtual_key_down(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_area, info).unwrap_or(Update::DoNothing)
 }
 
@@ -2298,8 +2219,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(
             changes.is_empty(),
-            "focus must write NO css: empty+unfocused is recomputed per \
-             display list, so there is no override to set (or to latch)"
+            "focus must write NO css: empty+unfocused is recomputed per display list, so there is \
+             no override to set (or to latch)"
         );
         let _ = nodes;
 

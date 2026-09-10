@@ -22,11 +22,11 @@ use std::sync::{Arc, Mutex};
 use accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
 #[cfg(feature = "a11y")]
 use accesskit_windows::SubclassingAdapter;
+#[cfg(feature = "a11y")]
+use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 
 #[cfg(feature = "a11y")]
 use crate::desktop::shell2::windows::dlopen::HWND;
-#[cfg(feature = "a11y")]
-use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 
 /// Windows accessibility adapter that bridges Azul and UI Automation
 #[cfg(feature = "a11y")]

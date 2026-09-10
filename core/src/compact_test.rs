@@ -2,12 +2,13 @@
 pub use super::*;
 #[cfg(test)]
 mod audit_tests {
+    use azul_css::{
+        compact_cache::{decode_pixel_value_u32, encode_pixel_value_u32, CompactNodeProps},
+        props::basic::pixel::PixelValue,
+    };
+
     use super::resolve_font_size_to_px;
     use crate::dom::NodeId;
-    use azul_css::compact_cache::{
-        decode_pixel_value_u32, encode_pixel_value_u32, CompactNodeProps,
-    };
-    use azul_css::props::basic::pixel::PixelValue;
 
     // Happy path: an `em` font-size resolves against a valid (pre-order) parent.
     #[test]
@@ -63,29 +64,34 @@ mod audit_tests {
     clippy::cast_lossless
 )]
 mod autotest_generated {
-    use super::*;
-
     use alloc::collections::BTreeMap;
 
-    use crate::dom::NodeType;
-    use crate::styled_dom::NodeHierarchyItem;
-    use azul_css::props::basic::color::ColorU;
-    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
-    use azul_css::props::basic::length::{FloatValue, PercentageValue};
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::layout::dimensions::LayoutMinWidth;
-    use azul_css::props::layout::display::LayoutDisplay;
-    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink};
-    use azul_css::props::layout::grid::{GridLine, GridPlacement, LayoutGap, NamedGridLine};
-    use azul_css::props::layout::overflow::StyleScrollbarGutter;
-    use azul_css::props::layout::position::LayoutPosition;
-    use azul_css::props::layout::spacing::{LayoutMarginTop, LayoutPaddingTop};
-    use azul_css::props::layout::table::StyleBorderCollapse;
-    use azul_css::props::style::border::{BorderStyle, StyleBorderTopStyle};
-    use azul_css::props::style::effects::StyleOpacity;
-    use azul_css::props::style::text::{
-        StyleLineHeight, StyleTextColor, StyleTextDecoration, StyleTextIndent,
+    use azul_css::props::{
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            length::{FloatValue, PercentageValue},
+            pixel::PixelValue,
+        },
+        layout::{
+            dimensions::LayoutMinWidth,
+            display::LayoutDisplay,
+            flex::{LayoutFlexGrow, LayoutFlexShrink},
+            grid::{GridLine, GridPlacement, LayoutGap, NamedGridLine},
+            overflow::StyleScrollbarGutter,
+            position::LayoutPosition,
+            spacing::{LayoutMarginTop, LayoutPaddingTop},
+            table::StyleBorderCollapse,
+        },
+        style::{
+            border::{BorderStyle, StyleBorderTopStyle},
+            effects::StyleOpacity,
+            text::{StyleLineHeight, StyleTextColor, StyleTextDecoration, StyleTextIndent},
+        },
     };
+
+    use super::*;
+    use crate::{dom::NodeType, styled_dom::NodeHierarchyItem};
 
     // -------------------------------------------------------------------------
     // Fixtures
@@ -846,8 +852,8 @@ mod autotest_generated {
             )));
             assert!(
                 s.cold.z_index < 0 || s.cold.z_index == I16_SENTINEL,
-                "z-index {z} encoded to {}: a negative z-index must stay negative (or \
-                 saturate to the sentinel), it must never wrap to a positive value",
+                "z-index {z} encoded to {}: a negative z-index must stay negative (or saturate to \
+                 the sentinel), it must never wrap to a positive value",
                 s.cold.z_index,
             );
         }
@@ -1391,8 +1397,8 @@ mod autotest_generated {
         let pv = decode_pixel_value_u32(dims[0].font_size).expect("must resolve to px");
         assert!(
             (pv.number.get() - 32.0).abs() < 0.01,
-            "root `font-size: 2rem` should resolve against the 16px initial value (= 32px), \
-             got {}px",
+            "root `font-size: 2rem` should resolve against the 16px initial value (= 32px), got \
+             {}px",
             pv.number.get()
         );
     }
@@ -1415,22 +1421,70 @@ mod inheritance_mask_tests {
         (CssPropertyType::Float, FLOAT_SHIFT, FLOAT_MASK),
         (CssPropertyType::OverflowX, OVERFLOW_X_SHIFT, OVERFLOW_MASK),
         (CssPropertyType::OverflowY, OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
-        (CssPropertyType::BoxSizing, BOX_SIZING_SHIFT, BOX_SIZING_MASK),
-        (CssPropertyType::FlexDirection, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
+        (
+            CssPropertyType::BoxSizing,
+            BOX_SIZING_SHIFT,
+            BOX_SIZING_MASK,
+        ),
+        (
+            CssPropertyType::FlexDirection,
+            FLEX_DIRECTION_SHIFT,
+            FLEX_DIR_MASK,
+        ),
         (CssPropertyType::FlexWrap, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),
-        (CssPropertyType::JustifyContent, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK),
+        (
+            CssPropertyType::JustifyContent,
+            JUSTIFY_CONTENT_SHIFT,
+            JUSTIFY_MASK,
+        ),
         (CssPropertyType::AlignItems, ALIGN_ITEMS_SHIFT, ALIGN_MASK),
-        (CssPropertyType::AlignContent, ALIGN_CONTENT_SHIFT, ALIGN_MASK),
-        (CssPropertyType::WritingMode, WRITING_MODE_SHIFT, WRITING_MODE_MASK),
+        (
+            CssPropertyType::AlignContent,
+            ALIGN_CONTENT_SHIFT,
+            ALIGN_MASK,
+        ),
+        (
+            CssPropertyType::WritingMode,
+            WRITING_MODE_SHIFT,
+            WRITING_MODE_MASK,
+        ),
         (CssPropertyType::Clear, CLEAR_SHIFT, CLEAR_MASK),
-        (CssPropertyType::FontWeight, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
-        (CssPropertyType::FontStyle, FONT_STYLE_SHIFT, FONT_STYLE_MASK),
-        (CssPropertyType::TextAlign, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
-        (CssPropertyType::Visibility, VISIBILITY_SHIFT, VISIBILITY_MASK),
-        (CssPropertyType::WhiteSpace, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
+        (
+            CssPropertyType::FontWeight,
+            FONT_WEIGHT_SHIFT,
+            FONT_WEIGHT_MASK,
+        ),
+        (
+            CssPropertyType::FontStyle,
+            FONT_STYLE_SHIFT,
+            FONT_STYLE_MASK,
+        ),
+        (
+            CssPropertyType::TextAlign,
+            TEXT_ALIGN_SHIFT,
+            TEXT_ALIGN_MASK,
+        ),
+        (
+            CssPropertyType::Visibility,
+            VISIBILITY_SHIFT,
+            VISIBILITY_MASK,
+        ),
+        (
+            CssPropertyType::WhiteSpace,
+            WHITE_SPACE_SHIFT,
+            WHITE_SPACE_MASK,
+        ),
         (CssPropertyType::Direction, DIRECTION_SHIFT, DIRECTION_MASK),
-        (CssPropertyType::VerticalAlign, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
-        (CssPropertyType::BorderCollapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+        (
+            CssPropertyType::VerticalAlign,
+            VERTICAL_ALIGN_SHIFT,
+            VERTICAL_ALIGN_MASK,
+        ),
+        (
+            CssPropertyType::BorderCollapse,
+            BORDER_COLLAPSE_SHIFT,
+            BORDER_COLLAPSE_MASK,
+        ),
         // `cursor` is inheritable, but it is NOT a tier-1 slot: the word is
         // full, and the bits it was given belonged to `align-self`. It lives
         // in `CompactNodePropsCold::cursor`, and
@@ -1442,10 +1496,26 @@ mod inheritance_mask_tests {
         // sat on top of `align_self`: the table never named the field being
         // corrupted. A slot missing from here is not checked by ANY test in
         // this module.
-        (CssPropertyType::AlignSelf, ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
-        (CssPropertyType::JustifySelf, JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
-        (CssPropertyType::GridAutoFlow, GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
-        (CssPropertyType::JustifyItems, JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK),
+        (
+            CssPropertyType::AlignSelf,
+            ALIGN_SELF_SHIFT,
+            ALIGN_SELF_MASK,
+        ),
+        (
+            CssPropertyType::JustifySelf,
+            JUSTIFY_SELF_SHIFT,
+            JUSTIFY_SELF_MASK,
+        ),
+        (
+            CssPropertyType::GridAutoFlow,
+            GRID_AUTO_FLOW_SHIFT,
+            GRID_AUTO_FLOW_MASK,
+        ),
+        (
+            CssPropertyType::JustifyItems,
+            JUSTIFY_ITEMS_SHIFT,
+            JUSTIFY_ITEMS_MASK,
+        ),
     ];
 
     /// A property that CSS inherits must be in the mask, and one it does not

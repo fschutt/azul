@@ -9,8 +9,8 @@
 //! * `-` / `*` bullet lists
 //! * fenced code blocks (verbatim, monospace)
 //! * paragraphs separated by blank lines
-//! * inline `**bold**` / `*em*` / `` `code` `` markers are STRIPPED (the
-//!   text stays); links `[text](url)` render as `text (url)`.
+//! * inline `**bold**` / `*em*` / `` `code` `` markers are STRIPPED (the text stays); links
+//!   `[text](url)` render as `text (url)`.
 
 use azul_core::dom::Dom;
 

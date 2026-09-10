@@ -3,8 +3,7 @@
 #[test]
 #[cfg(feature = "io")]
 fn test_system_style_discovery_selection_colors() {
-    use azul_css::props::basic::OptionColorU;
-    use azul_css::system::SystemStyle;
+    use azul_css::{props::basic::OptionColorU, system::SystemStyle};
 
     let style = SystemStyle::detect();
 

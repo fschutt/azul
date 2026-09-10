@@ -11,11 +11,11 @@
 //! position on it. That is why this is per-backend rather than one call:
 //!
 //! - **macOS** allows it outright (`activateIgnoringOtherApps:`).
-//! - **Windows** allows it only for the app that already owns the foreground,
-//!   and silently does nothing otherwise - so the documented fallback is to
-//!   flash the taskbar button instead of pretending it worked.
-//! - **X11** has no permission model at all: `_NET_ACTIVE_WINDOW` asks the
-//!   window manager, and every mainstream WM honours it.
+//! - **Windows** allows it only for the app that already owns the foreground, and silently does
+//!   nothing otherwise - so the documented fallback is to flash the taskbar button instead of
+//!   pretending it worked.
+//! - **X11** has no permission model at all: `_NET_ACTIVE_WINDOW` asks the window manager, and
+//!   every mainstream WM honours it.
 //! - **Wayland** refuses BY DESIGN, and cannot be worked around - see below.
 
 /// Raise the window this handle names.

@@ -50,12 +50,14 @@ use azul_css::{
     },
     *,
 };
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, system::SystemStyle,
+};
 
-use azul_css::system::SystemStyle;
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
-
-use super::button::{Button, OptionButtonOnClick};
-use super::titlebar;
+use super::{
+    button::{Button, OptionButtonOnClick},
+    titlebar,
+};
 
 // -- Font --
 
@@ -213,10 +215,7 @@ impl QuickAccessTheme {
                 .close_button_hover_background
                 .into_option()
                 .unwrap_or(d.close_hover_bg),
-            close_hover_icon: c
-                .accent_text
-                .into_option()
-                .unwrap_or(d.close_hover_icon),
+            close_hover_icon: c.accent_text.into_option().unwrap_or(d.close_hover_icon),
         }
     }
 }
@@ -591,7 +590,6 @@ impl_vec_mut!(QuickAccessAction, QuickAccessActionVec);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct QuickAccessBar {
-
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: QuickAccessStyle,
 
@@ -1129,9 +1127,8 @@ mod tests {
         assert_eq!(
             t.close_hover_bg,
             QuickAccessTheme::office_2013().close_hover_bg,
-            "the close button keeps its own colour: a desktop that reports a \
-             button hover but no close hover must NOT paint the close button \
-             in the ordinary fill"
+            "the close button keeps its own colour: a desktop that reports a button hover but no \
+             close hover must NOT paint the close button in the ordinary fill"
         );
     }
 
@@ -1238,8 +1235,8 @@ mod tests {
         );
         assert!(
             ((height - padding) - BAR_HEIGHT as f32).abs() < 0.001,
-            "content box is {} tall, must stay BAR_HEIGHT ({BAR_HEIGHT}) - this is exactly \
-             the padding-only attempt that squashed the band",
+            "content box is {} tall, must stay BAR_HEIGHT ({BAR_HEIGHT}) - this is exactly the \
+             padding-only attempt that squashed the band",
             height - padding
         );
     }

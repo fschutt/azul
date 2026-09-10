@@ -11,19 +11,18 @@
 //! (a Resize relayout can skip work that doesn't depend on the window
 //! size, like analytics fetches).
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, RelayoutReason};
-use azul_core::dom::Dom;
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
+use azul::desktop::shell2::{common::event::PlatformWindow, headless::HeadlessWindow};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo, RelayoutReason},
+    dom::Dom,
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::common::event::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
 
 /// What each `layout()` invocation observed: the relayout reason and the
 /// window size at call time. The recording callback writes into a Vec

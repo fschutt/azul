@@ -18,9 +18,11 @@
 //! dmabuf fd on the GPU instead of reading it back. For now cpurender needs CPU
 //! BGRA, so we always read back.
 
-use std::ffi::{c_char, c_void};
-use std::ptr;
-use std::sync::Mutex;
+use std::{
+    ffi::{c_char, c_void},
+    ptr,
+    sync::Mutex,
+};
 
 macro_rules! scd {
     ($($arg:tt)*) => {{

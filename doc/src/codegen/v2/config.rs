@@ -456,8 +456,8 @@ impl CodegenConfig {
     /// DLL internal bindings API (replaces old dll_static + dll_build)
     ///
     /// Generates types + C-ABI function bodies (via transmute) + trait impls.
-    /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export", no_mangle)]`
-    /// so the same generated file works for both static linking and DLL export.
+    /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export",
+    /// no_mangle)]` so the same generated file works for both static linking and DLL export.
     ///
     /// Trait impls use `UsingCAPI` — they call the C-ABI wrapper functions
     /// (e.g. `AzDom_delete(self)`) instead of doing raw transmute. This ensures
@@ -616,13 +616,12 @@ impl CodegenConfig {
     /// It used to be `UsingDerive` with `CAbiFunctionMode::None`, and that
     /// combination cannot work in either direction:
     ///
-    ///   * `None` emits no `extern "C"` block, while `generate_impl_blocks`
-    ///     emits `pub fn new(..) { unsafe { AzDom_new(..) } }` regardless. Every
-    ///     method body in the file called an undeclared function.
-    ///   * `UsingDerive` puts `#[derive(Clone)]` on the mirror, which requires
-    ///     every FIELD's mirror to be `Clone` too. The owning leaves (`String`,
-    ///     `*Vec`, `RefAny`) get their `Clone` from the ABI, not from a derive,
-    ///     so the cascade failed for ~400 types.
+    ///   * `None` emits no `extern "C"` block, while `generate_impl_blocks` emits `pub fn new(..) {
+    ///     unsafe { AzDom_new(..) } }` regardless. Every method body in the file called an
+    ///     undeclared function.
+    ///   * `UsingDerive` puts `#[derive(Clone)]` on the mirror, which requires every FIELD's mirror
+    ///     to be `Clone` too. The owning leaves (`String`, `*Vec`, `RefAny`) get their `Clone` from
+    ///     the ABI, not from a derive, so the cascade failed for ~400 types.
     ///
     /// `UsingCAPI` + `ExternalBindings` is the shape that is internally
     /// consistent — the same shape `dll_api_external.rs` uses — and it is what

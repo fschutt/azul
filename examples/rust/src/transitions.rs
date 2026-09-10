@@ -3,10 +3,10 @@
 //! Read `anim.rs` first, then this. They produce comparable motion from opposite
 //! directions:
 //!
-//! * `anim.rs` installs a `Timer`, keeps a frame counter in app state, and
-//!   computes a position from it every tick. The app owns the animation.
-//! * this file has no timer, no counter, no interpolation and no notion of
-//!   time. It returns a DIFFERENT DOM, and the engine animates the difference.
+//! * `anim.rs` installs a `Timer`, keeps a frame counter in app state, and computes a position from
+//!   it every tick. The app owns the animation.
+//! * this file has no timer, no counter, no interpolation and no notion of time. It returns a
+//!   DIFFERENT DOM, and the engine animates the difference.
 //!
 //! That is the whole model: `layout()` stays a pure `f(&State) -> Dom`, the DOM
 //! diff already computes which node became which, and any node whose rect moved
@@ -16,24 +16,20 @@
 //!
 //! Three transitions, one per button, exercising different shapes of change:
 //!
-//! 1. **Sidebar** — a REAL unmount with a declared presence animation:
-//!    `-azul-animation-out: sidebarFlyOut 0.5s` names a function the sidebar
-//!    ATTACHED TO ITS OWN NODE (`with_animation_callback`) — the component
-//!    ships its animation; there are no engine builtins and no global
-//!    registry. The callback receives a full `TimerCallbackInfo` (the live
-//!    dom, change queue, momentum API) plus the zombie info (raw `t`, the
-//!    CSS-requested timing, the retained tree) and owns the easing math,
-//!    while the content, laid out at its final width immediately, slides
-//!    into the space. `-azul-animation-in: sidebarFlyIn` brings it back; a
+//! 1. **Sidebar** — a REAL unmount with a declared presence animation: `-azul-animation-out:
+//!    sidebarFlyOut 0.5s` names a function the sidebar ATTACHED TO ITS OWN NODE
+//!    (`with_animation_callback`) — the component ships its animation; there are no engine builtins
+//!    and no global registry. The callback receives a full `TimerCallbackInfo` (the live dom,
+//!    change queue, momentum API) plus the zombie info (raw `t`, the CSS-requested timing, the
+//!    retained tree) and owns the easing math, while the content, laid out at its final width
+//!    immediately, slides into the space. `-azul-animation-in: sidebarFlyIn` brings it back; a
 //!    stylesheet `@keyframes` of the same name would shadow the function.
-//! 2. **Screen swap** — two "pages" of an SPA. The header card is present in
-//!    both but lands somewhere different, so it flies between positions instead
-//!    of disappearing and reappearing. This is the case that needs
-//!    reconciliation identity rather than tree position: the card is a
+//! 2. **Screen swap** — two "pages" of an SPA. The header card is present in both but lands
+//!    somewhere different, so it flies between positions instead of disappearing and reappearing.
+//!    This is the case that needs reconciliation identity rather than tree position: the card is a
 //!    different `NodeId` in the two DOMs.
-//! 3. **Reorder** — the same list, shuffled. Every row is matched to its new
-//!    slot and animates there, which is what makes a sort look like motion
-//!    rather than a repaint.
+//! 3. **Reorder** — the same list, shuffled. Every row is matched to its new slot and animates
+//!    there, which is what makes a sort look like motion rather than a repaint.
 //!
 //! Run:
 //!
@@ -42,11 +38,13 @@
 //! Then click the buttons. The only mention of time in this file is the two
 //! declarative `0.5s` durations in the sidebar's CSS.
 
-use azul::dom::{IdOrClass, ZombieAnimCallback};
-use azul::image::ZombieAnimInfo;
-use azul::option::OptionF32;
-use azul::prelude::*;
-use azul::widgets::{Button, ZombieFrame};
+use azul::{
+    dom::{IdOrClass, ZombieAnimCallback},
+    image::ZombieAnimInfo,
+    option::OptionF32,
+    prelude::*,
+    widgets::{Button, ZombieFrame},
+};
 
 /// Which demo screen is showing, and the toggles each one owns.
 ///
@@ -79,21 +77,21 @@ impl Default for AppState {
     }
 }
 
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
-    background: #0e0e14; font-family: sans-serif;";
-const TOOLBAR: &str = "display: flex; flex-direction: row; padding: 12px; \
-    background: #16161f; border-bottom: 1px solid #2a2a3a;";
-const BTN: &str = "padding: 8px 14px; margin-right: 10px; border-radius: 6px; \
-    background: #2a2a3a; color: #e6e6f0; font-size: 14px;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; background: #0e0e14; \
+                    font-family: sans-serif;";
+const TOOLBAR: &str = "display: flex; flex-direction: row; padding: 12px; background: #16161f; \
+                       border-bottom: 1px solid #2a2a3a;";
+const BTN: &str = "padding: 8px 14px; margin-right: 10px; border-radius: 6px; background: \
+                   #2a2a3a; color: #e6e6f0; font-size: 14px;";
 const BODY: &str = "display: flex; flex-direction: row; flex-grow: 1;";
 // The presence animations belong to THE COMPONENT: the names below resolve
 // to functions the sidebar attaches to its own node (see sidebar_fly_out /
 // sidebar_fly_in). A stylesheet `@keyframes` of the same name would shadow
 // them — the web mechanism is the only default name source.
-const SIDEBAR_OPEN: &str = "width: 220px; background: #1b1b26; \
-    border-right: 1px solid #2a2a3a; padding: 16px; display: flex; \
-    flex-direction: column; -azul-animation-out: sidebarFlyOut 0.5s; \
-    -azul-animation-in: sidebarFlyIn 0.5s;";
+const SIDEBAR_OPEN: &str = "width: 220px; background: #1b1b26; border-right: 1px solid #2a2a3a; \
+                            padding: 16px; display: flex; flex-direction: column; \
+                            -azul-animation-out: sidebarFlyOut 0.5s; -azul-animation-in: \
+                            sidebarFlyIn 0.5s;";
 
 /// The sidebar's exit, shipped WITH the sidebar (USER ruling: no engine
 /// builtins, no global registry — the component attaches its own animation
@@ -130,12 +128,11 @@ extern "C" fn sidebar_fly_in(
         clip_to_frozen_rect: true,
     }
 }
-const CONTENT: &str = "flex-grow: 1; padding: 24px; display: flex; \
-    flex-direction: column;";
-const CARD: &str = "background: #202030; border-radius: 10px; padding: 18px; \
-    margin-bottom: 16px; color: #e6e6f0; font-size: 16px;";
-const ROW: &str = "background: #23233a; border-radius: 8px; padding: 12px; \
-    margin-bottom: 8px; color: #cfd2e0; font-size: 14px;";
+const CONTENT: &str = "flex-grow: 1; padding: 24px; display: flex; flex-direction: column;";
+const CARD: &str = "background: #202030; border-radius: 10px; padding: 18px; margin-bottom: 16px; \
+                    color: #e6e6f0; font-size: 16px;";
+const ROW: &str = "background: #23233a; border-radius: 8px; padding: 12px; margin-bottom: 8px; \
+                   color: #cfd2e0; font-size: 14px;";
 const HINT: &str = "color: #6a7080; font-size: 12px; margin-top: 4px;";
 const SIDE_ITEM: &str = "color: #9aa0b4; font-size: 13px; margin-bottom: 10px;";
 
@@ -215,8 +212,8 @@ fn overview(state: &AppState) -> Dom {
 fn detail(state: &AppState) -> Dom {
     let mut content = Dom::create_div().with_css(CONTENT);
     let mut spacer = Dom::create_div().with_css(
-        "height: 90px; background: #191926; border-radius: 10px; \
-         margin-bottom: 16px; padding: 14px; color: #6a7080; font-size: 13px;",
+        "height: 90px; background: #191926; border-radius: 10px; margin-bottom: 16px; padding: \
+         14px; color: #6a7080; font-size: 13px;",
     );
     spacer.add_child(Dom::create_p_with_text("Detail header"));
     content.add_child(spacer);

@@ -5,13 +5,16 @@
 //! - C-ABI function definitions or declarations
 //! - Trait implementations using transmute
 
-use anyhow::Result;
 use std::collections::BTreeSet;
 
-use super::config::*;
-use super::generator::{CodeBuilder, LanguageGenerator};
-use super::ir::*;
-use super::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
+use anyhow::Result;
+
+use super::{
+    config::*,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::*,
+    transmute_helpers::{generate_transmuted_fn_body, parse_arg_type},
+};
 
 // ============================================================================
 // Rust Generator
@@ -367,10 +370,8 @@ impl LanguageGenerator for RustGenerator {
                 // (`CssPropertyValue<GridTemplate>` and friends), and they
                 // declare only `Copy`, for which this emits nothing — the guard
                 // is here so that stops being load-bearing.
-                let mut seen_instantiations: std::collections::BTreeSet<(
-                    String,
-                    Vec<String>,
-                )> = std::collections::BTreeSet::new();
+                let mut seen_instantiations: std::collections::BTreeSet<(String, Vec<String>)> =
+                    std::collections::BTreeSet::new();
                 for alias in &ir.type_aliases {
                     if alias.monomorphized_def.is_none() {
                         continue;
@@ -502,7 +503,10 @@ impl RustGenerator {
             builder.indent();
             builder.line("use core::any::TypeId;");
             builder.line("let t = TypeId::of::<T>();");
-            builder.line("let bytes = unsafe { core::slice::from_raw_parts((&t as *const TypeId) as *const u8, core::mem::size_of::<TypeId>()) };");
+            builder.line(
+                "let bytes = unsafe { core::slice::from_raw_parts((&t as *const TypeId) as *const \
+                 u8, core::mem::size_of::<TypeId>()) };",
+            );
             builder.line(
                 "bytes.iter().enumerate().take(8).map(|(i, b)| (*b as u64) << (i * 8)).sum()",
             );
@@ -531,7 +535,11 @@ impl RustGenerator {
             builder.line(&format!("let st = {}String::from(type_name);", prefix));
             builder.line("let s = Self::new_c(");
             builder.indent();
-            builder.line(&format!("{}GlVoidPtrConst {{ ptr: (&value as *const T) as *const c_void, run_destructor: true }},", prefix));
+            builder.line(&format!(
+                "{}GlVoidPtrConst {{ ptr: (&value as *const T) as *const c_void, run_destructor: \
+                 true }},",
+                prefix
+            ));
             builder.line("core::mem::size_of::<T>(),");
             builder.line("core::mem::align_of::<T>(),");
             builder.line("type_id,");
@@ -623,7 +631,10 @@ impl RustGenerator {
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds a shared borrow; drop it when done.");
-            builder.line(&format!("pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, T>> {{"));
+            builder.line(&format!(
+                "pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
+                 T>> {{"
+            ));
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -641,7 +652,10 @@ impl RustGenerator {
                 .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
-            builder.line(&format!("pub fn downcast_mut<T: 'static>(&mut self) -> Option<azul_core::refany::RefMut<'_, T>> {{"));
+            builder.line(&format!(
+                "pub fn downcast_mut<T: 'static>(&mut self) -> \
+                 Option<azul_core::refany::RefMut<'_, T>> {{"
+            ));
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -659,7 +673,8 @@ impl RustGenerator {
         }
 
         // String conversions - implement From<&str> and From<String> for AzString
-        // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct details
+        // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct
+        // details
 
         // From<&str> for AzString
         builder.line(&format!("impl From<&str> for {}String {{", prefix));
@@ -956,7 +971,11 @@ impl RustGenerator {
 
         // Serialize trampoline - monomorphized for type T
         builder.line("// Serialize trampoline - compiler generates one per T");
-        builder.line(&format!("extern \"C\" fn serialize<U: serde::Serialize + 'static>(mut refany: {}RefAny) -> {}Json {{", prefix, prefix));
+        builder.line(&format!(
+            "extern \"C\" fn serialize<U: serde::Serialize + 'static>(mut refany: {}RefAny) -> \
+             {}Json {{",
+            prefix, prefix
+        ));
         builder.indent();
         builder.line("match refany.downcast_ref::<U>() {");
         builder.indent();
@@ -1003,7 +1022,11 @@ impl RustGenerator {
 
         // Deserialize trampoline - monomorphized for type T
         builder.line("// Deserialize trampoline - compiler generates one per T");
-        builder.line(&format!("extern \"C\" fn deserialize<U: serde::Serialize + serde::de::DeserializeOwned + 'static>(json: {}Json) -> {}ResultRefAnyString {{", prefix, prefix));
+        builder.line(&format!(
+            "extern \"C\" fn deserialize<U: serde::Serialize + serde::de::DeserializeOwned + \
+             'static>(json: {}Json) -> {}ResultRefAnyString {{",
+            prefix, prefix
+        ));
         builder.indent();
         builder.line("let json_str = json.to_string();");
         builder.line("match serde_json::from_str::<U>(json_str.as_str()) {");
@@ -1585,7 +1608,10 @@ impl RustGenerator {
             // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
-            builder.line(&format!("/// Returns a mutable reference to an element at the given index, or `None` if out of bounds."));
+            builder.line(&format!(
+                "/// Returns a mutable reference to an element at the given index, or `None` if \
+                 out of bounds."
+            ));
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
@@ -1757,7 +1783,11 @@ impl RustGenerator {
                     ));
                     builder.indent();
                     builder.line("let v = unsafe { &mut *v };");
-                    builder.line(&format!("match v.destructor {{ {}::AlreadyDestroyed | {}::NoDestructor => return, _ => {{ }} }}", prefixed_destructor, prefixed_destructor));
+                    builder.line(&format!(
+                        "match v.destructor {{ {}::AlreadyDestroyed | {}::NoDestructor => return, \
+                         _ => {{ }} }}",
+                        prefixed_destructor, prefixed_destructor
+                    ));
                     builder.line(&format!(
                         "v.destructor = {}::AlreadyDestroyed;",
                         prefixed_destructor
@@ -1827,7 +1857,8 @@ impl RustGenerator {
     ) {
         let _prefix = &config.type_prefix;
 
-        // Find all VecRef types in the IR (structs ending with "VecRef" that have ptr, len fields but NO cap)
+        // Find all VecRef types in the IR (structs ending with "VecRef" that have ptr, len fields
+        // but NO cap)
         for struct_def in &ir.structs {
             // Check if this looks like a VecRef type
             if !struct_def.name.ends_with("VecRef") {
@@ -2076,7 +2107,8 @@ impl RustGenerator {
             })
             .collect();
 
-        // Build a set of callback typedef names (function pointer types) to exclude from Into generics
+        // Build a set of callback typedef names (function pointer types) to exclude from Into
+        // generics
         let callback_typedefs: std::collections::HashSet<&str> = ir
             .callback_typedefs
             .iter()
@@ -2831,7 +2863,8 @@ impl RustGenerator {
             builder.line("fn clone(&self) -> Self {");
             builder.indent();
             builder.line(&format!(
-                "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}",
+                "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const \
+                 {})).clone()) }}",
                 external_path, full_name, full_name, external_path
             ));
             builder.dedent();
@@ -2927,16 +2960,15 @@ impl RustGenerator {
         // This used to compare the two values as `[u8; size_of::<Self>()]`. That is
         // wrong three ways, and every one of them is silent:
         //
-        //   * for any type holding a String/Vec/Box — most of api.json — it
-        //     compares HEAP POINTERS, not contents, so two equal AzStrings are
-        //     `!=` in the Python extension this mirror backs;
-        //   * reading a struct's interior PADDING as u8 is UB: those bytes are
-        //     uninitialised, so the comparison is undefined even for values that
-        //     agree everywhere it is defined to look;
-        //   * Ord over raw bytes is layout- and endianness-dependent, so it does
-        //     not agree with the real type's ordering even for plain integers, and
-        //     for pointer-holding types it orders by allocation address, which is
-        //     not stable across runs.
+        //   * for any type holding a String/Vec/Box — most of api.json — it compares HEAP POINTERS,
+        //     not contents, so two equal AzStrings are `!=` in the Python extension this mirror
+        //     backs;
+        //   * reading a struct's interior PADDING as u8 is UB: those bytes are uninitialised, so
+        //     the comparison is undefined even for values that agree everywhere it is defined to
+        //     look;
+        //   * Ord over raw bytes is layout- and endianness-dependent, so it does not agree with the
+        //     real type's ordering even for plain integers, and for pointer-holding types it orders
+        //     by allocation address, which is not stable across runs.
         //
         // Hash sat on top of that same byte view, so it was consistent with the
         // broken eq rather than with the real one: a dict keyed on an azul type
@@ -3094,7 +3126,8 @@ impl RustGenerator {
                 builder.line("fn clone(&self) -> Self {");
                 builder.indent();
                 builder.line(&format!(
-                    "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}",
+                    "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const \
+                     {})).clone()) }}",
                     external_path, full_name, full_name, external_path
                 ));
                 builder.dedent();
@@ -3672,7 +3705,10 @@ impl RustGenerator {
             // The returned `AzString` owns library memory; it is dropped at the
             // end of this scope, and `AzString`'s `AzU8Vec` field runs
             // `AzU8Vec_delete` in its own `Drop`, so nothing leaks.
-            builder.line(&format!("let s = unsafe {{ {}(self) }};", sym("toDbgString")));
+            builder.line(&format!(
+                "let s = unsafe {{ {}(self) }};",
+                sym("toDbgString")
+            ));
             builder.line("f.write_str(s.as_str())");
             builder.dedent();
             builder.line("}");
@@ -3698,7 +3734,10 @@ impl RustGenerator {
             if has_partial_eq_fn {
                 builder.line(&format!("unsafe {{ {}(self, other) }}", sym("partialEq")));
             } else {
-                builder.line(&format!("unsafe {{ {}(self, other) }} == 1", sym("partialCmp")));
+                builder.line(&format!(
+                    "unsafe {{ {}(self, other) }} == 1",
+                    sym("partialCmp")
+                ));
             }
             builder.dedent();
             builder.line("}");
@@ -3756,7 +3795,10 @@ impl RustGenerator {
                 "fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"
             ));
             builder.indent();
-            builder.line(&format!("match unsafe {{ {}(self, other) }} {{", sym("cmp")));
+            builder.line(&format!(
+                "match unsafe {{ {}(self, other) }} {{",
+                sym("cmp")
+            ));
             builder.indent();
             builder.line("0 => core::cmp::Ordering::Less,");
             builder.line("2 => core::cmp::Ordering::Greater,");
@@ -4021,7 +4063,11 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("match self {");
                 builder.indent();
-                builder.line(&format!("{}::Boxed(ptr) => if !ptr.is_null() {{ unsafe {{ let _ = Box::from_raw(*ptr); }} *ptr = core::ptr::null_mut(); }},", name));
+                builder.line(&format!(
+                    "{}::Boxed(ptr) => if !ptr.is_null() {{ unsafe {{ let _ = \
+                     Box::from_raw(*ptr); }} *ptr = core::ptr::null_mut(); }},",
+                    name
+                ));
                 builder.line(&format!("{}::Static(_) => {{}},", name));
                 builder.dedent();
                 builder.line("}");
@@ -4059,9 +4105,9 @@ impl RustGenerator {
         // path prepends them, right before the item it belongs to.
 
         // Apply callback wrapper substitution for API functions (Constructor, Method, etc.)
-        // NOT for trait functions (Delete, DeepCopy, etc.) which operate on the callback wrapper itself
-        // NOT for EnumVariantConstructor - enum variants like OptionCallback::Some need exact types
-        // for easier C code generation
+        // NOT for trait functions (Delete, DeepCopy, etc.) which operate on the callback wrapper
+        // itself NOT for EnumVariantConstructor - enum variants like OptionCallback::Some
+        // need exact types for easier C code generation
         let should_substitute_callbacks = matches!(
             func.kind,
             FunctionKind::Constructor
@@ -4288,7 +4334,8 @@ impl RustGenerator {
                     .map(|a| a.name.as_str())
                     .unwrap_or("object");
                 format!(
-                    "{{ core::mem::transmute::<{}, {}>((*({}  as *const {} as *const {})).clone()) }}",
+                    "{{ core::mem::transmute::<{}, {}>((*({}  as *const {} as *const \
+                     {})).clone()) }}",
                     external_path, prefixed_name, arg_name, prefixed_name, external_path
                 )
             }
@@ -4300,7 +4347,8 @@ impl RustGenerator {
             }
             FunctionKind::PartialCmp => {
                 format!(
-                    "{{ match (*(a as *const {} as *const {})).partial_cmp(&*(b as *const {} as *const {})) {{
+                    "{{ match (*(a as *const {} as *const {})).partial_cmp(&*(b as *const {} as \
+                     *const {})) {{
         Some(core::cmp::Ordering::Less) => 0,
         Some(core::cmp::Ordering::Equal) => 1,
         Some(core::cmp::Ordering::Greater) => 2,
@@ -4311,7 +4359,8 @@ impl RustGenerator {
             }
             FunctionKind::Cmp => {
                 format!(
-                    "{{ match (*(a as *const {} as *const {})).cmp(&*(b as *const {} as *const {})) {{
+                    "{{ match (*(a as *const {} as *const {})).cmp(&*(b as *const {} as *const \
+                     {})) {{
         core::cmp::Ordering::Less => 0,
         core::cmp::Ordering::Equal => 1,
         core::cmp::Ordering::Greater => 2,
@@ -4348,7 +4397,8 @@ impl RustGenerator {
                     .map(|a| a.name.as_str())
                     .unwrap_or("instance");
                 format!(
-                    "{{ let s = format!(\"{{:#?}}\", *({} as *const {} as *const {})); {}String::from(s.as_str()) }}",
+                    "{{ let s = format!(\"{{:#?}}\", *({} as *const {} as *const {})); \
+                     {}String::from(s.as_str()) }}",
                     arg_name, prefixed_name, external_path, config.type_prefix
                 )
             }
@@ -4544,8 +4594,9 @@ impl RustGenerator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        // Use format_function_args_for_cabi for API functions (substitutes callback wrappers with fn pointers)
-        // Use format_function_args for EnumVariantConstructor (keeps Callback structs for easier C code)
+        // Use format_function_args_for_cabi for API functions (substitutes callback wrappers with
+        // fn pointers) Use format_function_args for EnumVariantConstructor (keeps Callback
+        // structs for easier C code)
         let should_substitute_callbacks = matches!(
             func.kind,
             FunctionKind::Constructor
@@ -4880,11 +4931,10 @@ impl RustGenerator {
     /// for the pair-pattern emit (see [`format_function_args_for_cabi_pair_raw`])?
     ///
     /// Skips:
-    ///   - args named `self` (the receiver — never the callback being
-    ///     registered, even on methods of `Callback` itself).
-    ///   - args matching the function's own class name in snake_case
-    ///     (legacy convention; the IR sometimes surfaces the self-arg
-    ///     under the class's snake name rather than `self`).
+    ///   - args named `self` (the receiver — never the callback being registered, even on methods
+    ///     of `Callback` itself).
+    ///   - args matching the function's own class name in snake_case (legacy convention; the IR
+    ///     sometimes surfaces the self-arg under the class's snake name rather than `self`).
     fn has_callback_wrapper_arg(func: &FunctionDef) -> bool {
         let self_snake = to_snake_case(&func.class_name);
         func.args.iter().any(|a| {
@@ -5053,7 +5103,8 @@ fn is_primitive_type(type_name: &str) -> bool {
             | "c_uint"
             | "c_long"
             | "c_ulong"
-            | "c_char" // NOTE: "String" is NOT a primitive - it's AzString in Azul, not std::string::String
+            | "c_char" /* NOTE: "String" is NOT a primitive - it's AzString in Azul, not
+                        * std::string::String */
     )
 }
 
