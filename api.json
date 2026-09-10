@@ -10269,6 +10269,29 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "UiTheme": {
+                        "external": "azul_layout::widgets::themes::UiTheme",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Flat": {},
+                                "Flora": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -54500,7 +54523,7 @@
                                     "type": "OptionString"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -55037,7 +55060,7 @@
                                     "type": "OptionButtonOnClick"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -55521,7 +55544,7 @@
                                     "type": "CheckBoxStateWrapper"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
@@ -55736,7 +55759,7 @@
                                     "type": "OptionString"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -56184,7 +56207,7 @@
                                     "type": "OptionString"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -57162,7 +57185,7 @@
                                     "type": "StyleBackgroundContentVec"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -59053,7 +59076,7 @@
                         "struct_fields": [
                             {
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 },
                                 "slider_state": {
                                     "type": "SliderStateWrapper"
@@ -61115,7 +61138,7 @@
                                     "type": "AvatarSize"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 },
                                 "avatar_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
@@ -61290,7 +61313,7 @@
                                     "type": "SwitchStateWrapper"
                                 },
                                 "theme": {
-                                    "type": "OptionTheme"
+                                    "type": "OptionUiTheme"
                                 },
                                 "track_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
@@ -118568,28 +118591,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionTheme": {
-                        "external": "azul_layout::widgets::themes::OptionTheme",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "Theme"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionCssPropertyWithConditionsVec": {
                         "external": "azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec",
                         "derive": [
@@ -118631,6 +118632,28 @@
                                     "doc": [
                                         "Some value of type CalcAstItem"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionUiTheme": {
+                        "external": "azul_layout::widgets::themes::OptionUiTheme",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "UiTheme"
                                 }
                             }
                         ],
