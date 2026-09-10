@@ -30733,7 +30733,7 @@
                         "doc": [
                             "Discriminant for `WtEvent`."
                         ],
-                        "external": "azul_dll::unified::webtransport::wasm_stub::WtEventKind",
+                        "external": "azul_dll::unified::webtransport::WtEventKind",
                         "custom_impls": [
                             "Default"
                         ],
@@ -30764,7 +30764,7 @@
                             "One inbound room event. Inspect `kind`; only the relevant fields are set.",
                             "`audio` is ready for `AudioSink::play`; `data` (Video) is the encoded frame."
                         ],
-                        "external": "azul_dll::unified::webtransport::wasm_stub::WtEvent",
+                        "external": "azul_dll::unified::webtransport::WtEvent",
                         "derive": [
                             "Debug",
                             "Clone"
@@ -116374,7 +116374,7 @@
                         "doc": [
                             "Optional `WtEvent` returned by `WebTransport::recv()` (None when nothing queued)."
                         ],
-                        "external": "azul_dll::unified::webtransport::wasm_stub::OptionWtEvent",
+                        "external": "azul_dll::unified::webtransport::OptionWtEvent",
                         "custom_impls": [
                             "Default"
                         ],
@@ -124680,13 +124680,13 @@
             "webtransport": {
                 "classes": {
                     "WebTransport": {
-                        "external": "azul_dll::unified::webtransport::wasm_stub::WebTransport"
+                        "external": "azul_dll::unified::webtransport::WebTransport"
                     },
                     "WtStats": {
                         "doc": [
                             "Connection stats for app-side throttling (from QUIC; zero for the v1 stub)."
                         ],
-                        "external": "azul_dll::unified::webtransport::wasm_stub::WtStats",
+                        "external": "azul_dll::unified::webtransport::WtStats",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -124724,7 +124724,7 @@
                         "doc": [
                             "Per-send reliability / quality knob for `WebTransport` sends."
                         ],
-                        "external": "azul_dll::unified::webtransport::wasm_stub::WtReliability",
+                        "external": "azul_dll::unified::webtransport::WtReliability",
                         "custom_impls": [
                             "Default"
                         ],
