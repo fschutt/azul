@@ -53,7 +53,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
     return AzDom_createBody()
 
   let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(azStr($m.counter))
-  var labelWrapper = AzDom_createDiv()
+  var labelWrapper = AzDom_createP()
   let cond = AzCssPropertyWithConditions_simple(
     AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))
   AzDom_addCssProperty(addr labelWrapper, cond)

@@ -2,7 +2,7 @@
 package main
 
 /*
-#cgo linux,darwin LDFLAGS: -lazul
+#cgo linux darwin LDFLAGS: -lazul
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +15,21 @@ extern void     myDataDestructor (void* m);
 static inline AzCallbackType              make_click_callback     (void) { return (AzCallbackType)goOnClick; }
 static inline AzLayoutCallbackType        make_layout_callback    (void) { return (AzLayoutCallbackType)goLayout; }
 static inline AzRefAnyDestructorType      make_my_data_destructor (void) { return (AzRefAnyDestructorType)myDataDestructor; }
+
+static AzWindowCreateOptions* az_make_window(AzLayoutCallbackType cb, const uint8_t* title, size_t tlen, float w, float h) {
+    AzWindowCreateOptions* p = (AzWindowCreateOptions*)malloc(sizeof(AzWindowCreateOptions));
+    *p = AzWindowCreateOptions_create(cb);
+    p->window_state.title = AzString_fromUtf8(title, tlen);
+    p->window_state.size.dimensions.width  = w;
+    p->window_state.size.dimensions.height = h;
+    return p;
+}
+static AzApp* az_make_app(AzRefAny* data) {
+    AzApp* a = (AzApp*)malloc(sizeof(AzApp));
+    *a = AzApp_create(*data, AzAppConfig_create());
+    return a;
+}
+static void az_run(AzApp* a, AzWindowCreateOptions* w) { AzApp_run(a, *w); }
 */
 import "C"
 
@@ -42,7 +57,6 @@ func myDataUpcast(model myDataModel) C.AzRefAny {
 	if buf == nil {
 		panic("out of memory allocating the RefAny payload")
 	}
-	defer C.free(buf)
 	*(*myDataModel)(buf) = model
 
 	ptr := C.AzGlVoidPtrConst{
@@ -115,12 +129,12 @@ func main() {
 	model := myDataModel{counter: 5}
 	data := myDataUpcast(model)
 
-	window := C.AzWindowCreateOptions_create(C.make_layout_callback())
 	titleBytes := []byte("Hello World")
-	window.window_state.title = C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&titleBytes[0])), C.size_t(len(titleBytes)))
-	window.window_state.size.dimensions.width = 400.0
-	window.window_state.size.dimensions.height = 300.0
-
-	app := C.AzApp_create(data, C.AzAppConfig_create())
-	C.AzApp_run(&app, window)
+	window := C.az_make_window(
+		C.make_layout_callback(),
+		(*C.uint8_t)(unsafe.Pointer(&titleBytes[0])), C.size_t(len(titleBytes)),
+		400.0, 300.0,
+	)
+	app := C.az_make_app(&data)
+	C.az_run(app, window)
 }
