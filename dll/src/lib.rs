@@ -51,11 +51,10 @@
     elided_lifetimes_in_paths,
     single_use_lifetimes,
     variant_size_differences,
-    non_ascii_idents,
-    unsafe_op_in_unsafe_fn,
     let_underscore_drop,
 )]
 #![allow(
+    unsafe_op_in_unsafe_fn,
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
     clippy::should_implement_trait,

@@ -419,7 +419,7 @@ impl Default for TextArea {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
         }
     }
 }
@@ -559,10 +559,10 @@ impl TextArea {
     pub fn dom(self) -> Dom {
         match self.theme {
             crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::text_area(self)
             }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::text_area(self)
             }
         }

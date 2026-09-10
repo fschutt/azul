@@ -100,7 +100,7 @@ impl Default for DropDown {
             label_style: OptionCssPropertyWithConditionsVec::None,
             arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
         }
     }
 }
@@ -178,10 +178,10 @@ impl DropDown {
     pub fn dom(self) -> Dom {
         match self.theme {
             crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::drop_down(self)
             }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::drop_down(self)
             }
         }

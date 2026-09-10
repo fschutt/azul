@@ -285,11 +285,11 @@ impl Avatar {
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
             crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiWidgetTheme::Flat,
+            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::avatar(self),
-            crate::widgets::themes::UiWidgetTheme::Flora => crate::widgets::themes::flora::avatar(self),
+            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
+            crate::widgets::themes::UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
         }
     }
 }

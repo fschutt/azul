@@ -278,7 +278,7 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -351,10 +351,10 @@ impl Slider {
 
     pub fn dom(self) -> Dom {
         match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::slider(self)
             }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::slider(self)
             }
             _ => Dom::create_div(),

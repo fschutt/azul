@@ -315,11 +315,11 @@ impl Switch {
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
             crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiWidgetTheme::Flat,
+            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::switch(self),
-            crate::widgets::themes::UiWidgetTheme::Flora => crate::widgets::themes::flora::switch(self),
+            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::switch(self),
+            crate::widgets::themes::UiTheme::Flora => crate::widgets::themes::flora::switch(self),
         }
     }
 }

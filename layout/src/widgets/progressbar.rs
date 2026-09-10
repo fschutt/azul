@@ -246,7 +246,7 @@ impl ProgressBar {
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
         }
     }
 
@@ -311,10 +311,10 @@ impl ProgressBar {
         let theme = self
             .theme
             .into_option()
-            .unwrap_or(crate::widgets::themes::UiWidgetTheme::Flat);
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
         match theme {
-            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::progressbar(self),
-            crate::widgets::themes::UiWidgetTheme::Flora => {
+            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::progressbar(self),
+            crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::progressbar(self)
             }
         }
@@ -351,12 +351,12 @@ impl ProgressBar {
         let theme = self
             .theme
             .into_option()
-            .unwrap_or(crate::widgets::themes::UiWidgetTheme::Flat);
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
         match theme {
-            crate::widgets::themes::UiWidgetTheme::Flat => {
+            crate::widgets::themes::UiTheme::Flat => {
                 crate::widgets::themes::flat::progressbar_render_bar_impl(self, None)
             }
-            crate::widgets::themes::UiWidgetTheme::Flora => {
+            crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::progressbar_render_bar_impl(self, None)
             }
         }
@@ -1487,7 +1487,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowWidgetTheme::LightMode,
+            WindowTheme::LightMode,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,

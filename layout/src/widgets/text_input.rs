@@ -967,10 +967,10 @@ impl TextInput {
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
-            Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
+            Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::text_input(self)
             }
-            Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
+            Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::text_input(self)
             }
             None => crate::widgets::themes::flora::text_input(self),

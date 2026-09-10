@@ -2379,7 +2379,7 @@ pub fn check_ffi_safety(
                                     },
                                 });
                             }
-                            if ty.contains('<') {
+                            if ty.contains('<') && !ty.starts_with("ManuallyDrop<Box<") {
                                 warnings.push(FfiSafetyWarning {
                                     type_name: class_name.clone(),
                                     file_path: file_path.clone(),
@@ -2417,7 +2417,7 @@ pub fn check_ffi_safety(
                                 },
                             });
                         }
-                        if ty.contains('<') {
+                        if ty.contains('<') && !ty.starts_with("ManuallyDrop<Box<") {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
                                 file_path: file_path.clone(),
@@ -2431,7 +2431,7 @@ pub fn check_ffi_safety(
                     // Check callback arg types for angle brackets
                     for arg in &cb.fn_args {
                         let aty = &arg.r#type;
-                        if aty.contains('<') {
+                        if aty.contains('<') && !aty.starts_with("ManuallyDrop<Box<") {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
                                 file_path: file_path.clone(),
@@ -2484,7 +2484,7 @@ pub fn check_ffi_safety(
                         });
                     }
                     // Check target type for angle brackets
-                    if ta.target.contains('<') {
+                    if ta.target.contains('<') && !ta.target.starts_with("ManuallyDrop<Box<") {
                         warnings.push(FfiSafetyWarning {
                             type_name: class_name.clone(),
                             file_path: file_path.clone(),

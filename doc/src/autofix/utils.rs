@@ -216,6 +216,13 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
         );
     }
 
+    // Check for ManuallyDrop<Box<T>>
+    if let Some(inner) = extract_generic_type(trimmed, "ManuallyDrop") {
+        if let Some(_box_inner) = extract_generic_type(&inner, "Box") {
+            return ("*const c_void".to_string(), None);
+        }
+    }
+
     // Check for Box<T> - always convert to *const c_void (opaque in FFI)
     // Box<T> types cannot be represented in C ABI, so we treat them as opaque pointers
     if let Some(_inner) = extract_generic_type(trimmed, "Box") {
