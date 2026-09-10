@@ -56198,10 +56198,10 @@
                                     "type": "TextInputStateWrapper"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -61812,7 +61812,7 @@
                                     "type": "Dom"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -62230,7 +62230,7 @@
                                     "type": "MapViewport"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "on_viewport_changed": {
                                     "type": "OptionMapViewportChanged"
@@ -63629,7 +63629,7 @@
                                     "type": "CssPropertyWithConditionsVec"
                                 },
                                 "tip_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
