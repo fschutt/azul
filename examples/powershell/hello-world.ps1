@@ -39,9 +39,8 @@ $layout = {
         return ([Azul.Dom]::CreateBody()).Raw
     }
 
-    $counterDom = [Azul.Dom]::CreateTextDoNotUseWithoutBlockLevelWrapper((Convert-AzulString -Value ([string]$m.Counter)))
-    $labelDiv   = [Azul.Dom]::CreateDiv().WithCss((Convert-AzulString -Value 'font-size: 32px; margin: 0;'))
-    $labelDiv   = $labelDiv.WithChild($counterDom.Raw)
+    $counterDom = [Azul.Dom]::CreatePWithText((Convert-AzulString -Value ([string]$m.Counter)))
+    $labelDiv   = $counterDom.WithCss((Convert-AzulString -Value 'font-size: 32px; margin: 0;'))
 
     $button = [Azul.Button]::Create((Convert-AzulString -Value 'Increase counter'))
     $button = $button.WithButtonType([Azul.Native.AzButtonType]::Primary)

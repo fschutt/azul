@@ -63,14 +63,12 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
 
   text = m.value.counter.to_s
   counter_str = LibAzul.azString_fromUtf8(text.to_unsafe, LibC::SizeT.new(text.bytesize))
-  label = LibAzul.azDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
+  label = LibAzul.azDom_createPWithText(counter_str)
 
-  label_wrapper = LibAzul.azDom_createDiv
   font_size = LibAzul.azStyleFontSize_px(32.0_f32)
   css_prop = LibAzul.azCssProperty_fontSize(font_size)
   cond = LibAzul.azCssPropertyWithConditions_simple(css_prop)
-  LibAzul.azDom_addCssProperty(pointerof(label_wrapper), cond)
-  LibAzul.azDom_addChild(pointerof(label_wrapper), label)
+  LibAzul.azDom_addCssProperty(pointerof(label), cond)
 
   btn_label = "Increase counter"
   button = LibAzul.azButton_create(
@@ -82,7 +80,7 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
   button_dom = LibAzul.azButton_dom(button)
 
   body = LibAzul.azDom_createBody
-  LibAzul.azDom_addChild(pointerof(body), label_wrapper)
+  LibAzul.azDom_addChild(pointerof(body), label)
   LibAzul.azDom_addChild(pointerof(body), button_dom)
   body
 }

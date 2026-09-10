@@ -92,14 +92,12 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ubyte[16] buf;
     size_t n = u32_write(m.counter, buf[]);
     AzString counter_str = AzString_fromUtf8(buf.ptr, n);
-    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str);
+    AzDom label = AzDom_createPWithText(counter_str);
 
-    AzDom label_wrapper = AzDom_createDiv();
     AzStyleFontSize font_size = AzStyleFontSize_px(32.0);
     AzCssProperty css_prop = AzCssProperty_fontSize(font_size);
     AzCssPropertyWithConditions cond = AzCssPropertyWithConditions_simple(css_prop);
-    AzDom_addCssProperty(&label_wrapper, cond);
-    AzDom_addChild(&label_wrapper, label);
+    AzDom_addCssProperty(&label, cond);
 
     AzButton button = AzButton_create(azString("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType.Primary);
@@ -108,7 +106,7 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom button_dom = AzButton_dom(button);
 
     AzDom root_body = AzDom_createBody();
-    AzDom_addChild(&root_body, label_wrapper);
+    AzDom_addChild(&root_body, label);
     AzDom_addChild(&root_body, button_dom);
     return root_body;
 }

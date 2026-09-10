@@ -57,15 +57,14 @@ func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
 		return body
 	}
 
-	// Counter label: body > div{font-size:32px} > text("5").
-	label := azul.NewDomCreateDiv()
-	label.AddChild(azul.NewDomCreateTextDoNotUseWithoutBlockLevelWrapper(azul.Str(fmt.Sprintf("%d", model.Counter))).Raw())
+	// Counter label: body > p > text("5").
+	label := azul.NewDomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
 
 	// Increment button: plain Go function as the click handler.
 	button := azul.NewButtonCreate(azul.Str("Increase counter"))
 	button.OnClick(data, onClick)
 
-	body.SetCss(azul.Str("div { font-size: 32px; margin: 0; }"))
+	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
 	body.AddChild(label.Raw())
 	body.AddChild(button.Dom())
 	return body

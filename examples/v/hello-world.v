@@ -71,14 +71,12 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 
 	counter_val := unsafe { m.counter }
 	counter_str := az_str(counter_val.str())
-	label := C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
+	mut label := C.AzDom_createPWithText(counter_str)
 
-	mut label_wrapper := C.AzDom_createDiv()
 	font_size := C.AzStyleFontSize_px(32.0)
 	css_prop := C.AzCssProperty_fontSize(font_size)
 	cond := C.AzCssPropertyWithConditions_simple(css_prop)
-	C.AzDom_addCssProperty(&label_wrapper, cond)
-	C.AzDom_addChild(&label_wrapper, label)
+	C.AzDom_addCssProperty(&label, cond)
 
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)
@@ -88,7 +86,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	button_dom := C.AzButton_dom(button)
 
 	mut body := C.AzDom_createBody()
-	C.AzDom_addChild(&body, label_wrapper)
+	C.AzDom_addChild(&body, label)
 	C.AzDom_addChild(&body, button_dom)
 	return body
 }

@@ -29,7 +29,6 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     Dim modelPtr As MyDataModel Ptr
     Dim labelText As AzString
     Dim labelDom As AzDom
-    Dim labelWrapper As AzDom
     Dim button As AzButton
     Dim buttonDom As AzDom
     Dim body As AzDom
@@ -44,12 +43,10 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
 
     buf = Str(modelPtr->counter)
     labelText  = AzStr(buf)
-    labelDom   = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(labelText)
-    labelWrapper = AzDom_createDiv()
+    labelDom   = AzDom_createPWithText(labelText)
 
     fontSize = AzCssProperty_fontSize(AzStyleFontSize_px(32.0))
-    AzDom_addCssProperty(@labelWrapper, AzCssPropertyWithConditions_simple(fontSize))
-    AzDom_addChild(@labelWrapper, labelDom)
+    AzDom_addCssProperty(@labelDom, AzCssPropertyWithConditions_simple(fontSize))
 
     button = AzButton_create(AzStr("Increase counter"))
     AzButton_setButtonType(@button, AzButtonType_Primary)
@@ -60,7 +57,7 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     buttonDom = AzButton_dom(button)
 
     body = AzDom_createBody()
-    AzDom_addChild(@body, labelWrapper)
+    AzDom_addChild(@body, labelDom)
     AzDom_addChild(@body, buttonDom)
 
     Return body

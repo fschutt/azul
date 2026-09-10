@@ -28,7 +28,7 @@ Public Declare Function AzDom_createBody Lib "azul" Alias "AzDom_createBody" _
     () As Long
 Public Declare Function AzDom_createDiv Lib "azul" Alias "AzDom_createDiv" _
     () As Long
-Public Declare Function AzDom_createTextDoNotUseWithoutBlockLevelWrapper Lib "azul" Alias "AzDom_createTextDoNotUseWithoutBlockLevelWrapper" _
+Public Declare Function AzDom_createPWithText Lib "azul" Alias "AzDom_createPWithText" _
     (ByVal s As Long) As Long
 Public Declare Sub AzDom_addChild Lib "azul" Alias "AzDom_addChild" _
     (ByVal parent As Long, ByVal child As Long)
@@ -96,7 +96,7 @@ End Function
 
 Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     Dim modelPtr As Long
-    Dim labelText As Long, labelDom As Long, labelWrapper As Long
+    Dim labelText As Long, labelDom As Long
     Dim btn As Long, buttonDom As Long, body As Long
     Dim fontSize As Long, dataClone As Long
     Dim buf As String
@@ -112,12 +112,10 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
 
     buf = CStr(m.counter)
     labelText = AzStr(buf)
-    labelDom = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(labelText)
-    labelWrapper = AzDom_createDiv()
+    labelDom = AzDom_createPWithText(labelText)
 
     fontSize = AzCssProperty_fontSize(AzStyleFontSize_px(32!))
-    AzDom_addCssProperty labelWrapper, AzCssPropertyWithConditions_simple(fontSize)
-    AzDom_addChild labelWrapper, labelDom
+    AzDom_addCssProperty labelDom, AzCssPropertyWithConditions_simple(fontSize)
 
     btn = AzButton_create(AzStr("Increase counter"))
     AzButton_setButtonType btn, az_ButtonType_Primary
@@ -128,7 +126,7 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     buttonDom = AzButton_dom(btn)
 
     body = AzDom_createBody()
-    AzDom_addChild body, labelWrapper
+    AzDom_addChild body, labelDom
     AzDom_addChild body, buttonDom
 
     layout = body
