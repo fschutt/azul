@@ -19,39 +19,12 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
-	"syscall"
+
 
 	azul "github.com/azul/azul-go"
 )
 
-// libazul's C structs carry Rust NonNull::dangling() sentinels in the pointer
-// fields of empty Vecs. Go's stack-copy invalid-pointer check aborts on such
-// values when a by-value C struct is live on a growing goroutine stack.
-// GODEBUG=invalidptr=0 is the documented cgo mitigation; it cannot be set via
-// //go:debug, so re-exec once with it. (Same guard as the idiomatic example.)
-func init() {
-	if strings.Contains(os.Getenv("GODEBUG"), "invalidptr=0") {
-		return
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	god := os.Getenv("GODEBUG")
-	if god != "" {
-		god += ","
-	}
-	god += "invalidptr=0"
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GODEBUG=") {
-			env = append(env, kv)
-		}
-	}
-	env = append(env, "GODEBUG="+god)
-	_ = syscall.Exec(exe, os.Args, env)
-}
+
 
 type counterModel struct {
 	Counter int

@@ -40,16 +40,7 @@
 //! `unsafe.Pointer` — all namable by consumers. `Raw()` bridges wrapper
 //! values back into the `C.Az*`-typed parameters of `wrappers.go`.
 //!
-//! # Known runtime caveat (documented, not fixable here)
-//!
-//! libazul's empty `Az*Vec`s carry Rust `NonNull::dangling()` sentinels
-//! (small non-null values like `0x8`) in pointer fields. Go's stack-copy
-//! invalid-pointer check aborts when such a by-value C struct is live on
-//! a growing goroutine stack. Consumers must run with
-//! `GODEBUG=invalidptr=0` (the documented cgo mitigation) — see
-//! `examples/go/hello-world-idiomatic/main.go` for a self-contained
-//! re-exec guard. The real fix is libazul-side: page-aligned (>= 0x1000)
-//! dangling sentinels for FFI-visible empty vecs.
+
 
 use anyhow::Result;
 
@@ -262,7 +253,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     emit_refany_helpers(&mut b);
     emit_register_fns(&mut b, ir, &kinds, &wrapper_types);
     emit_smart_helpers(&mut b, ir, config);
-    emit_raw_accessors(&mut b, &wrapper_types);
+    emit_raw_accessors(&mut b, ir, &wrapper_types);
 
     Ok(b.finish())
 }
@@ -306,6 +297,7 @@ fn emit_header(b: &mut CodeBuilder) {
 fn emit_cgo_preamble(b: &mut CodeBuilder, kinds: &[Kind], arities: &[usize]) {
     b.line("/*");
     b.line("#include <stdint.h>");
+    b.line("#include <stdlib.h>");
     b.line("#include \"azul.h\"");
     b.blank();
     b.line("// ---- host-invoker C ABI (exported by libazul; not declared in azul.h) ----");
@@ -443,17 +435,11 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.blank();
     b.line("// NewString wraps a Go string in a managed *String.");
     b.line("func NewString(s string) *String {");
-    b.line("    self := &String{ inner: Str(s) }");
+    b.line("    inner := (*C.AzString)(C.malloc(C.size_t(unsafe.Sizeof(C.AzString{}))))");
+    b.line("    *inner = Str(s)");
+    b.line("    self := &String{ inner: inner }");
     b.line("    runtime.SetFinalizer(self, func(x *String) { x.Close() })");
     b.line("    return self");
-    b.line("}");
-    b.blank();
-    b.line("// String returns the wrapped UTF-8 bytes as a Go string (copies).");
-    b.line("func (self *String) String() string {");
-    b.line("    if self == nil {");
-    b.line("        return \"\"");
-    b.line("    }");
-    b.line("    return GoStr(self.inner)");
     b.line("}");
     b.blank();
 }
@@ -470,7 +456,9 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("// callbacks should observe mutations across invocations.");
     b.line("func RefAnyWrap(value any) *RefAny {");
     b.line("    id := azGoNewHandle(value)");
-    b.line("    self := &RefAny{ inner: C.AzRefAny_newHostHandle(C.uint64_t(id)) }");
+    b.line("    inner := (*C.AzRefAny)(C.malloc(C.size_t(unsafe.Sizeof(C.AzRefAny{}))))");
+    b.line("    *inner = C.AzRefAny_newHostHandle(C.uint64_t(id))");
+    b.line("    self := &RefAny{ inner: inner }");
     b.line("    runtime.SetFinalizer(self, func(x *RefAny) { x.Close() })");
     b.line("    return self");
     b.line("}");
@@ -479,10 +467,10 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("// Returns (nil, false) if the RefAny is not a host handle (e.g. it was");
     b.line("// created natively) or the handle has already been released.");
     b.line("func RefAnyGet(ref *RefAny) (any, bool) {");
-    b.line("    if ref == nil {");
+    b.line("    if ref == nil || ref.inner == nil {");
     b.line("        return nil, false");
     b.line("    }");
-    b.line("    id := uint64(C.AzRefAny_getHostHandle(&ref.inner))");
+    b.line("    id := uint64(C.AzRefAny_getHostHandle(ref.inner))");
     b.line("    if id == 0 {");
     b.line("        return nil, false");
     b.line("    }");
@@ -559,12 +547,17 @@ fn emit_register_fns(
                     nm, i
                 ));
             } else if wrapper_types.iter().any(|w| w == t) {
+                let has_del = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
+                let inner_expr = if has_del {
+                    format!("(*C.{})(args[{}])", c_typename(t), i)
+                } else {
+                    format!("*(*C.{})(args[{}])", c_typename(t), i)
+                };
                 b.line(&format!(
-                    "        {} := &{}{{ inner: *(*C.{})(args[{}]) }}",
+                    "        {} := &{}{{ inner: {} }}",
                     nm,
                     t,
-                    c_typename(t),
-                    i
+                    inner_expr
                 ));
             } else {
                 b.line(&format!("        {} := args[{}]", nm, i));
@@ -582,13 +575,23 @@ fn emit_register_fns(
                 a = call_args
             )),
             RetKind::Wrapper(r) => {
+                let has_del = ir.functions.iter().any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
                 b.line(&format!("        ret := fn({})", call_args));
                 b.line("        if ret != nil {");
-                b.line(&format!(
-                    "            *(*C.{})(args[{}]) = ret.inner",
-                    c_typename(r),
-                    n_args
-                ));
+                if has_del {
+                    b.line(&format!(
+                        "            *(*C.{})(args[{}]) = *ret.inner",
+                        c_typename(r),
+                        n_args
+                    ));
+                    b.line("            C.free(unsafe.Pointer(ret.inner))");
+                } else {
+                    b.line(&format!(
+                        "            *(*C.{})(args[{}]) = ret.inner",
+                        c_typename(r),
+                        n_args
+                    ));
+                }
                 b.line("            runtime.SetFinalizer(ret, nil)");
                 b.line("        }");
             }
@@ -618,7 +621,9 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("func NewWindowCreateOptions(fn LayoutCallbackFunc) *WindowCreateOptions {");
     b.line("    wco := C.AzWindowCreateOptions_default()");
     b.line("    wco.window_state.layout_callback = RegisterLayoutCallback(fn)");
-    b.line("    self := &WindowCreateOptions{ inner: wco }");
+    b.line("    inner := (*C.AzWindowCreateOptions)(C.malloc(C.size_t(unsafe.Sizeof(C.AzWindowCreateOptions{}))))");
+    b.line("    *inner = wco");
+    b.line("    self := &WindowCreateOptions{ inner: inner }");
     b.line("    runtime.SetFinalizer(self, func(x *WindowCreateOptions) { x.Close() })");
     b.line("    return self");
     b.line("}");
@@ -628,24 +633,30 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("func NewAppWithData(data any, config *AppConfig) *App {");
     b.line("    var cfg C.AzAppConfig");
     b.line("    if config != nil {");
-    b.line("        cfg = config.inner");
+    b.line("        cfg = *config.inner");
+    b.line("        C.free(unsafe.Pointer(config.inner))");
     b.line("        runtime.SetFinalizer(config, nil)");
     b.line("    } else {");
     b.line("        cfg = C.AzAppConfig_create()");
     b.line("    }");
     b.line("    ref := RefAnyWrap(data)");
-    b.line("    inner := ref.inner");
+    b.line("    inner := *ref.inner");
+    b.line("    C.free(unsafe.Pointer(ref.inner))");
     b.line("    runtime.SetFinalizer(ref, nil)");
-    b.line("    self := &App{ inner: C.AzApp_create(inner, cfg) }");
+    b.line("    app_val := C.AzApp_create(inner, cfg)");
+    b.line("    app_ptr := (*C.AzApp)(C.malloc(C.size_t(unsafe.Sizeof(C.AzApp{}))))");
+    b.line("    *app_ptr = app_val");
+    b.line("    self := &App{ inner: app_ptr }");
     b.line("    runtime.SetFinalizer(self, func(x *App) { x.Close() })");
     b.line("    return self");
     b.line("}");
     b.blank();
     b.line("// RunWindow consumes win and enters the main loop.");
     b.line("func (self *App) RunWindow(win *WindowCreateOptions) {");
-    b.line("    inner := win.inner");
+    b.line("    inner := *win.inner");
+    b.line("    C.free(unsafe.Pointer(win.inner))");
     b.line("    runtime.SetFinalizer(win, nil)");
-    b.line("    C.AzApp_run(&self.inner, inner)");
+    b.line("    C.AzApp_run(self.inner, inner)");
     b.line("}");
     b.blank();
 
@@ -687,9 +698,12 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
                 "func (self *{}) {}(data *RefAny, fn {}Func) {{",
                 go_name, method, cb_ty
             ));
+            let self_has_del = ir.functions.iter().any(|f| f.class_name == s.name && f.kind == FunctionKind::Delete);
+            let self_expr = if self_has_del { "self.inner" } else { "&self.inner" };
             b.line(&format!(
-                "    C.{}(&self.inner, C.AzRefAny_clone(&data.inner), Register{}(fn))",
+                "    C.{}({}, C.AzRefAny_clone(data.inner), Register{}(fn))",
                 managed_c_symbol(f),
+                self_expr,
                 cb_ty
             ));
             b.line("}");
@@ -698,7 +712,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     }
 }
 
-fn emit_raw_accessors(b: &mut CodeBuilder, wrapper_types: &[String]) {
+fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[String]) {
     b.line("// ============================================================================");
     b.line("// Raw accessors (cross-package bridge)");
     b.line("// ============================================================================");
@@ -718,7 +732,15 @@ fn emit_raw_accessors(b: &mut CodeBuilder, wrapper_types: &[String]) {
         b.line("// the caller (the wrapper's finalizer, if any, is disarmed).");
         b.line(&format!("func (self *{t}) Raw() C.Az{t} {{", t = t));
         b.line("    runtime.SetFinalizer(self, nil)");
-        b.line("    return self.inner");
+        
+        let has_delete = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
+        if has_delete {
+            b.line("    val := *self.inner");
+            b.line("    C.free(unsafe.Pointer(self.inner))");
+            b.line("    return val");
+        } else {
+            b.line("    return self.inner");
+        }
         b.line("}");
         b.blank();
     }
