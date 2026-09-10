@@ -35,7 +35,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::{OptionTheme, Theme},
+    widgets::themes::{OptionUiTheme, UiTheme},
 };
 
 pub static SWITCH_TRACK_CLASS: &[IdOrClass] =
@@ -71,7 +71,7 @@ azul_core::impl_managed_callback! {
 pub struct Switch {
     pub switch_state: SwitchStateWrapper,
     /// Style for the switch track (the pill-shaped container)
-    pub theme: OptionTheme,
+    pub theme: OptionUiTheme,
     pub track_style: OptionCssPropertyWithConditionsVec,
     /// Style for the sliding knob
     pub knob_style: OptionCssPropertyWithConditionsVec,
@@ -267,7 +267,7 @@ impl Switch {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
-            theme: crate::widgets::themes::OptionTheme::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
             switch_state: SwitchStateWrapper {
                 inner: SwitchState { checked },
                 ..Default::default()
@@ -314,12 +314,12 @@ impl Switch {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionTheme::None => crate::widgets::themes::Theme::Flat,
+            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
+            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiWidgetTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::Theme::Flat => crate::widgets::themes::flat::switch(self),
-            crate::widgets::themes::Theme::Flora => crate::widgets::themes::flora::switch(self),
+            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::switch(self),
+            crate::widgets::themes::UiWidgetTheme::Flora => crate::widgets::themes::flora::switch(self),
         }
     }
 }

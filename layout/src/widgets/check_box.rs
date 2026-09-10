@@ -24,7 +24,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::{OptionTheme, Theme},
+    widgets::themes::{OptionUiTheme, UiTheme},
 };
 
 pub static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -62,7 +62,7 @@ azul_core::impl_managed_callback! {
 #[repr(C)]
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
-    pub theme: OptionTheme,
+    pub theme: OptionUiTheme,
     /// Style for the checkbox container
     pub container_style: OptionCssPropertyWithConditionsVec,
     /// Style for the checkbox content
@@ -216,7 +216,7 @@ impl CheckBox {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
-            theme: crate::widgets::themes::OptionTheme::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 ..Default::default()
@@ -269,12 +269,12 @@ impl CheckBox {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionTheme::None => crate::widgets::themes::Theme::Flat,
+            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
+            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiWidgetTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::Theme::Flat => crate::widgets::themes::flat::check_box(self),
-            crate::widgets::themes::Theme::Flora => crate::widgets::themes::flora::check_box(self),
+            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::check_box(self),
+            crate::widgets::themes::UiWidgetTheme::Flora => crate::widgets::themes::flora::check_box(self),
         }
     }
 }

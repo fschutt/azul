@@ -140,8 +140,8 @@ impl MapColorScheme {
     #[must_use]
     pub const fn from_system_theme(theme: azul_css::system::Theme) -> Self {
         match theme {
-            azul_css::system::Theme::Dark => Self::Dark,
-            azul_css::system::Theme::Light => Self::Light,
+            azul_css::system::WidgetTheme::Dark => Self::Dark,
+            azul_css::system::WidgetTheme::Light => Self::Light,
         }
     }
 }
@@ -177,7 +177,7 @@ impl MapTileStyle {
         match self {
             Self::Standard => {
                 if dark {
-                    MapTheme::Dark
+                    MapWidgetTheme::Dark
                 } else {
                     MapTheme::Positron
                 }
@@ -186,14 +186,14 @@ impl MapTileStyle {
             // is Dark Matter, the same pairing MapLibre's demo styles use.
             Self::Bright => {
                 if dark {
-                    MapTheme::Dark
+                    MapWidgetTheme::Dark
                 } else {
                     MapTheme::Bright
                 }
             }
             Self::Liberty => {
                 if dark {
-                    MapTheme::Dark
+                    MapWidgetTheme::Dark
                 } else {
                     MapTheme::Liberty
                 }
@@ -307,7 +307,7 @@ impl MapTheme {
 
     /// Is this a dark look? (`System` answers for the dark resolution.)
     /// Named `is_dark_look` because `is_dark` is the auto-emitted variant
-    /// predicate for `MapTheme::Dark` in the bindings.
+    /// predicate for `MapWidgetTheme::Dark` in the bindings.
     #[must_use]
     pub const fn is_dark_look(self) -> bool {
         matches!(self, Self::Dark | Self::GoogleNight | Self::AppleDark)
@@ -323,7 +323,7 @@ impl MapTheme {
     /// the window theme makes the map disagree with its own stylesheet.
     #[must_use]
     pub const fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
-        let scheme = if matches!(window_theme, azul_core::window::WindowTheme::DarkMode) {
+        let scheme = if matches!(window_theme, azul_core::window::WindowWidgetTheme::DarkMode) {
             MapColorScheme::Dark
         } else {
             MapColorScheme::Light
@@ -366,8 +366,8 @@ impl MapTileLayer {
         self.theme = theme;
         for t in [
             theme,
-            theme.resolve(azul_core::window::WindowTheme::LightMode),
-            theme.resolve(azul_core::window::WindowTheme::DarkMode),
+            theme.resolve(azul_core::window::WindowWidgetTheme::LightMode),
+            theme.resolve(azul_core::window::WindowWidgetTheme::DarkMode),
         ] {
             let credit = t.credit_str();
             if !credit.is_empty() && !self.attribution.as_str().contains(credit) {
@@ -2769,8 +2769,8 @@ mod theme_tests {
 
     #[test]
     fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
-        let light = MapTheme::System.resolve(WindowTheme::LightMode);
-        let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
+        let light = MapTheme::System.resolve(WindowWidgetTheme::LightMode);
+        let dark = MapTheme::System.resolve(WindowWidgetTheme::DarkMode);
         assert!(
             !light.is_dark_look() && dark.is_dark_look(),
             "{light:?} / {dark:?}"
@@ -2779,16 +2779,16 @@ mod theme_tests {
         assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
         for preset in [
             MapTheme::Positron,
-            MapTheme::Dark,
+            MapWidgetTheme::Dark,
             MapTheme::GoogleNight,
             MapTheme::AppleLight,
             MapTheme::Custom,
         ] {
-            assert_eq!(preset.resolve(WindowTheme::DarkMode), preset);
-            assert_eq!(preset.resolve(WindowTheme::LightMode), preset);
+            assert_eq!(preset.resolve(WindowWidgetTheme::DarkMode), preset);
+            assert_eq!(preset.resolve(WindowWidgetTheme::LightMode), preset);
         }
         assert!(MapTheme::Custom.sheet().is_empty());
-        assert_eq!(MapTheme::Dark.stylesheet().as_str(), MapTheme::Dark.sheet());
+        assert_eq!(MapWidgetTheme::Dark.stylesheet().as_str(), MapWidgetTheme::Dark.sheet());
     }
 
     #[test]
@@ -2807,10 +2807,10 @@ mod theme_tests {
         let twice = layer.clone().with_theme(MapTheme::Positron);
         assert_eq!(twice.attribution.as_str().matches("CC BY 4.0").count(), 1);
 
-        let mut custom = MapTileLayer::default().with_theme(MapTheme::Dark);
+        let mut custom = MapTileLayer::default().with_theme(MapWidgetTheme::Dark);
         custom.style_css = AzString::from("water { fill: #123456; }");
         assert_eq!(
-            custom.effective_style_css(MapTheme::Dark).as_str(),
+            custom.effective_style_css(MapWidgetTheme::Dark).as_str(),
             "water { fill: #123456; }"
         );
         // authored looks carry no third-party credit
@@ -2825,9 +2825,9 @@ mod theme_tests {
         // System credits BOTH resolutions' designs where they have one
         let sys = MapTileLayer::default().with_theme(MapTheme::System);
         let l = MapTheme::System
-            .resolve(WindowTheme::LightMode)
+            .resolve(WindowWidgetTheme::LightMode)
             .credit_str();
-        let d = MapTheme::System.resolve(WindowTheme::DarkMode).credit_str();
+        let d = MapTheme::System.resolve(WindowWidgetTheme::DarkMode).credit_str();
         assert!(l.is_empty() || sys.attribution.as_str().contains(l));
         assert!(d.is_empty() || sys.attribution.as_str().contains(d));
     }
@@ -2843,7 +2843,7 @@ mod theme_tests {
             "same look: nothing to do"
         );
         assert!(matches!(cache.tiles[&look_a], TileEntry::Ready { .. }));
-        assert!(cache.set_active_theme(MapTheme::Dark));
+        assert!(cache.set_active_theme(MapWidgetTheme::Dark));
         // A look change RE-KEYS the lookup; it must never invalidate geometry
         // that is already decoded. Look A's tile stays Ready and instantly
         // available if the user flips back.
@@ -2851,7 +2851,7 @@ mod theme_tests {
             matches!(cache.tiles[&look_a], TileEntry::Ready { .. }),
             "a look change must not discard a decoded tile"
         );
-        assert_eq!(cache.active_theme, MapTheme::Dark);
+        assert_eq!(cache.active_theme, MapWidgetTheme::Dark);
         assert_eq!(
             cache.layer.effective_style_css(cache.active_theme).as_str(),
             super::super::map_themes::DARK
@@ -3521,7 +3521,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            WindowWidgetTheme::LightMode,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,
@@ -5478,8 +5478,8 @@ mod autotest_generated {
             "an app that asked for the light Apple look keeps it in dark mode"
         );
         assert_eq!(
-            MapTheme::Dark.for_scheme(MapColorScheme::Light),
-            MapTheme::Dark
+            MapWidgetTheme::Dark.for_scheme(MapColorScheme::Light),
+            MapWidgetTheme::Dark
         );
     }
 

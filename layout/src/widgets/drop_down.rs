@@ -87,7 +87,7 @@ pub struct DropDown {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl Default for DropDown {
@@ -100,7 +100,7 @@ impl Default for DropDown {
             label_style: OptionCssPropertyWithConditionsVec::None,
             arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
         }
     }
 }
@@ -177,11 +177,11 @@ impl DropDown {
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme {
-            crate::widgets::themes::OptionTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
                 crate::widgets::themes::flat::drop_down(self)
             }
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
                 crate::widgets::themes::flora::drop_down(self)
             }
         }

@@ -110,9 +110,14 @@ impl<'a> IRBuilder<'a> {
         /// Check if a type string contains any non-FFI-safe type
         /// Returns the problematic type name if found
         fn contains_non_ffi_safe_type(type_str: &str) -> Option<&'static str> {
+            // If the type is safely boxed in ManuallyDrop, it is managed manually across the FFI boundary.
+            // This prevents false positives like `ManuallyDrop<Box<Rc<GlContextPtrInner>>>`.
+            if type_str.starts_with("ManuallyDrop<Box<") {
+                return None;
+            }
+
             // Check for generic types with angle brackets (Box<T>, Arc<T>, etc.)
             const GENERIC_NON_FFI_TYPES: &[&str] = &[
-                "Box<",
                 "Arc<",
                 "Rc<",
                 "Mutex<",

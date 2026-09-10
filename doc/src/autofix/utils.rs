@@ -332,6 +332,13 @@ pub fn extract_type_and_ref_kind(type_str: &str) -> (String, crate::api::RefKind
         }
     }
 
+    // Check for ManuallyDrop<Box<T>>
+    if let Some(inner) = extract_generic_type(trimmed, "ManuallyDrop") {
+        if let Some(_box_inner) = extract_generic_type(&inner, "Box") {
+            return ("c_void".to_string(), RefKind::ConstPtr);
+        }
+    }
+
     // Check for Box<T>
     if let Some(inner) = extract_generic_type(trimmed, "Box") {
         return (inner, RefKind::Boxed);

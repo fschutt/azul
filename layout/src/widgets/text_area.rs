@@ -275,7 +275,7 @@ pub struct TextArea {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Editable state of a text area (text buffer + cursor position).
@@ -419,7 +419,7 @@ impl Default for TextArea {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
         }
     }
 }
@@ -558,11 +558,11 @@ impl TextArea {
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme {
-            crate::widgets::themes::OptionTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
                 crate::widgets::themes::flat::text_area(self)
             }
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
                 crate::widgets::themes::flora::text_area(self)
             }
         }

@@ -109,7 +109,7 @@ pub struct Button {
     pub trailing_icon_style: CssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -503,7 +503,7 @@ impl Button {
             container_style: CssPropertyWithConditionsVec::from_vec(container_style),
             label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
             image_style: CssPropertyWithConditionsVec::from_vec(label_style),
-            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
             icon_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE),
             trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(
                 BUTTON_ICON_DEFAULT_STYLE,

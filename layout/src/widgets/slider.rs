@@ -73,7 +73,7 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Slider {
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
     pub slider_state: SliderStateWrapper,
     /// Style for the slider track (the horizontal rail).
     pub track_style: CssPropertyWithConditionsVec,
@@ -278,7 +278,7 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
-            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -344,17 +344,17 @@ impl Slider {
     #[inline]
     #[must_use]
 
-    pub const fn with_theme(mut self, theme: crate::widgets::themes::Theme) -> Self {
-        self.theme = crate::widgets::themes::OptionTheme::Some(theme);
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
         self
     }
 
     pub fn dom(self) -> Dom {
         match self.theme {
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
                 crate::widgets::themes::flat::slider(self)
             }
-            crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flora) => {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
                 crate::widgets::themes::flora::slider(self)
             }
             _ => Dom::create_div(),

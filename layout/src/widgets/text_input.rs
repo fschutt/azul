@@ -635,7 +635,7 @@ pub struct TextInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
@@ -967,10 +967,10 @@ impl TextInput {
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
-            Some(crate::widgets::themes::Theme::Flat) => {
+            Some(crate::widgets::themes::UiWidgetTheme::Flat) => {
                 crate::widgets::themes::flat::text_input(self)
             }
-            Some(crate::widgets::themes::Theme::Flora) => {
+            Some(crate::widgets::themes::UiWidgetTheme::Flora) => {
                 crate::widgets::themes::flora::text_input(self)
             }
             None => crate::widgets::themes::flora::text_input(self),

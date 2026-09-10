@@ -273,8 +273,8 @@ impl Titlebar {
             .into_option()
             .or_else(|| system_style.colors.text.into_option())
             .unwrap_or(match system_style.theme {
-                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                system::WidgetTheme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                system::WidgetTheme::Light => DEFAULT_TITLE_COLOR_LIGHT,
             });
 
         Self {
@@ -312,8 +312,8 @@ impl Titlebar {
                 .text
                 .into_option()
                 .unwrap_or(match system_style.theme {
-                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                    system::WidgetTheme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                    system::WidgetTheme::Light => DEFAULT_TITLE_COLOR_LIGHT,
                 });
         Self {
             title,
@@ -904,7 +904,7 @@ pub(crate) fn glyph_drawn_by_view(
         VirtualViewCallbackReason::InitialRender,
         &fonts,
         &images,
-        WindowTheme::LightMode,
+        WindowWidgetTheme::LightMode,
         frame,
         HidpiAdjustedBounds {
             logical_size: size,
@@ -1946,7 +1946,7 @@ mod autotest_generated {
             b: 7,
             a: 6,
         };
-        for theme in [system::Theme::Light, system::Theme::Dark] {
+        for theme in [system::WidgetTheme::Light, system::WidgetTheme::Dark] {
             let mut ss = blank_system_style();
             ss.theme = theme;
             ss.colors.text = OptionColorU::Some(detected);
@@ -1961,7 +1961,7 @@ mod autotest_generated {
     #[test]
     fn from_system_style_picks_the_theme_appropriate_fallback_colour() {
         let mut light = blank_system_style();
-        light.theme = system::Theme::Light;
+        light.theme = system::WidgetTheme::Light;
         light.colors.text = OptionColorU::None;
         assert_eq!(
             Titlebar::from_system_style(AzString::from("x"), &light).title_color,
@@ -1969,7 +1969,7 @@ mod autotest_generated {
         );
 
         let mut dark = blank_system_style();
-        dark.theme = system::Theme::Dark;
+        dark.theme = system::WidgetTheme::Dark;
         dark.colors.text = OptionColorU::None;
         assert_eq!(
             Titlebar::from_system_style(AzString::from("x"), &dark).title_color,
@@ -2000,7 +2000,7 @@ mod autotest_generated {
         let mut ss = blank_system_style();
         ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(41.0));
         ss.metrics.titlebar.title_font_size = OptionF32::Some(17.5);
-        ss.theme = system::Theme::Dark;
+        ss.theme = system::WidgetTheme::Dark;
 
         let title_only = Titlebar::from_system_style(AzString::from("x"), &ss);
         let csd = Titlebar::from_system_style_csd(AzString::from("x"), &ss);

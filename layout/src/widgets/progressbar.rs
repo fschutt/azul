@@ -208,7 +208,7 @@ pub struct ProgressBar {
     pub height: PixelValue,
     pub bar_background: StyleBackgroundContentVec,
     pub container_background: StyleBackgroundContentVec,
-    pub theme: crate::widgets::themes::OptionTheme,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Internal state for a [`ProgressBar`], tracking completion percentage.
@@ -246,7 +246,7 @@ impl ProgressBar {
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
-            theme: crate::widgets::themes::OptionTheme::Some(crate::widgets::themes::Theme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiWidgetTheme::Flat),
         }
     }
 
@@ -295,14 +295,14 @@ impl ProgressBar {
     /// widget's private dataset so [`update_progress`](Self::update_progress)
     /// can find and mutate it later - see the module docs for the fast path.
     #[inline]
-    pub fn set_theme(&mut self, theme: crate::widgets::themes::Theme) {
-        self.theme = crate::widgets::themes::OptionTheme::Some(theme);
+    pub fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
 
     #[inline]
     #[must_use]
-    pub fn with_theme(mut self, theme: crate::widgets::themes::Theme) -> Self {
-        self.theme = crate::widgets::themes::OptionTheme::Some(theme);
+    pub fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
         self
     }
 
@@ -311,10 +311,10 @@ impl ProgressBar {
         let theme = self
             .theme
             .into_option()
-            .unwrap_or(crate::widgets::themes::Theme::Flat);
+            .unwrap_or(crate::widgets::themes::UiWidgetTheme::Flat);
         match theme {
-            crate::widgets::themes::Theme::Flat => crate::widgets::themes::flat::progressbar(self),
-            crate::widgets::themes::Theme::Flora => {
+            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::progressbar(self),
+            crate::widgets::themes::UiWidgetTheme::Flora => {
                 crate::widgets::themes::flora::progressbar(self)
             }
         }
@@ -351,12 +351,12 @@ impl ProgressBar {
         let theme = self
             .theme
             .into_option()
-            .unwrap_or(crate::widgets::themes::Theme::Flat);
+            .unwrap_or(crate::widgets::themes::UiWidgetTheme::Flat);
         match theme {
-            crate::widgets::themes::Theme::Flat => {
+            crate::widgets::themes::UiWidgetTheme::Flat => {
                 crate::widgets::themes::flat::progressbar_render_bar_impl(self, None)
             }
-            crate::widgets::themes::Theme::Flora => {
+            crate::widgets::themes::UiWidgetTheme::Flora => {
                 crate::widgets::themes::flora::progressbar_render_bar_impl(self, None)
             }
         }
@@ -1487,7 +1487,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            WindowWidgetTheme::LightMode,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,

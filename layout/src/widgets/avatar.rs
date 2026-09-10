@@ -38,7 +38,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::widgets::themes::{OptionTheme, Theme};
+use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 pub static AVATAR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-avatar"))];
 pub static AVATAR_IMAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -126,7 +126,7 @@ pub struct Avatar {
     /// The size variant.
     pub size: AvatarSize,
     /// The computed inline style for the circular container.
-    pub theme: OptionTheme,
+    pub theme: OptionUiTheme,
     pub avatar_style: OptionCssPropertyWithConditionsVec,
 }
 
@@ -214,7 +214,7 @@ impl Avatar {
             image: None.into(),
             initials,
             size: AvatarSize::Medium,
-            theme: OptionTheme::None,
+            theme: OptionUiTheme::None,
             avatar_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
@@ -227,7 +227,7 @@ impl Avatar {
             image: Some(image).into(),
             initials: AzString::from_const_str(""),
             size: AvatarSize::Medium,
-            theme: OptionTheme::None,
+            theme: OptionUiTheme::None,
             avatar_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
@@ -248,11 +248,11 @@ impl Avatar {
 
     /// Sets the size variant, recomputing the style.
     #[inline]
-    pub fn set_theme(&mut self, theme: Theme) {
-        self.theme = OptionTheme::Some(theme);
+    pub fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
     }
 
-    pub fn with_theme(mut self, theme: Theme) -> Self {
+    pub fn with_theme(mut self, theme: UiTheme) -> Self {
         self.set_theme(theme);
         self
     }
@@ -284,12 +284,12 @@ impl Avatar {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionTheme::None => crate::widgets::themes::Theme::Flat,
+            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
+            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiWidgetTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::Theme::Flat => crate::widgets::themes::flat::avatar(self),
-            crate::widgets::themes::Theme::Flora => crate::widgets::themes::flora::avatar(self),
+            crate::widgets::themes::UiWidgetTheme::Flat => crate::widgets::themes::flat::avatar(self),
+            crate::widgets::themes::UiWidgetTheme::Flora => crate::widgets::themes::flora::avatar(self),
         }
     }
 }
@@ -314,7 +314,7 @@ mod autotest_generated {
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
 
     use super::*;
-    use crate::widgets::themes::{OptionTheme, Theme};
+    use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
     // ------------------------------------------------------------------
     // Helpers
