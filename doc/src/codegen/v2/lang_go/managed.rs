@@ -441,6 +441,24 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.line("    return self");
     b.line("}");
     b.blank();
+    // A managed `*String` had no way to read its own text. The obvious name,
+    // `String()`, is taken: api.json gives the class `Debug`, so the wrapper
+    // generator emits a `String()` returning `AzString_toDbgString`, and two
+    // methods of that name in one package do not compile. Deleting the
+    // content accessor resolved the clash and left `fmt.Println(NewString(..))`
+    // printing a Rust `{:#?}` dump with no way to get at the text at all.
+    b.line("// Value returns the string's contents.");
+    b.line("//");
+    b.line("// Not named String(): that method exists on this type as the fmt.Stringer");
+    b.line("// debug form (AzString_toDbgString), because api.json declares Debug for");
+    b.line("// the class. Use Value() for the text and String() to inspect it.");
+    b.line("func (self *String) Value() string {");
+    b.line("    if self == nil || self.inner == nil {");
+    b.line("        return \"\"");
+    b.line("    }");
+    b.line("    return GoStr(*self.inner)");
+    b.line("}");
+    b.blank();
 }
 
 fn emit_refany_helpers(b: &mut CodeBuilder) {
@@ -555,9 +573,12 @@ fn emit_register_fns(
                 } else {
                     format!("*(*C.{})(args[{}])", c_typename(t), i)
                 };
+                // `args[i]` points into the host invoker's argument array,
+                // which was never malloc'd: this wrapper borrows it.
+                let borrowed = if has_del { ", borrowed: true" } else { "" };
                 b.line(&format!(
-                    "        {} := &{}{{ inner: {} }}",
-                    nm, t, inner_expr
+                    "        {} := &{}{{ inner: {}{} }}",
+                    nm, t, inner_expr, borrowed
                 ));
             } else {
                 b.line(&format!("        {} := args[{}]", nm, i));
@@ -641,6 +662,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("    if config != nil {");
     b.line("        cfg = *config.inner");
     b.line("        C.free(unsafe.Pointer(config.inner))");
+    b.line("        config.inner = nil");
     b.line("        runtime.SetFinalizer(config, nil)");
     b.line("    } else {");
     b.line("        cfg = C.AzAppConfig_create()");
@@ -648,6 +670,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("    ref := RefAnyWrap(data)");
     b.line("    inner := *ref.inner");
     b.line("    C.free(unsafe.Pointer(ref.inner))");
+    b.line("    ref.inner = nil");
     b.line("    runtime.SetFinalizer(ref, nil)");
     b.line("    app_val := C.AzApp_create(inner, cfg)");
     b.line("    app_ptr := (*C.AzApp)(C.malloc(C.size_t(unsafe.Sizeof(C.AzApp{}))))");
@@ -660,7 +683,11 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("// RunWindow consumes win and enters the main loop.");
     b.line("func (self *App) RunWindow(win *WindowCreateOptions) {");
     b.line("    inner := *win.inner");
+    // `RunWindow` consumes the options: the box is freed here, so the caller's
+    // idiomatic `defer win.Close()` must find a nil `inner` rather than a
+    // pointer to freed memory to hand to `AzWindowCreateOptions_delete`.
     b.line("    C.free(unsafe.Pointer(win.inner))");
+    b.line("    win.inner = nil");
     b.line("    runtime.SetFinalizer(win, nil)");
     b.line("    C.AzApp_run(self.inner, inner)");
     b.line("}");
@@ -752,7 +779,16 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
             .any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
         if has_delete {
             b.line("    val := *self.inner");
-            b.line("    C.free(unsafe.Pointer(self.inner))");
+            b.line("    if !self.borrowed {");
+            b.line("        C.free(unsafe.Pointer(self.inner))");
+            b.line("    }");
+            // Without this the wrapper keeps a pointer to freed memory, and
+            // `Close()`'s `self.inner == nil` guard — the thing that makes it
+            // safe to call twice, as its own doc says — reads a dangling
+            // pointer instead of nil and frees it a second time. The
+            // `defer x.Close()` next to a `Raw()` handoff is idiomatic Go, so
+            // this is the ordinary path, not a corner case.
+            b.line("    self.inner = nil");
             b.line("    return val");
         } else {
             b.line("    return self.inner");

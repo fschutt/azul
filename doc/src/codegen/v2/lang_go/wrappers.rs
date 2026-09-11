@@ -250,6 +250,16 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     b.indent();
     if has_delete {
         b.line(&format!("inner *C.{}", ffi_name));
+        // `inner` is a pointer, and two very different things hand one out: a
+        // constructor, which mallocs it and owns it, and a callback argument,
+        // which points into the invoker's argument array and owns nothing.
+        // Without this flag `Close()` could not tell them apart and freed the
+        // borrowed one, aborting in the allocator on a pointer malloc never
+        // returned.
+        b.line("// borrowed marks an `inner` this wrapper does NOT own: a");
+        b.line("// callback argument pointing into the caller's frame. Close()");
+        b.line("// and Raw() must not delete or free such a pointer.");
+        b.line("borrowed bool");
     } else {
         b.line(&format!("inner C.{}", ffi_name));
     }
@@ -304,6 +314,14 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.indent();
         b.line("if self == nil || self.inner == nil {");
         b.indent();
+        b.line("return nil");
+        b.dedent();
+        b.line("}");
+        b.line("if self.borrowed {");
+        b.indent();
+        b.line("// Someone else's pointer: drop our view of it and stop there.");
+        b.line("self.inner = nil");
+        b.line("runtime.SetFinalizer(self, nil)");
         b.line("return nil");
         b.dedent();
         b.line("}");
