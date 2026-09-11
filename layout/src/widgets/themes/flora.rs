@@ -589,14 +589,8 @@ pub fn check_box(cb: CheckBox) -> Dom {
         dom::{EventFilter, HoverEventFilter},
     };
 
-    let mut container_style: Vec<CssPropertyWithConditions> = match cb.container_style {
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
-            style.as_slice().to_vec()
-        }
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
-            crate::widgets::check_box::DEFAULT_CHECKBOX_CONTAINER_STYLE.to_vec()
-        }
-    };
+    let mut container_style: Vec<CssPropertyWithConditions> =
+        cb.resolved_container_style().as_slice().to_vec();
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
@@ -604,18 +598,8 @@ pub fn check_box(cb: CheckBox) -> Dom {
         ),
     ));
     let is_checked = cb.check_box_state.inner.checked;
-    let mut content_style: Vec<CssPropertyWithConditions> = match cb.content_style {
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
-            style.as_slice().to_vec()
-        }
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
-            if is_checked {
-                crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED.to_vec()
-            } else {
-                crate::widgets::check_box::DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED.to_vec()
-            }
-        }
-    };
+    let mut content_style: Vec<CssPropertyWithConditions> =
+        cb.resolved_content_style().as_slice().to_vec();
     if checked_now {
         content_style.push(CssPropertyWithConditions::dark_theme(
             CssProperty::BackgroundContent(
