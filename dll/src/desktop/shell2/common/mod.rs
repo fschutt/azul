@@ -46,3 +46,43 @@ pub use dlopen::DynamicLibrary;
 pub use error::{CompositorError, DlError, WindowError};
 pub use event::{CommonWindowState, HitTestNode, PlatformWindow};
 pub use layout::{generate_frame, regenerate_layout};
+
+/// Resolve the window's opaque canvas colour at CREATION time.
+///
+/// The rule, once, because every backend needs it and each copy is a chance to
+/// drift: an explicit `background_color` wins; otherwise the per-theme override
+/// for whichever theme the system is in right now; otherwise the system's own
+/// window background.
+///
+/// Only applies to an `Opaque` window — a material (blur/acrylic/mica) is
+/// composited by the platform and must keep `background_color` unset so the
+/// renderer clears to transparent and the material shows through.
+///
+/// The per-theme pair is kept (rather than collapsed here) so a theme change
+/// while the window is open can re-resolve; this only seeds the first frame.
+pub fn resolve_initial_background_color(
+    options: &mut azul_layout::window_state::WindowCreateOptions,
+    system_style: &azul_css::system::SystemStyle,
+) {
+    use azul_core::window::WindowBackgroundMaterial;
+
+    if options.window_state.background_color.is_some() {
+        return;
+    }
+    if !matches!(
+        options.window_state.flags.background_material,
+        WindowBackgroundMaterial::Opaque
+    ) {
+        return;
+    }
+    let per_theme = if system_style.theme == azul_css::system::Theme::Dark {
+        options.background_color_dark
+    } else {
+        options.background_color_light
+    };
+    options.window_state.background_color = if per_theme.is_some() {
+        per_theme
+    } else {
+        system_style.colors.window_background
+    };
+}

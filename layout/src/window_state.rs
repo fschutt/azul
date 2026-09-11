@@ -44,6 +44,10 @@ pub struct WindowCreateOptions {
     /// and, on X11, reuse the parent's display connection for the single shared
     /// event pump. 0 = no parent.
     pub parent_window_id: u64,
+    /// Explicitly defined background color for light theme. If set, overrides the system light window background.
+    pub background_color_light: OptionColorU,
+    /// Explicitly defined background color for dark theme. If set, overrides the system dark window background.
+    pub background_color_dark: OptionColorU,
 }
 
 impl Default for WindowCreateOptions {
@@ -56,6 +60,8 @@ impl Default for WindowCreateOptions {
             size_to_content: false,
             hot_reload: false,
             parent_window_id: 0,
+            background_color_light: OptionColorU::None,
+            background_color_dark: OptionColorU::None,
         }
     }
 }

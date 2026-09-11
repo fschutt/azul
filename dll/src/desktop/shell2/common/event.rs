@@ -2590,6 +2590,10 @@ pub struct CommonWindowState {
     /// it never looks at), or the three input accessors
     /// ([`Self::mouse_state_mut`] and friends).
     current_window_state: FullWindowState,
+    /// Explicitly defined background color for light theme from creation options
+    pub background_color_light: azul_css::props::basic::OptionColorU,
+    /// Explicitly defined background color for dark theme from creation options
+    pub background_color_dark: azul_css::props::basic::OptionColorU,
     /// The EVENT-DIFF baseline: the state the last completed
     /// [`PlatformWindow::process_window_events`] pass consumed.
     ///
@@ -2928,6 +2932,8 @@ impl CommonWindowState {
     #[must_use]
     pub fn new(
         current_window_state: FullWindowState,
+        background_color_light: azul_css::props::basic::OptionColorU,
+        background_color_dark: azul_css::props::basic::OptionColorU,
         fc_cache: Arc<FcFontCache>,
         system_style: Arc<azul_css::system::SystemStyle>,
         app_data: Arc<RefCell<RefAny>>,
@@ -2952,6 +2958,8 @@ impl CommonWindowState {
         Self {
             layout_window: None,
             current_window_state,
+            background_color_light,
+            background_color_dark,
             previous_window_state: None,
             os_synced_state: None,
             renderer_resources: RendererResources::default(),
@@ -9521,6 +9529,21 @@ pub trait PlatformWindow {
         });
 
         self.get_common_mut().system_style = std::sync::Arc::clone(&new_style);
+        
+        let custom_bg_light = self.get_common_mut().background_color_light;
+        let custom_bg_dark = self.get_common_mut().background_color_dark;
+        
+        self.get_common_mut().update_window_state(WindowStateSource::App, |current| {
+            let use_dark = new_style.theme == azul_css::system::Theme::Dark;
+            let custom_bg = if use_dark { custom_bg_dark } else { custom_bg_light };
+            
+            if custom_bg.is_some() {
+                current.background_color = custom_bg;
+            } else if current.background_color == old_style.colors.window_background {
+                current.background_color = new_style.colors.window_background;
+            }
+        });
+        
         if let Some(lw) = self.get_layout_window_mut() {
             // `regenerate_layout` pushes the style into the LayoutWindow on
             // its own; the restyle path below does not go through it, and a

@@ -163,6 +163,8 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id: 0,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     })
 }
 

@@ -3217,17 +3217,10 @@ impl X11Window {
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
-        if options.window_state.background_color.is_none() {
-            use azul_core::window::WindowBackgroundMaterial;
-            if matches!(
-                options.window_state.flags.background_material,
-                WindowBackgroundMaterial::Opaque
-            ) {
-                options.window_state.background_color =
-                    resources.system_style.colors.window_background;
-            }
-            // For materials, leave background_color as None - renderer handles transparency
-        }
+        crate::desktop::shell2::common::resolve_initial_background_color(
+            &mut options,
+            &resources.system_style,
+        );
 
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
@@ -3901,6 +3894,8 @@ impl X11Window {
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
+            options.background_color_light,
+            options.background_color_dark,
             resources.fc_cache.clone(),
             resources.system_style.clone(),
             resources.app_data.clone(),

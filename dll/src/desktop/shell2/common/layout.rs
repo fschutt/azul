@@ -537,7 +537,8 @@ pub fn regenerate_layout(
     };
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
-            fp.structure_root == prev.structure_root
+            relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+                && fp.structure_root == prev.structure_root
                 && fp.style_root == prev.style_root
                 && layout_window
                     .layout_results
@@ -1105,7 +1106,9 @@ pub fn regenerate_layout(
         .layout_results
         .get(&azul_core::dom::DomId::ROOT_ID)
     {
-        if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
+        if relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+            && azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom)
+        {
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] DOM structurally unchanged \

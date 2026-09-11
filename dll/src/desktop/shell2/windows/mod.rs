@@ -305,17 +305,10 @@ impl Win32Window {
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
-        if options.window_state.background_color.is_none() {
-            use azul_core::window::WindowBackgroundMaterial;
-            if matches!(
-                options.window_state.flags.background_material,
-                WindowBackgroundMaterial::Opaque
-            ) {
-                options.window_state.background_color =
-                    config.system_style.colors.window_background;
-            }
-            // For materials, leave background_color as None - renderer handles transparency
-        }
+        crate::desktop::shell2::common::resolve_initial_background_color(
+            &mut options,
+            &config.system_style,
+        );
 
         let total_start = std::time::Instant::now();
         let mut step_start = std::time::Instant::now();
@@ -797,6 +790,8 @@ impl Win32Window {
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu);
         let mut common = event::CommonWindowState::new(
             current_window_state,
+            options.background_color_light,
+            options.background_color_dark,
             fc_cache,
             system_style,
             app_data,

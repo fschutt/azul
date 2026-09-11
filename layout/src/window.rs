@@ -1899,6 +1899,9 @@ impl LayoutWindow {
         if self.layout_results.is_empty() {
             return true;
         }
+        if old.theme != new.theme {
+            return true;
+        }
         self.recorded_style_dependencies
             .dom_depends_on_change(old, new)
     }

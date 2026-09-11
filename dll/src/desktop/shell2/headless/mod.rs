@@ -271,6 +271,17 @@ pub struct CpuBackend {
     /// PDF export and the reference images the scroll tests diff against, and
     /// those must not change colour with whatever machine runs them.
     pub follow_system_background: bool,
+    /// The canvas colour the PREVIOUS frame was cleared to, or `None` before
+    /// the first frame.
+    ///
+    /// A frame is normally repainted incrementally: only the rectangles the
+    /// display-list diff reports are redrawn and everything else is reused
+    /// from the last frame. That reuse is only sound while the canvas UNDER
+    /// the content stays the same colour — switching the desktop between light
+    /// and dark repaints every widget that changed, and leaves the old
+    /// backdrop standing everywhere the diff found nothing, so the window ends
+    /// up half light and half dark until something else forces a full repaint.
+    pub last_clear_color: Option<[u8; 4]>,
     /// Implied by `transparent`: after every frame the window's shape (the
     /// rectangles of opaque-enough pixels, physical px) is computed into
     /// `last_shape` for the backend to hand to the OS, so clicks on fully
@@ -437,6 +448,7 @@ impl CpuBackend {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
             transparent: false,
             follow_system_background: true,
+            last_clear_color: None,
             shape_from_alpha: false,
             #[cfg(feature = "cpurender")]
             last_shape: None,
@@ -595,6 +607,14 @@ impl CpuBackend {
             .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
         compositor.set_clear_color(clear_color);
 
+        // A different canvas colour invalidates every reused pixel, so this
+        // frame cannot be incremental no matter what the display-list diff
+        // says (see `last_clear_color`).
+        let clear_color_changed = self
+            .last_clear_color
+            .is_some_and(|previous| previous != clear_color);
+        self.last_clear_color = Some(clear_color);
+
         // Check if we need to resize the root layer
         let root = compositor.layers.get(&compositor.root_layer);
         let (old_pw, old_ph) = match root {
@@ -703,7 +723,8 @@ impl CpuBackend {
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
         // were copied over verbatim). No on a shrink / first allocation.
-        let can_reuse_previous_frame = !needs_resize || resize_preserved_pixels;
+        let can_reuse_previous_frame =
+            (!needs_resize || resize_preserved_pixels) && !clear_color_changed;
 
         // ROUND 3: the layout patch's presentation hint. Eligible when the
         // dominant delta is INTEGRAL in physical pixels (a fractional blit
@@ -1504,6 +1525,8 @@ impl HeadlessWindow {
         // Extract create_callback before consuming options (same as every
         // platform shell) — invoked in run() ahead of the initial layout.
         let create_callback = options.create_callback.clone();
+        let bg_light = options.background_color_light;
+        let bg_dark = options.background_color_dark;
         let full_window_state = options.window_state;
 
         // Create layout window — same as real platforms
@@ -1532,6 +1555,8 @@ impl HeadlessWindow {
         // suite that builds thousands of them.
         let mut common = CommonWindowState::new(
             full_window_state,
+            bg_light,
+            bg_dark,
             fc_cache,
             Arc::new(config.system_style.clone()),
             app_data,

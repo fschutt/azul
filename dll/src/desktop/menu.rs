@@ -469,6 +469,8 @@ pub fn show_menu(
         // Set by the spawner (show_window_based_context_menu) which knows the
         // parent window's id; 0 here = filled in later / no parent.
         parent_window_id: 0,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     }
 }
 

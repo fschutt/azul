@@ -266,6 +266,8 @@ pub fn popup_create_options(
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     };
     (options, mailbox)
 }
@@ -338,6 +340,8 @@ pub fn toplevel_create_options(
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     };
     (options, mailbox)
 }

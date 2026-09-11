@@ -191,13 +191,17 @@ impl AndroidWindow {
     /// Construct a window with no native surface attached yet.
     /// `InitWindow` later swaps in the real `ANativeWindow`.
     pub fn new(
-        options: WindowCreateOptions,
+        mut options: WindowCreateOptions,
         fc_cache: Arc<FcFontCache>,
         mut config: AppConfig,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
+        crate::desktop::shell2::common::resolve_initial_background_color(
+            &mut options,
+            &config.system_style,
+        );
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
@@ -220,6 +224,8 @@ impl AndroidWindow {
 
         let mut common = CommonWindowState::new(
             full_window_state,
+            options.background_color_light,
+            options.background_color_dark,
             fc_cache,
             // The style AppConfig detected at startup, not `SystemStyle::default()`.
             // `default()` carries `Platform::Unknown`, which
