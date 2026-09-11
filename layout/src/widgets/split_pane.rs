@@ -294,7 +294,9 @@ impl SplitPane {
             },
             first,
             second,
-            container_style: OptionCssPropertyWithConditionsVec::Some(container_style(direction)),
+            // No opinion: `resolved_container_style` derives it from the
+            // direction when the DOM is built.
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -312,11 +314,15 @@ impl SplitPane {
         self
     }
 
-    /// Sets the orientation (also refreshes the default container style).
+    /// Sets the orientation.
+    ///
+    /// Does not write `container_style`: the default is derived from the
+    /// direction when the DOM is built, so this stays correct, and a caller who
+    /// set their own style no longer loses it the first time the orientation
+    /// changes.
     #[inline]
     pub fn set_direction(&mut self, direction: SplitDirection) {
         self.split_pane_state.inner.direction = direction;
-        self.container_style = OptionCssPropertyWithConditionsVec::Some(container_style(direction));
     }
 
     /// Builder-style setter for the orientation.
@@ -325,6 +331,20 @@ impl SplitPane {
     pub fn with_direction(mut self, direction: SplitDirection) -> Self {
         self.set_direction(direction);
         self
+    }
+
+    /// The container CSS this pane renders with.
+    ///
+    /// `None` means no opinion, so the direction's default applies. The old
+    /// fallback here was an EMPTY vec, which would have left the pane with no
+    /// flex box at all had the field ever actually been `None` — it never was,
+    /// because the constructor pre-filled it.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| container_style(self.split_pane_state.inner.direction))
     }
 
     /// Replaces the default container style.
@@ -373,6 +393,9 @@ impl SplitPane {
 
     #[must_use]
     pub fn dom(self) -> Dom {
+        // Resolved before the children are moved out below; the resolver reads
+        // the direction off `self`.
+        let container_css = self.resolved_container_style();
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -443,7 +466,7 @@ impl SplitPane {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_CLASS))
-            .with_css_props(self.container_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::new()))
+            .with_css_props(container_css)
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
             // Role so the accessibility tree knows what this IS:
@@ -1379,7 +1402,7 @@ mod autotest_generated {
             assert_eq!(sp.split_pane_state.ratio_at_drag_start, 0.0, "{dir:?}");
             assert!(sp.split_pane_state.on_resize.is_none(), "{dir:?}");
             assert_eq!(
-                properties(&sp.container_style),
+                properties(&sp.resolved_container_style()),
                 properties(&container_style(dir)),
                 "{dir:?}"
             );
@@ -1392,8 +1415,8 @@ mod autotest_generated {
         let c = plain(SplitDirection::Horizontal);
         assert_eq!(d.split_pane_state, c.split_pane_state);
         assert_eq!(
-            properties(&d.container_style),
-            properties(&c.container_style)
+            properties(&d.resolved_container_style()),
+            properties(&c.resolved_container_style())
         );
     }
 
@@ -1481,14 +1504,14 @@ mod autotest_generated {
     #[test]
     fn set_ratio_touches_nothing_but_the_ratio() {
         let mut sp = plain(SplitDirection::Vertical);
-        let before = properties(&sp.container_style);
+        let before = properties(&sp.resolved_container_style());
         sp.set_ratio(0.2);
         assert_eq!(
             sp.split_pane_state.inner.direction,
             SplitDirection::Vertical
         );
         assert!(!sp.split_pane_state.is_dragging);
-        assert_eq!(properties(&sp.container_style), before);
+        assert_eq!(properties(&sp.resolved_container_style()), before);
     }
 
     #[test]
@@ -1529,7 +1552,7 @@ mod autotest_generated {
         assert_eq!(dom_classes(&sp.first), vec!["alpha".to_string()]);
         assert_eq!(dom_classes(&sp.second), vec!["beta".to_string()]);
         assert_eq!(
-            properties(&sp.container_style),
+            properties(&sp.resolved_container_style()),
             properties(&container_style(SplitDirection::Vertical))
         );
     }
@@ -1547,7 +1570,7 @@ mod autotest_generated {
             SplitDirection::Vertical
         );
         assert_eq!(
-            flex_direction(&sp.container_style),
+            flex_direction(&sp.resolved_container_style()),
             Some(LayoutFlexDirection::Column),
             "a stale Row here would lay a vertical split out sideways"
         );
@@ -1556,15 +1579,15 @@ mod autotest_generated {
     #[test]
     fn set_direction_is_idempotent_and_round_trips() {
         let mut sp = plain(SplitDirection::Horizontal);
-        let original = properties(&sp.container_style);
+        let original = properties(&sp.resolved_container_style());
         sp.set_direction(SplitDirection::Vertical);
         sp.set_direction(SplitDirection::Vertical);
         assert_eq!(
-            properties(&sp.container_style),
+            properties(&sp.resolved_container_style()),
             properties(&container_style(SplitDirection::Vertical))
         );
         sp.set_direction(SplitDirection::Horizontal);
-        assert_eq!(properties(&sp.container_style), original);
+        assert_eq!(properties(&sp.resolved_container_style()), original);
     }
 
     #[test]
@@ -1575,7 +1598,7 @@ mod autotest_generated {
             .with_container_style(CssPropertyWithConditionsVec::from_vec(vec![]))
             .with_direction(SplitDirection::Vertical);
         assert_eq!(
-            properties(&sp.container_style),
+            properties(&sp.resolved_container_style()),
             properties(&container_style(SplitDirection::Vertical)),
             "set_direction overwrites, it does not merge"
         );
@@ -1606,15 +1629,15 @@ mod autotest_generated {
                 CssProperty::const_display(LayoutDisplay::Block),
             )]);
         let sp = plain(SplitDirection::Horizontal).with_container_style(custom.clone());
-        assert_eq!(properties(&sp.container_style), properties(&custom));
-        assert_eq!(display(&sp.container_style), Some(LayoutDisplay::Block));
+        assert_eq!(properties(&sp.resolved_container_style()), properties(&custom));
+        assert_eq!(display(&sp.resolved_container_style()), Some(LayoutDisplay::Block));
     }
 
     #[test]
     fn with_container_style_accepts_an_empty_vec() {
         let sp = plain(SplitDirection::Horizontal)
             .with_container_style(CssPropertyWithConditionsVec::from_vec(vec![]));
-        assert!(properties(&sp.container_style).is_empty());
+        assert!(properties(&sp.resolved_container_style()).is_empty());
         // The state is untouched, and rendering an unstyled container must not
         // panic even though the flex layout is gone.
         assert_eq!(sp.split_pane_state.inner.ratio, 0.5);
@@ -1647,7 +1670,7 @@ mod autotest_generated {
         assert_eq!(sp.split_pane_state, SplitPaneStateWrapper::default());
         assert!(dom_classes(&sp.first).is_empty());
         assert_eq!(
-            properties(&sp.container_style),
+            properties(&sp.resolved_container_style()),
             properties(&container_style(SplitDirection::Horizontal))
         );
     }

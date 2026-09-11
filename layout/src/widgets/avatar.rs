@@ -208,6 +208,18 @@ pub fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 }
 
 impl Avatar {
+    /// The avatar CSS this widget renders with.
+    ///
+    /// `None` means no opinion, so the size's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_avatar_style(&self) -> CssPropertyWithConditionsVec {
+        self.avatar_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_avatar_style(self.size))
+    }
+
     /// Creates a medium initials avatar with the given text.
     #[inline]
     #[must_use]
@@ -810,7 +822,7 @@ mod autotest_generated {
             assert!(a.image.is_none(), "create() must not set an image");
             assert_eq!(a.size, AvatarSize::Medium);
             assert_eq!(
-                properties(&a.avatar_style),
+                properties(&a.resolved_avatar_style()),
                 properties(&build_avatar_style(AvatarSize::Medium))
             );
         }
@@ -871,7 +883,7 @@ mod autotest_generated {
                 "AB",
                 "set_image must keep the fallback initials"
             );
-            assert_eq!(properties(&a.avatar_style), properties(&base.avatar_style));
+            assert_eq!(properties(&a.resolved_avatar_style()), properties(&base.resolved_avatar_style()));
         }
     }
 
@@ -906,12 +918,12 @@ mod autotest_generated {
 
             assert_eq!(a.size, size, "round {round}: size field not updated");
             assert_eq!(
-                a.avatar_style.as_ref().len(),
+                a.resolved_avatar_style().as_slice().len(),
                 expected_len,
                 "round {round}: style vec changed length — stale declarations?"
             );
             assert_eq!(
-                properties(&a.avatar_style),
+                properties(&a.resolved_avatar_style()),
                 properties(&build_avatar_style(size)),
                 "round {round}: style does not match the freshly built one"
             );
@@ -928,7 +940,7 @@ mod autotest_generated {
         let mut a = Avatar::create_with_image(test_image());
         a.set_size(AvatarSize::Small);
         assert!(a.image.is_some(), "set_size must not drop the image");
-        assert_eq!(width_px(&a.avatar_style), Some(24.0));
+        assert_eq!(width_px(&a.resolved_avatar_style()), Some(24.0));
     }
 
     #[test]
@@ -946,7 +958,7 @@ mod autotest_generated {
         assert_eq!(chained, mutated, "builder and mutator must agree");
         assert_eq!(chained.size, AvatarSize::Medium);
         assert_eq!(
-            properties(&chained.avatar_style),
+            properties(&chained.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Medium))
         );
     }
@@ -968,7 +980,7 @@ mod autotest_generated {
         assert_eq!(taken.size, AvatarSize::Large);
         assert!(taken.image.is_some());
         assert_eq!(
-            properties(&taken.avatar_style),
+            properties(&taken.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Large))
         );
 
@@ -982,7 +994,7 @@ mod autotest_generated {
         assert_eq!(a.initials.as_str(), "");
         assert_eq!(a.size, AvatarSize::Medium);
         assert_eq!(
-            properties(&a.avatar_style),
+            properties(&a.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Medium))
         );
     }
@@ -1005,7 +1017,7 @@ mod autotest_generated {
     fn dom_of_an_initials_avatar_is_a_circle_wrapping_the_text() {
         for size in ALL_SIZES {
             let avatar = Avatar::create(AzString::from_const_str("AB")).with_size(size);
-            let expected = properties(&avatar.avatar_style);
+            let expected = properties(&avatar.resolved_avatar_style());
             let dom = avatar.dom();
 
             assert!(
