@@ -124,5 +124,9 @@ same widget code reads correctly under both themes.
 - `cargo test -p azul-layout --lib` was already failing before this work
   started (the earlier partial conversion updated the library but not the
   `#[cfg(test)]` modules). Phase 1 repairs it; it is not a regression to chase.
+- When rewriting field reads to `resolved_x()` with a regex, EXCLUDE the
+  resolver's own body — `self.x_style` inside `resolved_x_style()` must stay the
+  field, or the function calls itself. It compiles as far as a confusing
+  "method not found on CssPropertyWithConditionsVec" on `.into_option()`.
 - Commit per widget or per small batch, never one sweeping commit — a mistake in
   a mechanical pass this size needs to be bisectable.
