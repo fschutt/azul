@@ -23,31 +23,546 @@ use azul_css::{
 
 use crate::widgets::button::{Button, ButtonOnClick};
 
-// Flat theme colors
-pub const LIGHT_BG: ColorU = ColorU {
+// ---------------------------------------------------------------------------
+// The flat palette.
+//
+// THE TOKEN NAMES ARE THE SAME ONES `flora` USES, deliberately. A widget that
+// reaches for `SUR` or `INK` instead of an inline `ColorU { r: 178, .. }` can
+// then be written once and read correctly under either theme, which is the
+// whole point of having themes rather than two hand-maintained copies of every
+// widget. The VALUES are what makes this theme flat: plain surfaces, one thin
+// border weight, and "gradient" stops that are simply equal.
+//
+// Names follow flora.css so the two stay comparable:
+//   PG/SUR/DESK/STRIP/TRACK  surfaces, back to front
+//   BD..BD5, SEP, SEP2       borders and separators
+//   INK/INK2/INTRO/SOFT1..3  text, most to least prominent
+//   RT/RB, HT/HB, PT/PB      raised / hover / pressed control faces
+//   FLD/FLD2                 input fields
+//   DISBG/DISTX              disabled
+//   QT/QT2                   quiet (toolbar) fills
+//   ACC/DEEP/SOFT/GLOW/ON_ACC accent ramp and what sits on it
+// ---------------------------------------------------------------------------
+
+// Light mode colors
+/// Page: the window canvas behind everything.
+pub const LIGHT_PG: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+/// Surface: panels and cards sitting on the page.
+pub const LIGHT_SUR: ColorU = ColorU {
     r: 248,
     g: 249,
     b: 250,
     a: 255,
 };
-pub const LIGHT_FG: ColorU = ColorU {
+/// Desk: the recessed area a document sits on.
+pub const LIGHT_DESK: ColorU = ColorU {
+    r: 241,
+    g: 243,
+    b: 245,
+    a: 255,
+};
+/// Strip: toolbars and header bands.
+pub const LIGHT_STRIP: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
+/// Track: scrollbar and slider grooves.
+pub const LIGHT_TRACK: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Default border.
+pub const LIGHT_BD: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
+/// Lighter border, for internal divisions.
+pub const LIGHT_BD2: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Stronger border, for emphasis or focus.
+pub const LIGHT_BD3: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
+/// Faintest border.
+pub const LIGHT_BD4: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
+/// Border that reads as a highlight.
+pub const LIGHT_BD5: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
+/// Separator line.
+pub const LIGHT_SEP: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Fainter separator.
+pub const LIGHT_SEP2: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
+/// Body text.
+pub const LIGHT_INK: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
-pub const DARK_BG: ColorU = ColorU {
-    r: 52,
-    g: 58,
-    b: 64,
+/// Secondary text.
+pub const LIGHT_INK2: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
     a: 255,
 };
-pub const DARK_FG: ColorU = ColorU {
+/// Introductory / lead text.
+pub const LIGHT_INTRO: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
+/// Muted text, still readable.
+pub const LIGHT_SOFT1: ColorU = ColorU {
+    r: 134,
+    g: 142,
+    b: 150,
+    a: 255,
+};
+/// Muted text, hint level.
+pub const LIGHT_SOFT2: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
+/// Barely-there text.
+pub const LIGHT_SOFT3: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
+/// Icon glyphs.
+pub const LIGHT_ICON: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Raised control, top of the face (flat: equal to RB).
+pub const LIGHT_RT: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+/// Raised control, bottom of the face.
+pub const LIGHT_RB: ColorU = ColorU {
     r: 248,
     g: 249,
     b: 250,
     a: 255,
 };
+/// Hovered control, top of the face.
+pub const LIGHT_HT: ColorU = ColorU {
+    r: 241,
+    g: 243,
+    b: 245,
+    a: 255,
+};
+/// Hovered control, bottom of the face.
+pub const LIGHT_HB: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
+/// Pressed control, top of the face.
+pub const LIGHT_PT: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Pressed control, bottom of the face.
+pub const LIGHT_PB: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
+/// Input field fill.
+pub const LIGHT_FLD: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+/// Secondary field fill (readonly, inset).
+pub const LIGHT_FLD2: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
+/// Disabled control fill.
+pub const LIGHT_DISBG: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
+/// Disabled control text.
+pub const LIGHT_DISTX: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
+/// Quiet fill, e.g. a toolbar button at rest.
+pub const LIGHT_QT: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
+/// Quiet fill, one step stronger.
+pub const LIGHT_QT2: ColorU = ColorU {
+    r: 241,
+    g: 243,
+    b: 245,
+    a: 255,
+};
+/// Accent.
+pub const LIGHT_ACC: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
+/// Accent, pressed.
+pub const LIGHT_DEEP: ColorU = ColorU {
+    r: 10,
+    g: 88,
+    b: 202,
+    a: 255,
+};
+/// Accent, muted.
+pub const LIGHT_SOFT: ColorU = ColorU {
+    r: 110,
+    g: 168,
+    b: 254,
+    a: 255,
+};
+/// Accent as a focus glow (translucent).
+pub const LIGHT_GLOW: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 64,
+};
+/// Text and icons ON an accent fill.
+pub const LIGHT_ON_ACC: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+
+// Dark mode colors
+/// Page: the window canvas behind everything.
+pub const DARK_PG: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+/// Surface: panels and cards sitting on the page.
+pub const DARK_SUR: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Desk: the recessed area a document sits on.
+pub const DARK_DESK: ColorU = ColorU {
+    r: 26,
+    g: 29,
+    b: 33,
+    a: 255,
+};
+/// Strip: toolbars and header bands.
+pub const DARK_STRIP: ColorU = ColorU {
+    r: 43,
+    g: 48,
+    b: 53,
+    a: 255,
+};
+/// Track: scrollbar and slider grooves.
+pub const DARK_TRACK: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Default border.
+pub const DARK_BD: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Lighter border, for internal divisions.
+pub const DARK_BD2: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Stronger border, for emphasis or focus.
+pub const DARK_BD3: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
+/// Faintest border.
+pub const DARK_BD4: ColorU = ColorU {
+    r: 43,
+    g: 48,
+    b: 53,
+    a: 255,
+};
+/// Border that reads as a highlight.
+pub const DARK_BD5: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+/// Separator line.
+pub const DARK_SEP: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Fainter separator.
+pub const DARK_SEP2: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Body text.
+pub const DARK_INK: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+};
+/// Secondary text.
+pub const DARK_INK2: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Introductory / lead text.
+pub const DARK_INTRO: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
+/// Muted text, still readable.
+pub const DARK_SOFT1: ColorU = ColorU {
+    r: 134,
+    g: 142,
+    b: 150,
+    a: 255,
+};
+/// Muted text, hint level.
+pub const DARK_SOFT2: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
+/// Barely-there text.
+pub const DARK_SOFT3: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Icon glyphs.
+pub const DARK_ICON: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+};
+/// Raised control, top of the face (flat: equal to RB).
+pub const DARK_RT: ColorU = ColorU {
+    r: 60,
+    g: 66,
+    b: 73,
+    a: 255,
+};
+/// Raised control, bottom of the face.
+pub const DARK_RB: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Hovered control, top of the face.
+pub const DARK_HT: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+/// Hovered control, bottom of the face.
+pub const DARK_HB: ColorU = ColorU {
+    r: 60,
+    g: 66,
+    b: 73,
+    a: 255,
+};
+/// Pressed control, top of the face.
+pub const DARK_PT: ColorU = ColorU {
+    r: 43,
+    g: 48,
+    b: 53,
+    a: 255,
+};
+/// Pressed control, bottom of the face.
+pub const DARK_PB: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+/// Input field fill.
+pub const DARK_FLD: ColorU = ColorU {
+    r: 43,
+    g: 48,
+    b: 53,
+    a: 255,
+};
+/// Secondary field fill (readonly, inset).
+pub const DARK_FLD2: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Disabled control fill.
+pub const DARK_DISBG: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Disabled control text.
+pub const DARK_DISTX: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
+/// Quiet fill, e.g. a toolbar button at rest.
+pub const DARK_QT: ColorU = ColorU {
+    r: 43,
+    g: 48,
+    b: 53,
+    a: 255,
+};
+/// Quiet fill, one step stronger.
+pub const DARK_QT2: ColorU = ColorU {
+    r: 52,
+    g: 58,
+    b: 64,
+    a: 255,
+};
+/// Accent.
+pub const DARK_ACC: ColorU = ColorU {
+    r: 59,
+    g: 130,
+    b: 246,
+    a: 255,
+};
+/// Accent, pressed.
+pub const DARK_DEEP: ColorU = ColorU {
+    r: 37,
+    g: 99,
+    b: 235,
+    a: 255,
+};
+/// Accent, muted.
+pub const DARK_SOFT: ColorU = ColorU {
+    r: 96,
+    g: 165,
+    b: 250,
+    a: 255,
+};
+/// Accent as a focus glow (translucent).
+pub const DARK_GLOW: ColorU = ColorU {
+    r: 59,
+    g: 130,
+    b: 246,
+    a: 80,
+};
+/// Text and icons ON an accent fill.
+pub const DARK_ON_ACC: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+
+// The names this theme used before it had a full palette. Kept so existing
+// callers keep compiling and keep meaning the same thing.
+/// Deprecated alias for [`LIGHT_SUR`].
+pub const LIGHT_BG: ColorU = LIGHT_SUR;
+/// Deprecated alias for [`LIGHT_INK`].
+pub const LIGHT_FG: ColorU = LIGHT_INK;
+/// Deprecated alias for [`DARK_SUR`].
+pub const DARK_BG: ColorU = DARK_SUR;
+/// Deprecated alias for [`DARK_INK`].
+pub const DARK_FG: ColorU = DARK_INK;
+
 
 #[must_use] 
 pub fn button(btn: Button) -> Dom {
@@ -598,42 +1113,22 @@ pub fn progressbar_render_bar_impl(
             )),
             CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
                 StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
+                    inner: LIGHT_BD3,
                 }),
             )),
             CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
                 StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
+                    inner: LIGHT_BD3,
                 }),
             )),
             CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
                 StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
+                    inner: LIGHT_BD3,
                 }),
             )),
             CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
                 StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
+                    inner: LIGHT_BD3,
                 }),
             )),
             CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
@@ -1072,12 +1567,11 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-const FLAT_BORDER_NORMAL: ColorU = ColorU {
-    r: 172,
-    g: 172,
-    b: 172,
-    a: 255,
-};
+/// The dropdown's border, as a palette token rather than a private literal.
+///
+/// It had no dark counterpart, so a dropdown kept a light-grey outline on a
+/// dark surface; the rules that use it now pair it with `DARK_BD`.
+const FLAT_BORDER_NORMAL: ColorU = LIGHT_BD;
 
 const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
@@ -1151,6 +1645,20 @@ const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_BG)]),
+    )),
+    // The four border colours above are light-mode values; without these the
+    // dropdown kept a light-grey outline on a dark surface.
+    CssPropertyWithConditions::dark_theme(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_BD },
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_BD },
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_BD },
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_BD },
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
         inner: DARK_FG,
