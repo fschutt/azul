@@ -1711,6 +1711,52 @@ impl CssPropertyWithConditions {
         )
     }
 
+    /// A property that applies only while hovered AND the theme is dark.
+    ///
+    /// Conditions conjoin (`matches` requires all of them), so this is the
+    /// dark-mode twin of [`Self::on_hover`]. It exists because the plain
+    /// `on_hover` colour is a LIGHT-mode value: a widget that declares only
+    /// `on_hover` keeps painting that light highlight on a dark surface, which
+    /// is how every interactive state in this toolkit came to be light-only —
+    /// the states are declared where the theme is not in scope, so nothing
+    /// prompts for the other half.
+    #[must_use]
+    pub const fn dark_on_hover(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Hover),
+            ],
+        )
+    }
+
+    /// A property that applies only while active (pressed) AND the theme is
+    /// dark. See [`Self::dark_on_hover`].
+    #[must_use]
+    pub const fn dark_on_active(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Active),
+            ],
+        )
+    }
+
+    /// A property that applies only while focused AND the theme is dark.
+    /// See [`Self::dark_on_hover`].
+    #[must_use]
+    pub const fn dark_on_focus(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Focus),
+            ],
+        )
+    }
+
     /// Style the PROMPT the engine paints for an empty editable
     /// (`::placeholder`), not the element itself.
     #[must_use]

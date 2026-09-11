@@ -812,11 +812,10 @@ impl Default for TimerCallbackReturn {
     }
 }
 
-/// Gives the `layout()` function access to the `RendererResources` and the `Window`
-/// (for querying images and fonts, as well as width / height)
-#[derive(Debug)]
-#[repr(C)]
-/// Reference data container for `LayoutCallbackInfo` (all read-only fields)
+/// Reference data container for `LayoutCallbackInfo` (all read-only fields).
+///
+/// Gives the `layout()` function access to the `RendererResources` and the
+/// `Window` — querying images and fonts, and the width / height.
 ///
 /// This struct consolidates all readonly references that layout callbacks need to query state.
 /// By grouping these into a single struct, we reduce the number of parameters to
@@ -824,6 +823,8 @@ impl Default for TimerCallbackReturn {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
+#[derive(Debug)]
+#[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,

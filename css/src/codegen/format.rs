@@ -70,6 +70,10 @@ pub struct VecContents {
 }
 
 impl VecContents {
+    // One emit block per BTreeMap field, and the field list is the point: the
+    // blocks are near-identical by construction, so merging them to get under
+    // the line count would hide which vec kinds are actually emitted.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch
     pub fn format(&self, tabs: usize) -> String {
         let mut result = String::new();
         let t = "    ".repeat(tabs);

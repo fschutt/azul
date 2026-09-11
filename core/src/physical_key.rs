@@ -31,6 +31,10 @@ impl PhysicalKey {
     // map to one key (95 and 121 are both NumpadComma); reordering them into
     // or-patterns would stop this reading like the table it mirrors.
     #[allow(clippy::match_same_arms)]
+    // One arm per hardware code, and the code IS the documentation: collapsing
+    // arms to get under the line count would hide which scancodes map where,
+    // which is the only thing this table says.
+    #[allow(clippy::too_many_lines)]
     pub const fn from_evdev(code: u32) -> Self {
         use PhysicalKey::{
             AltLeft, AltRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Backquote, Backslash,
@@ -200,6 +204,10 @@ impl PhysicalKey {
     /// detail: without it Enter and `NumpadEnter`, `ControlLeft` and `ControlRight`,
     /// and the whole arrow cluster versus the numpad are the SAME scancode.
     #[must_use]
+    // One arm per hardware code, and the code IS the documentation: collapsing
+    // arms to get under the line count would hide which scancodes map where,
+    // which is the only thing this table says.
+    #[allow(clippy::too_many_lines)]
     pub const fn from_windows_scancode(scancode: u32, extended: bool) -> Self {
         use PhysicalKey::{
             AltLeft, AltRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Backquote, Backslash,
@@ -354,6 +362,10 @@ impl PhysicalKey {
     /// `macos_keycode_to_virtual_key`, the table this codebase already
     /// trusts for the LOGICAL key; the two agree on every code both name.
     #[must_use]
+    // One arm per hardware code, and the code IS the documentation: collapsing
+    // arms to get under the line count would hide which scancodes map where,
+    // which is the only thing this table says.
+    #[allow(clippy::too_many_lines)]
     pub const fn from_macos_keycode(keycode: u16) -> Self {
         use PhysicalKey::{
             AltLeft, AltRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Backquote, Backslash,
