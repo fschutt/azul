@@ -118,6 +118,12 @@ impl<'a> IRBuilder<'a> {
 
             // Check for generic types with angle brackets (Box<T>, Arc<T>, etc.)
             const GENERIC_NON_FFI_TYPES: &[&str] = &[
+                // `Box<` belongs here: it is 16 bytes for a slice or trait
+                // object in Rust and one `void*` in the generated header, so a
+                // `Box<[u8]>` field silently misaligns every field after it.
+                // The `ManuallyDrop<Box<..>>` case that prompted removing it is
+                // already handled by the early return above.
+                "Box<",
                 "Arc<",
                 "Rc<",
                 "Mutex<",
