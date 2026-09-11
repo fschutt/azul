@@ -1083,10 +1083,16 @@ pub struct FloodPrimitive {
 
 impl FloodPrimitive {
     pub fn sanitize(&mut self) {
-        self.color.r = self.color.r.clamp(0.0, 1.0);
-        self.color.g = self.color.g.clamp(0.0, 1.0);
-        self.color.b = self.color.b.clamp(0.0, 1.0);
-        self.color.a = self.color.a.clamp(0.0, 1.0);
+        // `min().max()` rather than `clamp()`, deliberately: this function's
+        // whole job is to hand the compositor a value it can use, and NaN is
+        // exactly the input it exists to absorb. f32 `min`/`max` return the
+        // non-NaN operand, so NaN lands on 1.0; `clamp` passes NaN straight
+        // through and the primitive renders wrong or trips an assert
+        // downstream. A `0.0/0.0` in an animated colour reaches here.
+        self.color.r = self.color.r.min(1.0).max(0.0);
+        self.color.g = self.color.g.min(1.0).max(0.0);
+        self.color.b = self.color.b.min(1.0).max(0.0);
+        self.color.a = self.color.a.min(1.0).max(0.0);
     }
 }
 
@@ -1107,7 +1113,9 @@ pub struct OpacityPrimitive {
 
 impl OpacityPrimitive {
     pub fn sanitize(&mut self) {
-        self.opacity = self.opacity.clamp(0.0, 1.0);
+        // See `FloodPrimitive::sanitize`: `min().max()` maps NaN to 1.0,
+        // `clamp()` would let it through.
+        self.opacity = self.opacity.min(1.0).max(0.0);
     }
 }
 

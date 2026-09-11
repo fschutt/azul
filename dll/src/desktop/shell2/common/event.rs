@@ -773,13 +773,40 @@ fn stage_css_dirty(
     if dirty.is_empty() {
         return;
     }
-    let mut current = layout_window
+    let current = layout_window
         .pending_css_dirty
         .take()
         .unwrap_or((dom_id, Vec::new()));
     if current.0 == dom_id {
-        current.1.extend(dirty);
-        layout_window.pending_css_dirty = Some(current);
+        // MERGE PER NODE, never append. This list says WHICH nodes are dirty
+        // and how far each one has to be re-solved, so a node that changes
+        // twice is one entry with the wider scope — appending made it two.
+        //
+        // Nothing drains the list on a paint-only frame: the shells answer
+        // `ShouldUpdateDisplayListCurrentWindow` by invalidating and redrawing
+        // (macos/mod.rs, windows' `route_main_window_result`), and only a real
+        // layout pass consumes it. `apply_hover_restyle` runs on every
+        // MouseEnter/MouseLeave, so a toolbar whose `:hover` changes nothing
+        // but a colour grew this vector for as long as the pointer kept
+        // moving, and the next resize replayed all of it — stale dirt from
+        // hover states long since reverted — as one hitch proportional to how
+        // long the user had been hovering. Merged, the list cannot outgrow the
+        // DOM however long that goes on.
+        let mut merged: alloc::collections::BTreeMap<
+            azul_core::dom::NodeId,
+            azul_css::props::property::RelayoutScope,
+        > = current.1.into_iter().collect();
+        for (node_id, scope) in dirty {
+            merged
+                .entry(node_id)
+                .and_modify(|existing| {
+                    if scope > *existing {
+                        *existing = scope;
+                    }
+                })
+                .or_insert(scope);
+        }
+        layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
     } else {
         layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
