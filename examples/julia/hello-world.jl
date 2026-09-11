@@ -67,11 +67,8 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
 
     label_ref = Ref(Azul.AzDom_createPWithText(Azul.az_string(string(counter))))
 
-    font_size = Azul.AzStyleFontSize_px(32.0f0)
-    css_prop = Azul.AzCssProperty_fontSize(font_size)
-    cond = Azul.AzCssPropertyWithConditions_simple(css_prop)
     GC.@preserve label_ref begin
-        Azul.AzDom_addCssProperty(vptr(label_ref), cond)
+        Azul.AzDom_setCss(vptr(label_ref), Azul.az_string("font-size: 32px; margin: 0;"))
     end
 
     button = Ref(Azul.AzButton_create(Azul.az_string("Increase counter")))

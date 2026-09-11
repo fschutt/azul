@@ -1135,6 +1135,10 @@ impl CGenerator {
     /// Convert Rust type to C type
     fn rust_type_to_c(&self, rust_type: &str) -> String {
         let trimmed = rust_type.trim();
+        
+        if trimmed.starts_with("ManuallyDrop<Box<") || trimmed.starts_with("AzManuallyDrop<AzBox<") {
+            return "void*".to_string();
+        }
 
         // Handle pointer types first
         if trimmed.starts_with("*const ") {
@@ -1184,6 +1188,10 @@ impl CGenerator {
     /// Convert Rust type to C type with prefix
     fn rust_type_to_c_with_prefix(&self, rust_type: &str, config: &CodegenConfig) -> String {
         let trimmed = rust_type.trim();
+        
+        if trimmed.starts_with("ManuallyDrop<Box<") || trimmed.starts_with("AzManuallyDrop<AzBox<") {
+            return "void*".to_string();
+        }
 
         // Handle pointer types - only add prefix to the base type
         if trimmed.starts_with("*const ") {

@@ -94,10 +94,7 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString counter_str = AzString_fromUtf8(buf.ptr, n);
     AzDom label = AzDom_createPWithText(counter_str);
 
-    AzStyleFontSize font_size = AzStyleFontSize_px(32.0);
-    AzCssProperty css_prop = AzCssProperty_fontSize(font_size);
-    AzCssPropertyWithConditions cond = AzCssPropertyWithConditions_simple(css_prop);
-    AzDom_addCssProperty(&label, cond);
+    AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"));
 
     AzButton button = AzButton_create(azString("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType.Primary);

@@ -15,6 +15,11 @@
 # 10. Verifies shutdown
 
 set -e
+unset http_proxy
+unset https_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+unset ALL_PROXY
 
 # Colors for output
 RED='\033[0;31m'

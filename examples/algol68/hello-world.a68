@@ -33,9 +33,7 @@ BEGIN
   AZDOM label dom := az dom create text do not use without block level wrapper (label text);
   AZDOM label wrapper := az dom create div;
 
-  AZSTYLEFONTSIZE size := az style font size px (32.0);
-  AZCSSPROPERTY font size := az css property font size (size);
-  az dom add css property (label wrapper, az css property with conditions simple (font size));
+  az dom set css (label wrapper, az str ("font-size: 32px; margin: 0;"));
   az dom add child (label wrapper, label dom);
 
   AZBUTTON button := az button create (az str ("Increase counter"));

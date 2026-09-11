@@ -64,10 +64,7 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     let counterStr = azString(String(m.pointee.counter))
     var label = AzDom_createPWithText(counterStr)
 
-    let fontSize = AzStyleFontSize_px(32.0)
-    let cssProp = AzCssProperty_fontSize(fontSize)
-    let cond = AzCssPropertyWithConditions_simple(cssProp)
-    AzDom_addCssProperty(&label, cond)
+    AzDom_setCss(&label, az_str("font-size: 32px; margin: 0;"))
 
     var button = AzButton_create(azString("Increase counter"))
     AzButton_setButtonType(&button, AzButtonType_Primary)

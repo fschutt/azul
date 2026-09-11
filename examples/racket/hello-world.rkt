@@ -20,10 +20,7 @@
     (dom-create-text-do-not-use-without-block-level-wrapper
      (az-str (number->string counter))))
   (define wrap (dom-create-div))
-  (dom-add-css-property
-   wrap
-   (css-property-with-conditions-simple
-    (css-property-font-size (style-font-size-px 32.0))))
+  (dom-set-css wrap (az-str "font-size: 32px; margin: 0;"))
   (dom-add-child wrap label)
   (define btn (button-create (az-str "Increase counter")))
   (button-set-button-type btn AzButtonType_Primary)

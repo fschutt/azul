@@ -53,9 +53,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
     return AzDom_createBody()
 
   var label = AzDom_createPWithText(azStr($m.counter))
-  let cond = AzCssPropertyWithConditions_simple(
-    AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))
-  AzDom_addCssProperty(addr label, cond)
+  AzDom_setCss(addr label, azStr("font-size: 32px; margin: 0;"))
 
   var button = AzButton_create(azStr("Increase counter"))
   AzButton_setButtonType(addr button, AzButtonType.Primary)
