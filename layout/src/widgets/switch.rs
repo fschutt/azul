@@ -274,14 +274,38 @@ impl Switch {
                 inner: SwitchState { checked },
                 ..Default::default()
             },
-            track_style: OptionCssPropertyWithConditionsVec::Some(
-                build_track_style(checked),
-            ),
-            knob_style: OptionCssPropertyWithConditionsVec::Some(
-                build_knob_style(checked),
-            ),
+            // No opinion: `resolved_track_style` / `resolved_knob_style`
+            // derive these from the checked flag when the DOM is built, so a
+            // toggle still styles itself and a caller who sets one is not
+            // overwritten by the next state change.
+            track_style: OptionCssPropertyWithConditionsVec::None,
+            knob_style: OptionCssPropertyWithConditionsVec::None,
+
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The track CSS this switch renders with.
+    ///
+    /// `None` means no opinion, so the default for the current checked state
+    /// applies. Resolved late rather than at construction because the default
+    /// depends on that state: writing it into the field on every toggle would
+    /// also clobber a caller's explicit style.
+    #[must_use]
+    pub fn resolved_track_style(&self) -> CssPropertyWithConditionsVec {
+        self.track_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_track_style(self.switch_state.inner.checked))
+    }
+
+    /// The knob CSS this switch renders with; see [`Self::resolved_track_style`].
+    #[must_use]
+    pub fn resolved_knob_style(&self) -> CssPropertyWithConditionsVec {
+        self.knob_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_knob_style(self.switch_state.inner.checked))
     }
 
     #[inline]
@@ -1351,12 +1375,12 @@ mod autotest_generated {
         for checked in [false, true] {
             let s = Switch::create(checked);
             assert_eq!(
-                properties(&s.track_style),
+                properties(&s.resolved_track_style()),
                 properties(&build_track_style(checked)),
                 "create({checked}) did not build the track for state {checked}",
             );
             assert_eq!(
-                properties(&s.knob_style),
+                properties(&s.resolved_knob_style()),
                 properties(&build_knob_style(checked)),
                 "create({checked}) did not build the knob for state {checked}",
             );
@@ -1367,8 +1391,8 @@ mod autotest_generated {
     fn the_rendered_colour_and_the_knob_position_always_agree_with_the_stored_flag() {
         for checked in [false, true] {
             let s = Switch::create(checked);
-            let bg = background(&s.track_style).expect("no track background");
-            let margin = margin_left_px(&s.knob_style).expect("no knob margin");
+            let bg = background(&s.resolved_track_style()).expect("no track background");
+            let margin = margin_left_px(&s.resolved_knob_style()).expect("no knob margin");
 
             let (expected_color, expected_margin) = if s.switch_state.inner.checked {
                 (TRACK_ON_COLOR, TRAVEL)
@@ -1550,13 +1574,13 @@ mod autotest_generated {
                 "installing a callback flipped the switch",
             );
             assert_eq!(
-                properties(&s.track_style),
-                properties(&pristine.track_style),
+                properties(&s.resolved_track_style()),
+                properties(&pristine.resolved_track_style()),
                 "installing a callback rewrote the track style",
             );
             assert_eq!(
-                properties(&s.knob_style),
-                properties(&pristine.knob_style),
+                properties(&s.resolved_knob_style()),
+                properties(&pristine.resolved_knob_style()),
                 "installing a callback rewrote the knob style",
             );
         }
@@ -1577,12 +1601,12 @@ mod autotest_generated {
 
         assert_eq!(by_builder.switch_state.inner, by_setter.switch_state.inner);
         assert_eq!(
-            properties(&by_builder.track_style),
-            properties(&by_setter.track_style),
+            properties(&by_builder.resolved_track_style()),
+            properties(&by_setter.resolved_track_style()),
         );
         assert_eq!(
-            properties(&by_builder.knob_style),
-            properties(&by_setter.knob_style),
+            properties(&by_builder.resolved_knob_style()),
+            properties(&by_setter.resolved_knob_style()),
         );
 
         let a = by_builder
@@ -1678,8 +1702,8 @@ mod autotest_generated {
         // the widget would still render, just wrong.
         for checked in [false, true] {
             let s = Switch::create(checked);
-            let track = properties(&s.track_style);
-            let knob = properties(&s.knob_style);
+            let track = properties(&s.resolved_track_style());
+            let knob = properties(&s.resolved_knob_style());
 
             let dom = s.dom();
             assert_eq!(
@@ -1877,7 +1901,7 @@ mod autotest_generated {
                     .into_iter()
                     .map(|(_, b)| b)
                     .collect::<Vec<_>>(),
-                vec![background(&expected.track_style).expect("no background")],
+                vec![background(&expected.resolved_track_style()).expect("no background")],
                 "start={start}: the clicked track colour differs from a freshly built one",
             );
             assert_eq!(
@@ -1885,7 +1909,7 @@ mod autotest_generated {
                     .into_iter()
                     .map(|(_, m)| m)
                     .collect::<Vec<_>>(),
-                vec![margin_left_px(&expected.knob_style).expect("no margin")],
+                vec![margin_left_px(&expected.resolved_knob_style()).expect("no margin")],
                 "start={start}: the clicked knob offset differs from a freshly built one",
             );
         }

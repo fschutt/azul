@@ -884,6 +884,11 @@ pub fn label(l: crate::widgets::label::Label) -> Dom {
 #[must_use] 
 pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let is_checked = s.switch_state.inner.checked;
+    // Resolved up front: the knob's Dom is built after `s.switch_state` has
+    // been moved into the callback's RefAny, and the resolver needs the whole
+    // widget.
+    let resolved_track_style = s.resolved_track_style();
+    let resolved_knob_style = s.resolved_knob_style();
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{Dom, EventFilter, HoverEventFilter, IdOrClassVec, TabIndex},
@@ -899,16 +904,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
             crate::widgets::switch::SWITCH_TRACK_CLASS,
         ))
         .with_css_props(
-            match s.track_style {
-                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(style) => {
-                    style.as_slice().to_vec()
-                }
-                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
-                    crate::widgets::switch::build_track_style(is_checked)
-                        .as_slice()
-                        .to_vec()
-                }
-            }
+            resolved_track_style.as_slice().to_vec()
             .into(),
         )
         .with_callbacks(
@@ -941,15 +937,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
                     crate::widgets::switch::SWITCH_KNOB_CLASS
                 ))
                 .with_css_props(
-                    match s.knob_style {
-                        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
-                            style,
-                        ) => style.as_slice().to_vec(),
-                        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None =>
-                            crate::widgets::switch::build_knob_style(is_checked)
-                                .as_slice()
-                                .to_vec(),
-                    }
+                    resolved_knob_style.as_slice().to_vec()
                     .into()
                 )]
             .into(),
