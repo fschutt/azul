@@ -52,9 +52,17 @@
     single_use_lifetimes,
     variant_size_differences,
     let_underscore_drop,
+    // Restored: both were dropped from this set inside a commit about renaming
+    // `Theme`, which is not where a safety-lint relaxation belongs.
+    // `unsafe_op_in_unsafe_fn` is the only thing that forces an explicit
+    // `unsafe {}` around each dangerous operation inside a long
+    // `unsafe extern "C" fn` — without it nothing marks which line in an FFI
+    // entry point is the one that can go wrong. `non_ascii_idents` is the
+    // homoglyph guard.
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
 )]
 #![allow(
-    unsafe_op_in_unsafe_fn,
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
     clippy::should_implement_trait,
