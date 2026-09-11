@@ -149,6 +149,18 @@ impl Default for Tooltip {
 }
 
 impl Tooltip {
+    /// The tip's CSS.
+    ///
+    /// `None` means no opinion, so the built-in tip style applies. Named so the
+    /// tests can ask what is rendered rather than reading the field, which is
+    /// `None` until a caller sets one.
+    #[must_use]
+    pub fn resolved_tip_style(&self) -> CssPropertyWithConditionsVec {
+        self.tip_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE))
+    }
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
     #[must_use]
     pub fn new(anchor: Dom, text: AzString) -> Self {
@@ -202,9 +214,11 @@ impl Tooltip {
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
 
+        // Resolved before `self.text` is moved out below.
+        let tip_css = self.resolved_tip_style();
         let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
-            .with_css_props(self.tip_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)));
+            .with_css_props(tip_css);
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_WRAPPER_CLASS))
@@ -608,11 +622,11 @@ mod autotest_generated {
             CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_WRAPPER_STYLE)
         );
         assert_eq!(
-            t.tip_style,
+            t.resolved_tip_style(),
             CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)
         );
         assert_eq!(t.wrapper_style.len(), TOOLTIP_WRAPPER_STYLE.len());
-        assert_eq!(t.tip_style.len(), TOOLTIP_TIP_STYLE.len());
+        assert_eq!(t.resolved_tip_style().as_slice().len(), TOOLTIP_TIP_STYLE.len());
     }
 
     #[test]
@@ -623,7 +637,7 @@ mod autotest_generated {
         let b = Tooltip::new(nested_anchor(8), AzString::from("🦀".repeat(1000)));
 
         assert_eq!(a.wrapper_style, b.wrapper_style);
-        assert_eq!(a.tip_style, b.tip_style);
+        assert_eq!(a.resolved_tip_style(), b.resolved_tip_style());
     }
 
     #[test]
@@ -703,7 +717,7 @@ mod autotest_generated {
             assert_eq!(mutated.text.as_str(), s.as_str());
             assert_eq!(mutated.anchor, base.anchor, "the anchor must be untouched");
             assert_eq!(mutated.wrapper_style, base.wrapper_style);
-            assert_eq!(mutated.tip_style, base.tip_style);
+            assert_eq!(mutated.resolved_tip_style(), base.resolved_tip_style());
         }
     }
 
@@ -754,7 +768,7 @@ mod autotest_generated {
 
         assert_eq!(mutated, built);
         assert_eq!(
-            mutated.tip_style, style,
+            mutated.resolved_tip_style(), style,
             "the style must be stored verbatim"
         );
     }
@@ -776,7 +790,7 @@ mod autotest_generated {
     fn tip_style_can_be_emptied_and_the_widget_still_builds() {
         let t = Tooltip::new(Dom::create_div(), AzString::from_const_str("naked"))
             .with_tip_style(CssPropertyWithConditionsVec::from_const_slice(&[]));
-        assert_eq!(t.tip_style.len(), 0);
+        assert_eq!(t.resolved_tip_style().as_slice().len(), 0);
 
         let dom = t.dom();
         let tip = &dom.children.as_ref()[1];
@@ -795,8 +809,8 @@ mod autotest_generated {
         let style = style_of(props);
 
         let t = Tooltip::default().with_tip_style(style.clone());
-        assert_eq!(t.tip_style.len(), 10_000);
-        assert_eq!(t.tip_style, style);
+        assert_eq!(t.resolved_tip_style().as_slice().len(), 10_000);
+        assert_eq!(t.resolved_tip_style(), style);
 
         let dom = t.dom();
         assert_eq!(
