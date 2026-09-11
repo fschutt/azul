@@ -363,23 +363,6 @@ impl ProgressBar {
     }
 }
 
-/// The render core behind [`ProgressBar::render_bar`] (percentage widths,
-/// `bounds_px: None`) and the `VirtualView` callback (absolute pixel sizes
-/// computed from the node's known bounds, `Some((width, height))`).
-///
-/// The split exists because the two contexts size differently. Percentages
-/// inside a `VirtualView` DO resolve correctly against the view's bounds
-/// (the child DOM lays out against its own viewport - it briefly resolved
-/// against the WINDOW, fixed 2026-08-29, pinned by
-/// `a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window`),
-/// but the bounds mode stays PIXEL-based for what percentages cannot
-/// express: the container is sized to `bounds - 2px borders` so its 1px
-/// border ring lands INSIDE the box - with the normal-flow sizing (content
-/// height + borders) the ring overflowed the VV node and was clipped away
-/// at the right and bottom ("oddly cut off", user report 2026-08-29) - and
-/// the fill is an exact device-pixel split of the known content width.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use]
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -1561,7 +1544,7 @@ mod autotest_generated {
         let payload = vv.refany.clone();
 
         let ret = with_virtual_view_info(200.0, 15.0, |info| {
-            progressbar_render_virtual_view(payload, info)
+            crate::widgets::themes::flat::progressbar_render_virtual_view(payload, info)
         });
 
         let rendered = match &ret.dom {
@@ -1611,7 +1594,7 @@ mod autotest_generated {
             .refany
             .clone();
         let ret = with_virtual_view_info(100.0, 15.0, |info| {
-            progressbar_render_virtual_view(payload, info)
+            crate::widgets::themes::flat::progressbar_render_virtual_view(payload, info)
         });
 
         let rendered = match &ret.dom {
@@ -1629,7 +1612,7 @@ mod autotest_generated {
     #[test]
     fn virtual_view_callback_rejects_a_foreign_payload() {
         let ret = with_virtual_view_info(100.0, 15.0, |info| {
-            progressbar_render_virtual_view(RefAny::new(0_u8), info)
+            crate::widgets::themes::flat::progressbar_render_virtual_view(RefAny::new(0_u8), info)
         });
         assert!(
             matches!(ret.dom, azul_core::dom::OptionDom::None),
