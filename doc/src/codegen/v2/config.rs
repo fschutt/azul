@@ -305,6 +305,11 @@ pub struct CodegenConfig {
 impl CodegenConfig {
     /// Transform an external path based on external_crate_replacement
     pub fn transform_external_path(&self, path: &str) -> String {
+        // NOTE: `::wasm_stub` no longer appears anywhere in api.json. This
+        // strip is kept because it is load-bearing for older api.json files
+        // the tooling still reads, but it is a blanket rewrite: a module
+        // genuinely named `wasm_stub` would be mangled by it. Narrow it to the
+        // paths that actually carried the stub if that ever happens.
         let mut path_str = path.replace("::wasm_stub", "");
         if let Some((from, to)) = &self.external_crate_replacement {
             if path_str.starts_with(from.as_str()) {

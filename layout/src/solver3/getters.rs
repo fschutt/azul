@@ -6771,13 +6771,6 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
     false
 }
 
-/// Whether the focused node is this node ITSELF or one of its ANCESTORS.
-///
-/// The engine placeholder's hide rule: widget focus lands on the editable
-/// CONTAINER above the prompt-carrying line, so "the host is focused" means
-/// "me or something above me is focused". Recomputed per display-list build,
-/// which makes the rule latch-free by construction (the 2026-08-31
-/// whack-a-mole class: imperative show/hide overrides stuck forever).
 /// Whether `host` or anything INSIDE it holds focus.
 ///
 /// The companion to [`is_focus_within_or_above`], and the other half of the
@@ -6821,6 +6814,15 @@ pub(crate) fn is_focus_within_subtree(styled_dom: &StyledDom, host: NodeId) -> b
     false
 }
 
+/// Whether the focused node is this node ITSELF or one of its ANCESTORS.
+///
+/// The engine placeholder's hide rule: widget focus lands on the editable
+/// CONTAINER above the prompt-carrying line, so "the host is focused" means
+/// "me or something above me is focused". Recomputed per display-list build,
+/// which makes the rule latch-free by construction (the 2026-08-31
+/// whack-a-mole class: imperative show/hide overrides stuck forever).
+///
+/// See [`is_focus_within_subtree`] for the downward half of the question.
 pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let styled = styled_dom.styled_nodes.as_container();
     if styled

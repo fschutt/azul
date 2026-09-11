@@ -1282,7 +1282,6 @@ const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 /// once. A debug build validates unconditionally; a release build — which is
 /// what the battery and every shipped binary are — has to opt in with
 /// `AZ_VALIDATE=1`.
-#[must_use]
 /// Does this `AZ_VALIDATE` value turn the gate on?
 ///
 /// Split out of [`validation_enabled`] so it can be tested WITHOUT touching
@@ -1862,7 +1861,6 @@ pub mod win32_vk {
 /// Derived from winit's `platform_impl::windows::event`; the Apache-2.0 notice
 /// it is distributed under is reproduced in full at the head of
 /// `shell2/windows/win_event.rs`, where this table used to live.
-#[must_use]
 #[allow(clippy::too_many_lines)]
 // exhaustive keycode match table
 // The VK code is the documentation here: merging the arms that answer the same

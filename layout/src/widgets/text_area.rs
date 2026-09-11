@@ -537,7 +537,7 @@ impl TextArea {
 
     #[must_use]
     pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
-        self.set_container_style(style); // note: this regex might break if set_X name is different from with_X
+        self.set_container_style(style);
         self
     }
 

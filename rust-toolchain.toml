@@ -1,3 +1,8 @@
+# Pinned, not floating. The version is chosen by what the dependency tree
+# actually builds with, so bumping it is a deliberate change with a test run
+# behind it, never a side effect of a newer toolchain landing on a runner.
+#
+# 1.90.0 is the floor set by turso 0.7, roaring 0.11.5 and aes 0.9.3.
 [toolchain]
 channel = "1.90.0"
 components = ["clippy", "rustfmt"]
