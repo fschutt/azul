@@ -1869,6 +1869,20 @@ pub const ROW_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions:
     ])),
 );
 
+/// The text fields' ring — the border every text field takes on hover and on
+/// focus — is `#4286f4`, the value `TextInput`, `TextArea` and `NumberInput`
+/// carried before the theme owned their states (the widgets' own
+/// `COLOR_4286F4`). It is deliberately NOT [`LIGHT_ACC`]: the accent is the
+/// theme's newer blue, and a migration that swaps one light value for another
+/// changes what every existing app looks like. The dark twin is [`DARK_ACC`],
+/// where the fields had no dark ring at all before.
+pub const FIELD_RING: ColorU = ColorU {
+    r: 66,
+    g: 134,
+    b: 244,
+    a: 255,
+};
+
 /// The focus ring: the focused control's border takes the accent colour.
 ///
 /// One const per edge, because a border colour is four properties and a focus
@@ -1878,22 +1892,22 @@ pub const ROW_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions:
 /// names it.
 pub const FOCUS_BORDER_TOP: CssPropertyWithConditions =
     CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: LIGHT_ACC,
+        inner: FIELD_RING,
     }));
 
 /// See [`FOCUS_BORDER_TOP`].
 pub const FOCUS_BORDER_BOTTOM: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
-    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: FIELD_RING }),
 );
 
 /// See [`FOCUS_BORDER_TOP`].
 pub const FOCUS_BORDER_LEFT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
-    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: FIELD_RING }),
 );
 
 /// See [`FOCUS_BORDER_TOP`].
 pub const FOCUS_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
-    CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_right_color(StyleBorderRightColor { inner: FIELD_RING }),
 );
 
 /// The dark twin of [`FOCUS_BORDER_TOP`].
@@ -1983,22 +1997,22 @@ pub fn hover_bg_pair(light: ColorU) -> [CssPropertyWithConditions; 2] {
 /// rather than individually.
 pub const HOVER_BORDER_TOP: CssPropertyWithConditions =
     CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: LIGHT_ACC,
+        inner: FIELD_RING,
     }));
 
 /// See [`HOVER_BORDER_TOP`].
 pub const HOVER_BORDER_BOTTOM: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
-    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: FIELD_RING }),
 );
 
 /// See [`HOVER_BORDER_TOP`].
 pub const HOVER_BORDER_LEFT: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
-    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: FIELD_RING }),
 );
 
 /// See [`HOVER_BORDER_TOP`].
 pub const HOVER_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
-    CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_ACC }),
+    CssProperty::const_border_right_color(StyleBorderRightColor { inner: FIELD_RING }),
 );
 
 /// The dark twin of [`HOVER_BORDER_TOP`].
