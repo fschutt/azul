@@ -2112,3 +2112,71 @@ pub fn button_states(
     out.push(FOCUS_BORDER_RIGHT_DARK);
     out
 }
+
+/// A hover fill with BOTH halves chosen by the caller.
+///
+/// For widgets that carry their own palette (`RibbonTheme`, `StatusBarTheme`,
+/// ...). The rule for picking `dark`: a surface that is its own colour — a blue
+/// nav, a coloured button — keeps its light hover colour, because the surface
+/// does not change in dark mode either; a page-neutral surface takes this
+/// theme's [`DARK_HT`]. See `button_states` for the same rule applied.
+#[must_use]
+pub fn hover_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    let bg = |c: ColorU| {
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
+            StyleBackgroundContent::Color(c),
+        ]))
+    };
+    [
+        CssPropertyWithConditions::on_hover(bg(light)),
+        CssPropertyWithConditions::dark_on_hover(bg(dark)),
+    ]
+}
+
+/// A pressed fill with BOTH halves chosen by the caller — see [`hover_bg_both`].
+#[must_use]
+pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    let bg = |c: ColorU| {
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
+            StyleBackgroundContent::Color(c),
+        ]))
+    };
+    [
+        CssPropertyWithConditions::on_active(bg(light)),
+        CssPropertyWithConditions::dark_on_active(bg(dark)),
+    ]
+}
+
+// ===========================================================================
+// PHASE 2 — per-widget state sections. Each widget's interactive-state consts
+// live between its own pair of markers and nowhere else, so that the
+// migrations can proceed in parallel without touching one another's lines.
+// ===========================================================================
+
+// == STATES: list_view ==
+// == /STATES: list_view ==
+
+//
+//
+//
+
+// == STATES: tabs ==
+// == /STATES: tabs ==
+
+//
+//
+//
+
+// == STATES: text_input ==
+// == /STATES: text_input ==
+
+//
+//
+//
+
+// == STATES: chrome ==
+// == /STATES: chrome ==
+
+//
+//
+//
