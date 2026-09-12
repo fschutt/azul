@@ -133,7 +133,7 @@ pub struct Avatar {
 /// Builds the circular container style for a given size. Diameter, corner radius
 /// and font size are size-dependent, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-#[must_use] 
+#[must_use]
 pub fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
@@ -182,7 +182,7 @@ pub fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 
 /// Builds the inner image style: fills the circle and is itself rounded so the
 /// image reads as a circle even if `overflow: hidden` clipping is unavailable.
-#[must_use] 
+#[must_use]
 pub fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
@@ -260,13 +260,13 @@ impl Avatar {
         self
     }
 
-    /// Sets the size variant, recomputing the style.
+    /// Sets the theme this avatar renders with.
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
     }
 
-    #[must_use] 
+    #[must_use]
     pub const fn with_theme(mut self, theme: UiTheme) -> Self {
         self.set_theme(theme);
         self
@@ -883,7 +883,10 @@ mod autotest_generated {
                 "AB",
                 "set_image must keep the fallback initials"
             );
-            assert_eq!(properties(&a.resolved_avatar_style()), properties(&base.resolved_avatar_style()));
+            assert_eq!(
+                properties(&a.resolved_avatar_style()),
+                properties(&base.resolved_avatar_style())
+            );
         }
     }
 
@@ -1128,23 +1131,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn assigning_the_size_field_directly_desyncs_the_container_from_the_image() {
-        // `size` and `avatar_style` are both public, and `dom()` reads the image
-        // geometry from `size` while the container keeps the *stored* style. So a
-        // direct field write (bypassing `set_size`) silently produces an avatar
-        // whose image is a different diameter than its circle. Pinned here as the
-        // current behaviour — `set_size` is the only correct path.
-        let mut a = Avatar::create_with_image(test_image());
-        a.size = AvatarSize::Large; // NOT set_size: the style is not recomputed
-        let dom = a.dom();
+    fn assigning_the_size_field_directly_keeps_the_container_and_the_image_in_step() {
+        // `size` and `avatar_style` are both public, and a direct field write
+        // used to desync them: `dom()` read the image geometry from `size`
+        // while the container kept whatever style the constructor had stored,
+        // so bypassing `set_size` rendered a Large image inside a Medium
+        // circle. There is no stored style left to go stale —
+        // `resolved_avatar_style` derives it from `size` — so the bypass and
+        // `set_size` now reach the same DOM.
+        let mut assigned = Avatar::create_with_image(test_image());
+        assigned.size = AvatarSize::Large; // the bypass the old desync needed
+        let mut via_setter = Avatar::create_with_image(test_image());
+        via_setter.set_size(AvatarSize::Large);
 
+        let dom = assigned.dom();
         assert_eq!(
-            width_px(&build_avatar_style(AvatarSize::Medium)),
-            Some(40.0),
-            "fixture assumption: the stored style is still Medium's"
+            inline_properties(&dom),
+            inline_properties(&via_setter.dom()),
+            "a direct `size` write must render like `set_size`"
         );
-        let container = inline_properties(&dom);
-        let container_width = container.iter().find_map(|p| match p {
+
+        let container_width = inline_properties(&dom).iter().find_map(|p| match p {
             CssProperty::Width(w) => match w.get_property()? {
                 LayoutWidth::Px(pv) => Some(px(pv)),
                 _ => None,
@@ -1153,13 +1160,18 @@ mod autotest_generated {
         });
         assert_eq!(
             container_width,
-            Some(40.0),
-            "container still uses the stored Medium style"
+            width_px(&build_avatar_style(AvatarSize::Large)),
+            "the circle follows the freshly assigned `size` field"
+        );
+        assert_ne!(
+            width_px(&build_avatar_style(AvatarSize::Large)),
+            width_px(&build_avatar_style(AvatarSize::Medium)),
+            "fixture: the two sizes have to differ for this to prove anything"
         );
         assert_eq!(
             inline_properties(only_child(&dom)),
             properties(&build_image_style(AvatarSize::Large)),
-            "the image, however, follows the freshly assigned `size` field"
+            "and so does the image inside it"
         );
     }
 }

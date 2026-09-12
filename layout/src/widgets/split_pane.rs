@@ -47,9 +47,10 @@ use azul_core::{
     geom::{CursorNodePosition, LogicalSize},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, FloatValue, PixelValue},
@@ -321,14 +322,14 @@ impl SplitPane {
     /// set their own style no longer loses it the first time the orientation
     /// changes.
     #[inline]
-    pub fn set_direction(&mut self, direction: SplitDirection) {
+    pub const fn set_direction(&mut self, direction: SplitDirection) {
         self.split_pane_state.inner.direction = direction;
     }
 
     /// Builder-style setter for the orientation.
     #[inline]
     #[must_use]
-    pub fn with_direction(mut self, direction: SplitDirection) -> Self {
+    pub const fn with_direction(mut self, direction: SplitDirection) -> Self {
         self.set_direction(direction);
         self
     }
@@ -1591,16 +1592,37 @@ mod autotest_generated {
     }
 
     #[test]
-    fn set_direction_discards_a_custom_container_style() {
-        // PIN: `with_container_style` then `set_direction` silently throws the
-        // custom style away — the two builders are order-dependent.
+    fn set_direction_keeps_a_custom_container_style() {
+        // `with_container_style` then `set_direction` used to throw the custom
+        // style away, because `set_direction` recomputed the stored default over
+        // the top of it — the two builders were order-dependent. The style is
+        // resolved rather than stored now, so the caller's answer survives, and
+        // an explicitly empty one is still an answer.
         let sp = plain(SplitDirection::Horizontal)
             .with_container_style(CssPropertyWithConditionsVec::from_vec(vec![]))
             .with_direction(SplitDirection::Vertical);
+        assert!(
+            properties(&sp.resolved_container_style()).is_empty(),
+            "an explicit empty style means no properties, in either direction"
+        );
+
+        // Order-independence, the property the old behaviour lacked.
+        let marker = container_style(SplitDirection::Horizontal);
+        let before = plain(SplitDirection::Horizontal)
+            .with_container_style(marker.clone())
+            .with_direction(SplitDirection::Vertical);
+        let after = plain(SplitDirection::Horizontal)
+            .with_direction(SplitDirection::Vertical)
+            .with_container_style(marker.clone());
         assert_eq!(
-            properties(&sp.resolved_container_style()),
-            properties(&container_style(SplitDirection::Vertical)),
-            "set_direction overwrites, it does not merge"
+            properties(&before.resolved_container_style()),
+            properties(&marker),
+            "the caller's style must survive a later set_direction"
+        );
+        assert_eq!(
+            properties(&before.resolved_container_style()),
+            properties(&after.resolved_container_style()),
+            "the two builders must commute"
         );
     }
 
@@ -1629,8 +1651,14 @@ mod autotest_generated {
                 CssProperty::const_display(LayoutDisplay::Block),
             )]);
         let sp = plain(SplitDirection::Horizontal).with_container_style(custom.clone());
-        assert_eq!(properties(&sp.resolved_container_style()), properties(&custom));
-        assert_eq!(display(&sp.resolved_container_style()), Some(LayoutDisplay::Block));
+        assert_eq!(
+            properties(&sp.resolved_container_style()),
+            properties(&custom)
+        );
+        assert_eq!(
+            display(&sp.resolved_container_style()),
+            Some(LayoutDisplay::Block)
+        );
     }
 
     #[test]
