@@ -60,9 +60,32 @@ impl Harness {
         Self::new_with_dom(width, height, dom)
     }
 
-    fn new_with_dom(width: f32, height: f32, mut dom: Dom) -> Self {
+    /// [`Self::new_with_text_area`] on a window whose system style is macOS
+    /// FROM THE FIRST CASCADE: the UA scrollbar CSS (overlay bars, 0 px
+    /// reserved) is evaluated against the context the DOM was cascaded
+    /// under, so a system style set after the first layout is not seen by
+    /// the scrollbar resolution any more than by the rest of the cascade.
+    fn new_with_text_area_on_macos(width: f32, height: f32, text: &str) -> Self {
+        let dom =
+            Dom::create_body().with_child(TextArea::create().with_text(AzString::from(text)).dom());
+        let mut style = azul_css::system::SystemStyle::default();
+        style.platform = azul_css::system::Platform::MacOs;
+        Self::new_with_dom_on(width, height, dom, Some(std::sync::Arc::new(style)))
+    }
+
+    fn new_with_dom(width: f32, height: f32, dom: Dom) -> Self {
+        Self::new_with_dom_on(width, height, dom, None)
+    }
+
+    fn new_with_dom_on(
+        width: f32,
+        height: f32,
+        mut dom: Dom,
+        system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    ) -> Self {
         let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.system_style = system_style;
         // Instant reveals: the physics timer that drives glides is armed in
         // the dll and does not exist here.
         lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
@@ -571,17 +594,14 @@ fn several_enters_in_a_row_stay_pixel_correct() {
 fn typing_into_an_empty_text_area_until_overflow_makes_the_container_a_scroller() {
     use azul_core::selection::GraphemeClusterId;
 
-    let mut h = Harness::new_with_text_area(300.0, 90.0, "");
     // Model the DEVICE: macOS overlay scrollbars (reserve 0px). Without a
     // system style the UA resolves a classic space-reserving bar, and a
     // reserving bar legitimately takes the ESCALATION path instead (it
     // changes geometry) — that path needs the DOM to carry the text and is
-    // pinned elsewhere.
-    h.lw.system_style = Some(std::sync::Arc::new({
-        let mut style = azul_css::system::SystemStyle::default();
-        style.platform = azul_css::system::Platform::MacOs;
-        style
-    }));
+    // pinned elsewhere. The style is in place BEFORE the first cascade: the
+    // scrollbar CSS is evaluated against the context the DOM was cascaded
+    // under, not against a system style set afterwards.
+    let mut h = Harness::new_with_text_area_on_macos(300.0, 90.0, "");
     h.register_scroll_nodes();
     assert!(
         !h.lw
