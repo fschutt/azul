@@ -761,9 +761,10 @@ pub fn styled_dom_resolving_icons(
     styled_dom_resolving_icons_with_context(dom, provider, system_style, None)
 }
 
-/// [`styled_dom_resolving_icons`], cascading under the window's dynamic
-/// context from the first pass (`StyledDom::create_with_context`) so the
-/// funnel's later context offer is a no-op rather than a re-cascade.
+/// [`styled_dom_resolving_icons`], cascading under a known window context.
+///
+/// The context reaches the first cascade (`StyledDom::create_with_context`),
+/// so the funnel's later context offer is a no-op rather than a re-cascade.
 #[must_use]
 pub fn styled_dom_resolving_icons_with_context(
     mut dom: Dom,

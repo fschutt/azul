@@ -132,6 +132,8 @@ mod autotest_generated {
         fn ua(&mut self, node_type: &NodeType) {
             apply_ua_css_to_compact(
                 node_type,
+                false,
+                None,
                 &mut self.tier1,
                 &mut self.dims,
                 &mut self.cold,

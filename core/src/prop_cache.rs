@@ -355,6 +355,30 @@ pub struct StatefulCssProperty {
     pub ua_origin: bool,
 }
 
+/// One bit per `CssPropertyType` (fewer than 256 variants): "this node has
+/// a Normal-state value of this type from a layer that beats the UA sheet".
+type PropTypeBits = [u128; 2];
+
+#[inline]
+const fn prop_type_bit_set(bits: &mut PropTypeBits, prop_type: CssPropertyType) {
+    let d = prop_type as u16 as usize;
+    if d < 128 {
+        bits[0] |= 1u128 << d;
+    } else {
+        bits[1] |= 1u128 << (d - 128);
+    }
+}
+
+#[inline]
+const fn prop_type_bit_test(bits: &PropTypeBits, prop_type: CssPropertyType) -> bool {
+    let d = prop_type as u16 as usize;
+    if d < 128 {
+        (bits[0] & (1u128 << d)) != 0
+    } else {
+        (bits[1] & (1u128 << (d - 128))) != 0
+    }
+}
+
 // =============================================================================
 // FlatVecVec: Cache-friendly replacement for Vec<Vec<T>>
 // =============================================================================
@@ -3137,15 +3161,12 @@ impl CssPropertyCache {
         // included), so this is reached for caches no UA pass has run on and
         // for the properties the cascade prunes back out
         // (`prune_compact_normal_props`).
-        let ctx = self.dynamic_context.as_deref();
-        crate::ua_css::get_ua_property_themed(&node_data.node_type, *css_property_type, ctx)
-            .or_else(|| {
-                if node_id.index() == 0 {
-                    crate::ua_css::get_ua_root_property_themed(*css_property_type, ctx)
-                } else {
-                    None
-                }
-            })
+        crate::ua_css::get_ua_default(
+            &node_data.node_type,
+            node_id.index() == 0,
+            *css_property_type,
+            self.dynamic_context.as_deref(),
+        )
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -4866,7 +4887,6 @@ impl CssPropertyCache {
     /// flip on a retained DOM — first removes the entries the previous call
     /// pushed (`StatefulCssProperty::ua_origin`) and answers them again.
     /// Leaves `cascaded_props` sorted and flattened.
-    #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::dynamic_selector::PseudoStateType;
 
@@ -4875,157 +4895,46 @@ impl CssPropertyCache {
             return;
         }
 
-        // RE-APPLICATION: strip what the previous pass pushed before answering
-        // again. The UA defaults depend on the context's theme, and the bitset
-        // below treats an existing entry of a type as "already set" — so
-        // without this a theme flip found the stale light entry, skipped the
-        // dark twin, and `cascaded_props` never moved (the non-idempotence the
-        // theme-chain analysis of 2026-09-12 traces the whole
-        // black-text-on-dark family back to). Only `ua_origin` entries go;
-        // everything the author cascade and the inheritance walk produced
-        // stays, exactly as it was when the first pass ran after them.
-        if self.ua_applied {
-            if self.cascaded_props.is_flattened() {
-                self.cascaded_props.retain(|p| !p.ua_origin);
-            } else {
-                for v in self.cascaded_props.build_iter_mut() {
-                    v.retain(|p| !p.ua_origin);
-                }
-            }
-        }
+        self.strip_ua_entries();
         // `push_to` needs the build phase; a cache that has been through the
         // compact build (or a prune) is flattened.
         self.cascaded_props.ensure_build_phase();
 
-        // Build a bitset per node: which CssPropertyType values are already set (Normal state).
-        // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
-        let mut prop_set: Vec<[u128; 2]> = vec![[0u128; 2]; node_count];
-
-        // Mark properties from css_props (author CSS, Normal state)
-        for (node_idx, props) in self.css_props.iter_node_slices() {
-            for p in props {
-                if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
-                }
-            }
-        }
-
-        // Mark properties from cascaded_props (Normal state)
-        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
-            for p in props {
-                if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
-                }
-            }
-        }
-
-        // Mark properties from inline CSS (NodeData.style, unconditional = Normal)
-        for (node_idx, node) in node_data.iter().enumerate() {
-            for (prop, conds) in node.style.iter_inline_properties() {
-                let is_normal = conds.as_slice().is_empty();
-                if is_normal {
-                    let d = prop.get_type() as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
-                }
-            }
-        }
-
-        // Mark properties from the GLOBAL `*` bucket. A `* { margin: 0 }`
-        // reset is author CSS and must beat UA defaults on every ELEMENT
-        // (origin beats specificity), but it is stored once globally rather
-        // than per node, so the per-node marking above never saw it - the UA
-        // body margin (8px) survived the classic reset and every page using
-        // it rendered shifted against the browser reference. Text nodes are
-        // exempt: `*` matches elements only (the compact builder makes the
-        // same distinction), and UA defaults for text nodes must stay.
-        if !self.global_css_props.is_empty() {
-            let mut global_bits = [0u128; 2];
-            for p in &self.global_css_props {
-                let d = p.get_type() as u16 as usize;
-                if d < 128 {
-                    global_bits[0] |= 1u128 << d;
-                } else {
-                    global_bits[1] |= 1u128 << (d - 128);
-                }
-            }
-            for (node_idx, node) in node_data.iter().enumerate() {
-                if !node.is_text_node() {
-                    prop_set[node_idx][0] |= global_bits[0];
-                    prop_set[node_idx][1] |= global_bits[1];
-                }
-            }
-        }
-
-        // The ONE list both cascade passes walk (the compact builder reads the
-        // same const): a UA property present in one pass but not the other
-        // made the two readers disagree about a node's computed value.
-        let property_types = crate::ua_css::UA_PROPERTY_TYPES;
+        let prop_set = self.normal_props_present(node_data);
         let ctx = self.dynamic_context.as_deref();
 
-        // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
+        // Apply UA CSS: only insert for property types not yet set (bitset
+        // check = O(1)). The ONE list both cascade passes walk (the compact
+        // builder reads the same const): a UA property present in one pass
+        // but not the other made the two readers disagree about a node's
+        // computed value. The document root additionally carries the
+        // document-wide defaults (the inherited text colour) — themed, and
+        // IN the cascade from here on, so `computed_values` inherits it down
+        // to every text node and no paint-time reader has to guess it.
         for (node_index, node) in node_data.iter().enumerate() {
-            let node_type = &node.node_type;
-            // The document root additionally carries the document-wide
-            // defaults (the inherited text colour) — themed, and IN the
-            // cascade from here on, so `computed_values` inherits it down
-            // to every text node and no paint-time reader has to guess it.
             let is_root = node_index == 0;
-
-            for prop_type in property_types {
-                // Check bitset: if already set, skip entirely
-                let d = *prop_type as u16 as usize;
-                let has_prop = if d < 128 {
-                    (prop_set[node_index][0] & (1u128 << d)) != 0
-                } else {
-                    (prop_set[node_index][1] & (1u128 << (d - 128))) != 0
-                };
-
-                if has_prop {
+            let present = &prop_set[node_index];
+            for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
+                if prop_type_bit_test(present, *prop_type) {
                     continue;
                 }
-
-                // Check if UA CSS defines this property for this node type
-                // (or, on the root, for the document as a whole).
-                let ua_prop = crate::ua_css::get_ua_property_themed(node_type, *prop_type, ctx)
-                    .or_else(|| {
-                        if is_root {
-                            crate::ua_css::get_ua_root_property_themed(*prop_type, ctx)
-                        } else {
-                            None
-                        }
-                    });
-                if let Some(ua_prop) = ua_prop {
-                    self.cascaded_props.push_to(
-                        node_index,
-                        StatefulCssProperty {
-                            state: PseudoStateType::Normal,
-                            prop_type: *prop_type,
-                            property: ua_prop.clone(),
-                            ua_origin: true,
-                        },
-                    );
-
-                    // Mark as set in the bitset (prevent duplicate insertion for same node)
-                    if d < 128 {
-                        prop_set[node_index][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_index][1] |= 1u128 << (d - 128);
-                    }
-                }
+                let Some(ua_prop) =
+                    crate::ua_css::get_ua_default(&node.node_type, is_root, *prop_type, ctx)
+                else {
+                    continue;
+                };
+                // No bitset write needed: `UA_PROPERTY_TYPES` has no
+                // duplicates (pinned by `one_themed_ua_table` tests), so one
+                // node sees each type once.
+                self.cascaded_props.push_to(
+                    node_index,
+                    StatefulCssProperty {
+                        state: PseudoStateType::Normal,
+                        prop_type: *prop_type,
+                        property: ua_prop.clone(),
+                        ua_origin: true,
+                    },
+                );
             }
         }
 
@@ -5036,6 +4945,79 @@ impl CssPropertyCache {
         self.sort_cascaded_props();
         self.ua_applied = true;
         self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
+    }
+
+    /// RE-APPLICATION of the UA pass: strip what the previous pass pushed
+    /// before answering again.
+    ///
+    /// The UA defaults depend on the context's theme, and the presence
+    /// bitset treats an existing entry of a type as "already set" — so
+    /// without this a theme flip found the stale light entry, skipped the
+    /// dark twin, and `cascaded_props` never moved (the non-idempotence the
+    /// theme-chain analysis of 2026-09-12 traces the whole black-text-on-dark
+    /// family back to). Only `ua_origin` entries go; everything the author
+    /// cascade and the inheritance walk produced stays, exactly as it was
+    /// when the first pass ran after them. A no-op before the first pass.
+    fn strip_ua_entries(&mut self) {
+        if !self.ua_applied {
+            return;
+        }
+        if self.cascaded_props.is_flattened() {
+            self.cascaded_props.retain(|p| !p.ua_origin);
+        } else {
+            for v in self.cascaded_props.build_iter_mut() {
+                v.retain(|p| !p.ua_origin);
+            }
+        }
+    }
+
+    /// Per node, which property types already have a Normal-state value from
+    /// a layer that beats the UA sheet: author css (`css_props`), the cascade
+    /// (`cascaded_props`, i.e. inherited values), unconditional inline
+    /// declarations, and the global `*` bucket.
+    ///
+    /// A `* { margin: 0 }` reset is author CSS and must beat UA defaults on
+    /// every ELEMENT (origin beats specificity), but it is stored once
+    /// globally rather than per node, so a per-node scan alone never saw it -
+    /// the UA body margin (8px) survived the classic reset and every page
+    /// using it rendered shifted against the browser reference. Text nodes
+    /// are exempt: `*` matches elements only (the compact builder makes the
+    /// same distinction), and UA defaults for text nodes must stay.
+    fn normal_props_present(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
+
+        for (node_idx, props) in self.css_props.iter_node_slices() {
+            for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
+                prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
+            }
+        }
+        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
+            for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
+                prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
+            }
+        }
+        for (node_idx, node) in node_data.iter().enumerate() {
+            for (prop, conds) in node.style.iter_inline_properties() {
+                if conds.as_slice().is_empty() {
+                    prop_type_bit_set(&mut prop_set[node_idx], prop.get_type());
+                }
+            }
+        }
+        if !self.global_css_props.is_empty() {
+            let mut global_bits: PropTypeBits = [0u128; 2];
+            for p in &self.global_css_props {
+                prop_type_bit_set(&mut global_bits, p.get_type());
+            }
+            for (node_idx, node) in node_data.iter().enumerate() {
+                if !node.is_text_node() {
+                    prop_set[node_idx][0] |= global_bits[0];
+                    prop_set[node_idx][1] |= global_bits[1];
+                }
+            }
+        }
+        prop_set
     }
 
     /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.

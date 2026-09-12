@@ -945,17 +945,19 @@ pub fn get_ua_property(
     }
 }
 
-/// Every property type the UA sheet can answer, for the cascade passes that
-/// walk the table per node: `CssPropertyCache::apply_ua_css` (the
-/// `cascaded_props` / `computed_values` reader) and the compact-cache builder
-/// (`apply_ua_css_to_compact`, the layout fast path).
+/// Every property type the UA sheet can answer.
+///
+/// For the cascade passes that walk the table per node:
+/// `CssPropertyCache::apply_ua_css` (the `cascaded_props` / `computed_values`
+/// reader) and the compact-cache builder (`apply_ua_css_to_compact`, the
+/// layout fast path).
 ///
 /// ONE list for both, on purpose. Each pass used to carry its own copy with
 /// the instruction to keep them in sync, and they were not: the compact list
 /// had the three non-top button border edges and `TextColor`, the cascaded
 /// list had `FontFamily` and the heading `break-*` defaults, and neither had
 /// everything — so the two readers disagreed about a node's computed value
-/// depending on which one a getter happened to ask (the VirtualView overflow
+/// depending on which one a getter happened to ask (the `VirtualView` overflow
 /// default was the first instance found). A type only one pass can store is
 /// harmless in the other: `apply_css_property_to_compact` ignores what has no
 /// compact slot, and a cascaded entry nothing reads costs one push.
@@ -1054,12 +1056,32 @@ pub fn get_ua_root_property_themed(
     }
     UA_ROOT_TEXT_COLOR_CSS
         .iter()
-        .find(|prop| match ctx {
-            Some(c) => prop.matches(c),
-            // No window yet: only the unconditional entry applies.
-            None => !prop.is_conditional(),
-        })
+        // No window yet: only the unconditional entry applies.
+        .find(|prop| ctx.map_or_else(|| !prop.is_conditional(), |c| prop.matches(c)))
         .map(|prop| &prop.property)
+}
+
+/// THE UA default for one node and one property: the per-type table
+/// ([`get_ua_property_themed`]) or, on the document root, the document-wide
+/// table ([`get_ua_root_property_themed`]).
+///
+/// The one lookup all three readers share — `CssPropertyCache::apply_ua_css`,
+/// the compact-cache builder and `get_property_slow`'s last-resort fallback —
+/// so they cannot disagree about a default. `is_root` is "node index 0".
+#[must_use]
+pub fn get_ua_default(
+    node_type: &NodeType,
+    is_root: bool,
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    get_ua_property_themed(node_type, property_type, ctx).or_else(|| {
+        if is_root {
+            get_ua_root_property_themed(property_type, ctx)
+        } else {
+            None
+        }
+    })
 }
 
 /// [`get_ua_property`], with the theme taken into account.

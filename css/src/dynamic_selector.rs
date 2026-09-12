@@ -1902,7 +1902,7 @@ impl CssPropertyWithConditions {
     /// The pseudo-state conditions of this declaration, in order — what a
     /// dark twin and its light counterpart must share.
     #[must_use]
-    pub fn pseudo_state_conditions(&self) -> alloc::vec::Vec<PseudoStateType> {
+    pub fn pseudo_state_conditions(&self) -> Vec<PseudoStateType> {
         self.apply_if
             .as_slice()
             .iter()
@@ -5506,10 +5506,15 @@ mod themed_pairs {
     #[test]
     fn the_dark_twin_only_matches_a_dark_context() {
         let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
-        let mut ctx = DynamicSelectorContext::default();
-        ctx.theme = ThemeCondition::Light;
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
         assert!(light.matches(&ctx) && !dark.matches(&ctx));
-        ctx.theme = ThemeCondition::Dark;
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
         assert!(
             light.matches(&ctx) && dark.matches(&ctx),
             "last match wins: the twin"

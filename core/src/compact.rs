@@ -1139,14 +1139,7 @@ fn apply_ua_css_to_compact(
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
     // per-pass copies this replaced had drifted apart (see its doc).
     for pt in crate::ua_css::UA_PROPERTY_TYPES {
-        let ua_prop = crate::ua_css::get_ua_property_themed(node_type, *pt, ctx).or_else(|| {
-            if is_root {
-                crate::ua_css::get_ua_root_property_themed(*pt, ctx)
-            } else {
-                None
-            }
-        });
-        if let Some(ua_prop) = ua_prop {
+        if let Some(ua_prop) = crate::ua_css::get_ua_default(node_type, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
         }
     }

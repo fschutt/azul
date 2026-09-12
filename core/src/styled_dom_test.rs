@@ -2089,6 +2089,7 @@ mod theme_flip_is_a_restyle {
     };
 
     use super::*;
+    use crate::dom::NodeType;
 
     fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
         DynamicSelectorContext {
@@ -2186,12 +2187,33 @@ mod theme_flip_is_a_restyle {
             Some(ua_border_top_color(ThemeCondition::Dark)),
             "born dark: the first cascade already answered the dark table"
         );
-        let before = cascaded_border_entries(&sd);
+        // (Creation prunes the compact-encoded Normal entries out of
+        // `cascaded_props` — the compact cache and `computed_values` carry
+        // them — so the border is asserted through the readers, not the
+        // store: the slow path above, the compact tier here.)
+        let dark_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache built at creation");
+        assert_ne!(dark_raw, 0, "the border is in the compact tier");
+        let epoch_before = sd.get_css_property_cache().cascade_epoch;
+        let cascaded_before = sd.get_css_property_cache().cascaded_props.clone();
 
-        // The funnel's offer of the SAME context is a no-op.
+        // The funnel's offer of the SAME context is a no-op: no new
+        // generation, no second cascade, nothing pushed twice.
         sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
-        assert_eq!(cascaded_border_entries(&sd), before);
-        assert_eq!(before.len(), 1, "one UA entry, not one per pass");
+        assert_eq!(
+            sd.get_css_property_cache().cascade_epoch,
+            epoch_before,
+            "same context: not a new generation"
+        );
+        assert_eq!(sd.get_css_property_cache().cascaded_props, cascaded_before);
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark))
+        );
     }
 
     #[test]
@@ -2204,7 +2226,7 @@ mod theme_flip_is_a_restyle {
             sd.get_css_property_cache()
                 .dynamic_context
                 .as_deref()
-                .map(|c| c.theme),
+                .map(|c| c.theme.clone()),
             Some(ThemeCondition::Dark)
         );
         assert_eq!(
@@ -2317,7 +2339,7 @@ mod theme_flip_is_a_restyle {
             .as_ref()
             .map(|cc| cc.get_text_color_raw(node.index()))
             .unwrap_or(0);
-        (raw != 0).then(|| ((raw >> 24) as u8, (raw >> 16) as u8, (raw >> 8) as u8))
+        (raw != 0).then_some(((raw >> 24) as u8, (raw >> 16) as u8, (raw >> 8) as u8))
     }
 
     const BLACK: (u8, u8, u8) = (0, 0, 0);
@@ -2328,28 +2350,30 @@ mod theme_flip_is_a_restyle {
         let mut dom = body_p_text();
         let sd =
             StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
-        let root_entries: Vec<_> = sd
-            .get_css_property_cache()
-            .cascaded_props
-            .get_slice(ROOT.index())
-            .iter()
-            .filter(|p| p.prop_type == CssPropertyType::TextColor)
-            .map(|p| p.ua_origin)
-            .collect();
+        // `computed_values` is the record of the cascade (creation prunes
+        // the compact-encoded Normal entries out of `cascaded_props` once
+        // the compact cache holds them): the root OWNS the colour — it came
+        // from the UA table, not from a parent — and every descendant
+        // INHERITS it rather than declaring one of its own (a UA `color` on
+        // a child would block inheritance of an author colour above it).
+        use crate::prop_cache::CssPropertyOrigin;
+        let cv = &sd.get_css_property_cache().computed_values;
+        let root = cv
+            .get(ROOT.index(), CssPropertyType::TextColor)
+            .expect("the root's resolved style carries `color`");
         assert_eq!(
-            root_entries,
-            vec![true],
-            "the root carries ONE UA-origin `color` entry"
+            root.origin,
+            CssPropertyOrigin::Own,
+            "cascaded ONTO the root"
         );
-        // The <p> and the text node have no entry of their own — they inherit.
         for node in [NodeId::new(1), TEXT] {
-            assert!(
-                sd.get_css_property_cache()
-                    .cascaded_props
-                    .get_slice(node.index())
-                    .iter()
-                    .all(|p| !(p.prop_type == CssPropertyType::TextColor && p.ua_origin)),
-                "node {} must not get a UA `color` of its own (it would block inheritance)",
+            let v = cv
+                .get(node.index(), CssPropertyType::TextColor)
+                .unwrap_or_else(|| panic!("node {} has no resolved `color`", node.index()));
+            assert_eq!(
+                v.origin,
+                CssPropertyOrigin::Inherited,
+                "node {} must inherit the root's colour, not own a UA one",
                 node.index()
             );
         }
@@ -2384,6 +2408,24 @@ mod theme_flip_is_a_restyle {
             Some(DARK_INK),
             "dark: fast path"
         );
+        // The re-cascade does not prune, so here the store shows the entry
+        // itself: exactly one, UA-origin, on the root and nowhere else.
+        let ua_color_entries = |node: NodeId| -> Vec<bool> {
+            sd.get_css_property_cache()
+                .cascaded_props
+                .get_slice(node.index())
+                .iter()
+                .filter(|p| p.prop_type == CssPropertyType::TextColor)
+                .map(|p| p.ua_origin)
+                .collect()
+        };
+        assert_eq!(
+            ua_color_entries(ROOT),
+            vec![true],
+            "one UA `color` on the root"
+        );
+        assert_eq!(ua_color_entries(NodeId::new(1)), Vec::<bool>::new());
+        assert_eq!(ua_color_entries(TEXT), Vec::<bool>::new());
 
         sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
         assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "back: slow path");

@@ -1070,11 +1070,39 @@ mod theme_pairs {
     use azul_css::dynamic_selector::CssPropertyWithConditions;
 
     /// Sites the walk flags that are KNOWN and being fixed elsewhere: one
-    /// `(widget name, message prefix)` per entry, with a reason. Empty means
-    /// every widget is clean; an entry here masks exactly one finding.
-    const KNOWN_HALF_PAIRS: &[(&str, &str, &str)] = &[];
+    /// `(widget name, message prefix, reason)` per entry. Empty means every
+    /// widget is clean; an entry masks every finding of that widget whose
+    /// message contains the prefix (`the_known_list_masks_only_live_findings`
+    /// rejects an entry that masks nothing).
+    const KNOWN_HALF_PAIRS: &[(&str, &str, &str)] = &[
+        // A dark text twin with NO light half is the migration's "no opinion"
+        // shape: the light window takes the UA default on purpose (and since
+        // the UA text colour is themed and cascaded, the twin is belt and
+        // braces). Listed rather than paired, because inventing a light value
+        // here would be exactly the "light value moved" the migration forbids.
+        (
+            "list_view",
+            "node root declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/1/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+    ];
 
-    fn check_node(props: &[CssPropertyWithConditions], widget: &str, path: &str, bad: &mut Vec<String>) {
+    /// Every half-pair in one node's inline declarations, as messages. The
+    /// ONE message builder: the walk, the self-test and the known-list
+    /// staleness check all read these, so a prefix that matched a reported
+    /// finding matches here too.
+    fn findings(props: &[CssPropertyWithConditions], widget: &str, path: &str) -> Vec<String> {
+        let mut out = Vec::new();
         for (i, twin) in props.iter().enumerate() {
             if !twin.is_dark_twin() {
                 continue;
@@ -1086,27 +1114,26 @@ mod theme_pairs {
                     && p.is_light_half()
                     && p.pseudo_state_conditions() == states
             });
-            let finding = match counterpart_at {
-                None => Some(format!(
+            match counterpart_at {
+                None => out.push(format!(
                     "{widget}: node {path} declares a dark twin for {ty:?} (states {states:?}) \
                      with NO light counterpart — the light window gets the UA default here"
                 )),
-                Some(j) if j > i => Some(format!(
+                Some(j) if j > i => out.push(format!(
                     "{widget}: node {path} pushes the dark twin for {ty:?} (states {states:?}) \
                      at #{i}, BEFORE its light value at #{j} — dead under the dark theme \
                      (last match wins)"
                 )),
-                Some(_) => None,
-            };
-            if let Some(msg) = finding {
-                let known = KNOWN_HALF_PAIRS
-                    .iter()
-                    .any(|(w, prefix, _)| *w == widget && msg.contains(prefix));
-                if !known {
-                    bad.push(msg);
-                }
+                Some(_) => {}
             }
         }
+        out
+    }
+
+    fn is_known(widget: &str, msg: &str) -> bool {
+        KNOWN_HALF_PAIRS
+            .iter()
+            .any(|(w, prefix, _)| *w == widget && msg.contains(prefix))
     }
 
     fn inline_props(node: &Dom) -> Vec<CssPropertyWithConditions> {
@@ -1120,19 +1147,32 @@ mod theme_pairs {
             .collect()
     }
 
-    fn walk(node: &Dom, widget: &str, path: &str, bad: &mut Vec<String>) {
-        check_node(&inline_props(node), widget, path, bad);
+    /// Every finding in the widget's tree, known ones included.
+    fn walk_raw(node: &Dom, widget: &str, path: &str, out: &mut Vec<String>) {
+        out.extend(findings(&inline_props(node), widget, path));
         for (i, child) in node.children.as_ref().iter().enumerate() {
-            walk(child, widget, &format!("{path}/{i}"), bad);
+            walk_raw(child, widget, &format!("{path}/{i}"), out);
         }
+    }
+
+    /// The findings of every widget in the manifest, known ones included.
+    fn all_raw_findings() -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            let mut raw = Vec::new();
+            walk_raw(&dom, widget, "root", &mut raw);
+            out.extend(raw.into_iter().map(|m| (widget, m)));
+        }
+        out
     }
 
     #[test]
     fn every_widget_dark_twin_has_a_light_half_declared_before_it() {
-        let mut bad = Vec::new();
-        for (widget, dom) in super::label_convention::every_widget_dom() {
-            walk(&dom, widget, "root", &mut bad);
-        }
+        let bad: Vec<String> = all_raw_findings()
+            .into_iter()
+            .filter(|(widget, msg)| !is_known(widget, msg))
+            .map(|(_, msg)| msg)
+            .collect();
         assert!(
             bad.is_empty(),
             "{} half-pair(s) in the widget styles:\n  {}\n\nBuild the pair with \
@@ -1143,7 +1183,8 @@ mod theme_pairs {
         );
     }
 
-    /// A guard on the guard: the walk must SEE both failure shapes.
+    /// A guard on the guard: the walk must SEE both failure shapes, and the
+    /// builder's shape must be clean.
     #[test]
     fn the_walk_reports_a_missing_half_and_a_reversed_pair() {
         use azul_css::props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor};
@@ -1152,92 +1193,53 @@ mod theme_pairs {
                 inner: ColorU::rgb(v, v, v),
             })
         };
-        let mut bad = Vec::new();
         // Missing half.
-        check_node(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root", &mut bad);
+        let bad = findings(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root");
         assert_eq!(bad.len(), 1, "{bad:?}");
         assert!(bad[0].contains("NO light counterpart"), "{}", bad[0]);
         // Reversed pair.
-        bad.clear();
-        check_node(
+        let bad = findings(
             &[
                 CssPropertyWithConditions::dark_theme(c(1)),
                 CssPropertyWithConditions::simple(c(2)),
             ],
             "fixture",
             "root",
-            &mut bad,
         );
         assert_eq!(bad.len(), 1, "{bad:?}");
         assert!(bad[0].contains("BEFORE its light value"), "{}", bad[0]);
         // The builder's shape is clean, in every state.
-        bad.clear();
         let mut props: Vec<_> = CssPropertyWithConditions::themed(c(1), c(2)).into();
         props.extend(CssPropertyWithConditions::themed_on_hover(c(3), c(4)));
         props.extend(CssPropertyWithConditions::themed_on_active(c(5), c(6)));
-        check_node(&props, "fixture", "root", &mut bad);
+        let bad = findings(&props, "fixture", "root");
         assert!(bad.is_empty(), "{bad:?}");
         // A hover twin is NOT paired by a resting light value.
-        bad.clear();
-        check_node(
+        let bad = findings(
             &[
                 CssPropertyWithConditions::simple(c(1)),
                 CssPropertyWithConditions::dark_on_hover(c(2)),
             ],
             "fixture",
             "root",
-            &mut bad,
         );
         assert_eq!(bad.len(), 1, "{bad:?}");
     }
 
+    /// An entry in `KNOWN_HALF_PAIRS` that masks nothing is stale and must
+    /// go: the finding it parked was fixed, so the parking is now hiding
+    /// whatever appears next under the same prefix.
     #[test]
     fn the_known_list_masks_only_live_findings() {
-        // An entry that masks nothing is stale and must go.
-        let mut all = Vec::new();
-        for (widget, dom) in super::label_convention::every_widget_dom() {
-            walk(&dom, widget, "root", &mut all);
-        }
-        // `walk` already filtered known ones out; re-derive the unfiltered
-        // set by checking each known entry has a matching raw finding.
+        let raw = all_raw_findings();
         for (w, prefix, reason) in KNOWN_HALF_PAIRS {
-            let mut raw = Vec::new();
-            for (widget, dom) in super::label_convention::every_widget_dom() {
-                if widget == *w {
-                    walk_raw(&dom, widget, "root", &mut raw);
-                }
-            }
             assert!(
-                raw.iter().any(|m| m.contains(prefix)),
+                raw.iter().any(|(widget, msg)| widget == w && msg.contains(prefix)),
                 "KNOWN_HALF_PAIRS entry ({w}, {prefix:?}) masks nothing any more — delete it \
                  (reason on file: {reason})"
             );
         }
-        let _ = all;
-    }
-
-    /// `walk` without the KNOWN_HALF_PAIRS filter.
-    fn walk_raw(node: &Dom, widget: &str, path: &str, bad: &mut Vec<String>) {
-        let props = inline_props(node);
-        for (i, twin) in props.iter().enumerate() {
-            if !twin.is_dark_twin() {
-                continue;
-            }
-            let ty = twin.property.get_type();
-            let states = twin.pseudo_state_conditions();
-            match props.iter().position(|p| {
-                p.property.get_type() == ty
-                    && p.is_light_half()
-                    && p.pseudo_state_conditions() == states
-            }) {
-                None => bad.push(format!("{widget}: node {path} dark twin for {ty:?} NO light counterpart")),
-                Some(j) if j > i => bad.push(format!("{widget}: node {path} dark twin for {ty:?} BEFORE its light value")),
-                Some(_) => {}
-            }
-        }
-        for (i, child) in node.children.as_ref().iter().enumerate() {
-            walk_raw(child, widget, &format!("{path}/{i}"), bad);
-        }
     }
 }
+
 pub mod themes;
