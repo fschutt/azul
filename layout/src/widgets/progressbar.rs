@@ -246,7 +246,9 @@ impl ProgressBar {
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
+            ),
         }
     }
 
@@ -313,7 +315,9 @@ impl ProgressBar {
             .into_option()
             .unwrap_or(crate::widgets::themes::UiTheme::Flat);
         match theme {
-            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::progressbar(self),
+            crate::widgets::themes::UiTheme::Flat => {
+                crate::widgets::themes::flat::progressbar(self)
+            }
             crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::progressbar(self)
             }
@@ -1297,9 +1301,12 @@ mod autotest_generated {
             .with_bar_background(solid(1))
             .render_bar();
 
+        // `render_bar()` is the percentage-sized entry point (`bounds_px: None`),
+        // so the container declares no `width` — the VirtualView path, which
+        // sizes in absolute pixels from known bounds, declares one more.
         assert_eq!(
             inline_props(&dom).len(),
-            24,
+            20,
             "the container style block drifted"
         );
         assert_eq!(
