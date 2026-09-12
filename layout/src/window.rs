@@ -5785,7 +5785,19 @@ impl LayoutWindow {
                 // the keep-set describes just the DOM being laid out, and evicting
                 // on it could drop a sibling DOM's font between its layout and its
                 // raster.
-                let single_dom = self.layout_results.keys().all(|d| *d == dom_id);
+                //
+                // And only from the ROOT's pass. A `VirtualView` child is laid
+                // out NESTED inside the root's pass — from the view's invoke,
+                // BEFORE the root has published its own result — so at that
+                // moment `layout_results` is still empty and "no other DOM has
+                // a result" is true of the child too. Collecting on the child's
+                // keep-set condemned every face the root's text had just loaded;
+                // the root's first-frame rebuild right after had nothing left to
+                // shape its text-input prompt with (widgets demo: no placeholder
+                // until the next full relayout). A child's keep-set never
+                // describes the window.
+                let single_dom =
+                    dom_id == DomId::ROOT_ID && self.layout_results.keys().all(|d| *d == dom_id);
                 if single_dom {
                     let keep_ids = solver3::getters::collect_font_ids_from_chains(&chains);
                     // The family-hash keep-set comes from the compact style
@@ -23456,6 +23468,109 @@ mod autotest_generated {
         assert!(
             (rest.width - 70.0).abs() < 1.0,
             "the second 50% child must also be 70px, got {rest:?}"
+        );
+    }
+
+    /// THE CLASS (widgets demo, 2026-09-12): a `VirtualView` child is laid
+    /// out NESTED inside the root's pass — from the view's invoke, before
+    /// the root has published its own result. The font GC took the still-
+    /// empty result map for "this DOM is the only one" and collected on the
+    /// CHILD's keep-set, condemning every face the root's text had just
+    /// loaded. The root's first-frame rebuild that follows the invoke then
+    /// had no face left to shape its text-input prompt with, and the
+    /// placeholder was missing until the next full relayout. Only the
+    /// root's keep-set describes the window; a child never collects.
+    #[test]
+    fn a_virtual_view_childs_layout_does_not_collect_the_roots_fonts() {
+        use azul_core::{
+            callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+            dom::AttributeType,
+            refany::RefAny,
+        };
+
+        use crate::solver3::display_list::DisplayListItem;
+
+        extern "C" fn textless_view(
+            _data: RefAny,
+            info: VirtualViewCallbackInfo,
+        ) -> VirtualViewReturn {
+            let size = info.bounds.get_logical_size();
+            let rect = LogicalRect::new(LogicalPosition::zero(), size);
+            VirtualViewReturn::with_dom(Dom::create_div().with_css("height: 20px;"), rect, rect)
+        }
+
+        // body > [ div > "Search the map",
+        //          editable host > value line (placeholder attr) > "" ,
+        //          wrapper > virtual view (no text at all) ]
+        fn page(with_view: bool) -> StyledDom {
+            let mut body = Dom::create_body()
+                .with_child(Dom::create_div().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Search the map"),
+                ))
+                .with_child(
+                    Dom::create_div().with_contenteditable(true).with_child(
+                        Dom::create_div()
+                            .with_attribute(AttributeType::Placeholder("Type here".into()))
+                            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                                "",
+                            )),
+                    ),
+                );
+            if with_view {
+                body = body.with_child(
+                    Dom::create_div()
+                        .with_css("width: 140px; height: 20px;")
+                        .with_child(
+                            Dom::create_virtual_view(
+                                RefAny::new(0_u8),
+                                VirtualViewCallback::create(textless_view),
+                            )
+                            .with_css("width: 100%; height: 20px;"),
+                        ),
+                );
+            }
+            StyledDom::create_from_dom(body)
+        }
+        fn text_runs(win: &LayoutWindow) -> usize {
+            win.layout_results
+                .get(&DomId::ROOT_ID)
+                .expect("root laid out")
+                .display_list
+                .items
+                .iter()
+                .filter(|item| matches!(item, DisplayListItem::Text { .. }))
+                .count()
+        }
+
+        // The same page without the view says what the root's text loads and
+        // paints on this machine (no faces at all = nothing to collect).
+        let solo = laid_out(page(false), 640.0, 480.0);
+        let faces = solo.font_manager.get_loaded_fonts().len();
+        if faces == 0 {
+            return;
+        }
+        let runs = text_runs(&solo);
+        assert!(
+            runs >= 2,
+            "the label AND the prompt are painted, got {runs} text run(s)"
+        );
+
+        let win = laid_out(page(true), 640.0, 480.0);
+        assert!(
+            win.get_dom_ids().as_ref().iter().any(|d| d.inner != 0),
+            "the VirtualView must have materialized a child DOM"
+        );
+        assert_eq!(
+            win.font_manager.get_loaded_fonts().len(),
+            faces,
+            "the child's pass collected the root's {faces} face(s): a child DOM's keep-set never \
+             describes the window, only the root's does"
+        );
+        assert_eq!(
+            text_runs(&win),
+            runs,
+            "the root's stored display list lost a text run — the first-frame rebuild after the \
+             view's invoke had no face left to shape the prompt with"
         );
     }
 
