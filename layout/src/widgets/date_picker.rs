@@ -44,7 +44,9 @@ use azul_core::{
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -156,7 +158,13 @@ azul_core::impl_managed_callback! {
 pub struct DatePicker {
     pub state: DatePickerStateWrapper,
     /// Style for the outer container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the container, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -634,9 +642,21 @@ impl DatePicker {
                 inner: DatePickerState { year, month, day },
                 on_change: None.into(),
             },
-            container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The container CSS this date picker renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE))
     }
 
     /// Sets the callback invoked when the selection or month changes.
@@ -677,7 +697,7 @@ impl DatePicker {
         let year = inner.year;
         let month = inner.month.clamp(1, 12);
         let sel_day = inner.day;
-        let container_style = self.container_style.clone();
+        let container_style = self.resolved_container_style();
         let a11y_name = self.accessibility_name.clone();
 
         let shared = RefAny::new(DatePickerData {
@@ -2320,8 +2340,8 @@ mod autotest_generated {
             "installing a callback moved the date"
         );
         assert_eq!(
-            properties(&after.container_style),
-            properties(&before.container_style),
+            properties(&after.resolved_container_style()),
+            properties(&before.resolved_container_style()),
             "installing a callback restyled the container",
         );
     }

@@ -32,7 +32,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -122,9 +124,21 @@ pub struct Popover {
     /// The content shown inside the floating panel.
     pub content: Dom,
     /// Style of the positioning wrapper around the trigger + panel.
-    pub wrapper_style: CssPropertyWithConditionsVec,
+    /// Style for the positioning wrapper, or `None` for "no opinion" — in which
+    /// case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub wrapper_style: OptionCssPropertyWithConditionsVec,
     /// Style of the floating content panel (includes its current `display`).
-    pub content_style: CssPropertyWithConditionsVec,
+    /// Style for the panel, or `None` for "no opinion" — in which case the style
+    /// is derived from the open flag at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub content_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -274,22 +288,50 @@ impl Popover {
             popover_state: PopoverStateWrapper::default(),
             anchor,
             content,
-            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(POPOVER_WRAPPER_STYLE),
-            content_style: build_content_style(false),
+            wrapper_style: OptionCssPropertyWithConditionsVec::None,
+            content_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets whether the panel starts open, recomputing the panel style.
+    /// The wrapper CSS this popover renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_wrapper_style(&self) -> CssPropertyWithConditionsVec {
+        self.wrapper_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(POPOVER_WRAPPER_STYLE)
+        })
+    }
+
+    /// The panel CSS this popover renders with.
+    ///
+    /// `None` means no opinion, so the open state decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_open` is a plain field write: the `display` that hides or shows the
+    /// panel is derived from the flag rather than cached beside it, so the two
+    /// can no longer disagree.
+    #[must_use]
+    pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
+        self.content_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_content_style(self.popover_state.inner.open))
+    }
+
+    /// Sets whether the panel starts open.
+    ///
+    /// Does not touch `content_style`: the panel's `display` is resolved from
+    /// this flag when the DOM is built.
     #[inline]
-    pub fn set_open(&mut self, open: bool) {
+    pub const fn set_open(&mut self, open: bool) {
         self.popover_state.inner.open = open;
-        self.content_style = build_content_style(open);
     }
 
     /// Builder-style setter for the initial open state.
     #[inline]
     #[must_use]
-    pub fn with_open(mut self, open: bool) -> Self {
+    pub const fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
@@ -335,6 +377,10 @@ impl Popover {
             refany::OptionRefAny,
         };
 
+        // Resolved before `self.popover_state` is moved into the callback below.
+        let wrapper_style = self.resolved_wrapper_style();
+        let content_style = self.resolved_content_style();
+
         // The trigger carries the click handler + the shared state. Clicking the
         // anchor (a descendant of the trigger) bubbles up to it (currentTarget
         // semantics — see `radio_group`), so `get_hit_node()` resolves to the
@@ -366,12 +412,12 @@ impl Popover {
 
         let content = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(POPOVER_CONTENT_CLASS))
-            .with_css_props(self.content_style)
+            .with_css_props(content_style)
             .with_children(vec![self.content].into());
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(POPOVER_WRAPPER_CLASS))
-            .with_css_props(self.wrapper_style)
+            .with_css_props(wrapper_style)
             // children: [trigger, content] — the panel is the trigger's next sibling.
             .with_children(vec![trigger, content].into())
     }
@@ -821,12 +867,12 @@ mod autotest_generated {
             "Popover::new sets no callback"
         );
         assert_eq!(
-            pop.content_style,
+            pop.resolved_content_style(),
             build_content_style(false),
             "content_style must match the closed state it was constructed with"
         );
         assert_eq!(
-            pop.wrapper_style,
+            pop.resolved_wrapper_style(),
             CssPropertyWithConditionsVec::from_const_slice(POPOVER_WRAPPER_STYLE)
         );
     }
@@ -890,6 +936,10 @@ mod autotest_generated {
 
     #[test]
     fn set_open_round_trips_state_and_style() {
+        // The panel style used to be stored beside the flag and rebuilt on every
+        // write, so a setter that updated one and not the other left the panel
+        // visible while the flag said closed. It is resolved from the flag now;
+        // this asks the resolver, which is where the invariant lives.
         let mut pop = Popover::new(
             Dom::create_text_do_not_use_without_block_level_wrapper("a"),
             Dom::create_text_do_not_use_without_block_level_wrapper("c"),
@@ -901,12 +951,12 @@ mod autotest_generated {
             pop.set_open(open);
             assert_eq!(pop.popover_state.inner.open, open);
             assert_eq!(
-                pop.content_style,
+                pop.resolved_content_style(),
                 build_content_style(open),
                 "content_style desynced from the open flag"
             );
             assert_eq!(
-                displays_in(&pop.content_style),
+                displays_in(&pop.resolved_content_style()),
                 alloc::vec![if open {
                     LayoutDisplay::Block
                 } else {
@@ -979,7 +1029,9 @@ mod autotest_generated {
 
         // the *style* must follow the last write too, not the first
         assert_eq!(
-            base.with_open(true).with_open(false).content_style,
+            base.with_open(true)
+                .with_open(false)
+                .resolved_content_style(),
             build_content_style(false)
         );
     }
@@ -1010,12 +1062,16 @@ mod autotest_generated {
             Dom::create_text_do_not_use_without_block_level_wrapper("c"),
         )
         .with_open(true);
-        let style_before = pop.content_style.clone();
+        let style_before = pop.resolved_content_style().clone();
 
         pop.set_on_toggle(RefAny::new(0u8), toggle_cb(toggle_do_nothing));
 
         assert!(pop.popover_state.inner.open, "open flag must survive");
-        assert_eq!(pop.content_style, style_before, "style must survive");
+        assert_eq!(
+            pop.resolved_content_style(),
+            style_before,
+            "style must survive"
+        );
         assert_eq!(
             pop.anchor,
             Dom::create_text_do_not_use_without_block_level_wrapper("a")
@@ -1041,7 +1097,7 @@ mod autotest_generated {
         // the builder form must not disturb the rest of the widget
         assert_eq!(built.anchor, Dom::default());
         assert!(!built.popover_state.inner.open);
-        assert_eq!(built.content_style, build_content_style(false));
+        assert_eq!(built.resolved_content_style(), build_content_style(false));
     }
 
     #[test]
@@ -1091,7 +1147,7 @@ mod autotest_generated {
         );
         assert!(original.popover_state.inner.open);
         assert!(original.popover_state.on_toggle.is_some());
-        assert_eq!(original.content_style, build_content_style(true));
+        assert_eq!(original.resolved_content_style(), build_content_style(true));
 
         assert_eq!(
             pop,
@@ -1103,7 +1159,7 @@ mod autotest_generated {
             "self must lose the callback"
         );
         assert!(!pop.popover_state.inner.open, "self must be re-closed");
-        assert_eq!(pop.content_style, build_content_style(false));
+        assert_eq!(pop.resolved_content_style(), build_content_style(false));
     }
 
     #[test]
