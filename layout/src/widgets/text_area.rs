@@ -204,43 +204,12 @@ pub static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::PreWrap,
     ))),
-    // Hover / focus border highlight.
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_area` / `flora::text_area`, because the dark
+    // half of each pair needs the theme's `DARK_ACC` — a colour this file cannot
+    // see. Declared here, they could only ever name the light-mode blue, which
+    // is why a hovered field kept its light ring on a dark surface.
 ];
 
 // -- label style (the `<p>` block wrapping the multi-line value) --
@@ -909,6 +878,7 @@ mod autotest_generated {
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition};
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -918,6 +888,7 @@ mod autotest_generated {
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         managers::text_input::PendingTextEdit,
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -2011,6 +1982,67 @@ mod autotest_generated {
             walk(&area.dom(), false, &mut bad);
             assert!(bad.is_empty(), "text nodes carrying inert state: {bad:?}");
         }
+    }
+
+    #[test]
+    fn dom_carries_the_themes_hover_and_focus_border_states_with_dark_twins() {
+        // The rules moved OUT of `TEXT_AREA_CONTAINER_PROPS` and into the theme
+        // modules, which is a move nothing else in this suite would notice: no
+        // compiler error, and every other assertion here still passes if the
+        // theme silently forgets to append them. Hence this test.
+        let dom = TextArea::create().dom();
+
+        let conditioned = |want_dark: bool, want_focus: bool| -> usize {
+            dom.root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, conds)| {
+                    let is_border = matches!(
+                        p,
+                        CssProperty::BorderTopColor(_)
+                            | CssProperty::BorderBottomColor(_)
+                            | CssProperty::BorderLeftColor(_)
+                            | CssProperty::BorderRightColor(_)
+                    );
+                    let mut dark = false;
+                    let mut state_matches = false;
+                    for c in conds.as_ref() {
+                        match c {
+                            DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                            DynamicSelector::PseudoState(PseudoStateType::Focus) => {
+                                state_matches = want_focus;
+                            }
+                            DynamicSelector::PseudoState(PseudoStateType::Hover) => {
+                                state_matches = !want_focus;
+                            }
+                            _ => {}
+                        }
+                    }
+                    is_border && state_matches && dark == want_dark
+                })
+                .count()
+        };
+
+        for (state, want_focus) in [("hover", false), ("focus", true)] {
+            assert_eq!(
+                conditioned(false, want_focus),
+                4,
+                "{state}: all four border edges must take the accent, or the ring is drawn on \
+                 some sides only",
+            );
+            assert_eq!(
+                conditioned(true, want_focus),
+                4,
+                "{state}: the dark twin is missing, so the field keeps its light-mode ring on a \
+                 dark surface",
+            );
+        }
+
+        // And the dark declarations really are gated, not unconditional.
+        assert!(
+            !theme_probe::dark(&dom).is_empty(),
+            "the theme contributed no dark-mode declarations at all"
+        );
     }
 
     #[test]

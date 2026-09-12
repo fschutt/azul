@@ -1486,6 +1486,10 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     ta.text_area_state.inner.cursor_pos = ta.text_area_state.inner.text.len();
 
+    // Resolved before `ta.text_area_state` is moved out below, and through the
+    // widget's resolver rather than a second copy of its default.
+    let resolved_container_style = ta.resolved_container_style();
+
     let label_text: String = ta
         .text_area_state
         .inner
@@ -1504,14 +1508,11 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let state_ref = RefAny::new(ta.text_area_state);
 
-    let mut container_style: Vec<CssPropertyWithConditions> = match &ta.container_style {
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
-            s.as_slice().to_vec()
-        }
-        azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
-            crate::widgets::text_area::TEXT_AREA_CONTAINER_PROPS.to_vec()
-        }
-    };
+    let mut container_style: Vec<CssPropertyWithConditions> =
+        resolved_container_style.as_slice().to_vec();
+    // The interactive states the widget no longer declares. Appended after the
+    // base style so they win, and as one array so half of them cannot ship.
+    container_style.extend_from_slice(&FIELD_BORDER_STATES);
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
@@ -1831,3 +1832,138 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
         )
         .with_children(alloc::vec![child].into())
 }
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES
+// ---------------------------------------------------------------------------
+//
+// The same vocabulary flat.rs declares, in flora's palette. Both themes expose
+// these names so a widget's theme function reads identically in either.
+
+/// The focus ring: the focused control's border takes the accent colour.
+///
+/// One const per edge — a border colour is four properties, and a ring that sets
+/// only some of them leaves the rest at their resting colour. Each has a dark
+/// twin using [`DARK_ACC`]: the accent is the one state colour with a genuine
+/// per-mode value in both palettes, which is why the plan names it.
+pub const FOCUS_BORDER_TOP: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_ACC,
+    }));
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_BOTTOM: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_ACC }),
+);
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_LEFT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_ACC }),
+);
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_ACC }),
+);
+
+/// The dark twin of [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_TOP_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_BOTTOM`].
+pub const FOCUS_BORDER_BOTTOM_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_LEFT`].
+pub const FOCUS_BORDER_LEFT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_RIGHT`].
+pub const FOCUS_BORDER_RIGHT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_ACC },
+    ));
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES — text fields
+// ---------------------------------------------------------------------------
+
+/// Border colour on hover, one const per edge, light mode.
+///
+/// A border colour is four properties, so a state that sets only some edges
+/// leaves the rest at their resting colour — which is why these travel as a set
+/// rather than individually.
+pub const HOVER_BORDER_TOP: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_ACC,
+    }));
+
+/// See [`HOVER_BORDER_TOP`].
+pub const HOVER_BORDER_BOTTOM: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_ACC }),
+);
+
+/// See [`HOVER_BORDER_TOP`].
+pub const HOVER_BORDER_LEFT: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_ACC }),
+);
+
+/// See [`HOVER_BORDER_TOP`].
+pub const HOVER_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_ACC }),
+);
+
+/// The dark twin of [`HOVER_BORDER_TOP`].
+pub const HOVER_BORDER_TOP_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`HOVER_BORDER_BOTTOM`].
+pub const HOVER_BORDER_BOTTOM_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`HOVER_BORDER_LEFT`].
+pub const HOVER_BORDER_LEFT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`HOVER_BORDER_RIGHT`].
+pub const HOVER_BORDER_RIGHT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_ACC },
+    ));
+
+/// Every border state a text field takes: the accent on hover and on focus, each
+/// edge, each with its dark twin.
+///
+/// One array so a theme function appends the whole set in a line and cannot ship
+/// half of it. This is what a widget file used to declare itself, in light mode
+/// only — the reason a hovered field kept its light-blue ring on a dark surface.
+pub const FIELD_BORDER_STATES: [CssPropertyWithConditions; 16] = [
+    HOVER_BORDER_TOP,
+    HOVER_BORDER_BOTTOM,
+    HOVER_BORDER_LEFT,
+    HOVER_BORDER_RIGHT,
+    HOVER_BORDER_TOP_DARK,
+    HOVER_BORDER_BOTTOM_DARK,
+    HOVER_BORDER_LEFT_DARK,
+    HOVER_BORDER_RIGHT_DARK,
+    FOCUS_BORDER_TOP,
+    FOCUS_BORDER_BOTTOM,
+    FOCUS_BORDER_LEFT,
+    FOCUS_BORDER_RIGHT,
+    FOCUS_BORDER_TOP_DARK,
+    FOCUS_BORDER_BOTTOM_DARK,
+    FOCUS_BORDER_LEFT_DARK,
+    FOCUS_BORDER_RIGHT_DARK,
+];
