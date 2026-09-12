@@ -3338,7 +3338,7 @@ pub fn focus_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditi
 /// that takes the accent when hovered, say. Pass [`DARK_ACC`] as `dark` when
 /// the light colour is the palette's accent.
 #[must_use]
-pub fn hover_text_color_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+pub const fn hover_text_color_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::on_hover(CssProperty::const_text_color(StyleTextColor {
             inner: light,
@@ -3357,7 +3357,7 @@ pub fn hover_text_color_both(light: ColorU, dark: ColorU) -> [CssPropertyWithCon
 /// twin — holds without an exception to remember, the same way `button_states`
 /// pairs the link button's underline.
 #[must_use]
-pub fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions; 8] {
+pub const fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions; 8] {
     [
         CssPropertyWithConditions::on_hover(CssProperty::const_border_top_left_radius(
             StyleBorderTopLeftRadius { inner: radius },
