@@ -5372,7 +5372,7 @@ mod autotest_generated {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
 
         let ok = RefAny::new(TileReadyMsg {
-            look: MapLook::AppleLight,
+            look: MapTheme::System.look(MapColorScheme::Light),
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
@@ -5393,7 +5393,7 @@ mod autotest_generated {
         }
 
         let failed = RefAny::new(TileReadyMsg {
-            look: MapLook::AppleLight,
+            look: MapTheme::System.look(MapColorScheme::Light),
             tile,
             svg: AzString::from(""),
             error: AzString::from("404"),
@@ -5418,7 +5418,7 @@ mod autotest_generated {
         };
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
         let msg = RefAny::new(TileReadyMsg {
-            look: MapLook::AppleLight,
+            look: MapTheme::System.look(MapColorScheme::Light),
             tile,
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
@@ -5448,7 +5448,7 @@ mod autotest_generated {
     #[test]
     fn tile_writeback_with_a_wrong_typed_cache_is_a_no_op() {
         let msg = RefAny::new(TileReadyMsg {
-            look: MapLook::AppleLight,
+            look: MapTheme::System.look(MapColorScheme::Light),
             tile: MapTileId { z: 1, x: 0, y: 0 },
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
