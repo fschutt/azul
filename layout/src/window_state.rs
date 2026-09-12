@@ -42,7 +42,11 @@ pub struct WindowCreateOptions {
     pub parent_window_id: u64,
     /// Optional renderer configuration (e.g., `VSync`, SRGB)
     pub renderer: azul_core::window::OptionRendererOptions,
-    /// Optional window theme override (light/dark)
+    /// The window's initial theme, when the app wants to choose it: `Some`
+    /// seeds `FullWindowState::theme` at creation (over the OS probe; under
+    /// an `AZ_THEME` pin), `None` follows the system. See
+    /// `CommonWindowState::initial_window_theme`. The OS theme watchers keep
+    /// following the system afterwards either way.
     pub theme: azul_core::window::OptionWindowTheme,
     /// Explicitly defined background color for light theme. If set, overrides the system light
     /// window background.

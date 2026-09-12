@@ -1555,6 +1555,7 @@ impl HeadlessWindow {
         // suite that builds thousands of them.
         let mut common = CommonWindowState::new(
             full_window_state,
+            options.theme,
             bg_light,
             bg_dark,
             fc_cache,

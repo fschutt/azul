@@ -2594,6 +2594,39 @@ pub enum IncrementalRelayout {
     Resize,
 }
 
+/// The theme a window starts in — the ONE place the three theme sources
+/// meet at creation (theme-chain analysis 2026-09-12, item 5 / I7):
+///
+/// 1. `AZ_THEME=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
+///    pins the cascade's context;
+/// 2. else the app's explicit request, `WindowCreateOptions::theme`;
+/// 3. else what the OS probe said (`SystemStyle::theme`, discovered at startup — on
+///    macOS/Windows/Linux this IS the appearance probe; iOS and Android never write it, so they
+///    start from the default and adopt the device appearance the way they always did).
+///
+/// The shells' later theme probes (`adopt_probed_theme`, WM_THEMECHANGED,
+/// the portal watcher) keep following the OS from there.
+#[must_use]
+pub fn initial_window_theme(
+    requested: azul_core::window::OptionWindowTheme,
+    probed: azul_css::system::Theme,
+) -> azul_core::window::WindowTheme {
+    use azul_core::window::WindowTheme;
+    if let Some(pinned) = azul_css::dynamic_selector::theme_pinned_by_env() {
+        return match pinned {
+            azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,
+            _ => WindowTheme::LightMode,
+        };
+    }
+    if let azul_core::window::OptionWindowTheme::Some(theme) = requested {
+        return theme;
+    }
+    match probed {
+        azul_css::system::Theme::Dark => WindowTheme::DarkMode,
+        azul_css::system::Theme::Light => WindowTheme::LightMode,
+    }
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -2954,9 +2987,18 @@ impl CommonWindowState {
     /// pass has run, `os_synced` because nothing has been shown yet — which is
     /// what makes the first `sync_window_state()` a no-op instead of a burst of
     /// redundant geometry calls (see [`Self::mark_os_synced`]).
+    ///
+    /// `requested_theme` is `WindowCreateOptions::theme`: the app's explicit
+    /// light/dark request for this window, `None` = follow the system. The
+    /// window's theme is SEEDED here, once for every backend, from
+    /// [`initial_window_theme`] — until this existed each shell copied
+    /// `options.window_state.theme` (the `LightMode` default) and a window on
+    /// a dark desktop started light, was re-cascaded dark a poll later, and
+    /// `WindowCreateOptions::theme` had no reader at all.
     #[must_use]
     pub fn new(
         current_window_state: FullWindowState,
+        requested_theme: azul_core::window::OptionWindowTheme,
         background_color_light: azul_css::props::basic::OptionColorU,
         background_color_dark: azul_css::props::basic::OptionColorU,
         fc_cache: Arc<FcFontCache>,
@@ -2980,6 +3022,8 @@ impl CommonWindowState {
              detected at startup — or every @os(...) UA rule silently misses.",
             azul_css::system::Platform::current(),
         );
+        let mut current_window_state = current_window_state;
+        current_window_state.theme = initial_window_theme(requested_theme, system_style.theme);
         Self {
             layout_window: None,
             current_window_state,
@@ -9554,32 +9598,57 @@ pub trait PlatformWindow {
         new_style: std::sync::Arc<azul_css::system::SystemStyle>,
     ) -> bool {
         let old_style = std::sync::Arc::clone(&self.get_common_mut().system_style);
-        if *old_style == *new_style {
+        // The WINDOW theme is what the cascade follows, so the window-theme
+        // delta is the trigger — not `SystemStyle` equality. The two
+        // disagree exactly when it matters: a dark desktop at startup
+        // (`discover()` already dark, `ws.theme` written dark by the first
+        // poll, the rediscovered style equal to the held one) used to return
+        // here with nothing restyled. The shells write `ws.theme` and
+        // snapshot the baseline before calling this, so the delta is
+        // readable from the baseline.
+        let theme_delta = {
+            let common = self.get_common_mut();
+            common
+                .previous_window_state
+                .as_ref()
+                .is_some_and(|prev| prev.theme != common.current_window_state.theme)
+        };
+        if *old_style == *new_style && !theme_delta {
             return false;
         }
 
         // Decided BEFORE the new style is installed — the question is about
         // the transition, and both ends of it have to still be readable.
-        let needs_full = self.get_layout_window().is_none_or(|lw| {
-            lw.system_style_change_needs_full_regeneration(&old_style, &new_style)
-        });
+        // A window-theme flip is always a full rebuild: the layout callback
+        // sees `theme` in its `LayoutCallbackInfo` and may branch on it.
+        let needs_full = theme_delta
+            || self.get_layout_window().is_none_or(|lw| {
+                lw.system_style_change_needs_full_regeneration(&old_style, &new_style)
+            });
 
         self.get_common_mut().system_style = std::sync::Arc::clone(&new_style);
-        
+
         let custom_bg_light = self.get_common_mut().background_color_light;
         let custom_bg_dark = self.get_common_mut().background_color_dark;
-        
-        self.get_common_mut().update_window_state(WindowStateSource::App, |current| {
-            let use_dark = new_style.theme == azul_css::system::Theme::Dark;
-            let custom_bg = if use_dark { custom_bg_dark } else { custom_bg_light };
-            
-            if custom_bg.is_some() {
-                current.background_color = custom_bg;
-            } else if current.background_color == old_style.colors.window_background {
-                current.background_color = new_style.colors.window_background;
-            }
-        });
-        
+
+        self.get_common_mut()
+            .update_window_state(WindowStateSource::App, |current| {
+                // The window's OWN theme picks the background, like it picks
+                // the cascade — not the system style's.
+                let use_dark = current.theme == azul_core::window::WindowTheme::DarkMode;
+                let custom_bg = if use_dark {
+                    custom_bg_dark
+                } else {
+                    custom_bg_light
+                };
+
+                if custom_bg.is_some() {
+                    current.background_color = custom_bg;
+                } else if current.background_color == old_style.colors.window_background {
+                    current.background_color = new_style.colors.window_background;
+                }
+            });
+
         if let Some(lw) = self.get_layout_window_mut() {
             // `regenerate_layout` pushes the style into the LayoutWindow on
             // its own; the restyle path below does not go through it, and a
@@ -14507,4 +14576,69 @@ fn redo_text_edit_on(
     }
     layout_window.undo_redo_manager.push_redo(operation);
     false
+}
+
+#[cfg(test)]
+mod initial_window_theme_tests {
+    //! Item 5 of the theme-chain analysis (2026-09-12): the window's initial
+    //! theme has ONE source of truth with a fixed precedence.
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    use azul_css::system::Theme;
+
+    use super::initial_window_theme;
+
+    fn pinned() -> bool {
+        azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    }
+
+    #[test]
+    fn the_probe_seeds_the_window_when_nothing_is_requested() {
+        if pinned() {
+            return;
+        }
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::None, Theme::Dark),
+            WindowTheme::DarkMode,
+            "a dark desktop must not start a light window"
+        );
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::None, Theme::Light),
+            WindowTheme::LightMode
+        );
+    }
+
+    #[test]
+    fn an_explicit_request_beats_the_probe() {
+        if pinned() {
+            return;
+        }
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::Some(WindowTheme::LightMode), Theme::Dark),
+            WindowTheme::LightMode
+        );
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::Some(WindowTheme::DarkMode), Theme::Light),
+            WindowTheme::DarkMode
+        );
+    }
+
+    #[test]
+    fn the_env_pin_beats_both() {
+        let Some(pin) = azul_css::dynamic_selector::theme_pinned_by_env() else {
+            return; // only meaningful under AZ_THEME
+        };
+        let expected = match pin {
+            azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,
+            _ => WindowTheme::LightMode,
+        };
+        for requested in [
+            OptionWindowTheme::None,
+            OptionWindowTheme::Some(WindowTheme::LightMode),
+            OptionWindowTheme::Some(WindowTheme::DarkMode),
+        ] {
+            for probed in [Theme::Light, Theme::Dark] {
+                assert_eq!(initial_window_theme(requested, probed), expected);
+            }
+        }
+    }
 }

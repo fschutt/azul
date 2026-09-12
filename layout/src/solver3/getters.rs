@@ -5621,11 +5621,22 @@ pub fn get_scrollbar_style(
 ) -> ComputedScrollbarStyle {
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
-    let ctx = system_style.map_or_else(
-        azul_css::dynamic_selector::DynamicSelectorContext::default,
-        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-    );
+    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system —
+    // against the context the DOM was CASCADED under (it carries the
+    // window's own theme, viewport and OS), so the scrollbar follows an
+    // in-app theme switch like everything else does. A DOM no window has
+    // adopted yet falls back to a system-style-only context.
+    let ctx = styled_dom
+        .get_css_property_cache()
+        .dynamic_context
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| {
+            system_style.map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            )
+        });
     // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
     // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built
