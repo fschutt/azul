@@ -2154,6 +2154,702 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 // ===========================================================================
 
 // == STATES: list_view ==
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES — list view
+// ---------------------------------------------------------------------------
+//
+// The sixty hover / pressed / focus rules `list_view.rs` used to declare, as
+// forty-five LIGHT+DARK pairs (the row's thirteen hover rules were spelled out
+// twice over there). A column header hovers to a bluish-white face with a blue
+// underline and presses to a bordered, inset-shadowed face; a row hovers to a
+// blue-ringed tint and focuses to a stronger one. The light values are the
+// widget's own, unchanged — this is a move, not a restyle. The dark halves are
+// chosen here, because this is the only place the palette is in scope.
+//
+// Every surface the list styles is page-neutral — a white field, a
+// white-to-grey header band — so each dark twin comes from the theme rather
+// than from a colour invented for the occasion:
+//
+//   * fills: `DARK_HT` for the hovered header face and `DARK_PT` for the pressed one (a header is a
+//     control face); `DARK_ROW_HOVER` for a hovered row, the fill a tree row already takes; and
+//     `DARK_GLOW`, the translucent accent, for the focused row, so it stays distinguishable from a
+//     merely hovered one the way #B8E0F3 is from #E5F3FB in light mode;
+//   * borders: the light blues map onto the accent ramp — `DARK_SOFT`, the muted step, for the
+//     hover underline and the hover ring, `DARK_ACC` for the focus ring — and the pressed header's
+//     neutral grey-blue border takes `DARK_BD`;
+//   * the pressed header's inset shadow shades its face toward the bottom stop, which is what
+//     `DARK_PB` is.
+//
+// Border widths (1px) and styles (solid) do not change with the theme. Their
+// dark twins restate the same value: the pairing is the invariant this
+// section exists for, and keeping it uniform beats remembering which rules are
+// exempt. They are shared between the header and the row, since a 1px solid
+// edge is the same rule wherever it lands.
+
+/// Column-header hover underline, light mode (#9ADFFE).
+pub const LIGHT_LIST_HEADER_HOVER_LINE: ColorU = ColorU {
+    r: 154,
+    g: 223,
+    b: 254,
+    a: 255,
+};
+
+/// Column-header hover face, top stop, light mode (#F7FCFE).
+///
+/// The face is a vertical gradient with a hard step at the midpoint: this
+/// colour held to 50%, then [`LIGHT_LIST_HEADER_HOVER_MID`] fading into
+/// [`LIGHT_LIST_HEADER_HOVER_BOTTOM`].
+pub const LIGHT_LIST_HEADER_HOVER_TOP: ColorU = ColorU {
+    r: 247,
+    g: 252,
+    b: 254,
+    a: 255,
+};
+
+/// Column-header hover face, just below the midpoint step (#E8F6FE).
+pub const LIGHT_LIST_HEADER_HOVER_MID: ColorU = ColorU {
+    r: 232,
+    g: 246,
+    b: 254,
+    a: 255,
+};
+
+/// Column-header hover face, bottom stop (#CEE7F4).
+pub const LIGHT_LIST_HEADER_HOVER_BOTTOM: ColorU = ColorU {
+    r: 206,
+    g: 231,
+    b: 244,
+    a: 255,
+};
+
+/// Column-header pressed face, light mode (#F9FAFB).
+pub const LIGHT_LIST_HEADER_PRESSED: ColorU = ColorU {
+    r: 249,
+    g: 250,
+    b: 251,
+    a: 255,
+};
+
+/// Column-header pressed border, light mode (#C2CDDB): a neutral grey-blue,
+/// not an accent.
+pub const LIGHT_LIST_HEADER_PRESSED_BORDER: ColorU = ColorU {
+    r: 194,
+    g: 205,
+    b: 219,
+    a: 255,
+};
+
+/// Column-header pressed inset shadow, light mode (#CEE7F4) — the hover face's
+/// bottom stop, so a pressed header reads as sunk into the hovered one.
+pub const LIGHT_LIST_HEADER_PRESSED_SHADOW: ColorU = ColorU {
+    r: 206,
+    g: 231,
+    b: 244,
+    a: 255,
+};
+
+/// Row hover fill, light mode (#E5F3FB).
+///
+/// Not [`LIGHT_ROW_HOVER`] (#E5F3FF): the list's tint is four units short in
+/// the blue channel. Kept as the widget had it — this is a move, not a restyle
+/// — though nothing but the value separates the two, and a later pass may well
+/// decide a list row and a tree row should hover alike.
+pub const LIGHT_LIST_ROW_HOVER: ColorU = ColorU {
+    r: 229,
+    g: 243,
+    b: 251,
+    a: 255,
+};
+
+/// Row hover ring, light mode (#65B5DC).
+pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
+    r: 101,
+    g: 181,
+    b: 220,
+    a: 255,
+};
+
+/// Focused-row fill, light mode (#B8E0F3): a stronger tint than
+/// [`LIGHT_LIST_ROW_HOVER`], so the keyboard cursor row stays distinct from a
+/// row the pointer merely passes over.
+pub const LIGHT_LIST_ROW_FOCUS: ColorU = ColorU {
+    r: 184,
+    g: 224,
+    b: 243,
+    a: 255,
+};
+
+/// Focused-row ring, light mode (#26A0DA).
+pub const LIGHT_LIST_ROW_FOCUS_BORDER: ColorU = ColorU {
+    r: 38,
+    g: 160,
+    b: 218,
+    a: 255,
+};
+
+// The edge VALUES every list state shares — a 1px solid border, one const per
+// edge and per property — so that each state rule below is a single line.
+const LIST_EDGE_TOP_1PX: CssProperty = CssProperty::const_border_top_width(LayoutBorderTopWidth {
+    inner: PixelValue::const_px(1),
+});
+const LIST_EDGE_BOTTOM_1PX: CssProperty =
+    CssProperty::const_border_bottom_width(LayoutBorderBottomWidth {
+        inner: PixelValue::const_px(1),
+    });
+const LIST_EDGE_LEFT_1PX: CssProperty =
+    CssProperty::const_border_left_width(LayoutBorderLeftWidth {
+        inner: PixelValue::const_px(1),
+    });
+const LIST_EDGE_RIGHT_1PX: CssProperty =
+    CssProperty::const_border_right_width(LayoutBorderRightWidth {
+        inner: PixelValue::const_px(1),
+    });
+const LIST_EDGE_TOP_SOLID: CssProperty = CssProperty::const_border_top_style(StyleBorderTopStyle {
+    inner: BorderStyle::Solid,
+});
+const LIST_EDGE_BOTTOM_SOLID: CssProperty =
+    CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+        inner: BorderStyle::Solid,
+    });
+const LIST_EDGE_LEFT_SOLID: CssProperty =
+    CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    });
+const LIST_EDGE_RIGHT_SOLID: CssProperty =
+    CssProperty::const_border_right_style(StyleBorderRightStyle {
+        inner: BorderStyle::Solid,
+    });
+
+// -- hover: the 1px solid edge ---------------------------------------------
+
+/// A 1px edge on hover, one const per edge and per property: the ring a
+/// hovered row draws, and the underline a hovered column header draws (bottom
+/// edge only). Each pairs with its `_DARK` twin.
+pub const LIST_HOVER_BORDER_TOP_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_TOP_1PX);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_BOTTOM_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_BOTTOM_1PX);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_LEFT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_LEFT_1PX);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_RIGHT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_RIGHT_1PX);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_TOP_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_TOP_SOLID);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_BOTTOM_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_BOTTOM_SOLID);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_LEFT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_LEFT_SOLID);
+/// See [`LIST_HOVER_BORDER_TOP_WIDTH`].
+pub const LIST_HOVER_BORDER_RIGHT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(LIST_EDGE_RIGHT_SOLID);
+
+/// The dark twin of [`LIST_HOVER_BORDER_TOP_WIDTH`] — the same 1px, since a
+/// border's weight does not change with the theme.
+pub const LIST_HOVER_BORDER_TOP_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_TOP_1PX);
+/// The dark twin of [`LIST_HOVER_BORDER_BOTTOM_WIDTH`].
+pub const LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_BOTTOM_1PX);
+/// The dark twin of [`LIST_HOVER_BORDER_LEFT_WIDTH`].
+pub const LIST_HOVER_BORDER_LEFT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_LEFT_1PX);
+/// The dark twin of [`LIST_HOVER_BORDER_RIGHT_WIDTH`].
+pub const LIST_HOVER_BORDER_RIGHT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_RIGHT_1PX);
+/// The dark twin of [`LIST_HOVER_BORDER_TOP_STYLE`].
+pub const LIST_HOVER_BORDER_TOP_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_TOP_SOLID);
+/// The dark twin of [`LIST_HOVER_BORDER_BOTTOM_STYLE`].
+pub const LIST_HOVER_BORDER_BOTTOM_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_BOTTOM_SOLID);
+/// The dark twin of [`LIST_HOVER_BORDER_LEFT_STYLE`].
+pub const LIST_HOVER_BORDER_LEFT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_LEFT_SOLID);
+/// The dark twin of [`LIST_HOVER_BORDER_RIGHT_STYLE`].
+pub const LIST_HOVER_BORDER_RIGHT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(LIST_EDGE_RIGHT_SOLID);
+
+// -- pressed: the 1px solid edge -------------------------------------------
+
+/// A 1px edge while pressed, one const per edge and per property: the border a
+/// pressed column header draws all the way round. Each pairs with its `_DARK`
+/// twin.
+pub const LIST_ACTIVE_BORDER_TOP_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_TOP_1PX);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_BOTTOM_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_BOTTOM_1PX);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_LEFT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_LEFT_1PX);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_RIGHT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_RIGHT_1PX);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_TOP_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_TOP_SOLID);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_BOTTOM_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_BOTTOM_SOLID);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_LEFT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_LEFT_SOLID);
+/// See [`LIST_ACTIVE_BORDER_TOP_WIDTH`].
+pub const LIST_ACTIVE_BORDER_RIGHT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(LIST_EDGE_RIGHT_SOLID);
+
+/// The dark twin of [`LIST_ACTIVE_BORDER_TOP_WIDTH`] — the same 1px, since a
+/// border's weight does not change with the theme.
+pub const LIST_ACTIVE_BORDER_TOP_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_TOP_1PX);
+/// The dark twin of [`LIST_ACTIVE_BORDER_BOTTOM_WIDTH`].
+pub const LIST_ACTIVE_BORDER_BOTTOM_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_BOTTOM_1PX);
+/// The dark twin of [`LIST_ACTIVE_BORDER_LEFT_WIDTH`].
+pub const LIST_ACTIVE_BORDER_LEFT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_LEFT_1PX);
+/// The dark twin of [`LIST_ACTIVE_BORDER_RIGHT_WIDTH`].
+pub const LIST_ACTIVE_BORDER_RIGHT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_RIGHT_1PX);
+/// The dark twin of [`LIST_ACTIVE_BORDER_TOP_STYLE`].
+pub const LIST_ACTIVE_BORDER_TOP_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_TOP_SOLID);
+/// The dark twin of [`LIST_ACTIVE_BORDER_BOTTOM_STYLE`].
+pub const LIST_ACTIVE_BORDER_BOTTOM_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_BOTTOM_SOLID);
+/// The dark twin of [`LIST_ACTIVE_BORDER_LEFT_STYLE`].
+pub const LIST_ACTIVE_BORDER_LEFT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_LEFT_SOLID);
+/// The dark twin of [`LIST_ACTIVE_BORDER_RIGHT_STYLE`].
+pub const LIST_ACTIVE_BORDER_RIGHT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(LIST_EDGE_RIGHT_SOLID);
+
+// -- focus: the 1px solid edge ---------------------------------------------
+
+/// A 1px edge on focus, one const per edge and per property: the ring the
+/// focused row draws. Each pairs with its `_DARK` twin.
+pub const LIST_FOCUS_BORDER_TOP_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_TOP_1PX);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_BOTTOM_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_BOTTOM_1PX);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_LEFT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_LEFT_1PX);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_RIGHT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_RIGHT_1PX);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_TOP_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_TOP_SOLID);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_BOTTOM_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_BOTTOM_SOLID);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_LEFT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_LEFT_SOLID);
+/// See [`LIST_FOCUS_BORDER_TOP_WIDTH`].
+pub const LIST_FOCUS_BORDER_RIGHT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(LIST_EDGE_RIGHT_SOLID);
+
+/// The dark twin of [`LIST_FOCUS_BORDER_TOP_WIDTH`] — the same 1px, since a
+/// border's weight does not change with the theme.
+pub const LIST_FOCUS_BORDER_TOP_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_TOP_1PX);
+/// The dark twin of [`LIST_FOCUS_BORDER_BOTTOM_WIDTH`].
+pub const LIST_FOCUS_BORDER_BOTTOM_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_BOTTOM_1PX);
+/// The dark twin of [`LIST_FOCUS_BORDER_LEFT_WIDTH`].
+pub const LIST_FOCUS_BORDER_LEFT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_LEFT_1PX);
+/// The dark twin of [`LIST_FOCUS_BORDER_RIGHT_WIDTH`].
+pub const LIST_FOCUS_BORDER_RIGHT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_RIGHT_1PX);
+/// The dark twin of [`LIST_FOCUS_BORDER_TOP_STYLE`].
+pub const LIST_FOCUS_BORDER_TOP_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_TOP_SOLID);
+/// The dark twin of [`LIST_FOCUS_BORDER_BOTTOM_STYLE`].
+pub const LIST_FOCUS_BORDER_BOTTOM_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_BOTTOM_SOLID);
+/// The dark twin of [`LIST_FOCUS_BORDER_LEFT_STYLE`].
+pub const LIST_FOCUS_BORDER_LEFT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_LEFT_SOLID);
+/// The dark twin of [`LIST_FOCUS_BORDER_RIGHT_STYLE`].
+pub const LIST_FOCUS_BORDER_RIGHT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(LIST_EDGE_RIGHT_SOLID);
+
+// -- the column header ------------------------------------------------------
+
+/// Column-header hover underline — light: [`LIGHT_LIST_HEADER_HOVER_LINE`] on
+/// the bottom edge. Pair with [`LIST_HEADER_HOVER_LINE_COLOR_DARK`].
+pub const LIST_HEADER_HOVER_LINE_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_LIST_HEADER_HOVER_LINE,
+        },
+    ));
+
+/// The dark twin of [`LIST_HEADER_HOVER_LINE_COLOR`]: [`DARK_SOFT`], the muted
+/// accent. The light value is a pale blue, and the ramp's muted step is the
+/// nearest thing the palette has to it.
+pub const LIST_HEADER_HOVER_LINE_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_SOFT },
+    ));
+
+// The stops of the hovered column header's face: `LIGHT_LIST_HEADER_HOVER_TOP`
+// held to the midpoint, then a hard step to `LIGHT_LIST_HEADER_HOVER_MID`
+// fading into `LIGHT_LIST_HEADER_HOVER_BOTTOM`.
+const LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(50),
+        color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(51),
+        color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_MID),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_BOTTOM),
+    },
+];
+
+// The hovered column header's face: a top-to-bottom gradient over
+// `LIST_HEADER_HOVER_STOPS`.
+const LIST_HEADER_HOVER_FACE: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(LIST_HEADER_HOVER_STOPS),
+    })];
+
+/// Column-header hover face — light. Pair with [`LIST_HEADER_HOVER_BG_DARK`].
+///
+/// The white-to-blue-grey gradient built from [`LIGHT_LIST_HEADER_HOVER_TOP`],
+/// [`LIGHT_LIST_HEADER_HOVER_MID`] and [`LIGHT_LIST_HEADER_HOVER_BOTTOM`].
+pub const LIST_HEADER_HOVER_BG: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(LIST_HEADER_HOVER_FACE),
+    ));
+
+/// The dark twin of [`LIST_HEADER_HOVER_BG`]: [`DARK_HT`], the hovered control
+/// face. A flat fill rather than a gradient, because in this theme the two
+/// stops of a face are the same colour anyway.
+pub const LIST_HEADER_HOVER_BG_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_HT)]),
+    ));
+
+// The inset glow a pressed column header draws inside each edge, light mode: a
+// 5px blur of `LIGHT_LIST_HEADER_PRESSED_SHADOW`, no offset, no spread.
+const LIST_HEADER_PRESSED_INSET: StyleBoxShadow = StyleBoxShadow {
+    offset_x: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    offset_y: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    color: LIGHT_LIST_HEADER_PRESSED_SHADOW,
+    blur_radius: PixelValueNoPercent {
+        inner: PixelValue::const_px(5),
+    },
+    spread_radius: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    clip_mode: BoxShadowClipMode::Inset,
+};
+
+// `LIST_HEADER_PRESSED_INSET` in dark mode: the same glow in `DARK_PB`, the
+// pressed face's bottom stop, which is what an inset shadow shades a face
+// toward.
+const LIST_HEADER_PRESSED_INSET_DARK: StyleBoxShadow = StyleBoxShadow {
+    offset_x: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    offset_y: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    color: DARK_PB,
+    blur_radius: PixelValueNoPercent {
+        inner: PixelValue::const_px(5),
+    },
+    spread_radius: PixelValueNoPercent {
+        inner: PixelValue::const_px(0),
+    },
+    clip_mode: BoxShadowClipMode::Inset,
+};
+
+/// Column-header pressed inset shadow, bottom edge — light: a 5px inset blur
+/// of [`LIGHT_LIST_HEADER_PRESSED_SHADOW`].
+///
+/// Four edges, one const each, so the glow runs all the way round; pair each
+/// with its `_DARK` twin.
+pub const LIST_HEADER_ACTIVE_SHADOW_BOTTOM: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET),
+    )));
+/// See [`LIST_HEADER_ACTIVE_SHADOW_BOTTOM`].
+pub const LIST_HEADER_ACTIVE_SHADOW_TOP: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET),
+    )));
+/// See [`LIST_HEADER_ACTIVE_SHADOW_BOTTOM`].
+pub const LIST_HEADER_ACTIVE_SHADOW_RIGHT: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET),
+    )));
+/// See [`LIST_HEADER_ACTIVE_SHADOW_BOTTOM`].
+pub const LIST_HEADER_ACTIVE_SHADOW_LEFT: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET),
+    )));
+
+/// The dark twin of [`LIST_HEADER_ACTIVE_SHADOW_BOTTOM`]: the same glow in
+/// [`DARK_PB`], the pressed face's bottom stop — what an inset shadow shades a
+/// face toward.
+pub const LIST_HEADER_ACTIVE_SHADOW_BOTTOM_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::BoxShadowBottom(
+        StyleBoxShadowValue::Exact(BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET_DARK)),
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_SHADOW_TOP`].
+pub const LIST_HEADER_ACTIVE_SHADOW_TOP_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::BoxShadowTop(
+        StyleBoxShadowValue::Exact(BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET_DARK)),
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_SHADOW_RIGHT`].
+pub const LIST_HEADER_ACTIVE_SHADOW_RIGHT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::BoxShadowRight(
+        StyleBoxShadowValue::Exact(BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET_DARK)),
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_SHADOW_LEFT`].
+pub const LIST_HEADER_ACTIVE_SHADOW_LEFT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::BoxShadowLeft(
+        StyleBoxShadowValue::Exact(BoxOrStatic::Static(&LIST_HEADER_PRESSED_INSET_DARK)),
+    ));
+
+/// Column-header pressed border, bottom edge — light:
+/// [`LIGHT_LIST_HEADER_PRESSED_BORDER`]. Four edges; pair each with its `_DARK`
+/// twin.
+pub const LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_LIST_HEADER_PRESSED_BORDER,
+        },
+    ));
+/// See [`LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: LIGHT_LIST_HEADER_PRESSED_BORDER,
+        },
+    ));
+/// See [`LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LIGHT_LIST_HEADER_PRESSED_BORDER,
+        },
+    ));
+/// See [`LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_TOP_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_active(CssProperty::const_border_top_color(
+        StyleBorderTopColor {
+            inner: LIGHT_LIST_HEADER_PRESSED_BORDER,
+        },
+    ));
+
+/// The dark twin of [`LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR`]: [`DARK_BD`],
+/// the default border — the light value is a neutral grey-blue, not an accent.
+pub const LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_BD },
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_BD },
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_BD },
+    ));
+/// The dark twin of [`LIST_HEADER_ACTIVE_BORDER_TOP_COLOR`].
+pub const LIST_HEADER_ACTIVE_BORDER_TOP_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_BD },
+    ));
+
+/// Column-header pressed face — light: [`LIGHT_LIST_HEADER_PRESSED`]. Pair
+/// with [`LIST_HEADER_ACTIVE_BG_DARK`].
+pub const LIST_HEADER_ACTIVE_BG: CssPropertyWithConditions = CssPropertyWithConditions::on_active(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(LIGHT_LIST_HEADER_PRESSED),
+    ])),
+);
+
+/// The dark twin of [`LIST_HEADER_ACTIVE_BG`]: [`DARK_PT`], the pressed
+/// control face.
+pub const LIST_HEADER_ACTIVE_BG_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_active(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_PT)]),
+    ));
+
+// -- the row ----------------------------------------------------------------
+
+/// Row hover ring, bottom edge — light: [`LIGHT_LIST_ROW_HOVER_BORDER`]. Four
+/// edges; pair each with its `_DARK` twin.
+pub const LIST_ROW_HOVER_BORDER_BOTTOM_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_LIST_ROW_HOVER_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_HOVER_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_LEFT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: LIGHT_LIST_ROW_HOVER_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_HOVER_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_RIGHT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LIGHT_LIST_ROW_HOVER_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_HOVER_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_TOP_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_LIST_ROW_HOVER_BORDER,
+    }));
+
+/// The dark twin of [`LIST_ROW_HOVER_BORDER_BOTTOM_COLOR`]: [`DARK_SOFT`], the
+/// muted accent — one step below the focus ring's [`DARK_ACC`], as #65B5DC is
+/// one step below #26A0DA in light mode.
+pub const LIST_ROW_HOVER_BORDER_BOTTOM_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_SOFT },
+    ));
+/// The dark twin of [`LIST_ROW_HOVER_BORDER_LEFT_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_LEFT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_SOFT },
+    ));
+/// The dark twin of [`LIST_ROW_HOVER_BORDER_RIGHT_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_RIGHT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_SOFT },
+    ));
+/// The dark twin of [`LIST_ROW_HOVER_BORDER_TOP_COLOR`].
+pub const LIST_ROW_HOVER_BORDER_TOP_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_SOFT },
+    ));
+
+/// Row hover fill — light: [`LIGHT_LIST_ROW_HOVER`]. Pair with
+/// [`LIST_ROW_HOVER_BG_DARK`].
+pub const LIST_ROW_HOVER_BG: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(LIGHT_LIST_ROW_HOVER),
+    ])),
+);
+
+/// The dark twin of [`LIST_ROW_HOVER_BG`]: [`DARK_ROW_HOVER`], the fill a
+/// hovered tree row already takes.
+pub const LIST_ROW_HOVER_BG_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            DARK_ROW_HOVER,
+        )]),
+    ));
+
+/// Focused-row ring, bottom edge — light: [`LIGHT_LIST_ROW_FOCUS_BORDER`].
+/// Four edges; pair each with its `_DARK` twin.
+pub const LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_LIST_ROW_FOCUS_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_LEFT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: LIGHT_LIST_ROW_FOCUS_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_RIGHT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LIGHT_LIST_ROW_FOCUS_BORDER,
+        },
+    ));
+/// See [`LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_TOP_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_LIST_ROW_FOCUS_BORDER,
+    }));
+
+/// The dark twin of [`LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR`]: [`DARK_ACC`] — a
+/// focus ring is the accent, as it is for every other focused control in this
+/// theme.
+pub const LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_ACC },
+    ));
+/// The dark twin of [`LIST_ROW_FOCUS_BORDER_LEFT_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_LEFT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_ACC },
+    ));
+/// The dark twin of [`LIST_ROW_FOCUS_BORDER_RIGHT_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_RIGHT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_ACC },
+    ));
+/// The dark twin of [`LIST_ROW_FOCUS_BORDER_TOP_COLOR`].
+pub const LIST_ROW_FOCUS_BORDER_TOP_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_ACC },
+    ));
+
+/// Focused-row fill — light: [`LIGHT_LIST_ROW_FOCUS`]. Pair with
+/// [`LIST_ROW_FOCUS_BG_DARK`].
+pub const LIST_ROW_FOCUS_BG: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(LIGHT_LIST_ROW_FOCUS),
+    ])),
+);
+
+/// The dark twin of [`LIST_ROW_FOCUS_BG`]: [`DARK_GLOW`], the translucent
+/// accent.
+///
+/// Over the dark field it tints the row toward the accent the way #B8E0F3 does
+/// over white, and stays distinguishable from a hovered row's
+/// [`DARK_ROW_HOVER`].
+pub const LIST_ROW_FOCUS_BG_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_GLOW)]),
+    ));
+
 // == /STATES: list_view ==
 
 //
