@@ -3269,7 +3269,7 @@ pub const TAB_HOVER_STATES: [CssPropertyWithConditions; 26] = [
 /// rules follow the four light ones so that they win in dark mode (inline
 /// declarations resolve last-match-wins).
 #[must_use]
-pub fn hover_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
+pub const fn hover_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
     [
         CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(
             StyleBorderTopColor { inner: light },
@@ -3305,7 +3305,7 @@ pub fn hover_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditi
 /// accent; this is for a palette that brings its own. Same shape as
 /// [`hover_border_both`], for the same reason.
 #[must_use]
-pub fn focus_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
+pub const fn focus_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
     [
         CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(
             StyleBorderTopColor { inner: light },

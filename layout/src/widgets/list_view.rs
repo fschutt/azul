@@ -2219,10 +2219,12 @@ mod autotest_generated {
     /// split into the light half (no theme condition) and the dark twins
     /// (gated on the dark theme as well). Each entry carries its position in
     /// declaration order, and both halves are sorted by type so they line up.
-    fn state_halves(
-        node: &Dom,
-        state: PseudoStateType,
-    ) -> (Vec<(CssPropertyType, usize)>, Vec<(CssPropertyType, usize)>) {
+    /// `(property type, count)` per declaration kind — one vec for the light
+    /// state rules on a node, one for their dark twins. Named because clippy's
+    /// `type_complexity` (pedantic, on in this crate) refuses the tuple inline.
+    type StateCounts = Vec<(CssPropertyType, usize)>;
+
+    fn state_halves(node: &Dom, state: PseudoStateType) -> (StateCounts, StateCounts) {
         let mut light = Vec::new();
         let mut dark = Vec::new();
         for (i, (p, conds)) in node.root.style.iter_inline_properties().enumerate() {
