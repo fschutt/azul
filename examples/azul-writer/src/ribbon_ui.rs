@@ -241,8 +241,10 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     );
     let mut size_combo = ribbon_style.styled_combo_box(font_sizes, s("11"), 45);
     // WORKAROUND(engine): pin the static UI font (see crate::fonts).
-    crate::fonts::push_ui_font(&mut name_combo.text_style);
-    crate::fonts::push_ui_font(&mut size_combo.text_style);
+    let name_text = name_combo.resolved_text_style();
+    crate::fonts::push_ui_font(&mut name_combo.text_style, name_text);
+    let size_text = size_combo.resolved_text_style();
+    crate::fonts::push_ui_font(&mut size_combo.text_style, size_text);
 
     let mut bold = small("format_bold", "").with_toggled(state.bold);
     bold.set_on_click(data.clone(), on_toggle_bold as ButtonOnClickCallbackType);
@@ -443,7 +445,8 @@ pub fn build(
     ribbon.set_on_tab_click(data.clone(), on_tab_click as RibbonOnTabClickCallbackType);
     // WORKAROUND(engine): pin the static UI font on the ribbon container —
     // the font inherits into every tab / group / label (see crate::fonts).
-    crate::fonts::push_ui_font(&mut ribbon.style.container_style);
+    let container = ribbon.style.resolved_container_style();
+    crate::fonts::push_ui_font(&mut ribbon.style.container_style, container);
     if compact {
         // Touch chrome: a full-width active-tab button (tap opens the tab
         // picker, double-tap collapses the band), the group list on the

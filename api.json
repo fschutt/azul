@@ -62297,6 +62297,20 @@
                                     "type": "ComboBox"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "resolved_text_style": {
+                                "doc": [
+                                    "The field-text CSS this combobox renders with."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "fn_body": "object.resolved_text_style()"
                             }
                         },
                         "repr": "C"
@@ -65248,6 +65262,21 @@
                                     "type": "ComboBox"
                                 },
                                 "fn_body": "object.styled_combo_box(items, text, width)"
+                            },
+                            "resolved_container_style": {
+                                "doc": [
+                                    "The `container_style` this bundle renders with: the caller's override if there is one,",
+                                    "else derived from [`Self::theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "fn_body": "object.resolved_container_style()"
                             }
                         },
                         "repr": "C"
@@ -66190,6 +66219,23 @@
                                 "fn_body": "azul_layout::widgets::quick_access::QuickAccessStyle::from_theme(theme)"
                             }
                         },
+                        "functions": {
+                            "resolved_bar_style": {
+                                "doc": [
+                                    "The `bar_style` this bundle renders with: the caller's override if there is",
+                                    "one, else derived from [`Self::theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "fn_body": "object.resolved_bar_style()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "StatusBarViewSwitcher": {
@@ -66638,6 +66684,23 @@
                                 "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::from_theme(theme)"
                             }
                         },
+                        "functions": {
+                            "resolved_bar_style": {
+                                "doc": [
+                                    "The `bar_style` this bundle renders with: the caller's override if there is one,",
+                                    "else derived from [`Self::theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "fn_body": "object.resolved_bar_style()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "StatusBarTheme": {
@@ -66921,6 +66984,23 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::backstage::BackstageStyle::from_theme(theme)"
+                            }
+                        },
+                        "functions": {
+                            "resolved_root_style": {
+                                "doc": [
+                                    "The `root_style` this bundle renders with: the caller's override if there is",
+                                    "one, else derived from [`Self::theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "fn_body": "object.resolved_root_style()"
                             }
                         },
                         "repr": "C"

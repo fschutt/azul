@@ -93,7 +93,8 @@ pub fn title_band(
             .with_on_click(data.clone(), crate::on_redo as ButtonOnClickCallbackType),
     ]
     .into();
-    crate::fonts::push_ui_font(&mut band.style.bar_style);
+    let band_bar = band.style.resolved_bar_style();
+    crate::fonts::push_ui_font(&mut band.style.bar_style, band_bar);
     if compact {
         // A phone has no window to minimize, maximize or close — the OS owns
         // that. Drawing them anyway spends a third of a 320 px band on controls
@@ -416,7 +417,8 @@ pub fn status_bar(
     // A BRAND-filled strip over the desktop's neutrals - the office blue is
     // AzWriter's, not the session's accent.
     bar.style = crate::palette::widgets::status_bar(pal, sys);
-    crate::fonts::push_ui_font(&mut bar.style.bar_style);
+    let status_bar = bar.style.resolved_bar_style();
+    crate::fonts::push_ui_font(&mut bar.style.bar_style, status_bar);
     bar.dom()
 }
 

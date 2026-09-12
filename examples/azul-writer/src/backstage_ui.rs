@@ -333,7 +333,8 @@ pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &Sy
     let mut strip = QuickAccessBar::new(AzString::from(title));
     strip.trailing_actions = vec![QuickAccessAction::new(AzString::from("help_outline"))].into();
     strip.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
-    crate::fonts::push_ui_font(&mut strip.style.bar_style);
+    let strip_bar = strip.style.resolved_bar_style();
+    crate::fonts::push_ui_font(&mut strip.style.bar_style, strip_bar);
     let title_strip = strip.dom();
 
     let content = match state.backstage_pane {
@@ -369,6 +370,7 @@ pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &Sy
     // is AzWriter's identity, the pane behind it is the session's.
     backstage.style = crate::palette::widgets::backstage(pal, sys);
     // WORKAROUND(engine): pin the static UI font (inherits into the panes).
-    crate::fonts::push_ui_font(&mut backstage.style.root_style);
+    let root = backstage.style.resolved_root_style();
+    crate::fonts::push_ui_font(&mut backstage.style.root_style, root);
     backstage.dom()
 }

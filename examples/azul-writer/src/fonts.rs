@@ -18,6 +18,7 @@ use azul::{
         PixelValue, StyleFontFamily, StyleFontSize, StyleTextColor,
     },
     dom::Dom,
+    option::OptionCssPropertyWithConditionsVec,
     vec::{CssPropertyWithConditionsVec, StyleFontFamilyVec},
 };
 
@@ -31,13 +32,23 @@ fn ui_font_cond() -> CssPropertyWithConditions {
     )))
 }
 
-/// Appends the pinned family to a widget part style. Inline properties
-/// resolve last-match-wins, so the append overrides the widget's
-/// `system:ui` without rebuilding the style bundle.
-pub fn push_ui_font(style: &mut CssPropertyWithConditionsVec) {
-    let mut v: Vec<CssPropertyWithConditions> = style.as_ref().to_vec();
+/// Appends the pinned family to a widget part style. A part left `None` is
+/// "the theme's default", which the widget only resolves when it builds its
+/// Dom — so the caller hands that default in (`style.resolved_bar_style()`
+/// and friends) and the family goes on top of it. Inline properties resolve
+/// last-match-wins, so the append overrides the widget's `system:ui`
+/// without rebuilding the style bundle.
+pub fn push_ui_font(
+    style: &mut OptionCssPropertyWithConditionsVec,
+    default: CssPropertyWithConditionsVec,
+) {
+    let base = match style {
+        OptionCssPropertyWithConditionsVec::Some(explicit) => explicit.clone(),
+        OptionCssPropertyWithConditionsVec::None => default,
+    };
+    let mut v: Vec<CssPropertyWithConditions> = base.as_ref().to_vec();
     v.push(ui_font_cond());
-    *style = CssPropertyWithConditionsVec::from(v);
+    *style = OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from(v));
 }
 
 // The app's colours moved to `crate::palette`, which derives them from the
