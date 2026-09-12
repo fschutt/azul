@@ -431,7 +431,7 @@ pub enum EdgeType {
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
@@ -502,28 +502,6 @@ pub enum MeasureDomMode {
     /// box) and report that - "how big does this content want to be", the
     /// answer a label or a popup needs.
     ShrinkToFit,
-}
-
-impl Clone for VirtualViewCallbackInfo {
-    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or
-                                              // cfg-gated binding); access is deliberate
-    fn clone(&self) -> Self {
-        Self {
-            reason: self.reason,
-            system_fonts: self.system_fonts,
-            image_cache: self.image_cache,
-            window_theme: self.window_theme,
-            window_frame: self.window_frame,
-            bounds: self.bounds,
-            materialized: self.materialized,
-            virtual_rect: self.virtual_rect,
-            scroll_offset: self.scroll_offset,
-            callable_ptr: self.callable_ptr,
-            measure_dom_fn: self.measure_dom_fn,
-            measure_dom_ctx: self.measure_dom_ctx,
-            _abi_mut: self._abi_mut,
-        }
-    }
 }
 
 impl VirtualViewCallbackInfo {
@@ -889,6 +867,7 @@ pub enum RelayoutReason {
     Other,
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct LayoutCallbackInfo {
     /// Single reference to all readonly reference data
@@ -1276,21 +1255,6 @@ pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
 #[must_use]
 pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
     SystemStyleDependencies::empty()
-}
-
-impl Clone for LayoutCallbackInfo {
-    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or
-                                              // cfg-gated binding); access is deliberate
-    fn clone(&self) -> Self {
-        Self {
-            ref_data: self.ref_data,
-            window_size: self.window_size,
-            theme: self.theme,
-            relayout_reason: self.relayout_reason,
-            callable_ptr: self.callable_ptr,
-            _abi_mut: self._abi_mut,
-        }
-    }
 }
 
 impl core::fmt::Debug for LayoutCallbackInfo {

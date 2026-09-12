@@ -11645,11 +11645,10 @@
                     "VirtualViewCallbackInfo": {
                         "priority": 50.0,
                         "external": "azul_core::callbacks::VirtualViewCallbackInfo",
-                        "custom_impls": [
-                            "Clone"
-                        ],
                         "derive": [
-                            "Debug"
+                            "Debug",
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {
@@ -18992,8 +18991,11 @@
                         "priority": 93.0,
                         "external": "azul_core::callbacks::LayoutCallbackInfo",
                         "custom_impls": [
-                            "Clone",
                             "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {
@@ -20217,11 +20219,10 @@
                         ],
                         "priority": 56.0,
                         "external": "azul_layout::callbacks::RenderImageCallbackInfo",
-                        "custom_impls": [
-                            "Clone"
-                        ],
                         "derive": [
-                            "Debug"
+                            "Debug",
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {
@@ -25141,6 +25142,7 @@
                             "Clone",
                             "Default",
                             "Display",
+                            "Drop",
                             "Eq",
                             "Hash",
                             "Ord",
@@ -45014,10 +45016,11 @@
                     "GridMinMax": {
                         "external": "azul_css::props::layout::grid::GridMinMax",
                         "custom_impls": [
-                            "Debug"
+                            "Clone",
+                            "Debug",
+                            "Drop"
                         ],
                         "derive": [
-                            "Clone",
                             "PartialEq",
                             "Eq",
                             "PartialOrd",
@@ -45033,6 +45036,9 @@
                                 "max": {
                                     "type": "c_void",
                                     "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68089,11 +68095,10 @@
                     },
                     "GlVoidPtrMut": {
                         "external": "azul_core::gl::GlVoidPtrMut",
-                        "custom_impls": [
-                            "Clone"
-                        ],
                         "derive": [
-                            "Debug"
+                            "Debug",
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {
@@ -82445,7 +82450,9 @@
                     "ZombieAnimInfo": {
                         "external": "azul_core::resources::ZombieAnimInfo",
                         "derive": [
-                            "Debug"
+                            "Debug",
+                            "Clone",
+                            "Copy"
                         ],
                         "struct_fields": [
                             {

@@ -2934,10 +2934,10 @@ mod autotest_generated {
 
     #[test]
     fn translate_track_minmax_takes_the_min_of_the_min_and_the_max_of_the_max() {
-        let t = GridTrackSizing::MinMax(GridMinMax {
-            min: Box::new(GridTrackSizing::Fixed(PixelValue::px(10.0))),
-            max: Box::new(GridTrackSizing::Fr(200)),
-        });
+        let t = GridTrackSizing::MinMax(GridMinMax::new(
+            GridTrackSizing::Fixed(PixelValue::px(10.0)),
+            GridTrackSizing::Fr(200),
+        ));
         assert_eq!(
             translate_track(&t),
             minmax(
@@ -2948,10 +2948,10 @@ mod autotest_generated {
 
         // The *other* halves are discarded: only minmax_box.min.min and
         // minmax_box.max.max survive the translation.
-        let t = GridTrackSizing::MinMax(GridMinMax {
-            min: Box::new(GridTrackSizing::MaxContent),
-            max: Box::new(GridTrackSizing::MinContent),
-        });
+        let t = GridTrackSizing::MinMax(GridMinMax::new(
+            GridTrackSizing::MaxContent,
+            GridTrackSizing::MinContent,
+        ));
         assert_eq!(
             translate_track(&t),
             minmax(
@@ -2966,10 +2966,7 @@ mod autotest_generated {
         // Nesting only on the `min` side keeps the recursion linear.
         let mut t = GridTrackSizing::Fixed(PixelValue::px(7.0));
         for _ in 0..64 {
-            t = GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(t),
-                max: Box::new(GridTrackSizing::MaxContent),
-            });
+            t = GridTrackSizing::MinMax(GridMinMax::new(t, GridTrackSizing::MaxContent));
         }
         assert_eq!(
             translate_track(&t),
@@ -2989,10 +2986,7 @@ mod autotest_generated {
         // the leaf on each side.
         let mut t = GridTrackSizing::Fixed(PixelValue::px(3.0));
         for _ in 0..10 {
-            t = GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(t.clone()),
-                max: Box::new(t),
-            });
+            t = GridTrackSizing::MinMax(GridMinMax::new(t.clone(), t));
         }
         assert_eq!(
             translate_track(&t),
@@ -3081,10 +3075,10 @@ mod autotest_generated {
             GridTrackSizing::Fr(250),
             GridTrackSizing::MinContent,
             GridTrackSizing::FitContent(PixelValue::px(9.0)),
-            GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(GridTrackSizing::Fixed(PixelValue::px(1.0))),
-                max: Box::new(GridTrackSizing::MaxContent),
-            }),
+            GridTrackSizing::MinMax(GridMinMax::new(
+                GridTrackSizing::Fixed(PixelValue::px(1.0)),
+                GridTrackSizing::MaxContent,
+            )),
         ];
         let rows = grid_auto_rows_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));
         let cols = grid_auto_columns_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));

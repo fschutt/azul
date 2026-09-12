@@ -1732,6 +1732,20 @@ impl NodeData {
         self.extra.as_deref().filter(|e| !e.is_identity_empty())
     }
 }
+/// The double-drop guard. `NodeData` owns two `Box`es (`accessibility`,
+/// `extra`); the codegen FFI mirror (`AzNodeData`) is dropped by
+/// `drop_in_place` of this type FIRST and then by Rust's drop glue for its
+/// own fields when it is embedded by value in another wrapper — the same
+/// bytes twice. Taking each `Box` out before freeing it leaves `None`
+/// behind, so the second drop finds nothing; the `Vec` / `String` fields
+/// already gate themselves (`destructor == AlreadyDestroyed`).
+impl Drop for NodeData {
+    fn drop(&mut self) {
+        drop(self.accessibility.take());
+        drop(self.extra.take());
+    }
+}
+
 impl PartialEq for NodeData {
     fn eq(&self, other: &Self) -> bool {
         self.node_type == other.node_type

@@ -83,15 +83,9 @@ impl Drop for GlVoidPtrConst {
 /// Because of Python, every object has to be clone-able,
 /// so yes there may exist more than one mutable reference
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct GlVoidPtrMut {
     pub ptr: *mut GLvoid,
-}
-
-impl Clone for GlVoidPtrMut {
-    fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
-    }
 }
 
 /// FFI-safe wrapper for `&str`.

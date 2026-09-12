@@ -332,7 +332,7 @@ mod autotest_generated {
         );
 
         // clone must not disturb any of that
-        let cloned = info.clone();
+        let cloned = info;
         assert_eq!(cloned.reason, info.reason);
         assert!(core::ptr::eq(cloned.internal_get_system_fonts(), &fonts));
         assert!(cloned.get_ctx().is_none());
@@ -797,7 +797,7 @@ mod autotest_generated {
         drop(got);
 
         // a clone of the info keeps pointing at the same callable
-        let cloned = info.clone();
+        let cloned = info;
         assert!(cloned.get_ctx().is_some());
     }
 

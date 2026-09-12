@@ -110,8 +110,9 @@ impl<'a> IRBuilder<'a> {
         /// Check if a type string contains any non-FFI-safe type
         /// Returns the problematic type name if found
         fn contains_non_ffi_safe_type(type_str: &str) -> Option<&'static str> {
-            // If the type is safely boxed in ManuallyDrop, it is managed manually across the FFI boundary.
-            // This prevents false positives like `ManuallyDrop<Box<Rc<GlContextPtrInner>>>`.
+            // If the type is safely boxed in ManuallyDrop, it is managed manually across the FFI
+            // boundary. This prevents false positives like
+            // `ManuallyDrop<Box<Rc<GlContextPtrInner>>>`.
             if type_str.starts_with("ManuallyDrop<Box<") {
                 return None;
             }
@@ -222,22 +223,37 @@ impl<'a> IRBuilder<'a> {
                     let has_gate = struct_fields.iter().any(|fm| {
                         fm.contains_key("run_destructor") || fm.contains_key("destructor")
                     });
+                    // A hand-written `Drop` (listed in `custom_impls`) takes the double-drop
+                    // responsibility itself: it must free ONLY on the first drop — clear a
+                    // `run_destructor`, or take-and-null the pointer / `Option<Box>` so the
+                    // second drop finds nothing (`ComponentFieldTypeBox`, `NodeData`).
+                    let has_custom_drop = class_data
+                        .custom_impls
+                        .as_ref()
+                        .is_some_and(|c| c.iter().any(|t| t == "Drop"));
                     // A `len` field means it's a slice/Vec view: either a borrowed `*Ref`
                     // (owns nothing -> safe to double-drop) or a Vec (gated by `destructor`).
                     // Exclude those to avoid false positives on borrow wrappers.
                     let is_slice_like = struct_fields
                         .iter()
                         .any(|fm| fm.contains_key("len") || fm.contains_key("cap"));
-                    let owns_heap = struct_fields.iter().flat_map(|fm| fm.values()).any(|fd| {
-                        matches!(
-                            fd.ref_kind,
-                            RefKind::ConstPtr
-                                | RefKind::MutPtr
-                                | RefKind::Boxed
-                                | RefKind::OptionBoxed
-                        )
-                    });
-                    if !is_copy && owns_heap && !has_gate && !is_slice_like {
+                    // `_abi_ref` / `_abi_mut` are the ABI-stability placeholders every
+                    // callback-info struct carries (always null, never freed): a pointer
+                    // in name only.
+                    let owns_heap = struct_fields
+                        .iter()
+                        .flat_map(|fm| fm.iter())
+                        .filter(|(name, _)| !name.starts_with("_abi_"))
+                        .any(|(_, fd)| {
+                            matches!(
+                                fd.ref_kind,
+                                RefKind::ConstPtr
+                                    | RefKind::MutPtr
+                                    | RefKind::Boxed
+                                    | RefKind::OptionBoxed
+                            )
+                        });
+                    if !is_copy && owns_heap && !has_gate && !has_custom_drop && !is_slice_like {
                         double_drop_risks.push(class_name.clone());
                     }
                 }

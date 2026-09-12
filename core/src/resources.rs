@@ -646,7 +646,7 @@ pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
 /// may walk the retained tree (e.g. measure its own component's text
 /// mid-exit) but must not store them: for an exit the tree is the retained
 /// zombie frame, freed when the animation completes.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ZombieAnimInfo {
     /// The `StyledDom` the ANIMATED node lives in — the retained tree for
