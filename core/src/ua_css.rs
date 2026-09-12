@@ -407,6 +407,18 @@ static BORDER_TOP_COLOR_GRAY: CssProperty =
         },
     }));
 
+/// border-top-color for hr on a DARK window: a subtle divider, like the
+/// platforms' own separators on dark (#5a5a5a), where the light rule's mid
+/// grey would read as a bright bar.
+static BORDER_TOP_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: ColorU {
+            r: 90,
+            g: 90,
+            b: 90,
+            a: 255,
+        },
+    }));
 /// height: 0 (for hr - the line comes from the border, not height)
 static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(
     PixelValue::const_px(0),
@@ -494,6 +506,30 @@ static BUTTON_BORDER_COLOR: ColorU = ColorU {
     a: 255,
 };
 
+/// Border color for a native button on a DARK window: #5a5a5a. The light
+/// rule's #c8c8c8 is chosen for a white surface and glares on a dark one.
+static BUTTON_BORDER_COLOR_DARK: ColorU = ColorU {
+    r: 90,
+    g: 90,
+    b: 90,
+    a: 255,
+};
+static BUTTON_BORDER_TOP_COLOR_DARK: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_BOTTOM_COLOR_DARK: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_LEFT_COLOR_DARK: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_RIGHT_COLOR_DARK: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
 static BUTTON_BORDER_TOP_COLOR: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
         inner: BUTTON_BORDER_COLOR,
@@ -907,6 +943,45 @@ pub fn get_ua_property(
         // No default defined for other combinations
         _ => None,
     }
+}
+
+/// [`get_ua_property`], with the theme taken into account.
+///
+/// The UA sheet is a static table, which is what keeps the property cache a
+/// pure function of node type — but a handful of its defaults are COLOURS, and
+/// a colour default cannot be one constant: a button border or an `<hr>` rule
+/// chosen for a white window is wrong on a dark one. Those few resolve through
+/// here: with a dark context they answer their dark twin, otherwise the plain
+/// table. The inherited text colour has the same shape in
+/// [`UA_ROOT_TEXT_COLOR_CSS`].
+///
+/// `None` for the context means "no window yet" and falls back to the light
+/// table, which is what every caller did before this existed.
+#[must_use]
+pub fn get_ua_property_themed(
+    node_type: &NodeType,
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    use CssPropertyType as PT;
+
+    use crate::dom::NodeType as NT;
+
+    let dark = ctx.is_some_and(|c| c.theme == ThemeCondition::Dark);
+    if dark {
+        let twin = match (node_type, property_type) {
+            (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY_DARK),
+            (NT::Button, PT::BorderTopColor) => Some(&BUTTON_BORDER_TOP_COLOR_DARK),
+            (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR_DARK),
+            (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR_DARK),
+            (NT::Button, PT::BorderRightColor) => Some(&BUTTON_BORDER_RIGHT_COLOR_DARK),
+            _ => None,
+        };
+        if twin.is_some() {
+            return twin;
+        }
+    }
+    get_ua_property(node_type, property_type)
 }
 
 // ============================================================================

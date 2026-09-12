@@ -7618,12 +7618,19 @@ where
                             .get_text_color(&node_data[nid], &nid, node_state)
                             .and_then(|c| c.get_property().copied())
                             .unwrap_or_else(|| {
-                                let ctx = self.ctx.system_style.as_ref().map_or_else(
-                                    azul_css::dynamic_selector::DynamicSelectorContext::default,
-                                    |s| {
-                                        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
-                                    },
-                                );
+                                // The SAME context the cascade evaluated this
+                                // DOM against — which carries the window's own
+                                // theme — not a fresh system-only one: the two
+                                // used to disagree after an in-app theme switch,
+                                // leaving the widgets dark and the text black.
+                                let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_else(|| {
+                                    self.ctx.system_style.as_ref().map_or_else(
+                                        azul_css::dynamic_selector::DynamicSelectorContext::default,
+                                        |s| {
+                                            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
+                                        },
+                                    )
+                                });
                                 azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
                             })
                             .inner,

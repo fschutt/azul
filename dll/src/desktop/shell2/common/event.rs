@@ -4703,6 +4703,8 @@ pub trait PlatformWindow {
                 let old_state = self.get_current_window_state().clone();
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
+
+                let theme_changed = old_state.theme != state.theme;
                 // The other cursors (9b-ii): same treatment as the primary,
                 // or an app-pushed seat change would neither copy nor diff.
                 let seats_changed = old_state.pointer_seats != state.pointer_seats;
@@ -4836,6 +4838,15 @@ pub trait PlatformWindow {
                     }
                 }
 
+                // Theme changed by the APP. (An OS theme change arrives as a
+                // system-style change and is handled in `adopt_system_style`.)
+                // Every `@theme` rule, the UA text colour and the widgets' dark
+                // twins resolve against the WINDOW's theme, so this is the same
+                // full pass a system theme change takes; without it an in-app
+                // switch flipped the window chrome and nothing else.
+                if theme_changed {
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                }
                 // Mouse state changed → update hit test before the event pass
                 if mouse_state_changed {
                     let mouse_pos = self

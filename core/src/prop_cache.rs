@@ -3055,7 +3055,11 @@ impl CssPropertyCache {
 
         // User-agent stylesheet fallback (lowest precedence)
         // Check if the node type has a default value for this property
-        crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
+        crate::ua_css::get_ua_property_themed(
+            &node_data.node_type,
+            *css_property_type,
+            self.dynamic_context.as_deref(),
+        )
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -4904,7 +4908,11 @@ impl CssPropertyCache {
                 }
 
                 // Check if UA CSS defines this property for this node type
-                if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
+                if let Some(ua_prop) = crate::ua_css::get_ua_property_themed(
+                    node_type,
+                    *prop_type,
+                    self.dynamic_context.as_deref(),
+                ) {
                     self.cascaded_props.push_to(
                         node_index,
                         StatefulCssProperty {

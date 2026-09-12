@@ -830,6 +830,18 @@ impl_option!(
 ///
 /// Reads the environment directly, like `system.rs`'s `AZ_RICING` override
 /// right next door: this crate is std.
+/// The theme `AZ_THEME=light|dark` pins, if set.
+///
+/// Public because the pin has to outrank EVERY other source of the theme — the
+/// system style and the window's own theme alike — or a screenshot run that
+/// set it would still come out in whatever theme the machine happened to be
+/// in. `from_system_style` applies it; a caller layering a window theme on
+/// top of that context must check it too.
+#[must_use]
+pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
+    option_env_theme()
+}
+
 #[must_use]
 fn option_env_theme() -> Option<ThemeCondition> {
     match std::env::var("AZ_THEME")

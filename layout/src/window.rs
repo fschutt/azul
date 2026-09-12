@@ -5100,6 +5100,46 @@ impl LayoutWindow {
             )
     }
 
+    /// The dynamic-selector context every cascade in this window evaluates
+    /// against: the system style (OS, language, reduced motion, ...), the
+    /// viewport, the live safe-area insets, focus — and the THEME, which is
+    /// the window's own.
+    ///
+    /// `window_state.theme` is the effective theme of this window: the shells
+    /// write the OS theme into it and keep it current, a transient window
+    /// inherits its parent's, and an app switches to dark mode by setting it.
+    /// Until this existed, the cascade took the theme from `SystemStyle` alone,
+    /// so an in-app switch changed the window chrome and nothing styled by
+    /// `@theme dark` — the UA text colour included — and the display list built
+    /// a second, system-only context for the inherited text colour, which could
+    /// disagree with the cascade's. One builder, used by both, is the fix.
+    ///
+    /// `AZ_THEME` still outranks everything, or a pinned screenshot run would
+    /// follow the machine's theme again.
+    #[must_use]
+    pub fn dynamic_selector_context(
+        &self,
+        window_state: &FullWindowState,
+    ) -> azul_css::dynamic_selector::DynamicSelectorContext {
+        use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+
+        let base = self.system_style.as_deref().map_or_else(
+            DynamicSelectorContext::default,
+            DynamicSelectorContext::from_system_style,
+        );
+        let dims = window_state.size.dimensions;
+        let mut ctx = base
+            .with_viewport(dims.width, dims.height)
+            .with_safe_area(&self.safe_area_insets);
+        ctx.window_focused = window_state.flags.has_focus;
+        ctx.theme =
+            azul_css::dynamic_selector::theme_pinned_by_env().unwrap_or(match window_state.theme {
+                azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
+                azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
+            });
+        ctx
+    }
+
     /// Measure the content of the `<transient-window>` at `source_node` for
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this
@@ -5128,18 +5168,7 @@ impl LayoutWindow {
         let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
         let mut styled = StyledDom::create_from_dom(dom);
         styled.dom_id = content_dom;
-        {
-            let dims = window_state.size.dimensions;
-            let base = self.system_style.as_deref().map_or_else(
-                azul_css::dynamic_selector::DynamicSelectorContext::default,
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-            );
-            let mut ctx = base
-                .with_viewport(dims.width, dims.height)
-                .with_safe_area(&self.safe_area_insets);
-            ctx.window_focused = window_state.flags.has_focus;
-            styled.set_dynamic_selector_context(ctx);
-        }
+        styled.set_dynamic_selector_context(self.dynamic_selector_context(window_state));
         self.measure_styled_dom_shrink_to_fit(&styled, window_state.size.dimensions)
     }
 
@@ -5220,24 +5249,7 @@ impl LayoutWindow {
         // frames), so a resize that crosses a breakpoint re-evaluates the
         // conditions on its natural relayout — no extra invalidation
         // machinery. A DOM without such conditions pays one bool read.
-        {
-            let dims = window_state.size.dimensions;
-            let base = self.system_style.as_deref().map_or_else(
-                azul_css::dynamic_selector::DynamicSelectorContext::default,
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-            );
-            // The live safe-area insets ride along: `env(safe-area-inset-*)`
-            // is resolved by the cascade against this context, so a rotation
-            // or keyboard change (the shells write `safe_area_insets` and
-            // request a regeneration) changes the context, which re-runs the
-            // author cascade for the DOMs that use it - the same path a
-            // resize across an @media bound takes.
-            let mut ctx = base
-                .with_viewport(dims.width, dims.height)
-                .with_safe_area(&self.safe_area_insets);
-            ctx.window_focused = window_state.flags.has_focus;
-            styled_dom.set_dynamic_selector_context(ctx);
-        }
+        styled_dom.set_dynamic_selector_context(self.dynamic_selector_context(window_state));
 
         // Child DOMs (VirtualView / iframe) must NOT lay out into the root's
         // live cache: the impl below writes tree + calculated_positions into
@@ -14580,8 +14592,7 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer =
-                IcuLocalizerHandle::from_system_language(&system_style.language);
+            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
         }
         self.system_style = Some(system_style);
     }
@@ -26238,5 +26249,66 @@ mod first_line_span_tests {
     fn an_empty_range_keeps_the_carets_own_width() {
         let r = first_line_span(caret(10.0, 40.0), caret(10.0, 40.0));
         assert_eq!(r.size.width, 2.0);
+    }
+}
+
+#[cfg(test)]
+mod window_theme_context {
+    //! `LayoutWindow::dynamic_selector_context` takes the theme from the WINDOW,
+    //! which is the only source that knows about an in-app switch.
+    use azul_core::window::WindowTheme;
+    use azul_css::dynamic_selector::ThemeCondition;
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::window_state::FullWindowState;
+
+    // `SystemStyle` implements `Drop`, so `..Default::default()` is not an
+    // option: the theme has to be assigned after the fact.
+    #[allow(clippy::field_reassign_with_default)]
+    fn window_with_system_theme(theme: azul_css::system::Theme) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut style = azul_css::system::SystemStyle::default();
+        style.theme = theme;
+        lw.set_system_style(std::sync::Arc::new(style));
+        lw
+    }
+
+    #[test]
+    fn the_windows_theme_wins_over_the_system_style() {
+        if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
+            return; // AZ_THEME outranks both; nothing to compare
+        }
+        let lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut ws = FullWindowState {
+            theme: WindowTheme::DarkMode,
+            ..Default::default()
+        };
+        assert_eq!(
+            lw.dynamic_selector_context(&ws).theme,
+            ThemeCondition::Dark,
+            "an app that switched its window to dark must get `@theme dark` rules"
+        );
+        ws.theme = WindowTheme::LightMode;
+        assert_eq!(
+            lw.dynamic_selector_context(&ws).theme,
+            ThemeCondition::Light
+        );
+    }
+
+    #[test]
+    fn the_context_still_carries_viewport_focus_and_the_system_os() {
+        let lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let ws = FullWindowState {
+            flags: azul_core::window::WindowFlags {
+                has_focus: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let ctx = lw.dynamic_selector_context(&ws);
+        assert!(!ctx.window_focused);
+        assert_eq!(ctx.viewport_width, ws.size.dimensions.width);
+        assert_eq!(ctx.viewport_height, ws.size.dimensions.height);
     }
 }

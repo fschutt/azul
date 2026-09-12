@@ -1531,3 +1531,93 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+mod themed_ua_colours {
+    //! The UA defaults that are COLOURS resolve per theme through
+    //! `get_ua_property_themed`; everything else is unchanged by it.
+    use azul_css::{
+        css::CssPropertyValue,
+        dynamic_selector::{DynamicSelectorContext, OsCondition, ThemeCondition},
+        props::property::{CssProperty, CssPropertyType},
+    };
+
+    use crate::{
+        dom::NodeType,
+        ua_css::{get_ua_property, get_ua_property_themed},
+    };
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            os: OsCondition::MacOS,
+            theme,
+            ..DynamicSelectorContext::default()
+        }
+    }
+
+    fn border_top(p: &CssProperty) -> Option<(u8, u8, u8)> {
+        match p {
+            CssProperty::BorderTopColor(CssPropertyValue::Exact(c)) => {
+                Some((c.inner.r, c.inner.g, c.inner.b))
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_button_border_has_a_dark_twin_and_keeps_its_light_value() {
+        let light = get_ua_property_themed(
+            &NodeType::Button,
+            CssPropertyType::BorderTopColor,
+            Some(&ctx(ThemeCondition::Light)),
+        )
+        .and_then(border_top);
+        let dark = get_ua_property_themed(
+            &NodeType::Button,
+            CssPropertyType::BorderTopColor,
+            Some(&ctx(ThemeCondition::Dark)),
+        )
+        .and_then(border_top);
+        assert_eq!(light, Some((200, 200, 200)), "the light border is #c8c8c8");
+        assert_eq!(dark, Some((90, 90, 90)), "the dark border is #5a5a5a");
+        assert_ne!(
+            light, dark,
+            "a dark window must not get the light-mode border"
+        );
+    }
+
+    #[test]
+    fn every_button_border_edge_and_the_hr_rule_follow_the_theme() {
+        for (node, prop) in [
+            (NodeType::Button, CssPropertyType::BorderTopColor),
+            (NodeType::Button, CssPropertyType::BorderBottomColor),
+            (NodeType::Button, CssPropertyType::BorderLeftColor),
+            (NodeType::Button, CssPropertyType::BorderRightColor),
+            (NodeType::Hr, CssPropertyType::BorderTopColor),
+        ] {
+            let light = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Light)));
+            let dark = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Dark)));
+            assert!(
+                light.is_some() && dark.is_some(),
+                "{node:?}/{prop:?} must resolve"
+            );
+            assert_ne!(light, dark, "{node:?}/{prop:?}: no dark twin");
+        }
+    }
+
+    #[test]
+    fn no_context_and_non_colour_properties_are_the_plain_table() {
+        // Callers that have no window yet get exactly what they always got.
+        assert_eq!(
+            get_ua_property_themed(&NodeType::Button, CssPropertyType::BorderTopColor, None),
+            get_ua_property(&NodeType::Button, CssPropertyType::BorderTopColor),
+        );
+        // A non-colour default is untouched by the theme in either mode.
+        for theme in [ThemeCondition::Light, ThemeCondition::Dark] {
+            assert_eq!(
+                get_ua_property_themed(&NodeType::Div, CssPropertyType::Display, Some(&ctx(theme))),
+                get_ua_property(&NodeType::Div, CssPropertyType::Display),
+            );
+        }
+    }
+}
