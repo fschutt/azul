@@ -60,7 +60,10 @@ use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, system::SystemStyle,
 };
 
-use super::button::{Button, ButtonOnClick, OptionButtonOnClick};
+use super::{
+    button::{Button, ButtonOnClick, OptionButtonOnClick},
+    themes::flat,
+};
 use crate::callbacks::CallbackInfo;
 
 // -- Callbacks --
@@ -229,10 +232,6 @@ fn cond_bg(c: ColorU) -> Cond {
     Cond::simple(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_bg_hover(c: ColorU) -> Cond {
-    Cond::on_hover(P::const_background_content(bg_vec(c)))
-}
-
 const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
@@ -300,6 +299,25 @@ fn push_ring_border(v: &mut Vec<Cond>, c: ColorU, width: isize, radius: isize) {
     )));
 }
 
+/// The hover fill of the two controls on the nav column (back button, nav
+/// item), light AND dark.
+///
+/// Built by the theme module rather than declared here, so the pair cannot be
+/// split: the dark half needs a palette this file cannot see, and a rule
+/// written here could only ever name the light colour — which is how every
+/// interactive state in this toolkit came to paint its light fill onto a dark
+/// surface.
+///
+/// The dark twin is the SAME colour, on purpose. The nav column is an ACCENT
+/// fill in either mode (`theme_nav` paints `nav_bg` with no dark variant;
+/// `from_system` reads it from the desktop's accent), and `nav_hover_bg` is a
+/// shade of that accent. The theme's neutral `DARK_HT` on a blue band would be
+/// worse than today's light-only rule — see `themes::flat::hover_bg_both` for
+/// the rule, and `flat::button_states` for the same call on a Primary button.
+fn push_nav_hover(v: &mut Vec<Cond>, t: &BackstageTheme) {
+    v.extend(flat::hover_bg_both(t.nav_hover_bg, t.nav_hover_bg));
+}
+
 fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
         cond_border_box(),
@@ -347,8 +365,8 @@ fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_cursor(StyleCursor::Pointer)),
         Cond::simple(P::user_select(StyleUserSelect::None)),
         cond_bg(TRANSPARENT),
-        cond_bg_hover(t.nav_hover_bg),
     ];
+    push_nav_hover(&mut v, t);
     push_ring_border(&mut v, t.back_ring, 2, BACK_D / 2);
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -361,7 +379,7 @@ fn theme_back_icon(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
@@ -377,8 +395,9 @@ fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::user_select(StyleUserSelect::None)),
         cond_text_color(t.nav_text),
         cond_bg(TRANSPARENT),
-        cond_bg_hover(t.nav_hover_bg),
-    ])
+    ];
+    push_nav_hover(&mut v, t);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// APPENDED to the active nav item.

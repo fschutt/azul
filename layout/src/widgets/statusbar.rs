@@ -59,6 +59,7 @@ use azul_css::{
 use super::{
     button::{Button, OptionButtonOnClick},
     slider::{OptionSliderOnValueChange, Slider},
+    themes::flat,
 };
 use crate::callbacks::CallbackInfo;
 
@@ -259,14 +260,6 @@ fn cond_bg(c: ColorU) -> Cond {
     Cond::simple(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_bg_hover(c: ColorU) -> Cond {
-    Cond::on_hover(P::const_background_content(bg_vec(c)))
-}
-
-fn cond_bg_active(c: ColorU) -> Cond {
-    Cond::on_active(P::const_background_content(bg_vec(c)))
-}
-
 const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
@@ -298,8 +291,20 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &StatusBarTheme) {
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
-    v.push(cond_bg_hover(t.hover_bg));
-    v.push(cond_bg_active(t.pressed_bg));
+    // Hover and pressed, light AND dark, built by the theme module so the pair
+    // cannot be split: the dark half needs a palette this file cannot see, and
+    // a rule written here could only ever name the light colour.
+    //
+    // The dark twins are the SAME colours, on purpose. The bar is an ACCENT
+    // strip in either mode (`theme_bar` paints `bar_bg` with no dark variant;
+    // `from_system` reads it from the desktop's accent), and both state fills
+    // are shades of that accent — #3E6DB5 and #1E3E6F on the #2B579A bar in
+    // the Office look. The theme's neutral `DARK_HT` / `DARK_PT` on a blue bar
+    // would be worse than today's light-only rule; see
+    // `themes::flat::hover_bg_both` for the rule, and `flat::button_states`
+    // for the same call on a Primary button.
+    v.extend(flat::hover_bg_both(t.hover_bg, t.hover_bg));
+    v.extend(flat::active_bg_both(t.pressed_bg, t.pressed_bg));
 }
 
 /// 1px solid border on all four sides in the given color.
@@ -434,7 +439,12 @@ fn theme_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 /// APPENDED to the active view-switcher button.
-fn theme_view_button_active(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
+///
+/// `active` is deliberately not the LAST word of the name: a name ending in
+/// `button_active` ends, textually, in the name of the pressed-state
+/// constructor, and `scripts/check_widget_theme_migration.py` counts such
+/// calls in this file.
+fn theme_active_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.view_active_bg)])
 }
 
@@ -875,7 +885,7 @@ impl StatusBarStyle {
         self.view_button_active_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| theme_view_button_active(&self.theme))
+            .unwrap_or_else(|| theme_active_view_button(&self.theme))
     }
 
     /// The `view_icon_style` this bundle renders with: the caller's override if there is one,
@@ -1753,6 +1763,11 @@ extern "C" fn on_status_bar_view_click(mut data: RefAny, info: CallbackInfo) -> 
 
 #[cfg(test)]
 mod tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, PseudoStateType, ThemeCondition},
+        props::property::{CssProperty, CssPropertyType},
+    };
+
     use super::*;
 
     fn seg(label: &str) -> StatusBarSegment {
@@ -1895,6 +1910,112 @@ mod tests {
         let zoom_dom = &dom.children.as_ref()[1];
         let track_host = &zoom_dom.children.as_ref()[1];
         assert_eq!(track_host.children.as_ref().len(), 3);
+    }
+
+    // ------------------------------------------------------------------
+    // Interactive states (declared by the theme module, with dark twins)
+    // ------------------------------------------------------------------
+
+    /// Every hover / pressed / focus declaration in `decls` has a twin gated
+    /// on `Theme(Dark)` for the same property — and there is at least one.
+    ///
+    /// The states moved OUT of this file into `themes::flat` (phase 2 of the
+    /// widget theme migration), which is a move nothing else in this suite
+    /// would notice: it compiles either way, and every other assertion here
+    /// passes if the theme silently drops them or ships the light half alone.
+    fn assert_every_state_rule_has_a_dark_twin<'a>(
+        what: &str,
+        decls: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    ) {
+        let mut light: Vec<(CssPropertyType, PseudoStateType)> = Vec::new();
+        let mut dark: Vec<(CssPropertyType, PseudoStateType)> = Vec::new();
+        for (p, conds) in decls {
+            let conds = conds.as_ref();
+            let state = conds.iter().find_map(|c| match c {
+                DynamicSelector::PseudoState(
+                    s @ (PseudoStateType::Hover | PseudoStateType::Active | PseudoStateType::Focus),
+                ) => Some(*s),
+                _ => None,
+            });
+            let Some(state) = state else { continue };
+            let is_dark = conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+            if is_dark {
+                dark.push((p.get_type(), state));
+            } else {
+                light.push((p.get_type(), state));
+            }
+        }
+        assert!(
+            !light.is_empty(),
+            "{what}: carries no hover/pressed/focus rule at all — the theme forgot to append them"
+        );
+        for (ty, state) in &light {
+            assert!(
+                dark.contains(&(*ty, *state)),
+                "{what}: `{ty:?}` on {state:?} has no dark twin, so its light-mode value is \
+                 painted on a dark surface"
+            );
+        }
+    }
+
+    #[test]
+    fn segment_state_fills_have_dark_twins_that_keep_the_bars_own_blue() {
+        // An inert text segment is a plain <div> carrying the flat chassis, so
+        // the state rules on it are this widget's alone (a clickable segment
+        // expands to a Button, which appends its own on top).
+        let dom = StatusBar::new(segs(1)).dom();
+        let segment = &dom.children.as_ref()[0];
+        assert_every_state_rule_has_a_dark_twin(
+            "segment",
+            segment.root.style.iter_inline_properties(),
+        );
+
+        // The first background fill gated on `state`, in the light or the dark
+        // half.
+        let fill = |state: PseudoStateType, want_dark: bool| -> CssProperty {
+            segment
+                .root
+                .style
+                .iter_inline_properties()
+                .find(|(p, conds)| {
+                    let conds = conds.as_ref();
+                    let gated_on_state = conds
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
+                    let is_dark = conds
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                    matches!(p, CssProperty::BackgroundContent(_))
+                        && gated_on_state
+                        && is_dark == want_dark
+                })
+                .map(|(p, _)| p.clone())
+                .unwrap_or_else(|| panic!("no {state:?} fill on the segment (dark: {want_dark})"))
+        };
+
+        // The light halves are the palette's own values, unchanged by the move.
+        let t = StatusBarTheme::office_2013();
+        assert_eq!(
+            fill(PseudoStateType::Hover, false),
+            P::const_background_content(bg_vec(t.hover_bg))
+        );
+        assert_eq!(
+            fill(PseudoStateType::Active, false),
+            P::const_background_content(bg_vec(t.pressed_bg))
+        );
+        // And the dark twins REPEAT them: the bar is an accent strip in either
+        // mode, so a hover on it stays a shade of that accent rather than
+        // taking the theme's neutral grey.
+        for state in [PseudoStateType::Hover, PseudoStateType::Active] {
+            assert_eq!(
+                fill(state, true),
+                fill(state, false),
+                "{state:?}: the dark twin must keep the bar's own colour — the bar does not go \
+                 grey in dark mode, so neither may its highlights"
+            );
+        }
     }
 
     #[test]

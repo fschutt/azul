@@ -76,6 +76,7 @@ use super::{
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
+    themes::flat,
 };
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -493,14 +494,6 @@ fn cond_bg(c: ColorU) -> Cond {
     Cond::simple(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_bg_hover(c: ColorU) -> Cond {
-    Cond::on_hover(P::const_background_content(bg_vec(c)))
-}
-
-fn cond_bg_active(c: ColorU) -> Cond {
-    Cond::on_active(P::const_background_content(bg_vec(c)))
-}
-
 const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
@@ -581,19 +574,36 @@ fn push_border_colors(v: &mut Vec<Cond>, c: ColorU) {
     )));
 }
 
-fn push_hover_border_colors(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::on_hover(P::const_border_top_color(
-        StyleBorderTopColor { inner: c },
-    )));
-    v.push(Cond::on_hover(P::const_border_left_color(
-        StyleBorderLeftColor { inner: c },
-    )));
-    v.push(Cond::on_hover(P::const_border_right_color(
-        StyleBorderRightColor { inner: c },
-    )));
-    v.push(Cond::on_hover(P::const_border_bottom_color(
-        StyleBorderBottomColor { inner: c },
-    )));
+// -- Interactive states --
+//
+// Hover, pressed and focus are NOT declared in this file. They are built by
+// the theme module (`themes::flat::hover_bg_both` and friends), which returns
+// each rule together with its dark twin, because the dark half needs that
+// module's palette — `DARK_HT`, `DARK_PT`, `DARK_BD`, `DARK_ACC` — which this
+// file cannot see. Declared here, a state could only ever name the light
+// colour, which is how every ribbon control kept its light-blue hover on a
+// dark surface.
+//
+// Which dark colour a rule takes depends on the SURFACE it sits on:
+//
+//   * the chrome — tab strip, buttons, launcher, gallery, the mobile lists — is page-neutral: white
+//     in the Office look, the window background from `from_system`. Its dark twins are the theme's
+//     tokens, exactly what `flat::button_states` gives the neutral button;
+//   * the application button is an ACCENT fill in either mode, so its hover keeps the palette's own
+//     `accent_hover` (`theme_app_button`);
+//   * a hovered tab's text and a focused field's ring take the ACCENT, the one state colour with a
+//     genuine per-mode value in both palettes, so their twins are `DARK_ACC` (`theme_tab`,
+//     `theme_combo_field`).
+
+/// Hover fill of a control on the neutral chrome, light and dark.
+fn push_chrome_hover_fill(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+}
+
+/// Hover border of a control on the neutral chrome, all four edges, light and
+/// dark.
+fn push_chrome_hover_border(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    v.extend(flat::hover_border_both(t.hover_border, flat::DARK_BD));
 }
 
 /// Bottom border only (tab underline / ribbon bottom edge).
@@ -618,9 +628,11 @@ fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
-    v.push(cond_bg_hover(t.hover_bg));
-    push_hover_border_colors(v, t.hover_border);
-    v.push(cond_bg_active(t.pressed_bg));
+    push_chrome_hover_fill(v, t);
+    push_chrome_hover_border(v, t);
+    // Pressed: page-neutral chrome, so the dark twin is the theme's pressed
+    // face — see the `Interactive states` note above.
+    v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
 }
 
 fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -670,7 +682,13 @@ fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     ))));
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
-    v.push(cond_bg_hover(t.accent_hover));
+    // Hover, light and dark. The application button is an ACCENT fill in
+    // either mode (`cond_bg(t.accent)` above has no dark variant), so the dark
+    // twin is the palette's own `accent_hover` too: the theme's neutral grey
+    // on a blue button would be wrong, and inventing a second blue is a design
+    // decision this refactor has no business making — `flat::button_states`
+    // makes the same call for a Primary button.
+    v.extend(flat::hover_bg_both(t.accent_hover, t.accent_hover));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -691,9 +709,11 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(cond_text_color(t.text));
     v.push(cond_bg(t.chrome_bg));
     push_bottom_border(&mut v, t.border);
-    v.push(Cond::on_hover(P::const_text_color(StyleTextColor {
-        inner: t.accent,
-    })));
+    // Hover text, light and dark. The tab strip is page-neutral chrome and a
+    // hovered tab's text takes the accent, so the dark twin is the theme's
+    // `DARK_ACC` — the accent is the one state colour with a genuine per-mode
+    // value in both palettes.
+    v.extend(flat::hover_text_color_both(t.accent, flat::DARK_ACC));
     // A tab header is ONE line. Without this "PAGE LAYOUT" wrapped, and its
     // second line was drawn below the 26px tab strip, over the ribbon content
     // - invisible only because the content band was opaque and painted over
@@ -808,8 +828,8 @@ fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(&mut v, TRANSPARENT);
-    v.push(cond_bg_hover(t.hover_bg));
-    push_hover_border_colors(&mut v, t.hover_border);
+    push_chrome_hover_fill(&mut v, t);
+    push_chrome_hover_border(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -970,8 +990,8 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_border_right_color(
         StyleBorderRightColor { inner: t.separator },
     )));
-    v.push(cond_bg_hover(t.hover_bg));
-    push_hover_border_colors(&mut v, t.hover_border);
+    push_chrome_hover_fill(&mut v, t);
+    push_chrome_hover_border(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1067,7 +1087,7 @@ fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec
     v.push(Cond::simple(P::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(0),
     )));
-    v.push(cond_bg_hover(t.hover_bg));
+    push_chrome_hover_fill(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1109,18 +1129,11 @@ fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(cond_bg(t.chrome_bg));
     v.push(cond_text_color(t.text));
     push_box_border(&mut v, t.field_border);
-    v.push(Cond::on_focus(P::const_border_top_color(
-        StyleBorderTopColor { inner: t.accent },
-    )));
-    v.push(Cond::on_focus(P::const_border_left_color(
-        StyleBorderLeftColor { inner: t.accent },
-    )));
-    v.push(Cond::on_focus(P::const_border_right_color(
-        StyleBorderRightColor { inner: t.accent },
-    )));
-    v.push(Cond::on_focus(P::const_border_bottom_color(
-        StyleBorderBottomColor { inner: t.accent },
-    )));
+    // Focus ring, light and dark. The field sits on the neutral chrome and its
+    // ring is the accent, so the dark twin is the theme's `DARK_ACC`. All four
+    // edges: a ring that sets only some leaves the rest at their resting
+    // colour.
+    v.extend(flat::focus_border_both(t.accent, flat::DARK_ACC));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1224,7 +1237,7 @@ fn theme_mobile_tab_overlay_item(t: &RibbonTheme) -> CssPropertyWithConditionsVe
     ];
     push_padding(&mut v, 0, 16, 0, 16);
     push_bottom_border(&mut v, t.separator);
-    v.push(cond_bg_hover(t.hover_bg));
+    push_chrome_hover_fill(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1290,7 +1303,7 @@ fn theme_mobile_group_list_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec
     ];
     push_padding(&mut v, 0, 10, 0, 12);
     push_bottom_border(&mut v, t.separator);
-    v.push(cond_bg_hover(t.hover_bg));
+    push_chrome_hover_fill(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -4099,7 +4112,11 @@ mod tests {
         styled_dom::NodeHierarchyItemId,
         window::{MonitorVec, RawWindowHandle},
     };
-    use azul_css::{props::property::CssProperty, system::SystemStyle};
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, PseudoStateType, ThemeCondition},
+        props::property::{CssProperty, CssPropertyType},
+        system::SystemStyle,
+    };
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -4793,6 +4810,166 @@ mod tests {
             theme_probe::unconditional(&node),
             expected,
             "checked props must come last so they win (inline CSS is last-wins)"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Interactive states (declared by the theme module, with dark twins)
+    // ------------------------------------------------------------------
+
+    /// Every hover / pressed / focus declaration in `decls` has a twin gated
+    /// on `Theme(Dark)` for the same property — and there is at least one.
+    ///
+    /// The states moved OUT of this file into `themes::flat` (phase 2 of the
+    /// widget theme migration), which is a move nothing else in this suite
+    /// would notice: it compiles either way, and every other assertion here
+    /// passes if the theme silently drops them or ships the light half alone.
+    fn assert_every_state_rule_has_a_dark_twin<'a>(
+        what: &str,
+        decls: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    ) {
+        let mut light: Vec<(CssPropertyType, PseudoStateType)> = Vec::new();
+        let mut dark: Vec<(CssPropertyType, PseudoStateType)> = Vec::new();
+        for (p, conds) in decls {
+            let conds = conds.as_ref();
+            let state = conds.iter().find_map(|c| match c {
+                DynamicSelector::PseudoState(
+                    s @ (PseudoStateType::Hover | PseudoStateType::Active | PseudoStateType::Focus),
+                ) => Some(*s),
+                _ => None,
+            });
+            let Some(state) = state else { continue };
+            let is_dark = conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+            if is_dark {
+                dark.push((p.get_type(), state));
+            } else {
+                light.push((p.get_type(), state));
+            }
+        }
+        assert!(
+            !light.is_empty(),
+            "{what}: carries no hover/pressed/focus rule at all — the theme forgot to append them"
+        );
+        for (ty, state) in &light {
+            assert!(
+                dark.contains(&(*ty, *state)),
+                "{what}: `{ty:?}` on {state:?} has no dark twin, so its light-mode value is \
+                 painted on a dark surface"
+            );
+        }
+    }
+
+    /// The first background fill on `node` gated on `state`, in the light or
+    /// the dark half.
+    fn state_fill(node: &Dom, state: PseudoStateType, want_dark: bool) -> CssProperty {
+        node.root
+            .style
+            .iter_inline_properties()
+            .find(|(p, conds)| {
+                let conds = conds.as_ref();
+                let gated_on_state = conds
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
+                let is_dark = conds
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                matches!(p, CssProperty::BackgroundContent(_))
+                    && gated_on_state
+                    && is_dark == want_dark
+            })
+            .map(|(p, _)| p.clone())
+            .unwrap_or_else(|| panic!("no {state:?} fill on the node (dark: {want_dark})"))
+    }
+
+    #[test]
+    fn every_ribbon_state_rule_has_a_dark_twin_chosen_for_its_surface() {
+        use azul_css::StringVec;
+
+        let dom = Ribbon::new(tabs(2))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .dom();
+        let (bar, _) = parts(&dom);
+        let ch = bar.children.as_ref();
+        // [app, t0 (active), t1, filler]
+        let (app, tab) = (&ch[0], &ch[2]);
+
+        // The application button is an ACCENT fill in either mode, so its
+        // hover keeps the palette's `accent_hover` in dark mode too.
+        assert_every_state_rule_has_a_dark_twin(
+            "application button",
+            app.root.style.iter_inline_properties(),
+        );
+        assert_eq!(
+            state_fill(app, PseudoStateType::Hover, true),
+            state_fill(app, PseudoStateType::Hover, false),
+            "the application button does not go grey in dark mode, so neither may its hover"
+        );
+
+        // An inactive tab's text takes the accent on hover; the dark twin is
+        // the theme's accent, not the palette's light-mode blue.
+        assert_every_state_rule_has_a_dark_twin("tab", tab.root.style.iter_inline_properties());
+        let dark_hover_text = tab
+            .root
+            .style
+            .iter_inline_properties()
+            .find(|(p, conds)| {
+                matches!(p, CssProperty::TextColor(_))
+                    && conds
+                        .as_ref()
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            })
+            .map(|(p, _)| p.clone());
+        assert_eq!(
+            dark_hover_text,
+            Some(P::const_text_color(StyleTextColor {
+                inner: flat::DARK_ACC
+            })),
+            "a hovered tab's text is the accent, so its dark twin is the theme's accent"
+        );
+
+        // A small button (the chassis: hover fill, hover border, pressed fill)
+        // and a gallery cell sit on the page-neutral chrome, so their dark
+        // twins are the theme's tokens.
+        let button = render_item(RibbonItem::SmallButton(small_btn("format_bold", "Bold")));
+        assert_every_state_rule_has_a_dark_twin(
+            "small button",
+            button.root.style.iter_inline_properties(),
+        );
+        let wrapper = render_item(RibbonItem::Gallery(gallery(1)));
+        let cell = &wrapper.children.as_ref()[0].children.as_ref()[0]
+            .children
+            .as_ref()[0];
+        assert_every_state_rule_has_a_dark_twin(
+            "gallery cell",
+            cell.root.style.iter_inline_properties(),
+        );
+        assert_eq!(
+            state_fill(cell, PseudoStateType::Hover, false),
+            P::const_background_content(bg_vec(RibbonTheme::office_2013().hover_bg)),
+            "the light half is the palette's own value, unchanged by the move"
+        );
+        assert_eq!(
+            state_fill(cell, PseudoStateType::Hover, true),
+            P::const_background_content(bg_vec(flat::DARK_HT)),
+            "a cell sits on the neutral chrome, so its dark hover is the theme's hover face"
+        );
+
+        // The combo field's focus ring, from the style the ribbon injects.
+        let combo = RibbonStyle::office_2013().styled_combo_box(
+            StringVec::from_vec(vec![AzString::from("Calibri")]),
+            AzString::from("Calibri"),
+            120,
+        );
+        let field = combo
+            .field_style
+            .into_option()
+            .expect("the ribbon injects a field style");
+        assert_every_state_rule_has_a_dark_twin(
+            "combo field",
+            field.as_ref().iter().map(|c| (&c.property, &c.apply_if)),
         );
     }
 
