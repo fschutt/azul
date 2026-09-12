@@ -1420,8 +1420,8 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         ),
     ];
 
-    let mut track_style = slider.track_style.as_slice().to_vec();
-    let mut thumb_style = slider.thumb_style.as_slice().to_vec();
+    let mut track_style = slider.resolved_track_style().as_slice().to_vec();
+    let mut thumb_style = slider.resolved_thumb_style().as_slice().to_vec();
 
     // Flora specific:
     track_style.push(CssPropertyWithConditions::dark_theme(

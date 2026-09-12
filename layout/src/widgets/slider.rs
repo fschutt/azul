@@ -17,7 +17,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -76,9 +78,22 @@ pub struct Slider {
     pub theme: crate::widgets::themes::OptionUiTheme,
     pub slider_state: SliderStateWrapper,
     /// Style for the slider track (the horizontal rail).
-    pub track_style: CssPropertyWithConditionsVec,
+    /// Style for the track, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub track_style: OptionCssPropertyWithConditionsVec,
     /// Style for the draggable thumb.
-    pub thumb_style: CssPropertyWithConditionsVec,
+    /// Style for the thumb, or `None` for "no opinion" — in which case the
+    /// geometry (including the `margin-left` that positions it) is derived from
+    /// the current value at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub thumb_style: OptionCssPropertyWithConditionsVec,
     /// What this slider is CALLED, for assistive technology.
     ///
     /// The widget carries it rather than the caller patching the finished
@@ -285,22 +300,51 @@ impl Slider {
                 inner: SliderState { value, min, max },
                 ..Default::default()
             },
-            track_style: CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE),
-            thumb_style: build_thumb_style(value_to_fraction(value, min, max)),
+            track_style: OptionCssPropertyWithConditionsVec::None,
+            thumb_style: OptionCssPropertyWithConditionsVec::None,
             // Unnamed by default; the caller supplies it with
             // `.with_accessibility_name(..)`, and the widget warns if nobody does.
             accessibility_name: azul_css::OptionString::None,
         }
     }
 
-    /// Sets the current value (clamped to the range), recomputing the thumb position.
+    /// The track CSS this slider renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_track_style(&self) -> CssPropertyWithConditionsVec {
+        self.track_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE))
+    }
+
+    /// The thumb CSS this slider renders with, including the `margin-left` that
+    /// puts the thumb at the current value.
+    ///
+    /// `None` means no opinion, so the value decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_value` no longer rebuilds a style: the thumb's position was cached
+    /// beside the value it is computed from, so a setter that updated one and
+    /// not the other drew the thumb at the wrong place.
+    #[must_use]
+    pub fn resolved_thumb_style(&self) -> CssPropertyWithConditionsVec {
+        self.thumb_style.clone().into_option().unwrap_or_else(|| {
+            let inner = &self.slider_state.inner;
+            build_thumb_style(value_to_fraction(inner.value, inner.min, inner.max))
+        })
+    }
+
+    /// Sets the current value (clamped to the range).
+    ///
+    /// Does not touch `thumb_style`: the thumb's `margin-left` is resolved from
+    /// the value when the DOM is built.
     #[inline]
     pub fn set_value(&mut self, value: f32) {
         let min = self.slider_state.inner.min;
         let max = self.slider_state.inner.max;
-        let value = clamp_to_range(value, min, max);
-        self.slider_state.inner.value = value;
-        self.thumb_style = build_thumb_style(value_to_fraction(value, min, max));
+        self.slider_state.inner.value = clamp_to_range(value, min, max);
     }
 
     /// Builder-style setter for the current value.
@@ -736,7 +780,7 @@ mod autotest_generated {
 
     /// The thumb offset a freshly built widget declares.
     fn thumb_margin(s: &Slider) -> f32 {
-        margin_left(&s.thumb_style).expect("the thumb style must declare a margin-left")
+        margin_left(&s.resolved_thumb_style()).expect("the thumb style must declare a margin-left")
     }
 
     fn classes(dom: &Dom) -> Vec<String> {
@@ -1393,7 +1437,7 @@ mod autotest_generated {
                     max,
                 )));
                 assert_eq!(
-                    margin_left(&s.thumb_style),
+                    margin_left(&s.resolved_thumb_style()),
                     expected,
                     "create({value}, {min}, {max}) put the thumb in the wrong place",
                 );
@@ -1517,10 +1561,10 @@ mod autotest_generated {
     fn create_track_style_is_shared_and_value_independent() {
         // The rail is parameter-free, so every slider must hand out the very same
         // const table — a per-instance copy would allocate on every rebuild.
-        let reference = properties(&Slider::create(0.0, 0.0, 100.0).track_style);
+        let reference = properties(&Slider::create(0.0, 0.0, 100.0).resolved_track_style());
         for (min, max) in SANE_RANGES {
             assert_eq!(
-                properties(&Slider::create(max, min, max).track_style),
+                properties(&Slider::create(max, min, max).resolved_track_style()),
                 reference,
                 "the track style leaked a dependency on [{min}, {max}]",
             );
@@ -1531,11 +1575,14 @@ mod autotest_generated {
     #[test]
     fn create_track_geometry_is_absolute_px_and_declared_once() {
         let s = Slider::create(50.0, 0.0, 100.0);
-        assert_eq!(width_px(&s.track_style), Some(DESIGN_WIDTH));
-        assert_eq!(height_px(&s.track_style), Some(TRACK_HEIGHT as f32));
-        assert_eq!(background(&s.track_style), Some(RAIL_COLOR));
+        assert_eq!(width_px(&s.resolved_track_style()), Some(DESIGN_WIDTH));
+        assert_eq!(
+            height_px(&s.resolved_track_style()),
+            Some(TRACK_HEIGHT as f32)
+        );
+        assert_eq!(background(&s.resolved_track_style()), Some(RAIL_COLOR));
 
-        let props = properties(&s.track_style);
+        let props = properties(&s.resolved_track_style());
         let mut seen = Vec::new();
         for p in &props {
             let d = discriminant(p);
@@ -1564,6 +1611,11 @@ mod autotest_generated {
 
     #[test]
     fn set_value_clamps_and_moves_the_thumb_together() {
+        // The thumb's `margin-left` used to be cached in `thumb_style` and
+        // rebuilt by `set_value`, so the position and the value it is computed
+        // from were two facts that could disagree. It is resolved from the value
+        // now — `thumb_margin` asks the resolver — which is why this still reads
+        // as one assertion about two things.
         let mut s = Slider::create(0.0, 0.0, 100.0);
         for (input, expected_value) in [
             (50.0_f32, 50.0_f32),
@@ -1621,6 +1673,27 @@ mod autotest_generated {
                 "{v} landed on the wrong pixel",
             );
         }
+    }
+
+    #[test]
+    fn an_explicit_thumb_style_outranks_the_value() {
+        // `Some` is the caller's answer: a slider handed its own thumb style
+        // keeps it when the value moves, which is the distinction a pre-filled
+        // field could not express.
+        let mut s = Slider::create(0.0, 0.0, 100.0);
+        s.thumb_style = OptionCssPropertyWithConditionsVec::Some(build_thumb_style(0.5));
+        let pinned = margin_left(&build_thumb_style(0.5)).expect("margin");
+
+        s.set_value(100.0);
+        assert_eq!(
+            s.slider_state.inner.value, 100.0,
+            "the value must still move"
+        );
+        assert_eq!(
+            thumb_margin(&s),
+            pinned,
+            "an explicit thumb style must not be recomputed from the value",
+        );
     }
 
     #[test]
@@ -1822,8 +1895,8 @@ mod autotest_generated {
             record_value as SliderOnValueChangeCallbackType,
         );
         assert_eq!(after.slider_state.inner, before.slider_state.inner);
-        assert_eq!(after.track_style, before.track_style);
-        assert_eq!(after.thumb_style, before.thumb_style);
+        assert_eq!(after.resolved_track_style(), before.resolved_track_style());
+        assert_eq!(after.resolved_thumb_style(), before.resolved_thumb_style());
     }
 
     #[test]
@@ -2180,7 +2253,10 @@ mod autotest_generated {
         // for each of the two nodes, asserted by the test below. Comparing the
         // theme-independent half is what isolates the widget's own styling.
         let s = Slider::create(75.0, 0.0, 100.0);
-        let (track_props, thumb_props) = (properties(&s.track_style), properties(&s.thumb_style));
+        let (track_props, thumb_props) = (
+            properties(&s.resolved_track_style()),
+            properties(&s.resolved_thumb_style()),
+        );
         let dom = s.dom();
         assert_eq!(theme_probe::unthemed(&dom), track_props);
         assert_eq!(
