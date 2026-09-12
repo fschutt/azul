@@ -90,7 +90,7 @@ pub struct NumberInput {
     pub text_input: TextInput,
     /// The widget's own CSS, or `None` for "no opinion".
     ///
-    /// A NumberInput draws nothing of its own — the TextInput it wraps carries
+    /// A `NumberInput` draws nothing of its own — the [`TextInput`] it wraps carries
     /// the container and label styling — so the resolved default here is empty.
     /// The field exists so a caller can style the outer widget, and `None` keeps
     /// that distinct from `Some(empty)`, which asks for no properties at all.
@@ -147,14 +147,11 @@ impl NumberInput {
 
     /// The CSS this widget renders with.
     ///
-    /// Empty unless a caller set one: the styling a NumberInput shows comes from
-    /// its inner TextInput, whose own resolvers answer for it.
+    /// Empty unless a caller set one: the styling a `NumberInput` shows comes from
+    /// its inner [`TextInput`], whose own resolvers answer for it.
     #[must_use]
     pub fn resolved_style(&self) -> CssPropertyWithConditionsVec {
-        self.style
-            .clone()
-            .into_option()
-            .unwrap_or_else(CssPropertyWithConditionsVec::new)
+        self.style.clone().into_option().unwrap_or_default()
     }
 
     #[must_use]

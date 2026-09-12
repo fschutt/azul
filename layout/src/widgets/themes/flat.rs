@@ -1340,6 +1340,11 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         refany::{OptionRefAny, RefAny},
     };
 
+    // Resolved before `slider.slider_state` is moved out below; the resolvers
+    // borrow `&slider`, and the thumb's margin is derived from the state.
+    let resolved_track_style = slider.resolved_track_style();
+    let resolved_thumb_style = slider.resolved_thumb_style();
+
     let state = RefAny::new(slider.slider_state);
     let mk = |event: EventFilter, cb: usize| CoreCallbackData {
         event,
@@ -1384,8 +1389,8 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         ),
     ];
 
-    let mut track_style = slider.resolved_track_style().as_slice().to_vec();
-    let mut thumb_style = slider.resolved_thumb_style().as_slice().to_vec();
+    let mut track_style = resolved_track_style.as_slice().to_vec();
+    let mut thumb_style = resolved_thumb_style.as_slice().to_vec();
 
     // Flat specific:
     track_style.push(CssPropertyWithConditions::dark_theme(

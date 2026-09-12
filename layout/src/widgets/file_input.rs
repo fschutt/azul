@@ -38,7 +38,8 @@ pub struct FileInput {
     pub image: OptionImageRef,
     /// Style for this button container, or `None` for "no opinion".
     ///
-    /// A FileInput renders AS a Button and forwards these three fields to it, so
+    /// A `FileInput` renders AS a [`Button`] and forwards these three fields to it,
+    /// so
     /// `None` here means the Button resolves them. `Some(empty)` still means "no
     /// properties at all", as everywhere else.
     pub container_style: OptionCssPropertyWithConditionsVec,
@@ -68,7 +69,7 @@ impl Default for FileInput {
 impl FileInput {
     /// The container CSS the Button this input renders as will use.
     ///
-    /// A FileInput has no styling of its own: it builds a Button and forwards
+    /// A `FileInput` has no styling of its own: it builds a [`Button`] and forwards
     /// these three fields to it. Each resolver therefore answers with the
     /// Button's default, which is what the widget actually paints.
     #[must_use]

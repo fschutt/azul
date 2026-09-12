@@ -2271,7 +2271,10 @@ mod autotest_generated {
             by_builder.color_input_state.inner,
             by_setter.color_input_state.inner
         );
-        assert_eq!(properties(&by_builder.style), properties(&by_setter.style));
+        assert_eq!(
+            properties(&by_builder.resolved_style()),
+            properties(&by_setter.resolved_style())
+        );
 
         let a = by_builder
             .color_input_state
@@ -2344,37 +2347,49 @@ mod autotest_generated {
     }
 
     #[test]
-    fn swap_with_default_leaves_an_unstyled_widget_behind() {
-        // `ColorInput::default()` is *derived*, so its `style` is an empty vec — unlike
-        // `create()`, which installs the 14x14 + cursor table. The two therefore differ
-        // even though their state is identical. Documented here so a change in either
-        // direction is loud rather than silent.
+    fn swap_with_default_leaves_a_canonical_widget_behind() {
+        // `ColorInput::default()` is *derived*, so it used to leave `style` an
+        // empty vec while `create()` installed the 14x14 + cursor table — two
+        // widgets with identical state that rendered differently, which this
+        // test pinned as a known trap. Neither constructor stores a style now,
+        // so the trap is gone: `default()` resolves the same table `create()`
+        // used to copy in, and the two ARE interchangeable. Asserted in that
+        // direction, because the old `assert_ne!` would now be asserting the
+        // absence of the fix.
         assert_eq!(
             ColorInput::default().color_input_state,
             ColorInput::create(DEFAULT_COLOR).color_input_state,
             "default() and create(white) no longer agree on the state",
         );
         assert!(
-            ColorInput::default().style.as_ref().is_empty(),
-            "ColorInput::default() gained a style",
+            ColorInput::default().style.as_ref().is_none(),
+            "ColorInput::default() gained an opinion on its style",
         );
-        assert_ne!(
+        assert_eq!(
             ColorInput::default(),
             ColorInput::create(DEFAULT_COLOR),
-            "default() and create(white) became interchangeable",
+            "default() and create(white) drifted apart again",
+        );
+        assert!(
+            !ColorInput::default().resolved_style().as_ref().is_empty(),
+            "both resolve to the real default table, not to nothing",
         );
 
+        // What `swap_with_default` leaves behind used to have no geometry at all,
+        // because the derived `Default` left the style empty. It resolves the
+        // canonical table now, so the swapped-in widget is a usable 14x14 swatch
+        // rather than a zero-sized one — assert the geometry is there.
         let mut w = ColorInput::create(SAMPLE_COLORS[6]);
         let _ = w.swap_with_default();
         assert_eq!(
             width_px(&w.resolved_style()),
-            None,
-            "the swapped-in widget unexpectedly has a width"
+            Some(SIDE),
+            "the swapped-in widget lost the default swatch width"
         );
         assert_eq!(
             height_px(&w.resolved_style()),
-            None,
-            "the swapped-in widget unexpectedly has a height"
+            Some(SIDE),
+            "the swapped-in widget lost the default swatch height"
         );
     }
 
@@ -2647,14 +2662,32 @@ mod autotest_generated {
         assert!(picker.state.on_value_change.as_ref().is_none());
     }
     #[test]
-    fn dom_of_an_unstyled_default_widget_still_carries_its_background() {
-        // `ColorInput::default()` has an empty style vec — pushing onto it must still work
-        // and must produce exactly the one background property.
-        let dom = ColorInput::default().dom();
+    fn dom_of_an_unstyled_widget_still_carries_its_background() {
+        // "Unstyled" is spelled `Some(empty)` now: `ColorInput::default()` leaves
+        // the field `None`, which means "no opinion" and resolves to the full
+        // default table. An explicitly empty style is the case this test is
+        // about — pushing the background onto nothing must still work and must
+        // produce exactly the one property.
+        let w = ColorInput {
+            style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::new()),
+            ..ColorInput::default()
+        };
+        let dom = w.dom();
         assert_eq!(
             inline_properties(&dom),
             vec![expected_background(DEFAULT_COLOR)],
-            "a default color input did not render its background alone",
+            "an explicitly unstyled color input did not render its background alone",
+        );
+
+        // ...and the no-opinion default still gets the real table around it.
+        let dom = ColorInput::default().dom();
+        assert!(
+            inline_properties(&dom).len() > 1,
+            "a no-opinion default must resolve its style, not render bare",
+        );
+        assert!(
+            inline_properties(&dom).contains(&expected_background(DEFAULT_COLOR)),
+            "the background must survive being appended to the resolved style",
         );
     }
 

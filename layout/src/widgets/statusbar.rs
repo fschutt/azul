@@ -1410,8 +1410,8 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         ))]),
     );
     let mut slider = Slider::create(percent, min, max);
-    slider.track_style = style.slider_track_style.clone();
-    slider.thumb_style = thumb_style;
+    slider.track_style = OptionCssPropertyWithConditionsVec::Some(style.slider_track_style.clone());
+    slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
     slider.slider_state.on_value_change = on_slider_change;
 
     children.push(

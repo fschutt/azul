@@ -1876,7 +1876,12 @@ impl_option!(
     CssPropertyWithConditionsVec,
     OptionCssPropertyWithConditionsVec,
     copy = false,
-    [Debug, Clone, PartialEq, Eq]
+    // `PartialOrd` and `Ord` keep parity with the wrapped vec (which has both,
+    // via `impl_vec_partialord!` and the manual `Ord` below). Widgets holding a
+    // style field derive comparison — `Button` derives `PartialOrd`, `NodeData`
+    // needs `Ord` — and the widget theme migration made those fields optional,
+    // so the wrapper has to be as comparable as what it wraps.
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord]
 );
 
 // Manual implementations for Eq and Ord (required for NodeData derives)

@@ -181,7 +181,7 @@ impl Tooltip {
 
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
     #[must_use]
-    pub fn new(anchor: Dom, text: AzString) -> Self {
+    pub const fn new(anchor: Dom, text: AzString) -> Self {
         Self {
             anchor,
             text,
