@@ -144,7 +144,7 @@ azul_core::impl_managed_callback! {
 // ============================================================
 
 /// Get the background color for a button type
-const fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
+pub(crate) const fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
     // Returns (normal, hover, active) colors
     match button_type {
         ButtonType::Default => (
@@ -226,11 +226,10 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
         ];
     }
 
-    let (bg_normal, bg_hover, bg_active) = get_button_colors(button_type);
+    // Only the RESTING colour is needed here now: the hover and pressed values
+    // from this triple, and the focus accent, are read by the theme modules.
+    let (bg_normal, _, _) = get_button_colors(button_type);
     let text_color = get_button_text_color(button_type);
-
-    // Focus outline uses system accent color
-    let focus_outline_color = ColorU::bootstrap_primary();
 
     let mut props = Vec::with_capacity(40);
 
@@ -299,10 +298,8 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             ])),
         ));
 
-        // Underline on hover - use TextDecoration::Underline variant
-        props.push(CssPropertyWithConditions::on_hover(
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-        ));
+        // The underline-on-hover lives in the theme modules with the rest of
+        // this button's states — see `flat::button_states`.
     } else {
         // Normal background
         props.push(CssPropertyWithConditions::simple(
@@ -370,91 +367,12 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             }),
         ));
 
-        // Hover state
-        props.push(CssPropertyWithConditions::on_hover(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_hover)])
-                    .into(),
-            ),
-        ));
-        if button_type == ButtonType::Default {
-            let hover_border = ColorU::rgb(173, 181, 189);
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderTopColor(
-                    StyleBorderTopColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderBottomColor(
-                    StyleBorderBottomColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderLeftColor(
-                    StyleBorderLeftColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderRightColor(
-                    StyleBorderRightColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-        }
-
-        // Active (pressed) state
-        props.push(CssPropertyWithConditions::on_active(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_active)])
-                    .into(),
-            ),
-        ));
-
-        // Focus state - uses accent color for outline
-        // This makes the button feel "native" as it uses the system accent
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderTopColor(
-                StyleBorderTopColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderBottomColor(
-                StyleBorderBottomColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderLeftColor(
-                StyleBorderLeftColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderRightColor(
-                StyleBorderRightColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
+        // Hover, pressed and focus are NOT here. They live in the theme
+        // modules (`flat::button_states`, `flora::button_states`) and are
+        // appended by `flat::button` / `flora::button`, because the dark half of
+        // each pair needs a palette this file cannot see. Declared here they
+        // could only ever name the light-mode colour, which is how a hovered
+        // button came to keep its light fill on a dark surface.
     }
 
     props
@@ -686,7 +604,22 @@ impl Button {
 
         // Resolved before `self.icon` / `self.label` / `self.image` are moved
         // into the tree below; the resolvers borrow `&self`.
-        let container_style = self.resolved_container_style();
+        // The interactive states, from whichever theme this button carries. They
+        // are DECLARED in the theme modules (the dark half of each pair needs a
+        // palette this file cannot see) and appended here, because this is the
+        // path that actually renders: `Button::dom` builds its own tree and never
+        // reaches `flat::button` / `flora::button`.
+        let mut container_style = self.resolved_container_style().into_library_owned_vec();
+        container_style.extend(match self.theme.into_option() {
+            Some(crate::widgets::themes::UiTheme::Flora) => {
+                crate::widgets::themes::flora::button_states(self.button_type)
+            }
+            // `UiTheme::default()` is Flat, and so is every other widget's fallback.
+            Some(crate::widgets::themes::UiTheme::Flat) | None => {
+                crate::widgets::themes::flat::button_states(self.button_type)
+            }
+        });
+        let container_style = CssPropertyWithConditionsVec::from_vec(container_style);
         let label_style = self.resolved_label_style();
         let image_style = self.resolved_image_style();
         let icon_style = self.resolved_icon_style();
@@ -790,6 +723,7 @@ mod autotest_generated {
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
 
     use super::*;
+    use crate::widgets::theme_probe;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -1344,9 +1278,27 @@ mod autotest_generated {
                     .any(|p| matches!(p.property, CssProperty::TextColor(_))),
                 "{ty:?}: no text colour — is the bisection probe back?",
             );
+            // The conditionals are no longer HERE: hover, pressed and focus moved
+            // to the theme modules, which is where the dark half of each pair can
+            // be written. What this half of the guard still checks is that the
+            // base style did not quietly acquire some other conditional rule.
             assert!(
-                v.as_ref().iter().any(|p| !p.apply_if.as_ref().is_empty()),
-                "{ty:?}: no conditional (hover/active/focus) properties — is the probe back?",
+                v.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
+                "{ty:?}: the base style declares a conditional property; states belong in the \
+                 theme modules",
+            );
+            // ...and the guard's real subject — that SOMETHING reacts to the
+            // pointer — is asked of the rendered button, where the theme has
+            // appended its states.
+            let rendered = Button::with_type(AzString::from_const_str("x"), ty).dom();
+            assert!(
+                rendered
+                    .root
+                    .style
+                    .iter_inline_properties()
+                    .any(|(_, conds)| !conds.as_ref().is_empty()),
+                "{ty:?}: the rendered button has no conditional properties at all, so it gives no \
+                 feedback on hover, press or focus",
             );
         }
 
@@ -1889,8 +1841,11 @@ mod autotest_generated {
             let label_style = properties(&b.resolved_label_style());
             let dom = b.dom();
 
+            // Only the RESTING declarations: the theme appends hover, pressed
+            // and focus rules on top of the container style, and those are not
+            // part of what the widget declared.
             assert_eq!(
-                inline_properties(&dom),
+                theme_probe::unconditional(&dom),
                 container,
                 "{ty:?}: the root inline style is not the container style"
             );

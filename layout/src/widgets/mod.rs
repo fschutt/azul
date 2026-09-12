@@ -379,6 +379,23 @@ pub(crate) mod theme_probe {
             .collect()
     }
 
+    /// The node's inline declarations that apply in EVERY state and theme, in
+    /// declaration order — the widget's resting style.
+    ///
+    /// Distinct from [`unthemed`], which keeps `:hover`-style rules and drops only
+    /// the theme-gated ones. Phase 2 of the widget theme migration moves hover,
+    /// pressed and focus rules into the theme modules, so a rendered node now
+    /// carries conditional declarations the widget itself never declared; a test
+    /// comparing "what landed on this node" against a widget's style wants this.
+    pub(crate) fn unconditional(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
     /// The node's inline declarations that apply only in dark mode.
     pub(crate) fn dark(dom: &Dom) -> Vec<CssProperty> {
         dom.root

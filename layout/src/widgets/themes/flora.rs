@@ -477,6 +477,7 @@ pub fn button(btn: Button) -> Dom {
         None => Vec::new(),
     };
 
+    let btn_type = btn.button_type;
     let type_class = btn.button_type.class_name();
     let classes: Vec<IdOrClass> = vec![
         Class(AzString::from("__azul-native-button")),
@@ -547,6 +548,9 @@ pub fn button(btn: Button) -> Dom {
     // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
+    // The hover / pressed / focus states the widget no longer declares, paired
+    // light and dark. Appended after the base so they win.
+    container_style.extend(button_states(btn_type));
 
     // Flora specific styling: we use DARK_SUR for background in dark mode, DARK_INK for text
     container_style.push(CssPropertyWithConditions::dark_theme(
@@ -1967,3 +1971,97 @@ pub const FIELD_BORDER_STATES: [CssPropertyWithConditions; 16] = [
     FOCUS_BORDER_LEFT_DARK,
     FOCUS_BORDER_RIGHT_DARK,
 ];
+
+/// Every state a button of one semantic type takes: hover fill, pressed fill and
+/// focus ring, each with its dark twin.
+///
+/// The light values come from [`crate::widgets::button::get_button_colors`], so
+/// there is still one source of truth for them; the DARK halves are chosen here,
+/// because this is the only place the palette is in scope.
+///
+/// The dark rule differs by type on purpose:
+///
+/// * `Default` is the neutral grey button, so its surface belongs to the PAGE and its dark states
+///   come from the theme ([`DARK_HT`] / [`DARK_PT`]).
+/// * Every other type carries its own semantic colour — a Primary button is blue whichever mode the
+///   app is in — so the same hover and pressed colours apply in dark mode. A neutral grey hover on
+///   a blue button would be wrong, and inventing a second blue would be a design decision this
+///   refactor has no business making.
+/// * `Link` has no surface at all: it underlines instead, in both modes.
+#[must_use]
+pub fn button_states(
+    button_type: crate::widgets::button::ButtonType,
+) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::button::ButtonType;
+
+    let bg = |c: ColorU| {
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(c)])
+                .into(),
+        )
+    };
+
+    if button_type == ButtonType::Link {
+        return alloc::vec![
+            CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(
+                StyleTextDecoration::Underline.into(),
+            )),
+            CssPropertyWithConditions::dark_on_hover(CssProperty::TextDecoration(
+                StyleTextDecoration::Underline.into(),
+            )),
+        ];
+    }
+
+    let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
+    let neutral = button_type == ButtonType::Default;
+    let (dark_hover, dark_active) = if neutral {
+        (DARK_HT, DARK_PT)
+    } else {
+        (bg_hover, bg_active)
+    };
+
+    let mut out = alloc::vec![
+        CssPropertyWithConditions::on_hover(bg(bg_hover)),
+        CssPropertyWithConditions::dark_on_hover(bg(dark_hover)),
+        CssPropertyWithConditions::on_active(bg(bg_active)),
+        CssPropertyWithConditions::dark_on_active(bg(dark_active)),
+    ];
+
+    // The neutral button is the only one with a visible resting border, so it is
+    // the only one whose border reacts to hover.
+    if neutral {
+        let light = ColorU::rgb(173, 181, 189);
+        for (l, d) in [
+            (
+                CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
+                CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
+            ),
+            (
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD }),
+            ),
+            (
+                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
+                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: DARK_BD }),
+            ),
+            (
+                CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
+                CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
+            ),
+        ] {
+            out.push(CssPropertyWithConditions::on_hover(l));
+            out.push(CssPropertyWithConditions::dark_on_hover(d));
+        }
+    }
+
+    // The focus ring is the accent in both modes, and the consts already pair it.
+    out.push(FOCUS_BORDER_TOP);
+    out.push(FOCUS_BORDER_BOTTOM);
+    out.push(FOCUS_BORDER_LEFT);
+    out.push(FOCUS_BORDER_RIGHT);
+    out.push(FOCUS_BORDER_TOP_DARK);
+    out.push(FOCUS_BORDER_BOTTOM_DARK);
+    out.push(FOCUS_BORDER_LEFT_DARK);
+    out.push(FOCUS_BORDER_RIGHT_DARK);
+    out
+}

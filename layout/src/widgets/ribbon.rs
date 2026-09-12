@@ -4107,6 +4107,7 @@ mod tests {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        widgets::theme_probe,
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -4751,8 +4752,10 @@ mod tests {
         assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
 
         let s = RibbonStyle::office_2013();
+        // Resting declarations only: the button's theme appends its hover,
+        // pressed and focus states on top of the ribbon's part style.
         assert_eq!(
-            inline_props(&node),
+            theme_probe::unconditional(&node),
             style_props(&s.resolved_large_button_style())
         );
         assert_eq!(
@@ -4785,8 +4788,9 @@ mod tests {
         let s = RibbonStyle::office_2013();
         let mut expected = style_props(&s.resolved_small_button_style());
         expected.extend(style_props(&s.resolved_checked_style()));
+        // Resting declarations only — the theme's states come after both.
         assert_eq!(
-            inline_props(&node),
+            theme_probe::unconditional(&node),
             expected,
             "checked props must come last so they win (inline CSS is last-wins)"
         );
@@ -4941,8 +4945,9 @@ mod tests {
         let (_, content) = parts(&dom);
         let (items, _) = group_parts(content, 0);
 
+        // Resting declarations only — the theme's states come after.
         assert_eq!(
-            inline_props(&items.children.as_ref()[0]),
+            theme_probe::unconditional(&items.children.as_ref()[0]),
             style_props(&injected),
             "the injected style must reach the expanded Button verbatim"
         );
