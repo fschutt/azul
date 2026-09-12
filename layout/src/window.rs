@@ -23601,6 +23601,86 @@ mod autotest_generated {
         );
     }
 
+    /// THE CLASS (opengl example, 2026-09-12): a flex container laid out as
+    /// a BLOCK-level child — of a `flow-root` box, or of a replaced element's
+    /// interior run (the `Button` composited over the OpenGL canvas) — came
+    /// out 12 px taller than the same button on a line box. Phase 2.5 of the
+    /// subtree layout (`apply_content_based_height`) added the padding to
+    /// taffy's padding-box extent a second time, and the label stayed where
+    /// taffy had centred it: 6 px above the middle of the too-tall box.
+    #[test]
+    fn a_flex_button_is_as_tall_as_a_block_level_child_as_on_a_line_box() {
+        use azul_core::resources::{ImageRef, RawImageFormat};
+
+        use crate::widgets::button::Button;
+
+        fn button() -> Dom {
+            Button::create("Button composited over OpenGL content!".into()).dom()
+        }
+        // (button border-box height, label top relative to the button top)
+        fn measure(dom: Dom) -> (f32, f32) {
+            let win = laid_out(StyledDom::create_from_dom(dom), 800.0, 600.0);
+            let lr = win
+                .layout_results
+                .get(&DomId::ROOT_ID)
+                .expect("root laid out");
+            let rect = |i: usize| {
+                win.get_node_layout_rect(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+                })
+                .unwrap_or_else(|| panic!("node {i} is laid out"))
+            };
+            let nodes = lr.styled_dom.node_data.as_ref();
+            let button = (0..nodes.len())
+                .find(|i| matches!(nodes[*i].get_node_type(), NodeType::Button))
+                .expect("the button node");
+            let label = (button + 1..nodes.len())
+                .find(|i| matches!(nodes[*i].get_node_type(), NodeType::P))
+                .expect("the button's label");
+            let (b, l) = (rect(button), rect(label));
+            (b.size.height, l.origin.y - b.origin.y)
+        }
+
+        let (on_a_line, label_on_a_line) = measure(Dom::create_body().with_child(button()));
+        let (in_flow_root, label_in_flow_root) = measure(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("display: flow-root;")
+                    .with_child(button()),
+            ),
+        );
+        let mut canvas =
+            Dom::create_image(ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new()));
+        canvas.set_css("width: 100%; height: 300px;");
+        let (over_a_canvas, label_over_a_canvas) =
+            measure(Dom::create_body().with_child(canvas.with_child(button())));
+
+        assert!(
+            (in_flow_root - on_a_line).abs() < 0.5,
+            "the same button is {in_flow_root} px tall as a block-level child of a flow-root and \
+             {on_a_line} px on a line box — the padding of a flex container was added to taffy's \
+             padding-box extent a second time"
+        );
+        assert!(
+            (over_a_canvas - on_a_line).abs() < 0.5,
+            "the same button is {over_a_canvas} px tall over a canvas and {on_a_line} px on a \
+             line box"
+        );
+        // ...and the label sits at the same place inside it — centred, not
+        // centred in a shorter box than the one painted.
+        for (name, offset) in [
+            ("flow-root", label_in_flow_root),
+            ("canvas", label_over_a_canvas),
+        ] {
+            assert!(
+                (offset - label_on_a_line).abs() < 0.5,
+                "the label sits {offset} px below the button top inside the {name} and \
+                 {label_on_a_line} px on a line box"
+            );
+        }
+    }
+
     /// THE CLASS (AzWidgets "TextInput not working", 2026-08-21): an IFC root
     /// with an EMPTY text run produced no inline layout and zero height, so a
     /// focused empty editable had no line for its caret and collapsed to its

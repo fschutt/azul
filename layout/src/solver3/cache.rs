@@ -3605,17 +3605,32 @@ fn apply_content_based_height(
     node_index: usize,
     writing_mode: LayoutWritingMode,
 ) -> Result<LogicalSize> {
-    let node_props = tree
+    let node = tree
         .get(LayoutNodeId::new(node_index))
-        .ok_or(LayoutError::InvalidTree)?
-        .box_props
-        .unpack();
-    let main_axis_padding_border =
-        node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
+        .ok_or(LayoutError::InvalidTree)?;
+    let node_props = node.box_props.unpack();
+    // `content_size` is `LayoutOutput::overflow_size`, and that is NOT the
+    // same extent in every formatting context (`atomic_inline_auto_height`
+    // in `fc.rs` tells the same story for atomic inlines): `layout_bfc`
+    // reports the CONTENT box, so padding and border are added to reach the
+    // border box; `layout_flex_grid` reports taffy's `content_size` with
+    // only the leading border stripped — the padding is still inside it,
+    // deliberately, because the scrollbar geometry measures in the padding
+    // box. Adding the padding to THAT counts it twice: an `inline-flex`
+    // button with `padding: 6px 12px` laid out as a BLOCK-level child — of a
+    // `flow-root` box, or of a replaced element's interior run (the opengl
+    // example's `Button` over its canvas) — came out 40 px instead of the
+    // 28 px taffy had sized it to, with its label centred in the 28.
+    let main_axis_extra = match node.formatting_context {
+        FormattingContext::Flex | FormattingContext::Grid => {
+            node_props.border.main_sum(writing_mode)
+        }
+        _ => node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode),
+    };
 
     // CRITICAL: 'old_main_size' holds the size constrained by min-height/max-height from Phase 1
     let old_main_size = used_size.main(writing_mode);
-    let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
+    let new_main_size = content_size.main(writing_mode) + main_axis_extra;
 
     // Final size = max(min_height_constrained_size, content_size)
     // This ensures that min-height is respected even when content is smaller
@@ -4911,6 +4926,37 @@ mod autotest_generated {
         let out = apply_content_based_height(size(100.0, 40.0), size(0.0, 50.0), &tree, 0, wm)
             .expect("valid node");
         assert_eq!(out, size(100.0, 70.0));
+    }
+
+    /// `overflow_size` is a PADDING-box extent for a flex or grid container
+    /// (taffy's `content_size` minus the leading border) and a CONTENT-box
+    /// extent for everything else, so only the border is added back for the
+    /// former. The opengl example's button (`inline-flex`, `padding: 6px
+    /// 12px`, a 1 px border) over its canvas came out 40 px instead of 28.
+    #[test]
+    fn apply_content_based_height_adds_only_the_border_to_a_flex_containers_padding_box() {
+        let bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(1.0, 1.0, 1.0, 1.0),
+            edges(6.0, 12.0, 6.0, 12.0),
+        );
+        let wm = LayoutWritingMode::HorizontalTb;
+        let mut tree = one_node_tree_with(&bp);
+        // A block container: 26 px of content + 12 padding + 2 border.
+        let out = apply_content_based_height(size(292.0, 0.0), size(0.0, 26.0), &tree, 0, wm)
+            .expect("valid node");
+        assert_eq!(out.height, 40.0);
+        // The same box as a flex container: the 26 px ARE the padding box.
+        tree.get_mut(LayoutNodeId::new(0))
+            .expect("node 0")
+            .formatting_context = FormattingContext::Flex;
+        let out = apply_content_based_height(size(292.0, 0.0), size(0.0, 26.0), &tree, 0, wm)
+            .expect("valid node");
+        assert_eq!(
+            out.height, 28.0,
+            "a flex container's padding is inside taffy's extent already — adding it again is the \
+             12 px every padded button gained as a block-level child"
+        );
     }
 
     #[test]
