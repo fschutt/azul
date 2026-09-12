@@ -1605,10 +1605,16 @@ impl RibbonStyle {
         let mut combo = ComboBox::new(items).with_text(text);
         let mut wrapper: Vec<Cond> = theme_combo_wrapper_base(&self.theme);
         wrapper.push(Cond::simple(P::const_width(LayoutWidth::const_px(width))));
-        combo.wrapper_style = CssPropertyWithConditionsVec::from_vec(wrapper);
-        combo.field_style = theme_combo_field(&self.theme);
-        combo.text_style = CssPropertyWithConditionsVec::from_const_slice(RIBBON_COMBO_TEXT_STYLE);
-        combo.arrow_style = theme_combo_arrow(&self.theme);
+        combo.wrapper_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(wrapper),
+        );
+        combo.field_style =
+            OptionCssPropertyWithConditionsVec::Some(theme_combo_field(&self.theme));
+        combo.text_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_const_slice(RIBBON_COMBO_TEXT_STYLE),
+        );
+        combo.arrow_style =
+            OptionCssPropertyWithConditionsVec::Some(theme_combo_arrow(&self.theme));
         combo
     }
 }
@@ -4319,15 +4325,16 @@ mod tests {
             combo.wrapper_style, default.wrapper_style,
             "wrapper restyled"
         );
-        assert_ne!(combo.field_style, default.field_style, "field restyled");
+        assert_ne!(
+            combo.resolved_field_style(),
+            default.resolved_field_style(),
+            "field restyled"
+        );
         assert_eq!(combo.combo_state.inner.text.as_str(), "Calibri (Body)");
 
         // the width is the LAST wrapper property, so it wins over any base width
-        let last = combo
-            .wrapper_style
-            .as_ref()
-            .last()
-            .expect("wrapper style is non-empty");
+        let wrapper = combo.resolved_wrapper_style();
+        let last = wrapper.as_ref().last().expect("wrapper style is non-empty");
         assert!(
             matches!(&last.property, CssProperty::Width(_)),
             "styled_combo_box must append the width last, got {:?}",
@@ -4740,7 +4747,7 @@ mod tests {
             50,
         );
         let border_color = combo
-            .field_style
+            .resolved_field_style()
             .as_ref()
             .iter()
             .find_map(|c| match &c.property {

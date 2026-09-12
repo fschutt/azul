@@ -54,7 +54,9 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -189,20 +191,51 @@ pub struct ComboBox {
     pub combo_state: ComboBoxStateWrapper,
     /// Greyed text shown in the field when no value has been typed/selected.
     pub placeholder: AzString,
-    /// Style of the outer wrapper (the `position: relative` context).
-    pub wrapper_style: CssPropertyWithConditionsVec,
-    /// Style of the clickable, focusable, editable input field.
-    pub field_style: CssPropertyWithConditionsVec,
-    /// Style of the text inside the field.
-    pub text_style: CssPropertyWithConditionsVec,
-    /// Style of the drop-down arrow icon on the right of the field.
-    pub arrow_style: CssPropertyWithConditionsVec,
-    /// Style of each option row inside the list panel.
-    pub option_style: CssPropertyWithConditionsVec,
-    /// Extra properties appended to the options-list panel style. The
-    /// open/close `display` toggle stays widget-managed; anything here wins
-    /// over the built-in panel style (inline properties resolve last-wins).
-    pub list_style: CssPropertyWithConditionsVec,
+    /// Style of the outer wrapper (the `position: relative` context), or `None`
+    /// for "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub wrapper_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the clickable, focusable, editable input field, or `None` for
+    /// "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub field_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the text inside the field, or `None` for "no opinion" — in which
+    /// case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub text_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the drop-down arrow icon on the right of the field, or `None` for
+    /// "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub arrow_style: OptionCssPropertyWithConditionsVec,
+    /// Style of each option row inside the list panel, or `None` for "no opinion"
+    /// — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub option_style: OptionCssPropertyWithConditionsVec,
+    /// EXTRA properties appended to the options-list panel style, or `None` for
+    /// "no extras". The open/close `display` toggle stays widget-managed;
+    /// anything here wins over it (inline properties resolve last-wins).
+    ///
+    /// The one field on this widget where `Some` MERGES rather than replaces:
+    /// the panel's `display` is what opens and closes the list, so a caller
+    /// cannot be allowed to drop it. An empty vec used to mean "no extras",
+    /// which is why this needed the option most — the widget could not tell a
+    /// caller asking for nothing from a caller who had not spoken.
+    pub list_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -514,12 +547,12 @@ impl ComboBox {
                 on_select: None.into(),
             },
             placeholder: AzString::from_const_str(""),
-            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE),
-            field_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE),
-            text_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE),
-            arrow_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE),
-            option_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE),
-            list_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            wrapper_style: OptionCssPropertyWithConditionsVec::None,
+            field_style: OptionCssPropertyWithConditionsVec::None,
+            text_style: OptionCssPropertyWithConditionsVec::None,
+            arrow_style: OptionCssPropertyWithConditionsVec::None,
+            option_style: OptionCssPropertyWithConditionsVec::None,
+            list_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
     }
@@ -594,6 +627,73 @@ impl ComboBox {
         self
     }
 
+    /// The wrapper CSS this combobox renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift. The
+    /// five resolvers below follow the same rule.
+    #[must_use]
+    pub fn resolved_wrapper_style(&self) -> CssPropertyWithConditionsVec {
+        self.wrapper_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE)
+        })
+    }
+
+    /// The input-field CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_field_style(&self) -> CssPropertyWithConditionsVec {
+        self.field_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE))
+    }
+
+    /// The field-text CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_text_style(&self) -> CssPropertyWithConditionsVec {
+        self.text_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE))
+    }
+
+    /// The arrow CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_arrow_style(&self) -> CssPropertyWithConditionsVec {
+        self.arrow_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE))
+    }
+
+    /// The option-row CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_option_style(&self) -> CssPropertyWithConditionsVec {
+        self.option_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE)
+        })
+    }
+
+    /// The panel CSS this combobox renders with: the widget's own open/closed
+    /// `display` toggle, with the caller's extras appended so they win.
+    ///
+    /// Unlike the others this MERGES rather than replaces — see
+    /// [`Self::list_style`]. `None` and `Some(empty)` therefore resolve alike
+    /// here, but they still say different things, and only one of them survives
+    /// a caller asking a second time.
+    #[must_use]
+    pub fn resolved_list_style(&self, open: bool) -> CssPropertyWithConditionsVec {
+        let base = build_list_style(open);
+        match self.list_style.as_ref() {
+            None => base,
+            Some(extra) => {
+                let mut merged = base.into_library_owned_vec();
+                merged.extend(extra.as_ref().iter().cloned());
+                CssPropertyWithConditionsVec::from_vec(merged)
+            }
+        }
+    }
+
     /// Replaces `self` with a default (empty) combobox and returns the original.
     #[inline]
     #[must_use]
@@ -620,6 +720,15 @@ impl ComboBox {
         let open = self.combo_state.inner.open;
         let items = self.combo_state.items.clone();
 
+        // Resolved before `self.combo_state` is moved into the shared RefAny
+        // below; the resolvers borrow `&self`.
+        let wrapper_style = self.resolved_wrapper_style();
+        let field_style = self.resolved_field_style();
+        let text_style = self.resolved_text_style();
+        let arrow_style = self.resolved_arrow_style();
+        let option_style = self.resolved_option_style();
+        let list_style = self.resolved_list_style(open);
+
         // ONE shared RefAny: the field handlers and every option handler all
         // read/mutate the same ComboBoxStateWrapper (the text_input shared-state
         // pattern), so open/selected/text stay in sync across interactions.
@@ -627,18 +736,18 @@ impl ComboBox {
 
         let text_node = crate::widgets::widget_p_with_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
-            .with_css_props(self.text_style);
+            .with_css_props(text_style);
 
         let arrow = Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_ARROW_CLASS))
-            .with_css_props(self.arrow_style);
+            .with_css_props(arrow_style);
 
         // The focusable, editable input field. Clicking it toggles the list
         // (Hover::MouseUp) and focuses it; typing edits the text node
         // (Focus::TextInput / VirtualKeyDown), mirroring text_input.
         let field = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
-            .with_css_props(self.field_style)
+            .with_css_props(field_style)
             .with_tab_index(TabIndex::Auto)
             // The field itself: an editable value with a list of choices.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -683,7 +792,7 @@ impl ComboBox {
             option_doms.push(
                 crate::widgets::widget_p_with_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
-                    .with_css_props(self.option_style.clone())
+                    .with_css_props(option_style.clone())
                     .with_tab_index(TabIndex::Auto)
                     // Each option is an item within the popup list.
                     .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -703,16 +812,6 @@ impl ComboBox {
                     ),
             );
         }
-
-        // Widget-managed panel style (open/close display toggle) + caller
-        // extras appended last so they win (inline resolution is last-wins).
-        let list_style = if self.list_style.is_empty() {
-            build_list_style(open)
-        } else {
-            let mut merged = build_list_style(open).into_library_owned_vec();
-            merged.extend(self.list_style.as_ref().iter().cloned());
-            CssPropertyWithConditionsVec::from_vec(merged)
-        };
 
         let list = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_LIST_CLASS))
@@ -741,7 +840,7 @@ impl ComboBox {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
-            .with_css_props(self.wrapper_style)
+            .with_css_props(wrapper_style)
             // children: [field, popup] — the popup (holding the list) is the
             // field's next sibling, so `get_next_sibling(field)` still names it.
             .with_children(DomVec::from_vec(alloc::vec![field, popup]))
