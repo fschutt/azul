@@ -2197,6 +2197,43 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 // [`DARK_HT`] / [`DARK_PT`] for the fills, [`DARK_BD`] for a hover border,
 // [`DARK_ACC`] for hovered accent text and focus rings.
 
+/// Corner radius on hover, all four corners, paired with an identical dark
+/// twin.
+///
+/// A radius has no colour, so the twin repeats the value. It is emitted anyway
+/// so that the invariant this section exists for — every state rule has a dark
+/// twin — holds without an exception to remember, the same way `button_states`
+/// pairs the link button's underline.
+#[must_use]
+pub fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions; 8] {
+    [
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_top_left_radius(
+            StyleBorderTopLeftRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_top_right_radius(
+            StyleBorderTopRightRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_left_radius(
+            StyleBorderTopLeftRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_right_radius(
+            StyleBorderTopRightRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius { inner: radius },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius { inner: radius },
+        )),
+    ]
+}
+
 // == /STATES: chrome ==
 
 //

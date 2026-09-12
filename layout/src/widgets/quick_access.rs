@@ -59,6 +59,7 @@ use azul_css::{
 
 use super::{
     button::{Button, OptionButtonOnClick},
+    themes::flat,
     titlebar,
 };
 
@@ -239,14 +240,6 @@ fn cond_bg(c: ColorU) -> Cond {
     Cond::simple(P::const_background_content(bg_vec(c)))
 }
 
-fn cond_bg_hover(c: ColorU) -> Cond {
-    Cond::on_hover(P::const_background_content(bg_vec(c)))
-}
-
-fn cond_bg_active(c: ColorU) -> Cond {
-    Cond::on_active(P::const_background_content(bg_vec(c)))
-}
-
 const fn cond_text_color(c: ColorU) -> Cond {
     Cond::simple(P::const_text_color(StyleTextColor { inner: c }))
 }
@@ -278,8 +271,18 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &QuickAccessTheme) {
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
-    v.push(cond_bg_hover(t.hover_bg));
-    v.push(cond_bg_active(t.pressed_bg));
+    // Hover and pressed, light AND dark, built by the theme module so the pair
+    // cannot be split: the dark half needs a palette this file cannot see, and
+    // a rule written here could only ever name the light colour — which is how
+    // every band control kept its light grey highlight on a dark surface.
+    //
+    // The band is PAGE-NEUTRAL — white in the Office look, the desktop's
+    // titlebar colour from `from_system` — so the dark twins are the theme's
+    // own hover and pressed faces, `DARK_HT` / `DARK_PT`, exactly what
+    // `flat::button_states` gives the neutral button. See
+    // `themes::flat::hover_bg_both` for the rule.
+    v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+    v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
 }
 
 /// 1px solid border on all four sides in the given color.
@@ -431,21 +434,19 @@ fn theme_close_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     // titlebar is the one detail that gives a hand-drawn titlebar away.
     // Half the bar height makes the fill as round as the button allows.
     let radius = PixelValue::px(BAR_HEIGHT as f32 / 2.0);
-    CssPropertyWithConditionsVec::from_vec(vec![
-        cond_bg_hover(t.close_hover_bg),
-        Cond::on_hover(P::const_border_top_left_radius(StyleBorderTopLeftRadius {
-            inner: radius,
-        })),
-        Cond::on_hover(P::const_border_top_right_radius(
-            StyleBorderTopRightRadius { inner: radius },
-        )),
-        Cond::on_hover(P::const_border_bottom_left_radius(
-            StyleBorderBottomLeftRadius { inner: radius },
-        )),
-        Cond::on_hover(P::const_border_bottom_right_radius(
-            StyleBorderBottomRightRadius { inner: radius },
-        )),
-    ])
+    let mut v: Vec<Cond> = Vec::new();
+    // Hover, light AND dark, built by the theme module so the pair cannot be
+    // split. The dark twin is the SAME colour, on purpose: the caption red is
+    // the desktop's own colour for this one button and it stays red on a dark
+    // desktop (Breeze and Windows alike), which is why it is a separate palette
+    // field and never the ordinary hover fill. It is the one control on the
+    // band whose hover is not page-neutral — see `themes::flat::hover_bg_both`
+    // for the rule.
+    v.extend(flat::hover_bg_both(t.close_hover_bg, t.close_hover_bg));
+    // The round shape has no colour; its twin repeats the radius so that every
+    // state rule on the band has a dark half.
+    v.extend(flat::hover_radius_pair(radius));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Style --
