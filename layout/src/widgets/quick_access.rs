@@ -460,29 +460,74 @@ pub struct QuickAccessStyle {
     /// deriving matching custom parts.
     pub theme: QuickAccessTheme,
     /// The band itself (horizontal row).
-    pub bar_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub bar_style: OptionCssPropertyWithConditionsVec,
     /// Wrapper around the leading slot.
-    pub leading_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub leading_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into one quick-access [`Button`].
-    pub action_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub action_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the quick-access [`Button`]s.
-    pub action_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub action_icon_style: OptionCssPropertyWithConditionsVec,
     /// The customize chevron after the quick-access actions.
-    pub menu_arrow_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub menu_arrow_style: OptionCssPropertyWithConditionsVec,
     /// The centered window title.
-    pub title_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub title_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into the window [`Button`]s.
-    pub window_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub window_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the window [`Button`]s.
-    pub window_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub window_icon_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the close [`Button`] (caption-red hover).
-    pub close_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub close_button_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl QuickAccessStyle {
     /// The the Office-2013-era look look (white band, gray glyphs) - the default.
     #[must_use]
-    pub fn office_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self::from_theme(QuickAccessTheme::office_2013())
     }
 
@@ -496,20 +541,109 @@ impl QuickAccessStyle {
 
     /// Derives every part style from the given palette.
     #[must_use]
-    pub fn from_theme(theme: QuickAccessTheme) -> Self {
-        let t = &theme;
+    pub const fn from_theme(theme: QuickAccessTheme) -> Self {
         Self {
             theme,
-            bar_style: theme_bar(t),
-            leading_style: theme_leading(t),
-            action_button_style: theme_action_button(t),
-            action_icon_style: theme_action_icon(t),
-            menu_arrow_style: theme_menu_arrow(t),
-            title_style: theme_title(t),
-            window_button_style: theme_window_button(t),
-            window_icon_style: theme_window_icon(t),
-            close_button_style: theme_close_button(t),
+            bar_style: OptionCssPropertyWithConditionsVec::None,
+            leading_style: OptionCssPropertyWithConditionsVec::None,
+            action_button_style: OptionCssPropertyWithConditionsVec::None,
+            action_icon_style: OptionCssPropertyWithConditionsVec::None,
+            menu_arrow_style: OptionCssPropertyWithConditionsVec::None,
+            title_style: OptionCssPropertyWithConditionsVec::None,
+            window_button_style: OptionCssPropertyWithConditionsVec::None,
+            window_icon_style: OptionCssPropertyWithConditionsVec::None,
+            close_button_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The `bar_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_bar_style(&self) -> CssPropertyWithConditionsVec {
+        self.bar_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_bar(&self.theme))
+    }
+
+    /// The `leading_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_leading_style(&self) -> CssPropertyWithConditionsVec {
+        self.leading_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_leading(&self.theme))
+    }
+
+    /// The `action_button_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_action_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.action_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_action_button(&self.theme))
+    }
+
+    /// The `action_icon_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_action_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.action_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_action_icon(&self.theme))
+    }
+
+    /// The `menu_arrow_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_menu_arrow_style(&self) -> CssPropertyWithConditionsVec {
+        self.menu_arrow_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_menu_arrow(&self.theme))
+    }
+
+    /// The `title_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_title_style(&self) -> CssPropertyWithConditionsVec {
+        self.title_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_title(&self.theme))
+    }
+
+    /// The `window_button_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_window_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.window_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_window_button(&self.theme))
+    }
+
+    /// The `window_icon_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_window_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.window_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_window_icon(&self.theme))
+    }
+
+    /// The `close_button_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_close_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.close_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_close_button(&self.theme))
     }
 }
 
@@ -758,36 +892,46 @@ impl QuickAccessBar {
             top_inset,
         } = self;
 
+        // Every part resolved up front: the resolvers borrow `&style`, and
+        // `bar_style` is moved out of it at the end of this function.
+        let part_bar = style.resolved_bar_style();
+        let part_leading = style.resolved_leading_style();
+        let part_action_button = style.resolved_action_button_style();
+        let part_menu_arrow = style.resolved_menu_arrow_style();
+        let part_title = style.resolved_title_style();
+        let part_window_button = style.resolved_window_button_style();
+        let part_close_button = style.resolved_close_button_style();
+
         let mut children: Vec<Dom> = Vec::with_capacity(actions.len() + 8);
 
         if let Some(lead) = leading.into_option() {
             children.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LEADING))
-                    .with_css_props(style.leading_style.clone())
+                    .with_css_props(part_leading)
                     .with_children(DomVec::from_vec(vec![lead])),
             );
         }
 
         for action in actions.into_library_owned_vec() {
-            children.push(action_button(action, &style.action_button_style, &style));
+            children.push(action_button(action, &part_action_button, &style));
         }
 
         if show_menu_arrow {
             children.push(
                 Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
-                    .with_css_props(style.menu_arrow_style.clone()),
+                    .with_css_props(part_menu_arrow),
             );
         }
 
         children.push(
             crate::widgets::widget_p_with_text(title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TITLE))
-                .with_css_props(style.title_style.clone()),
+                .with_css_props(part_title),
         );
 
         for action in trailing_actions.into_library_owned_vec() {
-            children.push(action_button(action, &style.window_button_style, &style));
+            children.push(action_button(action, &part_window_button, &style));
         }
 
         // The window controls come from the DESKTOP's icon theme first
@@ -809,7 +953,7 @@ impl QuickAccessBar {
             children.push(window_button(
                 AzString::from_const_str("system:window-minimize,minimize"),
                 OptionDom::None,
-                style.window_button_style.clone(),
+                part_window_button.clone(),
                 &style,
                 or_default(on_minimize, titlebar::callbacks::csd_minimize),
             ));
@@ -826,9 +970,9 @@ impl QuickAccessBar {
                 OptionDom::Some(titlebar::maximize_icon_view(
                     AzString::from_const_str("system:window-maximize,crop_square"),
                     AzString::from_const_str("system:window-restore,filter_none"),
-                    style.window_icon_style.clone(),
+                    style.resolved_window_icon_style(),
                 )),
-                style.window_button_style.clone(),
+                part_window_button.clone(),
                 &style,
                 or_default(on_maximize, titlebar::callbacks::csd_maximize),
             ));
@@ -837,7 +981,7 @@ impl QuickAccessBar {
             children.push(window_button(
                 AzString::from_const_str("system:titlebar-close,system:window-close,close"),
                 OptionDom::None,
-                merged_style(&style.window_button_style, &style.close_button_style),
+                merged_style(&part_window_button, &part_close_button),
                 &style,
                 or_default(on_close, titlebar::callbacks::csd_close),
             ));
@@ -852,7 +996,7 @@ impl QuickAccessBar {
         // declarations win, which is the same mechanism `merged_style` relies
         // on to let the close button restyle the window button above it.
         let bar_style = if top_inset > 0.0 {
-            let mut props = style.bar_style.as_ref().to_vec();
+            let mut props = part_bar.as_ref().to_vec();
             props.push(Cond::simple(P::const_height(LayoutHeight::px(
                 BAR_HEIGHT as f32 + top_inset,
             ))));
@@ -861,7 +1005,7 @@ impl QuickAccessBar {
             })));
             CssPropertyWithConditionsVec::from_vec(props)
         } else {
-            style.bar_style
+            part_bar
         };
 
         Dom::create_div()
@@ -907,7 +1051,7 @@ fn action_button(
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = action.icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
-    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.action_icon_style.clone());
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_action_icon_style());
     b.on_click = action.on_click;
     b.dom()
 }
@@ -923,7 +1067,7 @@ fn window_button(
     b.icon = icon;
     b.icon_dom = icon_dom;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container);
-    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.window_icon_style.clone());
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_window_icon_style());
     b.on_click = on_click;
     b.dom()
 }
