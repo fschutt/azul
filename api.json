@@ -53802,6 +53802,38 @@
                                     "type": "Button"
                                 },
                                 "fn_body": "object.with_trailing_icon(icon)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Button"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -54648,6 +54680,38 @@
                                     "type": "CheckBox"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CheckBox"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -54909,6 +54973,38 @@
                                     }
                                 ],
                                 "fn_body": "object.set_selected(index)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -55464,6 +55560,38 @@
                                     "type": "TextInput"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -56382,6 +56510,38 @@
                                     "type": "ProgressBar"
                                 },
                                 "fn_body": "object.with_container_background(background)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Build the widget: a `VirtualView` node (explicitly sized to",
+                                    "[`height`](Self::height)) whose callback renders [`render_bar`]",
+                                    "(`Self::render_bar`) into the node's bounds. The node carries the",
+                                    "widget's private dataset so [`update_progress`](Self::update_progress)",
+                                    "can find and mutate it later - see the module docs for the fast path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressBar"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -58968,6 +59128,38 @@
                                     "type": "Switch"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Switch"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -59713,6 +59905,35 @@
                                     "type": "Slider"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Slider"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -60551,6 +60772,38 @@
                                     "type": "TextArea"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextArea"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -61312,6 +61565,34 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Sets the theme this avatar renders with."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Avatar"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"

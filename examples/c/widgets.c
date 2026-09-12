@@ -30,21 +30,6 @@ static AzString str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-/* The widget THEME, one constant for the whole showcase: the checkbox
- * switches it. Unchecked = the default theme (`None` lets each widget
- * pick its own default), checked = Flora. Every themed widget below reads
- * this one value, so a toggle re-skins the whole window through
- * `AzUpdate_RefreshDom`. */
-static AzOptionUiTheme theme_for(bool flora) {
-    AzOptionUiTheme theme;
-    if (flora) {
-        theme.Some.tag = AzOptionUiTheme_Tag_Some;
-        theme.Some.payload = AzUiTheme_Flora;
-    } else {
-        theme.None.tag = AzOptionUiTheme_Tag_None;
-    }
-    return theme;
-}
 
 static AzOptionUsize some_usize(size_t value) {
     AzOptionUsize opt;
@@ -229,29 +214,28 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     size_t active_tab = d.ptr->active_tab;
     bool checked = d.ptr->checkbox_checked;
     float progress_value = d.ptr->progress_value;
-    /* The checkbox is the theme switch: checked = Flora. */
-    AzOptionUiTheme theme = theme_for(checked);
+    /* The widget THEME, one constant for the whole showcase: the checkbox
+     * switches it (checked = Flora, unchecked = the default Flat). Every
+     * themed widget below is built with it, so a toggle re-skins the whole
+     * window through `AzUpdate_RefreshDom`. */
+    AzUiTheme theme = checked ? AzUiTheme_Flora : AzUiTheme_Flat;
 
-    AzButton btn = AzButton_create(str("Click me!"));
-    btn.theme = theme;
+    AzButton btn = AzButton_withTheme(AzButton_create(str("Click me!")), theme);
     AzButton_setOnClick(&btn, AzRefAny_clone(&data), on_button_click);
     AzDom button = AzButton_dom(btn);
     AzDom_setCss(&button, str("margin-bottom: 10px;"));
 
-    AzCheckBox cb = AzCheckBox_create(checked);
-    cb.theme = theme;
+    AzCheckBox cb = AzCheckBox_withTheme(AzCheckBox_create(checked), theme);
     AzCheckBox_setOnToggle(&cb, AzRefAny_clone(&data), on_checkbox_toggle);
     AzDom checkbox = AzCheckBox_dom(cb);
     AzDom_setCss(&checkbox, str("margin-bottom: 10px;"));
 
-    AzProgressBar pb = AzProgressBar_create(progress_value);
-    pb.theme = theme;
-    AzDom progress = AzProgressBar_dom(pb);
+    AzDom progress = AzProgressBar_dom(AzProgressBar_withTheme(AzProgressBar_create(progress_value), theme));
     AzDom_setCss(&progress, str("margin-bottom: 10px;"));
 
     AzTextInput ti = AzTextInput_create();
     ti = AzTextInput_withPlaceholder(ti, str("Enter text here..."));
-    ti.theme = theme;
+    ti = AzTextInput_withTheme(ti, theme);
     AzDom text_input = AzTextInput_dom(ti);
     AzDom_setCss(&text_input, str("margin-bottom: 10px;"));
 

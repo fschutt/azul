@@ -336,6 +336,12 @@ impl Slider {
         })
     }
 
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
     /// Sets the current value (clamped to the range).
     ///
     /// Does not touch `thumb_style`: the thumb's `margin-left` is resolved from

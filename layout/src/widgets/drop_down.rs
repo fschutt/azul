@@ -143,6 +143,19 @@ impl DropDown {
         self
     }
 
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     /// Sets the callback invoked when the user selects a different choice.
     pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(
         &mut self,

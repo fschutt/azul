@@ -549,6 +549,19 @@ impl Button {
         m
     }
 
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     #[inline]
     pub fn set_image(&mut self, image: ImageRef) {
         self.image = Some(image).into();

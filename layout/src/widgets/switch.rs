@@ -316,6 +316,19 @@ impl Switch {
         s
     }
 
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     #[inline]
     pub fn set_on_toggle<C: Into<SwitchOnToggleCallback>>(&mut self, data: RefAny, on_toggle: C) {
         self.switch_state.on_toggle = Some(SwitchOnToggle {
@@ -341,11 +354,11 @@ impl Switch {
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
             OptionUiTheme::Some(theme) => theme,
-            OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
+            OptionUiTheme::None => UiTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::switch(self),
-            crate::widgets::themes::UiTheme::Flora => crate::widgets::themes::flora::switch(self),
+            UiTheme::Flat => crate::widgets::themes::flat::switch(self),
+            UiTheme::Flora => crate::widgets::themes::flora::switch(self),
         }
     }
 }
