@@ -25,10 +25,11 @@ impl CppDialect for Cpp14Generator {
         let std = self.standard();
 
         code.push_str(&generate_header_comment(std));
-        code.push_str(
-            "// =============================================================================\r\n\\
-             r\n",
-        );
+        // The closing banner and its blank line, BUILT rather than written out: a
+        // literal this wide gets wrapped by rustfmt (`format_strings = true`), and the
+        // wrap used to land inside the CR-LF escape, emitting a bare backslash and an
+        // `r` into every generated header (the bindings job failed on exactly that).
+        code.push_str(&format!("// {}\r\n\r\n", "=".repeat(77)));
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
         if !std.has_move_semantics() {
