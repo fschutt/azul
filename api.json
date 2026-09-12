@@ -65110,7 +65110,7 @@
                                     "type": "bool"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
