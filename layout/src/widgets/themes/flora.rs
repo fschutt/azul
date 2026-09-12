@@ -803,9 +803,12 @@ pub fn label(l: crate::widgets::label::Label) -> Dom {
 
     static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
 
+    // Resolved before `l.string` is moved out below.
+    let label_style = l.resolved_label_style();
+
     crate::widgets::widget_p_with_text(l.string)
         .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-        .with_css_props(l.label_style)
+        .with_css_props(label_style)
 }
 
 #[must_use]
