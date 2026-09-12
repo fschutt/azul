@@ -733,6 +733,13 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
+    // The interactive states the widget no longer declares. Appended LAST —
+    // after the base style and after the theme's own dark resting colours —
+    // because the last matching inline declaration wins: a `dark_theme` border
+    // pushed after these would beat the dark hover/focus ring. One array so
+    // half of them cannot ship.
+    container_style.extend_from_slice(&FIELD_BORDER_STATES);
+
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
     label_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
@@ -2121,6 +2128,14 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 //
 
 // == STATES: text_input ==
+//
+// text_input declares no states of its own: it takes `FIELD_BORDER_STATES`
+// (the text-fields section above), because its eight rules were the same
+// accent ring on hover and on focus that text_area had, and `text_input()`
+// appends that array rather than a second copy of it. The one difference the
+// widget file used to make — a grey hover ring on Windows only — was a
+// platform distinction neither theme draws, so it went with the move.
+//
 // == /STATES: text_input ==
 
 //

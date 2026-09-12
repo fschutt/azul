@@ -50,25 +50,12 @@ const BACKGROUND_COLOR: ColorU = ColorU {
     b: 255,
     a: 255,
 }; // white
-const BLACK: ColorU = ColorU {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 255,
-};
-const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: BLACK }; // black
 const COLOR_9B9B9B: ColorU = ColorU {
     r: 155,
     g: 155,
     b: 155,
     a: 255,
 }; // #9b9b9b
-const COLOR_4286F4: ColorU = ColorU {
-    r: 66,
-    g: 134,
-    b: 244,
-    a: 255,
-}; // #4286f4
 const COLOR_4C4C4C: ColorU = ColorU {
     r: 76,
     g: 76,
@@ -193,44 +180,17 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    // Hover(border-color: #4c4c4c;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
+    //
+    // The Windows-only grey hover ring (#4c4c4c) went with them: which colour
+    // rings the field is the theme's decision now, and neither theme draws a
+    // platform distinction.
 ];
 
 #[cfg(target_os = "linux")]
@@ -324,44 +284,13 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
         LayoutJustifyContent::Center,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    // Hover(border-color: #4286f4;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
 ];
 
 // Mobile (Android / iOS) inherit the macOS-style container — same flex
@@ -455,44 +384,13 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    // Hover(border-color: #4286f4;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
 ];
 
 // -- label style
@@ -1380,6 +1278,7 @@ mod autotest_generated {
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition};
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -2749,9 +2648,12 @@ mod autotest_generated {
             v.as_ref().iter().map(|p| p.property.clone()).collect()
         };
 
-        // The theme appends its dark twins on top of what the caller set, so
-        // only the theme-independent half is the caller's style verbatim.
-        assert_eq!(theme_probe::unthemed(&dom), declared(&container_style));
+        // The theme appends its dark twins AND the field's hover/focus border
+        // states on top of what the caller set, so only the resting,
+        // unconditional half of the container's style is the caller's verbatim.
+        // The label carries no state rules, so the stricter probe still holds
+        // there.
+        assert_eq!(theme_probe::unconditional(&dom), declared(&container_style));
         assert_eq!(
             theme_probe::unthemed(&dom.children.as_ref()[LABEL_CHILD]),
             declared(&label_style)
@@ -2780,6 +2682,74 @@ mod autotest_generated {
                 .any(|p| matches!(p, CssProperty::TextColor(_))),
             "the label keeps its light ink in dark mode",
         );
+    }
+
+    #[test]
+    fn dom_carries_the_themes_hover_and_focus_border_states_with_dark_twins() {
+        // The rules moved OUT of `TEXT_INPUT_CONTAINER_PROPS` and into the theme
+        // modules, which is a move nothing else in this suite would notice: no
+        // compiler error, and every other assertion here still passes if a
+        // theme silently forgets to append them. Hence this test — and hence it
+        // asks BOTH themes, since each `text_input()` appends the array itself.
+        use crate::widgets::themes::{OptionUiTheme, UiTheme};
+
+        for (name, theme) in [("flat", UiTheme::Flat), ("flora", UiTheme::Flora)] {
+            let mut input = TextInput::create();
+            input.theme = OptionUiTheme::Some(theme);
+            let dom = input.dom();
+
+            let conditioned = |want_dark: bool, want_focus: bool| -> usize {
+                dom.root
+                    .style
+                    .iter_inline_properties()
+                    .filter(|(p, conds)| {
+                        let is_border = matches!(
+                            p,
+                            CssProperty::BorderTopColor(_)
+                                | CssProperty::BorderBottomColor(_)
+                                | CssProperty::BorderLeftColor(_)
+                                | CssProperty::BorderRightColor(_)
+                        );
+                        let mut dark = false;
+                        let mut state_matches = false;
+                        for c in conds.as_ref() {
+                            match c {
+                                DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                                DynamicSelector::PseudoState(PseudoStateType::Focus) => {
+                                    state_matches = want_focus;
+                                }
+                                DynamicSelector::PseudoState(PseudoStateType::Hover) => {
+                                    state_matches = !want_focus;
+                                }
+                                _ => {}
+                            }
+                        }
+                        is_border && state_matches && dark == want_dark
+                    })
+                    .count()
+            };
+
+            for (state, want_focus) in [("hover", false), ("focus", true)] {
+                assert_eq!(
+                    conditioned(false, want_focus),
+                    4,
+                    "{name} {state}: all four border edges must take the accent, or the ring is \
+                     drawn on some sides only",
+                );
+                assert_eq!(
+                    conditioned(true, want_focus),
+                    4,
+                    "{name} {state}: the dark twin is missing, so the field keeps its light-mode \
+                     ring on a dark surface",
+                );
+            }
+
+            // And the dark declarations really are gated, not unconditional.
+            assert!(
+                !theme_probe::dark(&dom).is_empty(),
+                "{name}: the theme contributed no dark-mode declarations at all"
+            );
+        }
     }
 
     #[test]
