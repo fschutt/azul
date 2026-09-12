@@ -2893,12 +2893,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    discover <pattern>            - Scan for types matching pattern");
     println!();
     println!("  CODE GENERATION:");
-    println!("    codegen                       - Generate Rust library code");
-    println!("    codegen rust                  - Generate Rust library code");
-    println!("    codegen c                     - Generate C header (azul.h)");
-    println!("    codegen cpp                   - Generate C++ header (azul.hpp)");
-    println!("    codegen python                - Generate Python bindings");
-    println!("    codegen all                   - Generate all bindings + DLL API + memtest");
+    println!("    codegen                       - Generate every binding + DLL API + memtest");
+    println!("                                    into target/codegen (alias: codegen all)");
+    println!("                                    Per-language forms (codegen c, codegen rust, ..)");
+    println!("                                    were removed; there is only the full run.");
     println!();
     println!("  PACKAGING:");
     println!("    nfpm                          - Generate NFPM config (latest version)");
