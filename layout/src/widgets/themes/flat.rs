@@ -2175,6 +2175,28 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 //
 
 // == STATES: chrome ==
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES — chrome (ribbon, statusbar, quick_access, backstage)
+// ---------------------------------------------------------------------------
+//
+// The four chrome widgets carry their own palettes (`RibbonTheme`,
+// `StatusBarTheme`, `QuickAccessTheme`, `BackstageTheme`) whose colours are
+// RUNTIME values — an Office preset, or whatever `from_system` read off the
+// desktop — so their states cannot be consts. They are builders instead, like
+// [`hover_bg_both`] and [`active_bg_both`] above, and every builder returns
+// BOTH halves of a rule in one array, so a caller cannot take the light half
+// without the dark one.
+//
+// The dark half is the caller's to choose, and the rule is the one
+// `button_states` applies: a surface that is its own colour in both modes (the
+// backstage's blue nav column, the ribbon's accent-filled application button,
+// the status bar's accent strip) keeps its light state colour, because the
+// surface does not change in dark mode either; a page-neutral surface (the
+// ribbon chrome, the quick-access band) takes this theme's tokens —
+// [`DARK_HT`] / [`DARK_PT`] for the fills, [`DARK_BD`] for a hover border,
+// [`DARK_ACC`] for hovered accent text and focus rings.
+
 // == /STATES: chrome ==
 
 //
