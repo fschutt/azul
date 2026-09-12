@@ -3162,10 +3162,18 @@ mod kde_ini_tests {
     /// NEGATIVE CONTROL: parse the qualified header as its base group.
     #[test]
     fn a_state_qualified_group_is_separate_but_reachable() {
-        let ini = KdeIni::parse(
-            "[Colors:Window]\nBackgroundNormal=42,46,50\n\n[Colors:Window][Inactive]\\
-             nBackgroundNormal=1,2,3\n",
-        );
+        // `concat!` pieces: rustfmt (`format_strings = true`) once wrapped
+        // the single literal at the backslash of an `\n`, turning it into a
+        // line continuation plus a stray `n` — the header line then read
+        // `[Colors:Window][Inactive]nBackgroundNormal=1,2,3` and the test
+        // failed for a reason that had nothing to do with the parser.
+        let ini = KdeIni::parse(concat!(
+            "[Colors:Window]\n",
+            "BackgroundNormal=42,46,50\n",
+            "\n",
+            "[Colors:Window][Inactive]\n",
+            "BackgroundNormal=1,2,3\n",
+        ));
         assert_eq!(
             ini.color("Colors:Window", "BackgroundNormal"),
             Some(ColorU::new_rgb(42, 46, 50)),
