@@ -2197,6 +2197,94 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 // [`DARK_HT`] / [`DARK_PT`] for the fills, [`DARK_BD`] for a hover border,
 // [`DARK_ACC`] for hovered accent text and focus rings.
 
+/// Border colour on hover, all four edges, with BOTH halves chosen by the
+/// caller.
+///
+/// Eight rules, because a border colour is four properties and a hover that
+/// sets only some edges leaves the rest at their resting colour. The four dark
+/// rules follow the four light ones so that they win in dark mode (inline
+/// declarations resolve last-match-wins).
+#[must_use]
+pub fn hover_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
+    [
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+            StyleBorderLeftColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
+            StyleBorderRightColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
+            StyleBorderBottomColor { inner: light },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_color(
+            StyleBorderLeftColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_color(
+            StyleBorderRightColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_color(
+            StyleBorderBottomColor { inner: dark },
+        )),
+    ]
+}
+
+/// Border colour on focus, all four edges, with BOTH halves chosen by the
+/// caller: the focus ring of a field whose accent is a runtime colour.
+///
+/// The const [`FOCUS_BORDER_TOP`] family is the same ring at this theme's own
+/// accent; this is for a palette that brings its own. Same shape as
+/// [`hover_border_both`], for the same reason.
+#[must_use]
+pub fn focus_border_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
+    [
+        CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+            StyleBorderLeftColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
+            StyleBorderRightColor { inner: light },
+        )),
+        CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
+            StyleBorderBottomColor { inner: light },
+        )),
+        CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_left_color(
+            StyleBorderLeftColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_right_color(
+            StyleBorderRightColor { inner: dark },
+        )),
+        CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_bottom_color(
+            StyleBorderBottomColor { inner: dark },
+        )),
+    ]
+}
+
+/// Text colour on hover, with BOTH halves chosen by the caller — a tab header
+/// that takes the accent when hovered, say. Pass [`DARK_ACC`] as `dark` when
+/// the light colour is the palette's accent.
+#[must_use]
+pub fn hover_text_color_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::on_hover(CssProperty::const_text_color(StyleTextColor {
+            inner: light,
+        })),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_text_color(StyleTextColor {
+            inner: dark,
+        })),
+    ]
+}
+
 /// Corner radius on hover, all four corners, paired with an identical dark
 /// twin.
 ///
