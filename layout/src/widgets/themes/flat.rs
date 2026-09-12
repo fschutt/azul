@@ -1777,3 +1777,58 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
         )
         .with_children(alloc::vec![child].into())
 }
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES
+// ---------------------------------------------------------------------------
+//
+// Every hover / pressed / focus rule the flat theme paints lives here, in
+// LIGHT+DARK pairs, and the widget files reference these consts instead of
+// declaring their own.
+//
+// The reason is the dark half. A widget file cannot see `DARK_HT` — the palette
+// is in this module — so a rule written there could only ever name a light
+// colour, and that is exactly how every interactive state in this toolkit came
+// to paint its light-mode fill onto a dark surface. Declaring the pair together,
+// where both halves are in scope, makes the light-only version unwriteable.
+//
+// These are `const` rather than builder functions because the widgets that use
+// them hold their styles in `static [CssPropertyWithConditions]` slices, and a
+// const slice cannot splice a function's return value.
+
+/// Row hover, light mode: the Explorer selection tint (#E5F3FF).
+///
+/// Deliberately NOT [`LIGHT_HT`]. A list or tree ROW hovers to the selection
+/// blue; a control FACE hovers to the neutral grey. They are different surfaces
+/// and the two tokens are not interchangeable.
+pub const LIGHT_ROW_HOVER: ColorU = ColorU {
+    r: 229,
+    g: 243,
+    b: 255,
+    a: 255,
+};
+
+/// Row hover, dark mode: the twin of [`LIGHT_ROW_HOVER`].
+pub const DARK_ROW_HOVER: ColorU = ColorU {
+    r: 42,
+    g: 45,
+    b: 46,
+    a: 255,
+};
+
+/// The hover fill for one row of a list, tree or menu — light mode.
+///
+/// Always use it with [`ROW_HOVER_DARK`]; either alone is the bug this section
+/// exists to prevent.
+pub const ROW_HOVER: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(LIGHT_ROW_HOVER),
+    ])),
+);
+
+/// The dark twin of [`ROW_HOVER`].
+pub const ROW_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark_on_hover(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(DARK_ROW_HOVER),
+    ])),
+);

@@ -90,12 +90,6 @@ const SELECTED_TEXT: ColorU = ColorU {
     b: 255,
     a: 255,
 };
-const HOVER_BG: ColorU = ColorU {
-    r: 229,
-    g: 243,
-    b: 255,
-    a: 255,
-};
 /// The tree is a FIELD, like the list view next to it: it draws its own
 /// surface. Without one the control was transparent and inherited whatever it
 /// happened to sit on, which is why it read as a floating list of labels
@@ -122,12 +116,6 @@ const TEXT_COLOR_DARK: ColorU = ColorU {
     r: 230,
     g: 230,
     b: 230,
-    a: 255,
-};
-const HOVER_BG_DARK: ColorU = ColorU {
-    r: 42,
-    g: 45,
-    b: 46,
     a: 255,
 };
 const SELECTED_BG_DARK: ColorU = ColorU {
@@ -194,19 +182,12 @@ static ROW_STYLE: &[CssPropertyWithConditions] = &[
         LayoutPaddingRight::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    // Hover
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(HOVER_BG)]),
-    )),
-    CssPropertyWithConditions::with_single_condition(
-        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
-            StyleBackgroundContent::Color(HOVER_BG_DARK),
-        ])),
-        &[
-            DynamicSelector::PseudoState(PseudoStateType::Hover),
-            DynamicSelector::Theme(ThemeCondition::Dark),
-        ],
-    ),
+    // Hover, light and dark. Declared in the theme module — see
+    // `themes::flat::ROW_HOVER` — because the dark half needs a palette this
+    // file cannot see. The pair used to live here, with the dark twin spelled
+    // out by hand through `with_single_condition`.
+    crate::widgets::themes::flat::ROW_HOVER,
+    crate::widgets::themes::flat::ROW_HOVER_DARK,
 ];
 
 // -- Selected row style --
