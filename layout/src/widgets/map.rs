@@ -147,6 +147,16 @@ impl MapColorScheme {
             azul_css::system::Theme::Light => Self::Light,
         }
     }
+
+    /// The scheme of a WINDOW theme — what a `MapTheme::System` layer
+    /// follows at render time (`VirtualViewCallbackInfo::window_theme`).
+    #[must_use]
+    pub const fn from_window_theme(theme: azul_core::window::WindowTheme) -> Self {
+        match theme {
+            azul_core::window::WindowTheme::DarkMode => Self::Dark,
+            azul_core::window::WindowTheme::LightMode => Self::Light,
+        }
+    }
 }
 
 /// The CARTOGRAPHY half of a map look — the axis the APP owns.
@@ -1973,7 +1983,27 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
         cache.cascade_scheme = Some(scheme);
         let look = cache.current_look();
-        cache.set_active_theme(look);
+        let look_changed = cache.set_active_theme(look);
+        #[cfg(feature = "std")]
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            std::eprintln!(
+                "[map] spawn_pending: system theme={:?} scheme={:?} look={:?} \
+                 look_changed={look_changed} ready={} pending={}",
+                info.get_system_style().theme,
+                scheme,
+                look,
+                cache
+                    .tiles
+                    .values()
+                    .filter(|e| matches!(e, TileEntry::Ready { .. }))
+                    .count(),
+                cache
+                    .tiles
+                    .values()
+                    .filter(|e| matches!(e, TileEntry::Pending))
+                    .count(),
+            );
+        }
         // A tile that is merely QUEUED for a look we have since left is RE-KEYED
         // to the look we now want — not dropped, and never fetched for the look
         // nobody is going to look at. `Pending` means "wanted, nothing done
@@ -2342,11 +2372,17 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
 
     let (layer, viewport, look) = match data.downcast_mut::<MapTileCache>() {
         Some(mut c) => {
-            // THE CASCADE OWNS LIGHT/DARK. The look is the layer's cartography
-            // taken to the scheme recorded from `SystemStyle::theme` — the same
-            // value `prefers-color-scheme` matches on — not a resolution this
-            // callback performs against `info.window_theme`. Nothing is
-            // invalidated here: the look only selects which key to read.
+            // THE WINDOW OWNS LIGHT/DARK. The look is the layer's cartography
+            // taken to the window's scheme, resolved HERE, before the tile
+            // lookup: the scheme used to be recorded only by the fetch timer
+            // (`spawn_pending_tile_fetches`), so the first render after a
+            // theme switch still read the old look's keys — every tile
+            // Ready, nothing Pending, nothing to re-decode — and the map
+            // stayed light on a dark window until some later fetch. Resolving
+            // the scheme where the keys are read is what makes a switch
+            // re-key the tiles (a miss under the new look inserts Pending, the
+            // timer decodes it under the new sheet).
+            c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_theme));
             let look = c.current_look();
             c.set_active_theme(look);
             (c.layer.clone(), c.viewport, look)
