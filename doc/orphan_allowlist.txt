@@ -25,4 +25,13 @@ stitch_features_to_collection    # mvt.rs helper
 probe_last_fix              # geolocation probe, reachable from the C API surface
 sqlite_version              # version probe
 peer_left                   # webtransport event hook
+# The send half of the WebTransport v1 loopback stub (961bb4b68): api.json binds
+# the class but not these five yet, so no fn_body reaches them. Wire them into
+# the AzWebTransport module when its send/keyframe surface lands; until then the
+# stub returns `false` and they are reachable from nothing.
+send_video                  # webtransport v1 stub, unbound in api.json
+send_audio                  # webtransport v1 stub, unbound in api.json
+send_chat                   # webtransport v1 stub, unbound in api.json
+send_system                 # webtransport v1 stub, unbound in api.json
+request_keyframe            # webtransport v1 stub, unbound in api.json
 reboot_now                  # provisioning action, invoked by the user not by us
