@@ -358,8 +358,6 @@ pub struct FontInstancePlatformOptions {
     pub unused: u32,
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize)]
