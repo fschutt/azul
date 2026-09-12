@@ -38,7 +38,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -160,7 +162,7 @@ pub struct Modal {
     /// Whether to render the "x" close button.
     pub show_close_button: bool,
     /// Style of the full-area backdrop (includes its current `display`).
-    pub backdrop_style: CssPropertyWithConditionsVec,
+    pub backdrop_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -365,8 +367,23 @@ impl Modal {
             title: AzString::from_const_str(""),
             content,
             show_close_button: true,
-            backdrop_style: build_backdrop_style(false),
+            backdrop_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The backdrop CSS this modal renders with.
+    ///
+    /// `None` means no opinion, so the open state decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_open` is a plain field write: there is no cached vec left to keep in
+    /// step, and therefore no way for a stored `display` to contradict
+    /// `modal_state.inner.open`.
+    #[must_use]
+    pub fn resolved_backdrop_style(&self) -> CssPropertyWithConditionsVec {
+        self.backdrop_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_backdrop_style(self.modal_state.inner.open))
     }
 
     /// Sets the dialog title (empty = no title).
@@ -397,17 +414,19 @@ impl Modal {
         self
     }
 
-    /// Sets whether the dialog is currently open, recomputing the backdrop style.
+    /// Sets whether the dialog is currently open.
+    ///
+    /// Does not touch `backdrop_style`: the `display` that hides or shows the
+    /// backdrop is resolved from this flag when the DOM is built.
     #[inline]
-    pub fn set_open(&mut self, open: bool) {
+    pub const fn set_open(&mut self, open: bool) {
         self.modal_state.inner.open = open;
-        self.backdrop_style = build_backdrop_style(open);
     }
 
     /// Builder-style setter for the initial open state.
     #[inline]
     #[must_use]
-    pub fn with_open(mut self, open: bool) -> Self {
+    pub const fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
@@ -461,6 +480,9 @@ impl Modal {
     /// class (the backdrop).
     #[must_use]
     pub fn dom(self) -> Dom {
+        // Resolved before `self.modal_state` is moved into the close callback.
+        let backdrop_style = self.resolved_backdrop_style();
+
         // Panel children: [close?, title?, content]. The close button is
         // absolutely positioned (top-right), so its document order does not affect
         // the title/content stacking.
@@ -525,7 +547,7 @@ impl Modal {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_BACKDROP_CLASS))
-            .with_css_props(self.backdrop_style)
+            .with_css_props(backdrop_style)
             .with_children(DomVec::from_vec(alloc::vec![panel]))
     }
 }
@@ -1051,7 +1073,10 @@ mod autotest_generated {
         assert_eq!(m.title.as_str(), "");
         assert_eq!(m.content, content);
         assert!(m.show_close_button, "the 'x' is on by default");
-        assert_eq!(display_of(&m.backdrop_style), Some(LayoutDisplay::None));
+        assert_eq!(
+            display_of(&m.resolved_backdrop_style()),
+            Some(LayoutDisplay::None)
+        );
     }
 
     #[test]
@@ -1143,7 +1168,7 @@ mod autotest_generated {
             Dom::create_text_do_not_use_without_block_level_wrapper("body"),
         );
         let mut m = Modal::create(content.clone()).with_open(true);
-        let before = m.backdrop_style.clone();
+        let before = m.resolved_backdrop_style();
 
         m.set_title(AzString::from("Title"));
 
@@ -1152,7 +1177,8 @@ mod autotest_generated {
             "the title must not close the dialog"
         );
         assert_eq!(
-            m.backdrop_style, before,
+            m.resolved_backdrop_style(),
+            before,
             "the title must not rebuild the backdrop"
         );
         assert_eq!(m.content, content);
@@ -1256,34 +1282,52 @@ mod autotest_generated {
 
         m.set_open(true);
         assert!(m.modal_state.inner.open);
-        assert_eq!(display_of(&m.backdrop_style), Some(LayoutDisplay::Flex));
+        assert_eq!(
+            display_of(&m.resolved_backdrop_style()),
+            Some(LayoutDisplay::Flex)
+        );
 
         m.set_open(false);
         assert!(!m.modal_state.inner.open);
-        assert_eq!(display_of(&m.backdrop_style), Some(LayoutDisplay::None));
+        assert_eq!(
+            display_of(&m.resolved_backdrop_style()),
+            Some(LayoutDisplay::None)
+        );
     }
 
     #[test]
-    fn set_open_rebuilds_rather_than_appends() {
-        // an append-instead-of-rebuild bug would grow the vec on every call and
-        // leave two conflicting `display` declarations behind
+    fn set_open_never_leaves_two_display_declarations() {
+        // The style used to be stored and rebuilt on every `set_open`, where an
+        // append-instead-of-rebuild bug would grow the vec and leave two
+        // conflicting `display` declarations to fight over the cascade. It is
+        // resolved from `open` now, so the invariant belongs to the resolver:
+        // one `display`, and it agrees with the flag.
         let mut m = Modal::create(Dom::create_div());
-        let len = m.backdrop_style.as_ref().len();
+        let len = m.resolved_backdrop_style().as_ref().len();
 
         for open in [true, true, false, false, true] {
             m.set_open(open);
+            let style = m.resolved_backdrop_style();
             assert_eq!(
-                m.backdrop_style.as_ref().len(),
+                style.as_ref().len(),
                 len,
-                "set_open must rebuild the style, not extend it"
+                "the resolved style changed length with the open state"
             );
-            let displays: Vec<_> = m
-                .backdrop_style
+            let displays: Vec<_> = style
                 .as_ref()
                 .iter()
                 .filter(|p| matches!(p.property, CssProperty::Display(_)))
                 .collect();
             assert_eq!(displays.len(), 1, "exactly one `display` may be declared");
+            assert_eq!(
+                display_of(&style),
+                Some(if open {
+                    LayoutDisplay::Flex
+                } else {
+                    LayoutDisplay::None
+                }),
+                "the resolved `display` must follow `open`"
+            );
         }
         assert!(m.modal_state.inner.open, "the last write must win");
     }
@@ -1338,7 +1382,7 @@ mod autotest_generated {
         let mut m = Modal::create(Dom::create_div())
             .with_title(AzString::from("t"))
             .with_open(true);
-        let before = m.backdrop_style.clone();
+        let before = m.resolved_backdrop_style();
 
         for show in [false, true, false] {
             m.set_close_button(show);
@@ -1347,7 +1391,7 @@ mod autotest_generated {
         assert!(!m.show_close_button);
         assert_eq!(m.title.as_str(), "t");
         assert!(m.modal_state.inner.open);
-        assert_eq!(m.backdrop_style, before);
+        assert_eq!(m.resolved_backdrop_style(), before);
     }
 
     #[test]
@@ -1467,7 +1511,10 @@ mod autotest_generated {
         assert_eq!(m.title.as_str(), "");
         assert!(!m.modal_state.inner.open);
         assert!(m.show_close_button);
-        assert_eq!(display_of(&m.backdrop_style), Some(LayoutDisplay::None));
+        assert_eq!(
+            display_of(&m.resolved_backdrop_style()),
+            Some(LayoutDisplay::None)
+        );
     }
 
     #[test]
@@ -1611,7 +1658,7 @@ mod autotest_generated {
     fn dom_backdrop_style_is_exactly_the_builders_backdrop_style() {
         for open in [true, false] {
             let m = Modal::create(Dom::create_div()).with_open(open);
-            let expected = style_props(&m.backdrop_style);
+            let expected = style_props(&m.resolved_backdrop_style());
             assert_eq!(inline_props(&m.dom()), expected);
         }
     }

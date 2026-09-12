@@ -65395,7 +65395,7 @@
                                     "type": "bool"
                                 },
                                 "backdrop_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -65629,7 +65629,7 @@
                                     "type": "PaginationStateWrapper"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -65970,7 +65970,7 @@
                                     "type": "StringVec"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
