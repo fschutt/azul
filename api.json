@@ -8596,7 +8596,8 @@
                         "struct_fields": [
                             {
                                 "inner": {
-                                    "type": "ManuallyDrop<Box<IconProviderInner>>"
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
                                 },
                                 "run_destructor": {
                                     "type": "bool"
@@ -44732,7 +44733,8 @@
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "ManuallyDrop<Box<CssPropertyCache>>"
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
                                 },
                                 "run_destructor": {
                                     "type": "bool"
@@ -75253,7 +75255,8 @@
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "ManuallyDrop<Box<Rc<GlContextPtrInner>>>"
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
                                 },
                                 "renderer_type": {
                                     "type": "RendererType"
