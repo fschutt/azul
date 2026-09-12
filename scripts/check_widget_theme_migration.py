@@ -56,7 +56,9 @@ def theme_files() -> list[Path]:
 # `#[allow(..)]` between the cfg and the `mod`.
 TEST_MOD = re.compile(
     r"#\[cfg\((?:test|all\(\s*test\b[^)]*\)[^)]*)\)\]"   # #[cfg(test)] / #[cfg(all(test, ..))]
-    r"(?:\s*#\[[^\]]*\])*"                                  # any further attributes
+    r"(?:[ \t]*//[^\n]*)?"                                    # ..with a trailing comment
+    r"(?:\s*#\[[^\]]*\](?:[ \t]*//[^\n]*)?)*"                 # further attributes, each may
+    r"(?:\s*//[^\n]*)*"                                        #   carry one; comment lines too
     r"\s*mod\s+\w+\s*\{"
 )
 

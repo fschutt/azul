@@ -604,21 +604,31 @@ impl Button {
 
         // Resolved before `self.icon` / `self.label` / `self.image` are moved
         // into the tree below; the resolvers borrow `&self`.
-        // The interactive states, from whichever theme this button carries. They
-        // are DECLARED in the theme modules (the dark half of each pair needs a
-        // palette this file cannot see) and appended here, because this is the
-        // path that actually renders: `Button::dom` builds its own tree and never
-        // reaches `flat::button` / `flora::button`.
+        // The interactive states, from whichever theme this button carries — but
+        // only while the button wears its OWN container style. A caller who
+        // injected one (`Some`) chose every property in it, states included: the
+        // chrome widgets (ribbon, statusbar, quick_access, backstage) hand in part
+        // styles complete with their hover and pressed rules, and appending the
+        // Default button's grey ones after them would win the cascade (inline
+        // resolution is last-match) and paint grey over the ribbon's blue.
+        //
+        // The states are DECLARED in the theme modules, because the dark half of
+        // each pair needs a palette this file cannot see, and appended here
+        // because this is the path that renders: `Button::dom` builds its own
+        // tree and never reaches `flat::button` / `flora::button`.
+        let owns_container_style = self.container_style.as_ref().is_none();
         let mut container_style = self.resolved_container_style().into_library_owned_vec();
-        container_style.extend(match self.theme.into_option() {
-            Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::button_states(self.button_type)
-            }
-            // `UiTheme::default()` is Flat, and so is every other widget's fallback.
-            Some(crate::widgets::themes::UiTheme::Flat) | None => {
-                crate::widgets::themes::flat::button_states(self.button_type)
-            }
-        });
+        if owns_container_style {
+            container_style.extend(match self.theme.into_option() {
+                Some(crate::widgets::themes::UiTheme::Flora) => {
+                    crate::widgets::themes::flora::button_states(self.button_type)
+                }
+                // `UiTheme::default()` is Flat, and so is every other widget's fallback.
+                Some(crate::widgets::themes::UiTheme::Flat) | None => {
+                    crate::widgets::themes::flat::button_states(self.button_type)
+                }
+            });
+        }
         let container_style = CssPropertyWithConditionsVec::from_vec(container_style);
         let label_style = self.resolved_label_style();
         let image_style = self.resolved_image_style();
