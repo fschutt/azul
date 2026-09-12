@@ -26311,4 +26311,313 @@ mod window_theme_context {
         assert_eq!(ctx.viewport_width, ws.size.dimensions.width);
         assert_eq!(ctx.viewport_height, ws.size.dimensions.height);
     }
+
+    /// `body > p > "5"` with no `color` declared anywhere: the text takes the
+    /// UA's inherited default, and the UA's default depends on the theme —
+    /// black on a light window, near-white on a dark one. This is the whole
+    /// funnel, up to the painted glyph run's colour.
+    fn unstyled_text_colours(theme: WindowTheme) -> Vec<azul_css::props::basic::color::ColorU> {
+        use crate::solver3::display_list::DisplayListItem;
+
+        let mut lw = window_with_system_theme(match theme {
+            WindowTheme::DarkMode => azul_css::system::Theme::Dark,
+            WindowTheme::LightMode => azul_css::system::Theme::Light,
+        });
+        let mut ws = FullWindowState {
+            theme,
+            ..Default::default()
+        };
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str("");
+        let styled = StyledDom::create(&mut dom, css);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        lw.layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("root laid out")
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn is_light(c: &azul_css::props::basic::color::ColorU) -> bool {
+        c.r >= 0xd0 && c.g >= 0xd0 && c.b >= 0xd0
+    }
+
+    #[test]
+    fn unstyled_text_is_black_on_a_light_window() {
+        let colours = unstyled_text_colours(WindowTheme::LightMode);
+        assert!(!colours.is_empty(), "the text run must be painted");
+        assert!(
+            colours
+                .iter()
+                .all(|c| c.r < 0x30 && c.g < 0x30 && c.b < 0x30),
+            "light window: the UA default is black, got {colours:?}"
+        );
+    }
+
+    #[test]
+    fn unstyled_text_is_light_on_a_dark_window() {
+        let colours = unstyled_text_colours(WindowTheme::DarkMode);
+        assert!(!colours.is_empty(), "the text run must be painted");
+        assert!(
+            colours.iter().all(is_light),
+            "dark window: the UA default is near-white, got {colours:?}"
+        );
+    }
+
+    /// The product path of an OS/in-app theme switch: the app's DOM is
+    /// RETAINED (the layout callback returned the same tree) and relaid out
+    /// under the new window theme. The text must follow.
+    #[test]
+    fn a_theme_switch_recolours_the_retained_dom() {
+        use crate::solver3::display_list::DisplayListItem;
+
+        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut ws = FullWindowState {
+            theme: WindowTheme::LightMode,
+            ..Default::default()
+        };
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str("");
+        let styled = StyledDom::create(&mut dom, css);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("light layout");
+
+        // The switch: system style AND window theme move to dark; the DOM
+        // object is the one already laid out (what `incremental_relayout`
+        // hands back in).
+        let mut dark_style = azul_css::system::SystemStyle::default();
+        dark_style.theme = azul_css::system::Theme::Dark;
+        lw.set_system_style(std::sync::Arc::new(dark_style));
+        ws.theme = WindowTheme::DarkMode;
+        let retained = lw
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("root laid out")
+            .styled_dom;
+        lw.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut dbg)
+            .expect("dark layout");
+
+        let colours: Vec<_> = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("root laid out")
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert!(!colours.is_empty(), "the text run must be painted");
+        assert!(
+            colours.iter().all(is_light),
+            "after the switch to dark the retained DOM's text must be near-white, got {colours:?}"
+        );
+    }
+
+    /// The theme changes COLOURS, never geometry: the same DOM laid out under
+    /// a light and a dark window has identical node rects. (A dark twin that
+    /// carried a size or a display value would fail this.)
+    #[test]
+    fn the_theme_does_not_change_layout() {
+        use crate::widgets::button::{Button, ButtonType};
+
+        fn rects(theme: WindowTheme) -> Vec<(usize, LogicalRect)> {
+            let mut lw = window_with_system_theme(match theme {
+                WindowTheme::DarkMode => azul_css::system::Theme::Dark,
+                WindowTheme::LightMode => azul_css::system::Theme::Light,
+            });
+            let mut ws = FullWindowState {
+                theme,
+                ..Default::default()
+            };
+            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+            let mut label = Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5"));
+            label.set_css("font-size: 32px; margin: 0;");
+            let mut button = Button::create("Increase counter".into());
+            button.button_type = ButtonType::Primary;
+            let mut dom = Dom::create_body()
+                .with_child(label)
+                .with_child(button.dom());
+            let (css, _) = azul_css::parser2::new_from_str("");
+            let styled = StyledDom::create(&mut dom, css);
+            let rr = RendererResources::default();
+            let sc = ExternalSystemCallbacks::rust_internal();
+            let mut dbg = None;
+            lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+                .expect("layout");
+            let n = lw
+                .layout_results
+                .get(&DomId::ROOT_ID)
+                .expect("root")
+                .styled_dom
+                .node_data
+                .as_ref()
+                .len();
+            (0..n)
+                .filter_map(|i| {
+                    lw.get_node_layout_rect(DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+                    })
+                    .map(|r| (i, r))
+                })
+                .collect()
+        }
+
+        let light = rects(WindowTheme::LightMode);
+        let dark = rects(WindowTheme::DarkMode);
+        assert!(light.len() > 3, "the fixture must lay out: {light:?}");
+        assert_eq!(light, dark, "light vs dark node rects differ");
+    }
+
+    /// The product path of a switch: the SAME window lays out light, the
+    /// theme flips, and the app's (identical) DOM is laid out again — what
+    /// `regenerate_layout` does on `RelayoutReason::ThemeChange`. Geometry
+    /// must not move.
+    #[test]
+    fn a_theme_switch_in_one_window_does_not_change_layout() {
+        use crate::widgets::button::{Button, ButtonType};
+
+        fn fixture() -> StyledDom {
+            let mut label = Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5"));
+            label.set_css("font-size: 32px; margin: 0;");
+            let mut button = Button::create("Increase counter".into());
+            button.button_type = ButtonType::Primary;
+            let mut dom = Dom::create_body()
+                .with_child(label)
+                .with_child(button.dom());
+            let (css, _) = azul_css::parser2::new_from_str("");
+            StyledDom::create(&mut dom, css)
+        }
+        fn rects(lw: &LayoutWindow) -> Vec<(usize, LogicalRect)> {
+            let n = lw
+                .layout_results
+                .get(&DomId::ROOT_ID)
+                .expect("root")
+                .styled_dom
+                .node_data
+                .as_ref()
+                .len();
+            (0..n)
+                .filter_map(|i| {
+                    lw.get_node_layout_rect(DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+                    })
+                    .map(|r| (i, r))
+                })
+                .collect()
+        }
+
+        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut ws = FullWindowState {
+            theme: WindowTheme::LightMode,
+            ..Default::default()
+        };
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(fixture(), &ws, &rr, &sc, &mut dbg)
+            .expect("light layout");
+        let light = rects(&lw);
+        assert!(light.len() > 3, "the fixture must lay out: {light:?}");
+
+        let mut dark_style = azul_css::system::SystemStyle::default();
+        dark_style.theme = azul_css::system::Theme::Dark;
+        lw.set_system_style(std::sync::Arc::new(dark_style));
+        ws.theme = WindowTheme::DarkMode;
+        lw.layout_and_generate_display_list(fixture(), &ws, &rr, &sc, &mut dbg)
+            .expect("dark layout");
+        assert_eq!(light, rects(&lw), "the switch moved node rects");
+
+        // And back, on the retained DOM (the restyle path).
+        ws.theme = WindowTheme::LightMode;
+        let retained = lw
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("root")
+            .styled_dom;
+        lw.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut dbg)
+            .expect("light again");
+        assert_eq!(light, rects(&lw), "the switch back moved node rects");
+    }
+
+    /// An inline-level box that changes behind an unchanged block sibling —
+    /// a text edit in an `inline-flex` box after a `<p>` — is re-solved by
+    /// its container, not on its own: it widens to its new max-content and
+    /// keeps its place. Two pre-existing incremental-relayout defects met
+    /// here: the root promotion did not recognise an `inline-flex` box as
+    /// inline-level (only `Inline`/`InlineBlock` contexts were), and the
+    /// containing block of a root under a freshly rebuilt parent was a
+    /// silent 0x0 — together, the box came back min-content wide, two lines
+    /// tall.
+    #[test]
+    fn a_changed_inline_flex_box_behind_a_block_sibling_keeps_its_slot_and_widens() {
+        fn fixture(text: &'static str) -> StyledDom {
+            let label = Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5"));
+            let mut b = Dom::create_div().with_child(Dom::create_p().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(text),
+            ));
+            b.set_css(
+                "display: inline-flex; padding: 6px 12px; background: #4285f4; color: white;",
+            );
+            let mut dom = Dom::create_body().with_child(label).with_child(b);
+            let (css, _) = azul_css::parser2::new_from_str("");
+            StyledDom::create(&mut dom, css)
+        }
+        fn rect(lw: &LayoutWindow, i: usize) -> LogicalRect {
+            lw.get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+            })
+            .expect("laid out")
+        }
+
+        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(fixture("Increase counter"), &ws, &rr, &sc, &mut dbg)
+            .expect("first");
+        let before = rect(&lw, 3);
+        lw.layout_and_generate_display_list(fixture("Increase counters"), &ws, &rr, &sc, &mut dbg)
+            .expect("second");
+        let after = rect(&lw, 3);
+
+        assert_eq!(after.origin, before.origin, "the box must keep its slot");
+        assert_eq!(after.size.height, before.size.height, "one line, as before");
+        assert!(
+            after.size.width > before.size.width,
+            "a longer label widens the box: {before:?} -> {after:?}"
+        );
+    }
 }

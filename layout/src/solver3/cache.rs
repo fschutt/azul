@@ -849,13 +849,25 @@ pub(crate) fn promote_layout_roots_to_containers(
         .map(|&idx| {
             let mut root = idx;
             while let Some((Some(parent), own_fc)) = node(root) {
+                let parent_fc = node(parent).map(|(_, fc)| fc);
+                // Inline-level by its OWN context (an inline box, an
+                // inline-block) — or by where it SITS: a box whose parent
+                // establishes an inline formatting context is on one of that
+                // context's lines whatever it establishes itself (an
+                // `inline-flex` button, an `inline-grid`, a replaced element).
+                // The own-context test alone missed exactly those: an
+                // inline-flex button dirtied by a colour twin was re-solved
+                // as its own root, under a definite containing-block height
+                // the line would never have given it, and grew by its
+                // line-height.
                 let inline_level = matches!(
                     own_fc,
                     FormattingContext::Inline | FormattingContext::InlineBlock
+                ) || matches!(parent_fc, Some(FormattingContext::Inline));
+                let parent_is_flex_or_grid = matches!(
+                    parent_fc,
+                    Some(FormattingContext::Flex | FormattingContext::Grid)
                 );
-                let parent_is_flex_or_grid = node(parent).is_some_and(|(_, fc)| {
-                    matches!(fc, FormattingContext::Flex | FormattingContext::Grid)
-                });
                 if !inline_level && !parent_is_flex_or_grid {
                     break;
                 }

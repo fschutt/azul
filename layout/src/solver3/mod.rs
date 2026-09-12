@@ -1862,7 +1862,35 @@ pub(super) fn get_containing_block_for_node(
     if let Some(parent_idx) = tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
             let pos = pos_get(calculated_positions, parent_idx).unwrap_or(viewport.origin);
-            let size = parent_node.used_size.unwrap_or_default();
+            // The parent's size — or, when the parent has none yet (a node
+            // the reconcile just rebuilt: an anonymous IFC wrapper created
+            // for this pass, a container whose child list changed), the
+            // nearest sized ancestor's content box. This used to be
+            // `unwrap_or_default()`: a silent 0x0 containing block, under
+            // which every shrink-to-fit box is min-content — the "Increase
+            // counter" button breaking into two words after a theme switch
+            // (an inline-level box dirtied by a colour twin, behind an
+            // unchanged block sibling). The POSITION still comes from the
+            // parent's own cached slot, which index reuse keeps current; only
+            // the dimensions are borrowed, which is what a containing block
+            // contributes to shrink-to-fit and percentage resolution.
+            let size = parent_node.used_size.unwrap_or_else(|| {
+                let mut cur = parent_node.parent;
+                loop {
+                    match cur.and_then(|i| tree.get(LayoutNodeId::new(i))) {
+                        Some(n) => match n.used_size {
+                            Some(s) => {
+                                break n.box_props.unpack().inner_size(
+                                    s,
+                                    azul_css::props::layout::LayoutWritingMode::default(),
+                                );
+                            }
+                            None => cur = n.parent,
+                        },
+                        None => break viewport.size,
+                    }
+                }
+            });
             // Position in calculated_positions is the margin-box position
             // To get content-box, add: border + padding (NOT margin, that's already in pos)
             let pbp = parent_node.box_props.unpack();
@@ -2486,20 +2514,39 @@ mod autotest_generated {
         assert_eq!(cb_pos.y, 13.0);
     }
 
+    /// A parent with no `used_size` yet (a node the reconcile just rebuilt)
+    /// lends its child the nearest SIZED ancestor's content box — the
+    /// viewport when there is none. It used to lend 0x0, under which every
+    /// shrink-to-fit box beneath it came out min-content.
     #[test]
-    fn a_parent_without_a_used_size_yields_a_zero_sized_containing_block() {
+    fn a_parent_without_a_used_size_borrows_the_nearest_sized_ancestors_content_box() {
         let dom = body_dom();
+
+        // Root parent, unsized: the viewport.
         let tree = tree_of(vec![
             hot(None, Some(NodeId::ZERO), None, &ResolvedBoxProps::default()),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
-
         let (_, cb_size) =
             get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
-        assert_eq!(cb_size.width, 0.0);
-        assert_eq!(cb_size.height, 0.0);
+        assert_eq!((cb_size.width, cb_size.height), (800.0, 600.0));
+
+        // Sized grandparent (300x200, 10px padding all round), unsized parent:
+        // the grandparent's content box, 280x180.
+        let grand = bp(edges(0.0, 0.0, 0.0, 0.0), edges(10.0, 10.0, 10.0, 10.0));
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(300.0, 200.0)), &grand),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+            hot(Some(1), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+        pos_set(&mut positions, 1, pos(10.0, 10.0));
+        let (_, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 2, &positions, rect(0.0, 0.0, 800.0, 600.0));
+        assert_eq!((cb_size.width, cb_size.height), (280.0, 180.0));
     }
 
     #[test]
