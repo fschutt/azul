@@ -39,6 +39,9 @@ MAX_RETRIES=10
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMP_DIR="$ROOT_DIR/target/examples-temp/$EXAMPLE_NAME"
+# The canonical capture the summary at the bottom checks: the per-OS branches
+# write `.<os>.light` / `.<os>.dark` and copy the light one here.
+SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
 EXAMPLE_SRC="$ROOT_DIR/examples/c/${EXAMPLE_NAME}.c"
 
 # Logging functions
