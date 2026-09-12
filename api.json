@@ -62819,7 +62819,7 @@
                                     "type": "StringVec"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -63655,7 +63655,7 @@
                                     "type": "StringVec"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -64028,7 +64028,7 @@
                                     "type": "StringVec"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"

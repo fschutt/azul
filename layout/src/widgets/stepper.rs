@@ -29,7 +29,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, PixelValue, StyleFontSize},
@@ -95,8 +97,13 @@ pub struct Stepper {
     pub stepper_state: StepperStateWrapper,
     /// The label of each step, in order. The step count is `labels.len()`.
     pub labels: StringVec,
-    /// Style for the row container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the row container, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -375,10 +382,22 @@ impl Stepper {
                 ..Default::default()
             },
             labels,
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                STEPPER_CONTAINER_STYLE,
-            ),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The container CSS this stepper renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(STEPPER_CONTAINER_STYLE)
+            })
     }
 
     /// Sets the current (zero-based) step, clamped into `[0, total_steps - 1]`.
@@ -436,6 +455,8 @@ impl Stepper {
     pub fn dom(self) -> Dom {
         // Read before the state is moved into the callbacks below.
         let step_now = self.stepper_state.inner.current_step;
+        // Resolved before `the state` is moved out below.
+        let container_style = self.resolved_container_style();
         let steps_total = self.stepper_state.inner.total_steps;
 
         use azul_core::{
@@ -527,7 +548,7 @@ impl Stepper {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -2055,12 +2076,12 @@ mod autotest_generated {
     fn create_installs_the_shared_container_style() {
         let s = stepper(&["a", "b"]);
         assert_eq!(
-            s.container_style.as_ref(),
+            s.resolved_container_style().as_ref(),
             STEPPER_CONTAINER_STYLE,
             "create must install the shared container style"
         );
 
-        let props = properties(&s.container_style);
+        let props = properties(&s.resolved_container_style());
         assert_eq!(props.len(), 4);
         assert!(props.iter().any(|p| matches!(
             p, CssProperty::Display(d) if d.get_property() == Some(&LayoutDisplay::Flex))));
@@ -2078,7 +2099,7 @@ mod autotest_generated {
             Some(0.0),
             "the stepper hugs its steps instead of filling the parent"
         );
-        assert_unconditional_and_unique(&s.container_style, "STEPPER_CONTAINER_STYLE");
+        assert_unconditional_and_unique(&s.resolved_container_style(), "STEPPER_CONTAINER_STYLE");
     }
 
     #[test]
@@ -2199,7 +2220,8 @@ mod autotest_generated {
 
         assert_eq!(s.labels, before.labels, "labels changed");
         assert_eq!(
-            s.container_style, before.container_style,
+            s.resolved_container_style(),
+            before.resolved_container_style(),
             "container style changed"
         );
         assert_eq!(
@@ -2285,7 +2307,10 @@ mod autotest_generated {
         let built = base.clone().with_current_step(2);
 
         assert_eq!(built.labels, base.labels);
-        assert_eq!(built.container_style, base.container_style);
+        assert_eq!(
+            built.resolved_container_style(),
+            base.resolved_container_style()
+        );
         assert_eq!(
             built.labels.as_ref().len(),
             3,
@@ -2505,7 +2530,7 @@ mod autotest_generated {
             "the state must survive"
         );
         assert_eq!(
-            s.container_style.as_ref(),
+            s.resolved_container_style().as_ref(),
             STEPPER_CONTAINER_STYLE,
             "the container style must survive"
         );

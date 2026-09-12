@@ -21,7 +21,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -91,8 +93,13 @@ pub struct RadioGroup {
     pub radio_group_state: RadioGroupStateWrapper,
     /// The label of each option, in order.
     pub options: StringVec,
-    /// Style for the group container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the group container, or `None` for "no opinion" — in which case
+    /// the style is derived from the horizontal flag at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
@@ -339,9 +346,23 @@ impl RadioGroup {
                 ..Default::default()
             },
             options,
-            container_style: build_container_style(false),
+            container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The container CSS this group renders with.
+    ///
+    /// `None` means no opinion, so the horizontal flag decides — the same answer
+    /// both themes give, asked in one place so they cannot drift. It is also why
+    /// `set_horizontal` is a plain field write: the flag is the single source of
+    /// truth for the axis, rather than one of two that have to be kept in step.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_container_style(self.radio_group_state.horizontal))
     }
 
     /// Sets the currently selected option index.
@@ -359,16 +380,18 @@ impl RadioGroup {
     }
 
     /// Lays the options out horizontally (default is vertical).
+    ///
+    /// Does not touch `container_style`: the flex direction is resolved from this
+    /// flag when the DOM is built, so the two can no longer disagree.
     #[inline]
-    pub fn set_horizontal(&mut self, horizontal: bool) {
+    pub const fn set_horizontal(&mut self, horizontal: bool) {
         self.radio_group_state.horizontal = horizontal;
-        self.container_style = build_container_style(horizontal);
     }
 
     /// Builder-style setter for the horizontal layout flag.
     #[inline]
     #[must_use]
-    pub fn with_horizontal(mut self, horizontal: bool) -> Self {
+    pub const fn with_horizontal(mut self, horizontal: bool) -> Self {
         self.set_horizontal(horizontal);
         self
     }
@@ -409,6 +432,7 @@ impl RadioGroup {
     pub fn dom(self) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let rg_name = self.accessibility_name.clone();
+        let container_style = self.resolved_container_style();
         crate::widgets::warn_widget_needs_a_name("radio_group", rg_name.is_some());
 
         use azul_core::{
@@ -492,7 +516,7 @@ impl RadioGroup {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             // The name belongs to the GROUP, not to each row. Every row already
             // has its own option text, which azul derives a name from; stamping
             // the group's name onto all of them would make them announce
@@ -1346,7 +1370,7 @@ mod autotest_generated {
                 "create must not invent a callback",
             );
             assert_eq!(
-                rg.container_style.as_ref(),
+                rg.resolved_container_style().as_ref(),
                 build_container_style(false).as_ref(),
                 "create must build the *vertical* container style",
             );
@@ -1439,8 +1463,8 @@ mod autotest_generated {
 
         assert_eq!(after.options.as_ref(), before.options.as_ref());
         assert_eq!(
-            after.container_style.as_ref(),
-            before.container_style.as_ref()
+            after.resolved_container_style().as_ref(),
+            before.resolved_container_style().as_ref()
         );
         assert_eq!(
             after.radio_group_state.horizontal, before.radio_group_state.horizontal,
@@ -1494,17 +1518,19 @@ mod autotest_generated {
 
     #[test]
     fn the_horizontal_flag_and_the_container_style_never_disagree() {
-        // Two sources of truth for one fact: the flag drives the *rendered* row
-        // style, the style drives the container. If the setter updated only one of
-        // them, a group would stack vertically while spacing itself horizontally.
+        // There used to be two sources of truth for one fact: the flag drove the
+        // rendered rows, a stored vec drove the container, and a setter that
+        // updated only one of them left a group stacking vertically while spacing
+        // itself horizontally. The flag is the only source now — the container
+        // style is resolved from it — so this asks the resolver.
         for horizontal in [false, true] {
             let mut rg = group(&["a", "b"]);
             rg.set_horizontal(horizontal);
             assert_eq!(rg.radio_group_state.horizontal, horizontal);
             assert_eq!(
-                rg.container_style.as_ref(),
+                rg.resolved_container_style().as_ref(),
                 build_container_style(horizontal).as_ref(),
-                "horizontal={horizontal}: the container style was not rebuilt",
+                "horizontal={horizontal}: the resolved style ignores the flag",
             );
 
             assert_eq!(
@@ -1516,20 +1542,43 @@ mod autotest_generated {
     }
 
     #[test]
+    fn an_explicit_container_style_outranks_the_horizontal_flag() {
+        // `Some` is the caller's answer, so it is honoured rather than recomputed
+        // from the flag — the distinction a pre-filled field could not express.
+        let marker = CssPropertyWithConditionsVec::from_vec(Vec::new());
+        let mut rg = group(&["a", "b"]);
+        rg.container_style = OptionCssPropertyWithConditionsVec::Some(marker);
+        rg.set_horizontal(true);
+
+        assert!(
+            rg.resolved_container_style().as_ref().is_empty(),
+            "an explicit empty style must survive set_horizontal",
+        );
+    }
+
+    #[test]
     fn toggling_the_orientation_never_accumulates_properties() {
-        // The style is *rebuilt*, not appended to: flipping the flag a hundred
-        // times must leave a four-property vec, not a four-hundred-property one
-        // (where every later duplicate silently overrides the earlier).
+        // The style used to be stored and rebuilt on every flip, where an
+        // append-instead-of-rebuild bug left a four-hundred-property vec whose
+        // later duplicates silently overrode the earlier ones. It is resolved
+        // now, so the invariant is the resolver's: constant length, and it
+        // tracks the flag rather than the call count.
         let mut rg = group(&["a", "b"]);
         let original = rg.clone();
-        let len = rg.container_style.as_ref().len();
+        let len = rg.resolved_container_style().as_ref().len();
 
         for i in 0..100 {
-            rg.set_horizontal(i % 2 == 0);
+            let horizontal = i % 2 == 0;
+            rg.set_horizontal(horizontal);
             assert_eq!(
-                rg.container_style.as_ref().len(),
+                rg.resolved_container_style().as_ref().len(),
                 len,
-                "toggle #{i}: the container style grew",
+                "toggle #{i}: the resolved style grew",
+            );
+            assert_eq!(
+                rg.resolved_container_style().as_ref(),
+                build_container_style(horizontal).as_ref(),
+                "toggle #{i}: the resolved style stopped tracking the flag",
             );
         }
 
@@ -1650,8 +1699,8 @@ mod autotest_generated {
         assert!(after.radio_group_state.on_change.as_ref().is_some());
         assert_eq!(after.options.as_ref(), before.options.as_ref());
         assert_eq!(
-            after.container_style.as_ref(),
-            before.container_style.as_ref()
+            after.resolved_container_style().as_ref(),
+            before.resolved_container_style().as_ref()
         );
         assert_eq!(
             after.radio_group_state.inner,
