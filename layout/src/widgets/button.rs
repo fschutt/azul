@@ -11,7 +11,9 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -97,16 +99,21 @@ pub struct Button {
     pub trailing_icon: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)
     pub button_type: ButtonType,
-    /// Style for this button container
-    pub container_style: CssPropertyWithConditionsVec,
-    /// Style of the label
-    pub label_style: CssPropertyWithConditionsVec,
-    /// Style of the image
-    pub image_style: CssPropertyWithConditionsVec,
-    /// Style of the leading icon
-    pub icon_style: CssPropertyWithConditionsVec,
-    /// Style of the trailing icon
-    pub trailing_icon_style: CssPropertyWithConditionsVec,
+    /// Style for this button container, or `None` for "no opinion" — in which
+    /// case the style is derived from `button_type` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers throughout this struct:
+    /// the first means the widget picks, the second means the caller asked for
+    /// no properties at all and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the label, or `None` for the widget's default.
+    pub label_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the image, or `None` for the widget's default.
+    pub image_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the leading icon, or `None` for the widget's default.
+    pub icon_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the trailing icon, or `None` for the widget's default.
+    pub trailing_icon_style: OptionCssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
     pub theme: crate::widgets::themes::OptionUiTheme,
@@ -489,9 +496,6 @@ impl Button {
     #[inline]
     #[must_use]
     pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
-        let container_style = build_button_container_style(button_type);
-        let label_style = build_button_label_style();
-
         Self {
             label,
             image: None.into(),
@@ -500,25 +504,83 @@ impl Button {
             trailing_icon: AzString::from_const_str(""),
             button_type,
             on_click: None.into(),
-            container_style: CssPropertyWithConditionsVec::from_vec(container_style),
-            label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
-            image_style: CssPropertyWithConditionsVec::from_vec(label_style),
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
+            image_style: OptionCssPropertyWithConditionsVec::None,
             theme: crate::widgets::themes::OptionUiTheme::Some(
                 crate::widgets::themes::UiTheme::Flat,
             ),
-            icon_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE),
-            trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(
-                BUTTON_ICON_DEFAULT_STYLE,
-            ),
+            icon_style: OptionCssPropertyWithConditionsVec::None,
+            trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Set the button type and update styling accordingly
+    /// The container CSS this button renders with.
+    ///
+    /// `None` means no opinion, so `button_type` decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_button_type` is a plain field write: the type and the colours derived
+    /// from it were two facts stored apart, and a caller writing the public
+    /// `button_type` field left a Primary button painted like a Default one.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_vec(build_button_container_style(
+                    self.button_type,
+                ))
+            })
+    }
+
+    /// The label CSS this button renders with.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+    }
+
+    /// The image CSS this button renders with.
+    ///
+    /// Defaults to the label's style: an image sits where the label would and
+    /// inherits the same box.
+    #[must_use]
+    pub fn resolved_image_style(&self) -> CssPropertyWithConditionsVec {
+        self.image_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+    }
+
+    /// The leading-icon CSS this button renders with.
+    #[must_use]
+    pub fn resolved_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.icon_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE)
+        })
+    }
+
+    /// The trailing-icon CSS this button renders with.
+    #[must_use]
+    pub fn resolved_trailing_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.trailing_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE)
+            })
+    }
+
+    /// Set the button type.
+    ///
+    /// Does not touch `container_style`: the type-specific colours are resolved
+    /// from `button_type` when the DOM is built.
     #[inline]
-    pub fn set_button_type(&mut self, button_type: ButtonType) {
+    pub const fn set_button_type(&mut self, button_type: ButtonType) {
         self.button_type = button_type;
-        self.container_style =
-            CssPropertyWithConditionsVec::from_vec(build_button_container_style(button_type));
     }
 
     /// Builder method to set the button type
@@ -622,6 +684,14 @@ impl Button {
 
         let mut button = Dom::create_node(NodeType::Button);
 
+        // Resolved before `self.icon` / `self.label` / `self.image` are moved
+        // into the tree below; the resolvers borrow `&self`.
+        let container_style = self.resolved_container_style();
+        let label_style = self.resolved_label_style();
+        let image_style = self.resolved_image_style();
+        let icon_style = self.resolved_icon_style();
+        let trailing_icon_style = self.resolved_trailing_icon_style();
+
         let has_icon = !self.icon.as_str().is_empty() || self.icon_dom.is_some();
         let has_image = self.image.is_some();
         let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
@@ -648,14 +718,14 @@ impl Button {
             // then only the accessible name (snapshotted above).
             button = button.with_child(match self.icon_dom.into_option() {
                 Some(dom) => dom,
-                None => Dom::create_icon(self.icon).with_css_props(self.icon_style),
+                None => Dom::create_icon(self.icon).with_css_props(icon_style),
             });
         }
 
         // If an image was set via `set_image`, render it as the first child
         // (left of the label, since the container is a horizontal flex row).
         if let Some(image) = self.image.into_option() {
-            button = button.with_child(Dom::create_image(image).with_css_props(self.image_style));
+            button = button.with_child(Dom::create_image(image).with_css_props(image_style));
         }
 
         // An empty label on an icon-only button is skipped entirely so the
@@ -667,7 +737,7 @@ impl Button {
         if !skip_label {
             button = button.with_child(
                 crate::widgets::widget_p()
-                    .with_css_props(self.label_style)
+                    .with_css_props(label_style)
                     .with_children(azul_core::dom::DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(self.label),
                     ])),
@@ -676,7 +746,7 @@ impl Button {
 
         if has_trailing_icon {
             button = button.with_child(
-                Dom::create_icon(self.trailing_icon).with_css_props(self.trailing_icon_style),
+                Dom::create_icon(self.trailing_icon).with_css_props(trailing_icon_style),
             );
         }
 
@@ -701,7 +771,7 @@ impl Button {
         }
 
         button
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
@@ -1416,24 +1486,24 @@ mod autotest_generated {
                 let container = build_button_container_style(ty);
                 let label_style = build_button_label_style();
                 assert_eq!(
-                    b.container_style.len(),
+                    b.resolved_container_style().len(),
                     container.len(),
                     "{ty:?}: container_style length is inconsistent"
                 );
                 assert_eq!(
-                    b.container_style.as_ref(),
+                    b.resolved_container_style().as_ref(),
                     container.as_slice(),
                     "{ty:?}: container_style does not match the builder"
                 );
                 assert_eq!(
-                    b.label_style.as_ref(),
+                    b.resolved_label_style().as_ref(),
                     label_style.as_slice(),
                     "{ty:?}: label_style does not match the builder"
                 );
                 // `with_type` deliberately reuses the label style for the image.
                 assert_eq!(
-                    b.image_style.as_ref(),
-                    b.label_style.as_ref(),
+                    b.resolved_image_style().as_ref(),
+                    b.resolved_label_style().as_ref(),
                     "{ty:?}: image_style diverged from label_style"
                 );
             }
@@ -1474,7 +1544,7 @@ mod autotest_generated {
             b.set_button_type(ty);
             assert_eq!(b.button_type, ty, "{ty:?}: field not updated");
             assert_eq!(
-                b.container_style.as_ref(),
+                b.resolved_container_style().as_ref(),
                 build_button_container_style(ty).as_slice(),
                 "{ty:?}: container_style was not rebuilt for the new type",
             );
@@ -1486,12 +1556,12 @@ mod autotest_generated {
         // Re-setting the same type must *replace*, never append: an appending
         // implementation would grow the style vec without bound.
         let mut b = btn("Save", ButtonType::Primary);
-        let len = b.container_style.len();
+        let len = b.resolved_container_style().len();
         for _ in 0..100 {
             b.set_button_type(ButtonType::Primary);
         }
         assert_eq!(
-            b.container_style.len(),
+            b.resolved_container_style().len(),
             len,
             "container_style grew across repeated set_button_type calls"
         );
@@ -1505,8 +1575,8 @@ mod autotest_generated {
     #[test]
     fn set_button_type_leaves_the_label_and_the_other_styles_untouched() {
         let mut b = btn("Delete", ButtonType::Default);
-        let label_style = b.label_style.clone();
-        let image_style = b.image_style.clone();
+        let label_style = b.resolved_label_style().clone();
+        let image_style = b.resolved_image_style().clone();
         b.set_button_type(ButtonType::Danger);
         assert_eq!(
             b.label.as_str(),
@@ -1514,11 +1584,13 @@ mod autotest_generated {
             "set_button_type clobbered the label"
         );
         assert_eq!(
-            b.label_style, label_style,
+            b.resolved_label_style(),
+            label_style,
             "set_button_type clobbered label_style"
         );
         assert_eq!(
-            b.image_style, image_style,
+            b.resolved_image_style(),
+            image_style,
             "set_button_type clobbered image_style"
         );
     }
@@ -1813,8 +1885,8 @@ mod autotest_generated {
     fn dom_carries_the_container_style_on_the_root_and_the_label_style_on_the_child() {
         for ty in ALL_TYPES {
             let b = btn("OK", ty);
-            let container = properties(&b.container_style);
-            let label_style = properties(&b.label_style);
+            let container = properties(&b.resolved_container_style());
+            let label_style = properties(&b.resolved_label_style());
             let dom = b.dom();
 
             assert_eq!(
@@ -1851,7 +1923,7 @@ mod autotest_generated {
             RawImageFormat::RGBA8,
             Vec::new(),
         ));
-        let image_style = properties(&b.image_style);
+        let image_style = properties(&b.resolved_image_style());
         let dom = b.dom();
 
         let children = dom.children.as_ref();

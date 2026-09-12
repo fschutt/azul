@@ -2733,10 +2733,10 @@ fn styled_button(
     let mut b = Button::create(label);
     b.icon = icon;
     b.trailing_icon = trailing_icon;
-    b.container_style = container_style;
-    b.icon_style = icon_style;
-    b.label_style = label_style;
-    b.trailing_icon_style = trailing_icon_style;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
+    b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
+    b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
     b.on_click = on_click;
     b.dom()
 }

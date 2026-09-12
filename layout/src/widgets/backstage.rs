@@ -40,7 +40,10 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec,
+        OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -773,8 +776,9 @@ impl Backstage {
         {
             let mut b = Button::create(AzString::from_const_str(""));
             b.icon = AzString::from_const_str("arrow_back");
-            b.container_style = style.back_button_style.clone();
-            b.icon_style = style.back_icon_style.clone();
+            b.container_style =
+                OptionCssPropertyWithConditionsVec::Some(style.back_button_style.clone());
+            b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.back_icon_style.clone());
             b.on_click = on_back.clone();
             nav_children.push(b.dom());
         }

@@ -36,7 +36,10 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec,
+        OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -1188,8 +1191,8 @@ fn styled_button(
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = icon;
-    b.container_style = container_style;
-    b.icon_style = icon_style;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
     b.on_click = on_click;
     b.dom()
 }
@@ -1217,9 +1220,9 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         // Icon and/or clickable: expand to a Button (flat chassis).
         let mut b = Button::create(label);
         b.icon = icon;
-        b.container_style = style.segment_style.clone();
-        b.icon_style = style.segment_icon_style.clone();
-        b.label_style = style.segment_label_style.clone();
+        b.container_style = OptionCssPropertyWithConditionsVec::Some(style.segment_style.clone());
+        b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.segment_icon_style.clone());
+        b.label_style = OptionCssPropertyWithConditionsVec::Some(style.segment_label_style.clone());
         b.on_click = on_click;
         return b
             .dom()

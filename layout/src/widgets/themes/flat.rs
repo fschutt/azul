@@ -593,6 +593,13 @@ pub fn button(btn: Button) -> Dom {
     let has_image = btn.image.is_some();
     let has_trailing_icon = !btn.trailing_icon.as_str().is_empty();
 
+    // Resolved before `btn`'s fields are moved into the tree below.
+    let btn_container_style = btn.resolved_container_style();
+    let btn_label_style = btn.resolved_label_style();
+    let btn_image_style = btn.resolved_image_style();
+    let btn_icon_style = btn.resolved_icon_style();
+    let btn_trailing_icon_style = btn.resolved_trailing_icon_style();
+
     let a11y_name_src: String = if btn.label.as_str().is_empty() {
         if has_icon {
             btn.icon.as_str().to_string()
@@ -606,19 +613,19 @@ pub fn button(btn: Button) -> Dom {
     if has_icon {
         button = button.with_child(match btn.icon_dom.into_option() {
             Some(dom) => dom,
-            None => Dom::create_icon(btn.icon).with_css_props(btn.icon_style),
+            None => Dom::create_icon(btn.icon).with_css_props(btn_icon_style),
         });
     }
 
     if let Some(image) = btn.image.into_option() {
-        button = button.with_child(Dom::create_image(image).with_css_props(btn.image_style));
+        button = button.with_child(Dom::create_image(image).with_css_props(btn_image_style));
     }
 
     let skip_label = btn.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
     if !skip_label {
         button = button.with_child(
             crate::widgets::widget_p()
-                .with_css_props(btn.label_style)
+                .with_css_props(btn_label_style)
                 .with_children(azul_core::dom::DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(btn.label),
                 ])),
@@ -627,7 +634,7 @@ pub fn button(btn: Button) -> Dom {
 
     if has_trailing_icon {
         button = button.with_child(
-            Dom::create_icon(btn.trailing_icon).with_css_props(btn.trailing_icon_style),
+            Dom::create_icon(btn.trailing_icon).with_css_props(btn_trailing_icon_style),
         );
     }
 
@@ -642,7 +649,7 @@ pub fn button(btn: Button) -> Dom {
 
     // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
-        btn.container_style.as_slice().to_vec();
+        btn_container_style.as_slice().to_vec();
 
     // In a flat theme we just override the background and text color for dark mode
     container_style.push(CssPropertyWithConditions::dark_theme(

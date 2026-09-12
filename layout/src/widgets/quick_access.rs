@@ -37,7 +37,10 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec,
+        OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -903,8 +906,8 @@ fn action_button(
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = action.icon;
-    b.container_style = container.clone();
-    b.icon_style = style.action_icon_style.clone();
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.action_icon_style.clone());
     b.on_click = action.on_click;
     b.dom()
 }
@@ -919,8 +922,8 @@ fn window_button(
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = icon;
     b.icon_dom = icon_dom;
-    b.container_style = container;
-    b.icon_style = style.window_icon_style.clone();
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container);
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.window_icon_style.clone());
     b.on_click = on_click;
     b.dom()
 }

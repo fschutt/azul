@@ -10,7 +10,7 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditionsVec,
+    dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
     props::{
         basic::*,
         layout::*,
@@ -36,12 +36,16 @@ pub struct FileInput {
 
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
-    /// Style for this button container
-    pub container_style: CssPropertyWithConditionsVec,
-    /// Style of the label
-    pub label_style: CssPropertyWithConditionsVec,
-    /// Style of the image
-    pub image_style: CssPropertyWithConditionsVec,
+    /// Style for this button container, or `None` for "no opinion".
+    ///
+    /// A FileInput renders AS a Button and forwards these three fields to it, so
+    /// `None` here means the Button resolves them. `Some(empty)` still means "no
+    /// properties at all", as everywhere else.
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the label, or `None` to let the Button decide.
+    pub label_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the image, or `None` to let the Button decide.
+    pub image_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl Default for FileInput {
@@ -51,10 +55,51 @@ impl Default for FileInput {
             file_input_state: FileInputStateWrapper::default(),
             default_text: "Select File...".into(),
             image: None.into(),
+            // Still copied from a default Button rather than written as
+            // `None`: it keeps the two in step by construction, and a Button
+            // with no opinion hands over no opinion.
             container_style: default_button.container_style,
             label_style: default_button.label_style,
             image_style: default_button.image_style,
         }
+    }
+}
+
+impl FileInput {
+    /// The container CSS the Button this input renders as will use.
+    ///
+    /// A FileInput has no styling of its own: it builds a Button and forwards
+    /// these three fields to it. Each resolver therefore answers with the
+    /// Button's default, which is what the widget actually paints.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| Self::style_donor().resolved_container_style())
+    }
+
+    /// The label CSS the Button this input renders as will use.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| Self::style_donor().resolved_label_style())
+    }
+
+    /// The image CSS the Button this input renders as will use.
+    #[must_use]
+    pub fn resolved_image_style(&self) -> CssPropertyWithConditionsVec {
+        self.image_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| Self::style_donor().resolved_image_style())
+    }
+
+    /// The unstyled Button the three resolvers above defer to.
+    fn style_donor() -> Button {
+        Button::create(AzString::from_const_str(""))
     }
 }
 
@@ -200,8 +245,15 @@ impl FileInput {
             container_style: self.container_style,
             label_style: self.label_style,
             image_style: self.image_style,
-            icon_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            // Explicitly EMPTY, not `None`: a file input draws no icon, and
+            // `Some(empty)` says that, where `None` would let the Button fall
+            // back to its own icon style if one ever appeared.
+            icon_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_const_slice(&[]),
+            ),
+            trailing_icon_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_const_slice(&[]),
+            ),
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {
@@ -772,11 +824,20 @@ mod autotest_generated {
     fn create_inherits_the_button_styling_verbatim() {
         // The widget is documented as "same as `Button`" — it must not fork the
         // button's style vecs, or a restyle of Button would silently skip it.
+        // Asked through the resolvers: both carry `None` now, so comparing the
+        // fields would agree no matter what either widget actually renders.
         let button = Button::create(AzString::from_const_str(""));
         let fi = FileInput::create(opt("/tmp/x.txt"));
-        assert_eq!(fi.container_style, button.container_style);
-        assert_eq!(fi.label_style, button.label_style);
-        assert_eq!(fi.image_style, button.image_style);
+        assert_eq!(
+            fi.resolved_container_style(),
+            button.resolved_container_style()
+        );
+        assert_eq!(fi.resolved_label_style(), button.resolved_label_style());
+        assert_eq!(fi.resolved_image_style(), button.resolved_image_style());
+        assert!(
+            !fi.resolved_container_style().as_ref().is_empty(),
+            "a vacuous comparison of two empty vecs would prove nothing"
+        );
     }
 
     #[test]
@@ -934,9 +995,12 @@ mod autotest_generated {
             fi.file_input_state.default_dir,
             before.file_input_state.default_dir,
         );
-        assert_eq!(fi.container_style, before.container_style);
-        assert_eq!(fi.label_style, before.label_style);
-        assert_eq!(fi.image_style, before.image_style);
+        assert_eq!(
+            fi.resolved_container_style(),
+            before.resolved_container_style()
+        );
+        assert_eq!(fi.resolved_label_style(), before.resolved_label_style());
+        assert_eq!(fi.resolved_image_style(), before.resolved_image_style());
         assert_eq!(fi.image, before.image);
     }
 
@@ -1038,7 +1102,10 @@ mod autotest_generated {
             before.file_input_state.default_dir,
         );
         assert_eq!(fi.image, before.image);
-        assert_eq!(fi.container_style, before.container_style);
+        assert_eq!(
+            fi.resolved_container_style(),
+            before.resolved_container_style()
+        );
     }
 
     #[test]
