@@ -596,6 +596,13 @@ pub fn button(btn: Button) -> Dom {
 
     // Resolved before `btn`'s fields are moved into the tree below.
     let btn_container_style = btn.resolved_container_style();
+    // A caller who injected a container style (`Some`) chose every property in
+    // it — resting face, dark colours and states included. The chrome widgets
+    // hand in part styles complete with their own hover/pressed pairs, and
+    // anything this theme appended after them would win the cascade (inline
+    // resolution is last-match) and paint the theme's greys over the ribbon's
+    // blue. So the theme adds to its OWN default only.
+    let btn_owns_style = btn.container_style.as_ref().is_none();
     let btn_label_style = btn.resolved_label_style();
     let btn_image_style = btn.resolved_image_style();
     let btn_icon_style = btn.resolved_icon_style();
@@ -652,22 +659,24 @@ pub fn button(btn: Button) -> Dom {
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
 
-    // In a flat theme we just override the background and text color for dark mode
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    if btn_owns_style {
+        // In a flat theme we just override the background and text color for dark mode
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+                    .into(),
+            ),
+        ));
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+        ));
 
-    // The interactive states go LAST. Inline declarations resolve last-match
-    // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
-    // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
-    // would shadow it — no ring, no hover face, in dark mode.
-    container_style.extend(button_states(btn_type));
+        // The interactive states go LAST. Inline declarations resolve last-match
+        // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
+        // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
+        // would shadow it — no ring, no hover face, in dark mode.
+        container_style.extend(button_states(btn_type));
+    }
 
     button
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))

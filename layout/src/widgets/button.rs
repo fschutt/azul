@@ -573,152 +573,21 @@ impl Button {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{EventFilter, HoverEventFilter},
-        };
-
-        let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick {
-                refany: data,
-                callback,
-            }) => vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                callback: CoreCallback {
-                    cb: callback.cb as *const () as usize,
-                    ctx: callback.ctx,
-                },
-                refany: data,
-            }],
-            None => Vec::new(),
-        };
-
-        // Add both the base class and the type-specific class
-        let type_class = self.button_type.class_name();
-        let classes: Vec<IdOrClass> = vec![
-            Class(AzString::from("__azul-native-button")),
-            Class(AzString::from(type_class)),
-        ];
-
-        let mut button = Dom::create_node(NodeType::Button);
-
-        // Resolved before `self.icon` / `self.label` / `self.image` are moved
-        // into the tree below; the resolvers borrow `&self`.
-        // The interactive states, from whichever theme this button carries — but
-        // only while the button wears its OWN container style. A caller who
-        // injected one (`Some`) chose every property in it, states included: the
-        // chrome widgets (ribbon, statusbar, quick_access, backstage) hand in part
-        // styles complete with their hover and pressed rules, and appending the
-        // Default button's grey ones after them would win the cascade (inline
-        // resolution is last-match) and paint grey over the ribbon's blue.
+        // Rendering lives in the theme modules, where the palette is in scope:
+        // the dark-mode colours, the interactive states and (for flora) the
+        // raised face are all appended there. This used to build its own copy of
+        // the tree and never reach `flat::button` / `flora::button`, which left
+        // both functions dead and the product's buttons without any of that.
         //
-        // The states are DECLARED in the theme modules, because the dark half of
-        // each pair needs a palette this file cannot see, and appended here
-        // because this is the path that renders: `Button::dom` builds its own
-        // tree and never reaches `flat::button` / `flora::button`.
-        let owns_container_style = self.container_style.as_ref().is_none();
-        let mut container_style = self.resolved_container_style().into_library_owned_vec();
-        if owns_container_style {
-            container_style.extend(match self.theme.into_option() {
-                Some(crate::widgets::themes::UiTheme::Flora) => {
-                    crate::widgets::themes::flora::button_states(self.button_type)
-                }
-                // `UiTheme::default()` is Flat, and so is every other widget's fallback.
-                Some(crate::widgets::themes::UiTheme::Flat) | None => {
-                    crate::widgets::themes::flat::button_states(self.button_type)
-                }
-            });
-        }
-        let container_style = CssPropertyWithConditionsVec::from_vec(container_style);
-        let label_style = self.resolved_label_style();
-        let image_style = self.resolved_image_style();
-        let icon_style = self.resolved_icon_style();
-        let trailing_icon_style = self.resolved_trailing_icon_style();
-
-        let has_icon = !self.icon.as_str().is_empty() || self.icon_dom.is_some();
-        let has_image = self.image.is_some();
-        let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
-
-        // Snapshot the accessible name BEFORE `self.label` / `self.icon` are
-        // moved into the DOM below. An icon-only button falls back to the icon
-        // NAME — "arrow_drop_down" reads far better than U+E5C5, which is all a
-        // screen reader gets from the glyph itself.
-        let a11y_name_src: String = if self.label.as_str().is_empty() {
-            if has_icon {
-                self.icon.as_str().to_string()
-            } else {
-                String::new()
+        // `UiTheme::default()` is Flat, and so is every other widget's fallback.
+        match self.theme.into_option() {
+            Some(crate::widgets::themes::UiTheme::Flora) => {
+                crate::widgets::themes::flora::button(self)
             }
-        } else {
-            self.label.as_str().to_string()
-        };
-
-        // Child order: leading icon, image, label, trailing icon. In a
-        // row container that reads left-to-right; a column container (large
-        // ribbon-style buttons) stacks icon over label over arrow.
-        if has_icon {
-            // A caller-supplied icon DOM wins over resolving `icon`, which is
-            // then only the accessible name (snapshotted above).
-            button = button.with_child(match self.icon_dom.into_option() {
-                Some(dom) => dom,
-                None => Dom::create_icon(self.icon).with_css_props(icon_style),
-            });
+            Some(crate::widgets::themes::UiTheme::Flat) | None => {
+                crate::widgets::themes::flat::button(self)
+            }
         }
-
-        // If an image was set via `set_image`, render it as the first child
-        // (left of the label, since the container is a horizontal flex row).
-        if let Some(image) = self.image.into_option() {
-            button = button.with_child(Dom::create_image(image).with_css_props(image_style));
-        }
-
-        // An empty label on an icon-only button is skipped entirely so the
-        // (zero-size but line-height-carrying) text node cannot disturb the
-        // icon centering. A button with no icon at all keeps its empty text
-        // node — an all-empty button should still render as an empty label.
-        let skip_label =
-            self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
-        if !skip_label {
-            button = button.with_child(
-                crate::widgets::widget_p()
-                    .with_css_props(label_style)
-                    .with_children(azul_core::dom::DomVec::from_vec(vec![
-                        Dom::create_text_do_not_use_without_block_level_wrapper(self.label),
-                    ])),
-            );
-        }
-
-        if has_trailing_icon {
-            button = button.with_child(
-                Dom::create_icon(self.trailing_icon).with_css_props(trailing_icon_style),
-            );
-        }
-
-        // A button is focusable, so a keyboard user WILL land on it. Without
-        // accessibility info it is absent from the accessibility tree entirely
-        // — the tab stop exists and describes nothing. An icon-only button is
-        // the worst case: its label is a private-use glyph that reads as
-        // nothing at all.
-        //
-        // The name comes from the label when there is one; an icon-only button
-        // falls back to its icon NAME ("arrow_drop_down" reads far better than
-        // U+E5C5), which the caller can override with a real one.
-        // NOTE: computed from the strings captured before they were moved into
-        // the DOM above — `a11y_name_src` is taken at the top of this function.
-        let a11y_name = a11y_name_src;
-        let mut a11y = azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::PushButton,
-            ..azul_core::a11y::AccessibilityInfo::default()
-        };
-        if !a11y_name.is_empty() {
-            a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
-        }
-
-        button
-            .with_css_props(container_style)
-            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-            .with_callbacks(callbacks.into())
-            .with_tab_index(TabIndex::Auto)
-            .with_accessibility_info(a11y)
     }
 }
 
@@ -1832,7 +1701,10 @@ mod autotest_generated {
                 classes(&dom),
                 vec![
                     "__azul-native-button".to_string(),
-                    ty.class_name().to_string()
+                    ty.class_name().to_string(),
+                    // The theme marker the render path adds — `Button::dom` renders through
+                    // `flat::button` / `flora::button`, which tag the node with their theme.
+                    "__azul-theme-flat".to_string(),
                 ],
                 "{ty:?}: wrong classes (base class first, then the type class)",
             );
@@ -1967,7 +1839,10 @@ mod autotest_generated {
             classes(&dom),
             vec![
                 "__azul-native-button".to_string(),
-                "__azul-btn-primary".to_string()
+                "__azul-btn-primary".to_string(),
+                // The theme marker the render path adds — `Button::dom` renders through
+                // `flat::button` / `flora::button`, which tag the node with their theme.
+                "__azul-theme-flat".to_string(),
             ],
             "the label leaked into the class list",
         );

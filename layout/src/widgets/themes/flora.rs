@@ -818,6 +818,13 @@ pub fn button(btn: Button) -> Dom {
 
     // Resolved before `btn`'s fields are moved into the tree below.
     let btn_container_style = btn.resolved_container_style();
+    // A caller who injected a container style (`Some`) chose every property in
+    // it — resting face, dark colours and states included. The chrome widgets
+    // hand in part styles complete with their own hover/pressed pairs, and
+    // anything this theme appended after them would win the cascade (inline
+    // resolution is last-match) and paint the theme's greys over the ribbon's
+    // blue. So the theme adds to its OWN default only.
+    let btn_owns_style = btn.container_style.as_ref().is_none();
     let btn_label_style = btn.resolved_label_style();
     let btn_image_style = btn.resolved_image_style();
     let btn_icon_style = btn.resolved_icon_style();
@@ -873,63 +880,66 @@ pub fn button(btn: Button) -> Dom {
     // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
-    // The resting face, in flora.css's terms. The standard command is raised
-    // paper (`.btn-secondary`: `linear-gradient(var(--fl-rT), var(--fl-rB))`),
-    // with its dark twin. A coloured command is a stone: its own colour in
-    // both modes, under the depth rig and the streak the CSS lays on its
-    // accent stone. The Link button has no surface and keeps what it had, the
-    // dark surface included. It is part of the BASE: after the widget's flat
-    // fill, which it wins over, and before the states, which win over it.
-    {
-        use crate::widgets::button::ButtonType;
-        match btn_type {
-            ButtonType::Default => {
-                container_style.push(CssPropertyWithConditions::simple(layers(vec![
-                    RAISED_FACE_LIGHT,
-                ])));
-                container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
-                    RAISED_FACE_DARK,
-                ])));
-            }
-            ButtonType::Link => {
-                container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
-                    StyleBackgroundContent::Color(DARK_SUR),
-                ])));
-            }
-            _ => {
-                let (bg, _, _) = crate::widgets::button::get_button_colors(btn_type);
-                container_style.push(CssPropertyWithConditions::simple(layers(stone_face(
-                    bg,
-                    STONE_STREAK,
-                ))));
+
+    if btn_owns_style {
+        // The resting face, in flora.css's terms. The standard command is raised
+        // paper (`.btn-secondary`: `linear-gradient(var(--fl-rT), var(--fl-rB))`),
+        // with its dark twin. A coloured command is a stone: its own colour in
+        // both modes, under the depth rig and the streak the CSS lays on its
+        // accent stone. The Link button has no surface and keeps what it had, the
+        // dark surface included. It is part of the BASE: after the widget's flat
+        // fill, which it wins over, and before the states, which win over it.
+        {
+            use crate::widgets::button::ButtonType;
+            match btn_type {
+                ButtonType::Default => {
+                    container_style.push(CssPropertyWithConditions::simple(layers(vec![
+                        RAISED_FACE_LIGHT,
+                    ])));
+                    container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                        RAISED_FACE_DARK,
+                    ])));
+                }
+                ButtonType::Link => {
+                    container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                        StyleBackgroundContent::Color(DARK_SUR),
+                    ])));
+                }
+                _ => {
+                    let (bg, _, _) = crate::widgets::button::get_button_colors(btn_type);
+                    container_style.push(CssPropertyWithConditions::simple(layers(stone_face(
+                        bg,
+                        STONE_STREAK,
+                    ))));
+                }
             }
         }
+
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
+        ));
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
+        ));
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
+        ));
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
+        ));
+        container_style.push(CssPropertyWithConditions::dark_theme(
+            CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
+        ));
+
+        // Here we could wrap the button in decorative DOM nodes for the skeumorphic flora look.
+        // For now, we apply basic properties to test the theming engine.
+
+        // The interactive states go LAST. Inline declarations resolve last-match
+        // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
+        // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
+        // would shadow it — no ring, no hover face, in dark mode.
+        container_style.extend(button_states(btn_type));
     }
-
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-    ));
-
-    // Here we could wrap the button in decorative DOM nodes for the skeumorphic flora look.
-    // For now, we apply basic properties to test the theming engine.
-
-    // The interactive states go LAST. Inline declarations resolve last-match
-    // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
-    // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
-    // would shadow it — no ring, no hover face, in dark mode.
-    container_style.extend(button_states(btn_type));
 
     button
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))

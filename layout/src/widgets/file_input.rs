@@ -1265,6 +1265,9 @@ mod autotest_generated {
             vec![
                 "__azul-native-button".to_string(),
                 ButtonType::Default.class_name().to_string(),
+                // The theme marker the render path adds — `Button::dom` renders through
+                // `flat::button` / `flora::button`, which tag the node with their theme.
+                "__azul-theme-flat".to_string(),
             ],
             "the file input must be styleable as a default-type native button",
         );
