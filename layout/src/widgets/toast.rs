@@ -36,7 +36,9 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -237,7 +239,13 @@ pub struct Toast {
     /// dismiss; see the module-level auto-dismiss TODO2).
     pub dismissible: bool,
     /// The computed inline style for the (absolutely-positioned) container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// The container's CSS, or `None` for "no opinion" — in which case the style
+    /// is derived from `kind` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -410,21 +418,36 @@ impl Toast {
             message,
             kind,
             dismissible: true,
-            container_style: build_toast_style(kind),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the colour variant, recomputing the container style.
+    /// The container CSS this toast renders with.
+    ///
+    /// `None` means no opinion, so the kind's default applies — the same answer
+    /// both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_toast_style(self.kind))
+    }
+
+    /// Sets the colour variant.
+    ///
+    /// Does not touch `container_style`: the style is resolved from `kind` when
+    /// the DOM is built, so changing the kind is enough. Writing it here would
+    /// also overwrite a caller's explicit style.
     #[inline]
-    pub fn set_kind(&mut self, kind: ToastKind) {
+    pub const fn set_kind(&mut self, kind: ToastKind) {
         self.kind = kind;
-        self.container_style = build_toast_style(kind);
     }
 
     /// Builder-style setter for the colour variant.
     #[inline]
     #[must_use]
-    pub fn with_toast_kind(mut self, kind: ToastKind) -> Self {
+    pub const fn with_toast_kind(mut self, kind: ToastKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -486,6 +509,9 @@ impl Toast {
             refany::OptionRefAny,
         };
 
+        // Resolved before `self.message` is moved out below.
+        let container_style = self.resolved_container_style();
+
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
@@ -527,7 +553,7 @@ impl Toast {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_CONTAINER_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -1275,7 +1301,10 @@ mod autotest_generated {
         );
         assert!(toast.toast_state.inner.visible, "a fresh toast is visible");
         assert!(toast.toast_state.on_dismiss.is_none());
-        assert_eq!(toast.container_style, build_toast_style(ToastKind::Info));
+        assert_eq!(
+            toast.resolved_container_style(),
+            build_toast_style(ToastKind::Info)
+        );
     }
 
     #[test]
@@ -1357,7 +1386,7 @@ mod autotest_generated {
             assert!(toast.toast_state.on_dismiss.is_none());
             assert!(toast.toast_state.inner.visible);
             assert_eq!(
-                toast.container_style,
+                toast.resolved_container_style(),
                 build_toast_style(kind),
                 "{kind:?}: the container style must match the kind it was built with"
             );
@@ -1387,17 +1416,18 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             toast.set_kind(kind);
             assert_eq!(toast.kind, kind);
-            assert_eq!(toast.container_style, build_toast_style(kind));
+            assert_eq!(toast.resolved_container_style(), build_toast_style(kind));
 
             // applying the same kind twice must not append/duplicate anything
-            let before = toast.container_style.clone();
+            let before = toast.resolved_container_style();
             toast.set_kind(kind);
             assert_eq!(
-                toast.container_style, before,
+                toast.resolved_container_style(),
+                before,
                 "{kind:?}: set_kind must be idempotent"
             );
             assert_eq!(
-                toast.container_style.len(),
+                toast.resolved_container_style().len(),
                 32,
                 "{kind:?}: restyling must not grow the property vec"
             );
@@ -1450,7 +1480,10 @@ mod autotest_generated {
             .with_toast_kind(ToastKind::Danger)
             .with_toast_kind(ToastKind::Success);
         assert_eq!(toast.kind, ToastKind::Success);
-        assert_eq!(toast.container_style, build_toast_style(ToastKind::Success));
+        assert_eq!(
+            toast.resolved_container_style(),
+            build_toast_style(ToastKind::Success)
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1460,7 +1493,7 @@ mod autotest_generated {
     #[test]
     fn set_dismissible_last_write_wins_and_touches_nothing_else() {
         let mut toast = Toast::with_kind(AzString::from("m"), ToastKind::Warning);
-        let style_before = toast.container_style.clone();
+        let style_before = toast.resolved_container_style();
 
         for flag in [true, true, false, true, false, false] {
             toast.set_dismissible(flag);
@@ -1470,7 +1503,8 @@ mod autotest_generated {
         assert_eq!(toast.kind, ToastKind::Warning);
         assert_eq!(toast.message.as_str(), "m");
         assert_eq!(
-            toast.container_style, style_before,
+            toast.resolved_container_style(),
+            style_before,
             "toggling must not restyle"
         );
         assert!(
@@ -1567,7 +1601,10 @@ mod autotest_generated {
 
         assert_eq!(toast.message.as_str(), "boom");
         assert_eq!(toast.kind, ToastKind::Danger);
-        assert_eq!(toast.container_style, build_toast_style(ToastKind::Danger));
+        assert_eq!(
+            toast.resolved_container_style(),
+            build_toast_style(ToastKind::Danger)
+        );
         assert!(toast.dismissible);
         assert!(toast.toast_state.on_dismiss.is_some());
     }
@@ -1681,7 +1718,7 @@ mod autotest_generated {
     #[test]
     fn dom_of_a_default_toast_is_a_container_with_message_and_close() {
         let toast = Toast::create(AzString::from("hi"));
-        let style = toast.container_style.clone();
+        let style = toast.resolved_container_style();
         let dom = toast.dom();
 
         assert!(dom.root.has_class("__azul-native-toast"));
