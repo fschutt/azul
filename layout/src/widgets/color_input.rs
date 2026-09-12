@@ -22,7 +22,9 @@ use azul_core::{
     refany::RefAny,
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -42,7 +44,13 @@ use crate::callbacks::{Callback, CallbackInfo};
 #[repr(C)]
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
-    pub style: CssPropertyWithConditionsVec,
+    /// The swatch's CSS, or `None` for "no opinion" — in which case the widget's
+    /// default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -169,9 +177,22 @@ impl ColorInput {
                 inner: ColorInputState { color },
                 ..Default::default()
             },
-            style: CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
+            style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The swatch CSS this input renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift. The
+    /// colour swatch, the checkerboard geometry and the translucency overrides
+    /// are all appended to this in `dom()`.
+    #[must_use]
+    pub fn resolved_style(&self) -> CssPropertyWithConditionsVec {
+        self.style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE)
+        })
     }
 
     /// Sets the callback invoked when the color value changes.
@@ -222,12 +243,14 @@ impl ColorInput {
 
         let color = self.color_input_state.inner.color;
         let title = self.color_input_state.title.clone();
+        // Resolved before `self.accessibility_name` is moved out below.
+        let resolved_style = self.resolved_style();
         let a11y_name = match self.accessibility_name {
             OptionString::Some(n) => n,
             OptionString::None => title,
         };
 
-        let mut style = self.style.into_library_owned_vec();
+        let mut style = resolved_style.into_library_owned_vec();
         style.push(CssPropertyWithConditions::simple(
             CssProperty::const_background_content(
                 vec![StyleBackgroundContent::Color(color)].into(),
@@ -1972,9 +1995,13 @@ mod autotest_generated {
         // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent.
         for c in SAMPLE_COLORS {
             let w = ColorInput::create(c);
-            assert_eq!(width_px(&w.style), Some(SIDE), "{c:?}: wrong swatch width");
             assert_eq!(
-                height_px(&w.style),
+                width_px(&w.resolved_style()),
+                Some(SIDE),
+                "{c:?}: wrong swatch width"
+            );
+            assert_eq!(
+                height_px(&w.resolved_style()),
                 Some(SIDE),
                 "{c:?}: wrong swatch height"
             );
@@ -1985,7 +2012,7 @@ mod autotest_generated {
     fn create_marks_the_swatch_as_clickable() {
         // Without `cursor: pointer` the swatch looks inert even though it is the node
         // that carries the mouse-up handler.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         assert!(
             props.contains(&CssProperty::const_cursor(StyleCursor::Pointer)),
             "the color input does not present as clickable: {props:?}",
@@ -1996,7 +2023,7 @@ mod autotest_generated {
     fn create_is_a_non_growing_block() {
         // A swatch with flex-grow != 0 would stretch to fill its row and stop being a
         // 14px square, silently defeating the width/height declarations above.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         assert!(
             props.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
             "the swatch is allowed to flex-grow: {props:?}",
@@ -2011,7 +2038,7 @@ mod autotest_generated {
     fn create_declares_no_property_twice() {
         // A duplicate declaration means the later one silently wins — a latent
         // "why is my override ignored" bug that never surfaces as an error.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         let mut seen = Vec::new();
         for p in &props {
             let d = discriminant(p);
@@ -2027,7 +2054,7 @@ mod autotest_generated {
         // render the same color (and `dom()` would then declare it twice).
         for c in SAMPLE_COLORS {
             assert_eq!(
-                background_color(&ColorInput::create(c).style),
+                background_color(&ColorInput::create(c).resolved_style()),
                 None,
                 "create({c:?}) leaked the color into the base style",
             );
@@ -2036,10 +2063,10 @@ mod autotest_generated {
 
     #[test]
     fn create_style_does_not_depend_on_the_color() {
-        let reference = properties(&ColorInput::create(SAMPLE_COLORS[0]).style);
+        let reference = properties(&ColorInput::create(SAMPLE_COLORS[0]).resolved_style());
         for c in SAMPLE_COLORS {
             assert_eq!(
-                properties(&ColorInput::create(c).style),
+                properties(&ColorInput::create(c).resolved_style()),
                 reference,
                 "create({c:?}) produced a different style than create({:?})",
                 SAMPLE_COLORS[0],
@@ -2215,8 +2242,8 @@ mod autotest_generated {
                 "installing a callback rewrote the color",
             );
             assert_eq!(
-                properties(&w.style),
-                properties(&pristine.style),
+                properties(&w.resolved_style()),
+                properties(&pristine.resolved_style()),
                 "installing a callback rewrote the style",
             );
             assert_eq!(
@@ -2340,12 +2367,12 @@ mod autotest_generated {
         let mut w = ColorInput::create(SAMPLE_COLORS[6]);
         let _ = w.swap_with_default();
         assert_eq!(
-            width_px(&w.style),
+            width_px(&w.resolved_style()),
             None,
             "the swapped-in widget unexpectedly has a width"
         );
         assert_eq!(
-            height_px(&w.style),
+            height_px(&w.resolved_style()),
             None,
             "the swapped-in widget unexpectedly has a height"
         );
@@ -2459,7 +2486,7 @@ mod autotest_generated {
         // rendered node's background, byte-identical, with the base style untouched and the
         // background appended *after* it (so a user override earlier in the table can't win).
         for c in SAMPLE_COLORS {
-            let base = properties(&ColorInput::create(c).style);
+            let base = properties(&ColorInput::create(c).resolved_style());
             let rendered = inline_properties(&ColorInput::create(c).dom());
 
             // The colour, plus — for a translucent swatch only — the three

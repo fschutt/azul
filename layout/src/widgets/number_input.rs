@@ -88,7 +88,13 @@ azul_core::impl_managed_callback! {
 pub struct NumberInput {
     pub number_input_state: NumberInputStateWrapper,
     pub text_input: TextInput,
-    pub style: CssPropertyWithConditionsVec,
+    /// The widget's own CSS, or `None` for "no opinion".
+    ///
+    /// A NumberInput draws nothing of its own — the TextInput it wraps carries
+    /// the container and label styling — so the resolved default here is empty.
+    /// The field exists so a caller can style the outer widget, and `None` keeps
+    /// that distinct from `Some(empty)`, which asks for no properties at all.
+    pub style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -137,6 +143,18 @@ impl NumberInput {
     pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
         self.accessibility_name = Some(name.into()).into();
         self
+    }
+
+    /// The CSS this widget renders with.
+    ///
+    /// Empty unless a caller set one: the styling a NumberInput shows comes from
+    /// its inner TextInput, whose own resolvers answer for it.
+    #[must_use]
+    pub fn resolved_style(&self) -> CssPropertyWithConditionsVec {
+        self.style
+            .clone()
+            .into_option()
+            .unwrap_or_else(CssPropertyWithConditionsVec::new)
     }
 
     #[must_use]
@@ -1065,8 +1083,8 @@ mod autotest_generated {
         assert_eq!(input.text_input.resolved_container_style(), container);
         assert_eq!(input.text_input.resolved_label_style(), label);
         assert_eq!(
-            input.style,
-            NumberInput::default().style,
+            input.resolved_style(),
+            NumberInput::default().resolved_style(),
             "NumberInput::style is not a dumping ground for the TextInput styles",
         );
     }
