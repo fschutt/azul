@@ -425,29 +425,74 @@ pub struct BackstageStyle {
     /// deriving matching custom parts.
     pub theme: BackstageTheme,
     /// Root container (horizontal: nav column beside the right side).
-    pub root_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub root_style: OptionCssPropertyWithConditionsVec,
     /// The nav column.
-    pub nav_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub nav_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into the back [`Button`] (the ring).
-    pub back_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub back_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the back [`Button`] (the arrow).
-    pub back_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub back_icon_style: OptionCssPropertyWithConditionsVec,
     /// One nav item.
-    pub nav_item_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub nav_item_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the active nav item.
-    pub nav_item_active_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub nav_item_active_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to a `gap_before` nav item.
-    pub nav_item_gap_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub nav_item_gap_style: OptionCssPropertyWithConditionsVec,
     /// The right side (title strip over content).
-    pub right_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub right_style: OptionCssPropertyWithConditionsVec,
     /// The content host for the active pane.
-    pub content_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub content_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl BackstageStyle {
     /// The the Office-2013-era look look (#2B579A nav, white content) - the default.
     #[must_use]
-    pub fn office_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self::from_theme(BackstageTheme::office_2013())
     }
 
@@ -461,20 +506,109 @@ impl BackstageStyle {
 
     /// Derives every part style from the given palette.
     #[must_use]
-    pub fn from_theme(theme: BackstageTheme) -> Self {
-        let t = &theme;
+    pub const fn from_theme(theme: BackstageTheme) -> Self {
         Self {
             theme,
-            root_style: theme_root(t),
-            nav_style: theme_nav(t),
-            back_button_style: theme_back_button(t),
-            back_icon_style: theme_back_icon(t),
-            nav_item_style: theme_nav_item(t),
-            nav_item_active_style: theme_nav_item_active(t),
-            nav_item_gap_style: theme_nav_item_gap(t),
-            right_style: theme_right(t),
-            content_style: theme_content(t),
+            root_style: OptionCssPropertyWithConditionsVec::None,
+            nav_style: OptionCssPropertyWithConditionsVec::None,
+            back_button_style: OptionCssPropertyWithConditionsVec::None,
+            back_icon_style: OptionCssPropertyWithConditionsVec::None,
+            nav_item_style: OptionCssPropertyWithConditionsVec::None,
+            nav_item_active_style: OptionCssPropertyWithConditionsVec::None,
+            nav_item_gap_style: OptionCssPropertyWithConditionsVec::None,
+            right_style: OptionCssPropertyWithConditionsVec::None,
+            content_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The `root_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_root_style(&self) -> CssPropertyWithConditionsVec {
+        self.root_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_root(&self.theme))
+    }
+
+    /// The `nav_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_nav_style(&self) -> CssPropertyWithConditionsVec {
+        self.nav_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_nav(&self.theme))
+    }
+
+    /// The `back_button_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_back_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.back_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_back_button(&self.theme))
+    }
+
+    /// The `back_icon_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_back_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.back_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_back_icon(&self.theme))
+    }
+
+    /// The `nav_item_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_nav_item_style(&self) -> CssPropertyWithConditionsVec {
+        self.nav_item_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_nav_item(&self.theme))
+    }
+
+    /// The `nav_item_active_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_nav_item_active_style(&self) -> CssPropertyWithConditionsVec {
+        self.nav_item_active_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_nav_item_active(&self.theme))
+    }
+
+    /// The `nav_item_gap_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_nav_item_gap_style(&self) -> CssPropertyWithConditionsVec {
+        self.nav_item_gap_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_nav_item_gap(&self.theme))
+    }
+
+    /// The `right_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_right_style(&self) -> CssPropertyWithConditionsVec {
+        self.right_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_right(&self.theme))
+    }
+
+    /// The `content_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
+        self.content_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_content(&self.theme))
     }
 }
 
@@ -770,15 +904,26 @@ impl Backstage {
             style,
         } = self;
 
+        // Every part resolved up front: the resolvers borrow `&style`, and
+        // `root_style` is moved out of it at the end of this function.
+        let part_root = style.resolved_root_style();
+        let part_nav = style.resolved_nav_style();
+        let part_back_button = style.resolved_back_button_style();
+        let part_back_icon = style.resolved_back_icon_style();
+        let part_nav_item = style.resolved_nav_item_style();
+        let part_nav_item_active = style.resolved_nav_item_active_style();
+        let part_nav_item_gap = style.resolved_nav_item_gap_style();
+        let part_right = style.resolved_right_style();
+        let part_content = style.resolved_content_style();
+
         // -- nav column --
         let mut nav_children: Vec<Dom> = Vec::with_capacity(nav_items.len() + 1);
 
         {
             let mut b = Button::create(AzString::from_const_str(""));
             b.icon = AzString::from_const_str("arrow_back");
-            b.container_style =
-                OptionCssPropertyWithConditionsVec::Some(style.back_button_style.clone());
-            b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.back_icon_style.clone());
+            b.container_style = OptionCssPropertyWithConditionsVec::Some(part_back_button);
+            b.icon_style = OptionCssPropertyWithConditionsVec::Some(part_back_icon);
             b.on_click = on_back.clone();
             nav_children.push(b.dom());
         }
@@ -787,13 +932,13 @@ impl Backstage {
             let (classes, mut part_style) = if idx == active_item {
                 (
                     CLS_NAV_ITEM_ACTIVE,
-                    merged_style(&style.nav_item_style, &style.nav_item_active_style),
+                    merged_style(&part_nav_item, &part_nav_item_active),
                 )
             } else {
-                (CLS_NAV_ITEM, style.nav_item_style.clone())
+                (CLS_NAV_ITEM, part_nav_item.clone())
             };
             if item.gap_before {
-                part_style = merged_style(&part_style, &style.nav_item_gap_style);
+                part_style = merged_style(&part_style, &part_nav_item_gap);
             }
             // The nav item div is display:flex — a raw text run cannot be a
             // flex item (no anonymous-block wrapping in azul), so the label
@@ -826,7 +971,7 @@ impl Backstage {
 
         let nav = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_NAV))
-            .with_css_props(style.nav_style.clone())
+            .with_css_props(part_nav)
             .with_children(DomVec::from_vec(nav_children));
 
         // -- right side --
@@ -841,18 +986,18 @@ impl Backstage {
         right_children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT))
-                .with_css_props(style.content_style.clone())
+                .with_css_props(part_content)
                 .with_children(DomVec::from_vec(vec![pane])),
         );
 
         let right = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIGHT))
-            .with_css_props(style.right_style.clone())
+            .with_css_props(part_right)
             .with_children(DomVec::from_vec(right_children));
 
         let mut root = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_BACKSTAGE))
-            .with_css_props(style.root_style)
+            .with_css_props(part_root)
             .with_children(DomVec::from_vec(vec![nav, right]));
 
         // Escape leaves the backstage (window-level, focus-independent).
