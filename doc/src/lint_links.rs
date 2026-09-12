@@ -230,7 +230,7 @@ fn page_anchors<'a>(
         let html = comrak::markdown_to_html(
             &body,
             &comrak::Options {
-                extension: comrak::ExtensionOptions {
+                extension: comrak::options::Extension {
                     header_ids: Some(String::new()),
                     ..Default::default()
                 },

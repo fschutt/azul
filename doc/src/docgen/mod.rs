@@ -1034,24 +1034,26 @@ document.addEventListener('DOMContentLoaded', function () {{
 }
 
 pub fn get_sidebar() -> String {
-    "
+    // A RAW string on purpose: rustfmt (`format_strings = true`) rewraps an
+    // ordinary multi-line literal with `\` continuations that swallow the
+    // following line, and did — the `<li>`s were being joined onto each other.
+    // Raw strings are never reformatted, and nothing here is interpolated.
+    String::from(
+        r"
         <nav>
         <ul class='nav-grid'>
-          <li><a href='https://azul.rs/ui'>overview</a></li>\
-         
+          <li><a href='https://azul.rs/ui'>overview</a></li>
           <li><a href='https://azul.rs/ui/releases'>releases</a></li>
-          <li><a href='https://github.com/fschutt/azul'>code</a></li>\
-         
+          <li><a href='https://github.com/fschutt/azul'>code</a></li>
           <li><a href='https://azul.rs/ui/guide'>guide</a></li>
-          <li><a href='https://azul.rs/ui/api'>api</a></li>\
-         
+          <li><a href='https://azul.rs/ui/api'>api</a></li>
           <li><a href='https://azul.rs/ui/reftest'>reftests</a></li>
-          <li><a href='https://azul.rs/ui/blog'>blog</a></li>\
-         
+          <li><a href='https://azul.rs/ui/blog'>blog</a></li>
           <li><a href='https://azul.rs/ui/donate'>donate</a></li>
         </ul>
       </nav>
-    ".to_string()
+    ",
+    )
 }
 
 // ===========================================================================
