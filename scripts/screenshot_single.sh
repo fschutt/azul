@@ -450,6 +450,10 @@ EOF
 }
 
 if is_macos; then
+    # Remember the desktop's appearance: the two captures below toggle it, and
+    # a script that leaves the machine in dark mode because that happened to be
+    # the last capture is a script nobody wants to run twice.
+    ORIGINAL_APPEARANCE="$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light)"
     log_info "macOS detected: taking light mode screenshot..."
     osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false'
     sleep 2
@@ -459,6 +463,12 @@ if is_macos; then
     osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true'
     sleep 2
     take_screenshot ".mac.dark"
+    if [ "$ORIGINAL_APPEARANCE" = "Dark" ]; then
+        osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true'
+    else
+        osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false'
+    fi
+    log_info "Desktop appearance restored to $ORIGINAL_APPEARANCE"
 elif is_windows; then
     log_info "Windows detected: taking light mode screenshot..."
     powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value 1 -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value 1 -Type Dword -Force"
@@ -487,6 +497,20 @@ fi
 sleep 1
 
 # Step 9: Shut down application
+# The UNSUFFIXED file is the canonical capture: it is what the verdict at the
+# end of this script checks and what CI copies into its screenshot artifact
+# (`target/examples-temp/<example>/<example>_screenshot.png`). The per-OS
+# branches above only ever wrote `.<os>.light` / `.<os>.dark`, so on every
+# desktop OS the verdict said FAILED and CI uploaded nothing — the website has
+# been serving the committed fallbacks. The light capture is the canonical one.
+for os_suffix in mac windows linux; do
+    light="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.${os_suffix}.light.png"
+    if [ -s "$light" ]; then
+        cp "$light" "$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
+        log_info "Canonical screenshot: copied from ${os_suffix}.light"
+        break
+    fi
+done
 log_step 9 "Shutting down application..."
 
 log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"close\"}"
