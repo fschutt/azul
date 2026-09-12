@@ -27,7 +27,10 @@ use azul_css::{
     *,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::flat,
+};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS: &[StyleBackgroundContent] =
@@ -43,31 +46,6 @@ const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundConte
         g: 252,
         b: 252,
         a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 229,
-        g: 243,
-        b: 251,
-        a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_3839348353894170136_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 249,
-        g: 250,
-        b: 251,
-        a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_10827796861537038040_ITEMS,
-        ),
     })];
 const STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -85,13 +63,6 @@ const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundCont
         r: 240,
         g: 240,
         b: 240,
-        a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_11098930083828139815_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 184,
-        g: 224,
-        b: 243,
         a: 255,
     })];
 const STYLE_TRANSFORM_6162542744002865382_ITEMS: &[StyleTransform] =
@@ -148,44 +119,6 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
 ];
-const LINEAR_COLOR_STOP_10827796861537038040_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 247,
-            g: 252,
-            b: 254,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(50),
-        color: ColorOrSystem::color(ColorU {
-            r: 247,
-            g: 252,
-            b: 254,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(51),
-        color: ColorOrSystem::color(ColorU {
-            r: 232,
-            g: 246,
-            b: 254,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 206,
-            g: 231,
-            b: 244,
-            a: 255,
-        }),
-    },
-];
 
 const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = &[
     // A flex container: `flex-direction` / `justify-content` / `align-items`
@@ -194,210 +127,56 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Flex,
     ))),
-    // .__azul_native-list-header-item:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 154,
-                g: 223,
-                b: 254,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS,
-        )),
-    )),
+    // .__azul_native-list-header-item:hover and :active, light AND dark.
+    // Declared in the theme module — see `themes::flat::LIST_HEADER_HOVER_BG`
+    // — because the dark half of each pair needs a palette this file cannot
+    // see; declared here they could only ever name the light-mode colour,
+    // which is how a hovered header kept its light face on a dark surface.
+    // Each light rule is followed by its dark twin so the twin wins in dark
+    // mode (inline CSS is last-wins).
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::LIST_HEADER_HOVER_LINE_COLOR,
+    flat::LIST_HEADER_HOVER_LINE_COLOR_DARK,
+    flat::LIST_HEADER_HOVER_BG,
+    flat::LIST_HEADER_HOVER_BG_DARK,
     // .__azul_native-list-header-item:active
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            color: ColorU {
-                r: 206,
-                g: 231,
-                b: 244,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(5),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            color: ColorU {
-                r: 206,
-                g: 231,
-                b: 244,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(5),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            color: ColorU {
-                r: 206,
-                g: 231,
-                b: 244,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(5),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            color: ColorU {
-                r: 206,
-                g: 231,
-                b: 244,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(5),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 194,
-                g: 205,
-                b: 219,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 194,
-                g: 205,
-                b: 219,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 194,
-                g: 205,
-                b: 219,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 194,
-                g: 205,
-                b: 219,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_active(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_3839348353894170136_ITEMS,
-        )),
-    )),
+    flat::LIST_HEADER_ACTIVE_SHADOW_BOTTOM,
+    flat::LIST_HEADER_ACTIVE_SHADOW_BOTTOM_DARK,
+    flat::LIST_HEADER_ACTIVE_SHADOW_TOP,
+    flat::LIST_HEADER_ACTIVE_SHADOW_TOP_DARK,
+    flat::LIST_HEADER_ACTIVE_SHADOW_RIGHT,
+    flat::LIST_HEADER_ACTIVE_SHADOW_RIGHT_DARK,
+    flat::LIST_HEADER_ACTIVE_SHADOW_LEFT,
+    flat::LIST_HEADER_ACTIVE_SHADOW_LEFT_DARK,
+    flat::LIST_ACTIVE_BORDER_BOTTOM_WIDTH,
+    flat::LIST_ACTIVE_BORDER_BOTTOM_WIDTH_DARK,
+    flat::LIST_ACTIVE_BORDER_LEFT_WIDTH,
+    flat::LIST_ACTIVE_BORDER_LEFT_WIDTH_DARK,
+    flat::LIST_ACTIVE_BORDER_RIGHT_WIDTH,
+    flat::LIST_ACTIVE_BORDER_RIGHT_WIDTH_DARK,
+    flat::LIST_ACTIVE_BORDER_TOP_WIDTH,
+    flat::LIST_ACTIVE_BORDER_TOP_WIDTH_DARK,
+    flat::LIST_ACTIVE_BORDER_BOTTOM_STYLE,
+    flat::LIST_ACTIVE_BORDER_BOTTOM_STYLE_DARK,
+    flat::LIST_ACTIVE_BORDER_LEFT_STYLE,
+    flat::LIST_ACTIVE_BORDER_LEFT_STYLE_DARK,
+    flat::LIST_ACTIVE_BORDER_RIGHT_STYLE,
+    flat::LIST_ACTIVE_BORDER_RIGHT_STYLE_DARK,
+    flat::LIST_ACTIVE_BORDER_TOP_STYLE,
+    flat::LIST_ACTIVE_BORDER_TOP_STYLE_DARK,
+    flat::LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR,
+    flat::LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR_DARK,
+    flat::LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR,
+    flat::LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR_DARK,
+    flat::LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR,
+    flat::LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR_DARK,
+    flat::LIST_HEADER_ACTIVE_BORDER_TOP_COLOR,
+    flat::LIST_HEADER_ACTIVE_BORDER_TOP_COLOR_DARK,
+    flat::LIST_HEADER_ACTIVE_BG,
+    flat::LIST_HEADER_ACTIVE_BG_DARK,
     // .__azul_native-list-header-item
     // Centre the label in the header's height: without it the text sat on the
     // top edge and the gradient's grey half read as an empty band under it.
@@ -765,92 +544,36 @@ const CSS_MATCH_6827198030119836081_PROPERTIES: &[CssPropertyWithConditions] = &
             STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS,
         )),
     )),
-    // .__azul_native-list-rows-row:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS,
-        )),
-    )),
+    // .__azul_native-list-rows-row:hover, light AND dark. Declared in the
+    // theme module — see `themes::flat::LIST_ROW_HOVER_BG` — because the dark
+    // half of each pair needs a palette this file cannot see. Each light rule
+    // is followed by its dark twin so the twin wins in dark mode.
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_LEFT_WIDTH,
+    flat::LIST_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_RIGHT_WIDTH,
+    flat::LIST_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_TOP_WIDTH,
+    flat::LIST_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_LEFT_STYLE,
+    flat::LIST_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_RIGHT_STYLE,
+    flat::LIST_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_TOP_STYLE,
+    flat::LIST_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BG,
+    flat::LIST_ROW_HOVER_BG_DARK,
     // .__azul_native-list-rows-row
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -971,178 +694,68 @@ const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &
     CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Flex,
     ))),
-    // .__azul_native-list-rows-row.focused
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 38,
-                g: 160,
-                b: 218,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 38,
-                g: 160,
-                b: 218,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 38,
-                g: 160,
-                b: 218,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 38,
-                g: 160,
-                b: 218,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_11098930083828139815_ITEMS,
-        )),
-    )),
-    // .__azul_native-list-rows-row:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 101,
-                g: 181,
-                b: 220,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS,
-        )),
-    )),
+    // .__azul_native-list-rows-row.focused, light AND dark. Declared in the
+    // theme module — see `themes::flat::LIST_ROW_FOCUS_BG` — because the dark
+    // half of each pair needs a palette this file cannot see; declared here it
+    // could only ever name the light-mode colour, which is how the focused row
+    // kept its light ring on a dark surface. Each light rule is followed by
+    // its dark twin so the twin wins in dark mode (inline CSS is last-wins).
+    flat::LIST_FOCUS_BORDER_BOTTOM_WIDTH,
+    flat::LIST_FOCUS_BORDER_BOTTOM_WIDTH_DARK,
+    flat::LIST_FOCUS_BORDER_LEFT_WIDTH,
+    flat::LIST_FOCUS_BORDER_LEFT_WIDTH_DARK,
+    flat::LIST_FOCUS_BORDER_RIGHT_WIDTH,
+    flat::LIST_FOCUS_BORDER_RIGHT_WIDTH_DARK,
+    flat::LIST_FOCUS_BORDER_TOP_WIDTH,
+    flat::LIST_FOCUS_BORDER_TOP_WIDTH_DARK,
+    flat::LIST_FOCUS_BORDER_BOTTOM_STYLE,
+    flat::LIST_FOCUS_BORDER_BOTTOM_STYLE_DARK,
+    flat::LIST_FOCUS_BORDER_LEFT_STYLE,
+    flat::LIST_FOCUS_BORDER_LEFT_STYLE_DARK,
+    flat::LIST_FOCUS_BORDER_RIGHT_STYLE,
+    flat::LIST_FOCUS_BORDER_RIGHT_STYLE_DARK,
+    flat::LIST_FOCUS_BORDER_TOP_STYLE,
+    flat::LIST_FOCUS_BORDER_TOP_STYLE_DARK,
+    flat::LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR,
+    flat::LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR_DARK,
+    flat::LIST_ROW_FOCUS_BORDER_LEFT_COLOR,
+    flat::LIST_ROW_FOCUS_BORDER_LEFT_COLOR_DARK,
+    flat::LIST_ROW_FOCUS_BORDER_RIGHT_COLOR,
+    flat::LIST_ROW_FOCUS_BORDER_RIGHT_COLOR_DARK,
+    flat::LIST_ROW_FOCUS_BORDER_TOP_COLOR,
+    flat::LIST_ROW_FOCUS_BORDER_TOP_COLOR_DARK,
+    flat::LIST_ROW_FOCUS_BG,
+    flat::LIST_ROW_FOCUS_BG_DARK,
+    // .__azul_native-list-rows-row:hover, light AND dark. Declared in the
+    // theme module — see `themes::flat::LIST_ROW_HOVER_BG` — because the dark
+    // half of each pair needs a palette this file cannot see. Each light rule
+    // is followed by its dark twin so the twin wins in dark mode.
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_LEFT_WIDTH,
+    flat::LIST_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_RIGHT_WIDTH,
+    flat::LIST_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_TOP_WIDTH,
+    flat::LIST_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE,
+    flat::LIST_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_LEFT_STYLE,
+    flat::LIST_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_RIGHT_STYLE,
+    flat::LIST_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::LIST_HOVER_BORDER_TOP_STYLE,
+    flat::LIST_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR,
+    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::LIST_ROW_HOVER_BG,
+    flat::LIST_ROW_HOVER_BG_DARK,
     // .__azul_native-list-rows-row
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1892,8 +1505,13 @@ mod autotest_generated {
         dom::NodeType,
         menu::{MenuItem, MenuItemVec},
     };
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
 
     use super::*;
+    use crate::widgets::theme_probe;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -2591,5 +2209,106 @@ mod autotest_generated {
             assert_eq!(row.children.as_ref().len(), N_COLS);
             assert_eq!(row.root.callbacks.as_ref().len(), 1);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Interactive states — the theme's contribution
+    // ------------------------------------------------------------------
+
+    /// The property types of the declarations on `node` gated on `state`,
+    /// split into the light half (no theme condition) and the dark twins
+    /// (gated on the dark theme as well). Each entry carries its position in
+    /// declaration order, and both halves are sorted by type so they line up.
+    fn state_halves(
+        node: &Dom,
+        state: PseudoStateType,
+    ) -> (Vec<(CssPropertyType, usize)>, Vec<(CssPropertyType, usize)>) {
+        let mut light = Vec::new();
+        let mut dark = Vec::new();
+        for (i, (p, conds)) in node.root.style.iter_inline_properties().enumerate() {
+            let conds = conds.as_ref();
+            let gated_on_state = conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
+            if !gated_on_state {
+                continue;
+            }
+            let dark_gated = conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+            if dark_gated {
+                dark.push((p.get_type(), i));
+            } else {
+                light.push((p.get_type(), i));
+            }
+        }
+        light.sort();
+        dark.sort();
+        (light, dark)
+    }
+
+    /// The hover / pressed / focus rules moved OUT of this file and into the
+    /// theme module — a move nothing else in this suite would notice: no
+    /// compiler error, and every other assertion still passes if a slice
+    /// silently drops a rule or a dark twin. So this counts what a rendered
+    /// column header and row actually carry, per state, light and dark.
+    #[test]
+    fn dom_carries_the_themes_header_and_row_states_with_dark_twins() {
+        let dom = ListView::create(cols(&["a"]))
+            .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
+            .dom();
+        let (header, rows) = header_and_rows(&dom);
+        let header_item = &header.children.as_ref()[0];
+        let row = &rows.children.as_ref()[0];
+
+        // (what, node, state, how many light rules it declares in that state)
+        let expected = [
+            // a hovered header: the bottom edge (width, style, colour) + the face
+            ("header item", header_item, PseudoStateType::Hover, 4),
+            // a pressed header: four inset shadows, four edges x (width, style,
+            // colour), + the face
+            ("header item", header_item, PseudoStateType::Active, 17),
+            // a header does not take focus
+            ("header item", header_item, PseudoStateType::Focus, 0),
+            // a hovered row: four edges x (width, style, colour) + the fill
+            ("row", row, PseudoStateType::Hover, 13),
+            // the focused row: the same ring and fill in stronger colours
+            ("row", row, PseudoStateType::Focus, 13),
+            // a row is chosen on release, not on press
+            ("row", row, PseudoStateType::Active, 0),
+        ];
+
+        for (what, node, state, want) in expected {
+            let (light, dark) = state_halves(node, state);
+            assert_eq!(
+                light.len(),
+                want,
+                "{what} {state:?}: expected {want} light rule(s), got {light:?}",
+            );
+            let types = |half: &[(CssPropertyType, usize)]| {
+                half.iter().map(|(t, _)| *t).collect::<Vec<_>>()
+            };
+            assert_eq!(
+                types(light.as_slice()),
+                types(dark.as_slice()),
+                "{what} {state:?}: every light rule needs a dark twin on the same property, or \
+                 the {what} keeps its light-mode look on a dark surface",
+            );
+            // Inline CSS is last-wins, so a twin must FOLLOW its light rule or
+            // dark mode would never see it.
+            for ((t, light_at), (_, dark_at)) in light.iter().zip(&dark) {
+                assert!(
+                    light_at < dark_at,
+                    "{what} {state:?} {t}: the dark twin is declared before its light rule, so \
+                     the light rule wins in dark mode",
+                );
+            }
+        }
+
+        // And the dark declarations really are gated, not unconditional.
+        assert!(
+            !theme_probe::dark(row).is_empty() && !theme_probe::dark(header_item).is_empty(),
+            "the theme contributed no dark-mode declarations at all"
+        );
     }
 }
