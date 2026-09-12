@@ -3894,6 +3894,7 @@ impl X11Window {
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
+            options.theme,
             options.background_color_light,
             options.background_color_dark,
             resources.fc_cache.clone(),

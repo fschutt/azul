@@ -1742,6 +1742,7 @@ impl IOSWindow {
 
         let mut common = CommonWindowState::new(
             full_window_state,
+            options.theme,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,

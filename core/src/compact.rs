@@ -791,8 +791,15 @@ impl CssPropertyCache {
 
             // Step 2: Apply UA CSS defaults for this node type directly to compact values.
             // UA defaults have lowest cascade priority — overridden by author CSS below.
+            // THEMED, through the same table `apply_ua_css` reads: the `<hr>`
+            // rule, the native button border and (on the root) the inherited
+            // text colour follow the window's theme here exactly as they do
+            // on the slow path, so the normal-state fast path and the slow
+            // path agree (theme-chain analysis 2026-09-12, R1/I4).
             apply_ua_css_to_compact(
                 &nd.node_type,
+                i == 0,
+                self.dynamic_context.as_deref(),
                 &mut result.tier1_enums[i],
                 &mut result.tier2_dims[i],
                 &mut result.tier2_cold[i],
@@ -1118,6 +1125,8 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
 
 fn apply_ua_css_to_compact(
     node_type: &crate::dom::NodeType,
+    is_root: bool,
+    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
     tier1: &mut u64,
     dims: &mut CompactNodeProps,
     cold: &mut CompactNodePropsCold,
@@ -1127,72 +1136,10 @@ fn apply_ua_css_to_compact(
         azul_css::props::basic::font::StyleFontFamilyVec,
     >,
 ) {
-    use azul_css::props::property::CssPropertyType as PT2;
-    const UA_PROPERTY_TYPES: &[PT2] = &[
-        // Tier1 enum properties
-        PT2::Display,
-        PT2::Position,
-        PT2::Float,
-        PT2::Clear,
-        PT2::OverflowX,
-        PT2::OverflowY,
-        PT2::BoxSizing,
-        PT2::FlexDirection,
-        PT2::FlexWrap,
-        PT2::JustifyContent,
-        PT2::AlignItems,
-        PT2::AlignContent,
-        PT2::WritingMode,
-        PT2::FontWeight,
-        PT2::FontStyle,
-        PT2::TextAlign,
-        PT2::Visibility,
-        PT2::WhiteSpace,
-        PT2::Direction,
-        PT2::VerticalAlign,
-        PT2::BorderCollapse,
-        // Tier2 dimension properties
-        PT2::Width,
-        PT2::Height,
-        PT2::FontSize,
-        PT2::MarginTop,
-        PT2::MarginBottom,
-        PT2::MarginLeft,
-        PT2::MarginRight,
-        PT2::PaddingTop,
-        PT2::PaddingBottom,
-        PT2::PaddingLeft,
-        PT2::PaddingRight,
-        PT2::BorderTopWidth,
-        PT2::BorderTopStyle,
-        PT2::BorderTopColor,
-        PT2::BorderRightWidth,
-        PT2::BorderRightStyle,
-        PT2::BorderRightColor,
-        PT2::BorderBottomWidth,
-        PT2::BorderBottomStyle,
-        PT2::BorderBottomColor,
-        PT2::BorderLeftWidth,
-        PT2::BorderLeftStyle,
-        PT2::BorderLeftColor,
-        // Text properties
-        PT2::TextColor,
-        PT2::LineHeight,
-        PT2::LetterSpacing,
-        PT2::WordSpacing,
-        PT2::TextDecoration,
-        PT2::Cursor,
-        PT2::ListStyleType,
-        // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
-        // restarts numbering. Without these here the has_counter fast-path bit
-        // stays unset for list containers, compute_counters skips the reset, and
-        // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
-        // 3,4 instead of restarting at 1).
-        PT2::CounterReset,
-        PT2::CounterIncrement,
-    ];
-    for pt in UA_PROPERTY_TYPES {
-        if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *pt) {
+    // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
+    // per-pass copies this replaced had drifted apart (see its doc).
+    for pt in crate::ua_css::UA_PROPERTY_TYPES {
+        if let Some(ua_prop) = crate::ua_css::get_ua_default(node_type, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
         }
     }

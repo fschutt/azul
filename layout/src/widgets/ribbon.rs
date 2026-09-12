@@ -354,6 +354,58 @@ impl RibbonTheme {
     }
 }
 
+impl RibbonTheme {
+    /// The dark twin of this palette: what the ribbon paints on a dark window.
+    ///
+    /// Derived, not stored — the struct is the FFI palette and stays a set of
+    /// LIGHT colours; every part builder emits each colour as a light/dark
+    /// pair (`bg_both` & co.) and this is where the dark half comes from.
+    ///
+    /// Page-neutral fields — the white chrome and content band, the grey
+    /// text, labels, icons, borders and separators, the hover/pressed/checked/
+    /// selected greys, the field border — take the flat theme's dark tokens
+    /// (`themes::flat`, the single source of dark values every widget shares),
+    /// so a ribbon control and the button next to it agree on what "dark"
+    /// is. A field that is its own colour — the accent, its hover, the label
+    /// on it — keeps the light value: an accent fill does not change with the
+    /// mode (`flat::button_states` makes the same call for a Primary button).
+    /// A transparent light value stays transparent: an app that made the
+    /// chrome see-through for a window gradient wants it see-through in dark
+    /// mode too, not an opaque slab.
+    ///
+    /// The states the theme appends (`push_chrome_hover_fill` & co.) already
+    /// use these same tokens, so a hovered control and the surface under it
+    /// come from one palette.
+    #[must_use]
+    pub(crate) const fn dark_counterpart(&self) -> Self {
+        const fn neutral(light: ColorU, dark: ColorU) -> ColorU {
+            if light.a == 0 {
+                light
+            } else {
+                dark
+            }
+        }
+        Self {
+            chrome_bg: neutral(self.chrome_bg, flat::DARK_SUR),
+            content_bg: neutral(self.content_bg, flat::DARK_SUR),
+            accent: self.accent,
+            accent_hover: self.accent_hover,
+            accent_text: self.accent_text,
+            text: neutral(self.text, flat::DARK_INK),
+            label: neutral(self.label, flat::DARK_INK2),
+            icon: neutral(self.icon, flat::DARK_ICON),
+            border: neutral(self.border, flat::DARK_BD),
+            separator: neutral(self.separator, flat::DARK_SEP),
+            hover_bg: neutral(self.hover_bg, flat::DARK_HT),
+            hover_border: neutral(self.hover_border, flat::DARK_BD),
+            pressed_bg: neutral(self.pressed_bg, flat::DARK_PT),
+            checked_bg: neutral(self.checked_bg, flat::DARK_PT),
+            selected_bg: neutral(self.selected_bg, flat::DARK_HT),
+            field_border: neutral(self.field_border, flat::DARK_BD3),
+        }
+    }
+}
+
 impl Default for RibbonTheme {
     fn default() -> Self {
         Self::office_2013()
@@ -524,6 +576,12 @@ fn push_padding(v: &mut Vec<Cond>, top: isize, right: isize, bottom: isize, left
 
 /// 1px solid border on all four sides in the given color.
 fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
+    push_box_border_frame(v);
+    push_border_colors(v, c);
+}
+
+/// The widths and styles of [`push_box_border`], without the colours.
+fn push_box_border_frame(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )));
@@ -556,7 +614,6 @@ fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
             inner: BorderStyle::Solid,
         },
     )));
-    push_border_colors(v, c);
 }
 
 fn push_border_colors(v: &mut Vec<Cond>, c: ColorU) {
@@ -572,6 +629,120 @@ fn push_border_colors(v: &mut Vec<Cond>, c: ColorU) {
     v.push(Cond::simple(P::const_border_bottom_color(
         StyleBorderBottomColor { inner: c },
     )));
+}
+
+// -- Resting colours, light and dark --
+//
+// Every colour a part declares at rest is a PAIR: the light value from the
+// palette, then its dark twin from `RibbonTheme::dark_counterpart`, in that
+// order because inline declarations resolve last-match-wins — a twin pushed
+// first would lose to the light value in dark mode. `Cond::themed` builds the
+// pair so half of one cannot ship; `widgets::theme_pairs` checks whatever is
+// still built by hand. Before this existed the ribbon declared its resting
+// surfaces in light only (the states had twins, the chrome under them did
+// not), which is a white Office-2013 bar on a dark window.
+//
+// Exempt, and declared with the plain `cond_bg` / `cond_text_color`: the
+// surfaces that are their own colour in both modes — the application button's
+// accent fill and the white label on it — and the transparent fills/borders
+// that a hover paints over, which have no dark value to take.
+
+/// A palette field in both modes: the light value from `t`, the dark from
+/// [`RibbonTheme::dark_counterpart`].
+fn both(t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) -> (ColorU, ColorU) {
+    (field(t), field(&t.dark_counterpart()))
+}
+
+/// A background fill, light and dark.
+fn bg_both(t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) -> [Cond; 2] {
+    let (light, dark) = both(t, field);
+    Cond::themed(
+        P::const_background_content(bg_vec(light)),
+        P::const_background_content(bg_vec(dark)),
+    )
+}
+
+/// A text colour, light and dark.
+fn text_both(t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) -> [Cond; 2] {
+    let (light, dark) = both(t, field);
+    Cond::themed(
+        P::const_text_color(StyleTextColor { inner: light }),
+        P::const_text_color(StyleTextColor { inner: dark }),
+    )
+}
+
+/// The ACCENT as a TEXT colour on the neutral chrome — the active tab's
+/// label, the mobile tab button and its chevron, the selected group-list
+/// entry — light and dark.
+///
+/// The light half is the palette's accent, untouched. The dark half is the
+/// flat theme's `DARK_ACC`, the same call `theme_tab` makes for its hover text
+/// and `theme_combo_field` for its focus ring: the accent is a FILL colour,
+/// and `#2B579A` as text on a dark surface is unreadable. Accent fills keep
+/// their value in both modes (`theme_app_button`); this is for text.
+fn accent_text_both(t: &RibbonTheme) -> [Cond; 2] {
+    Cond::themed(
+        P::const_text_color(StyleTextColor { inner: t.accent }),
+        P::const_text_color(StyleTextColor {
+            inner: flat::DARK_ACC,
+        }),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum Edge {
+    Top,
+    Left,
+    Right,
+    Bottom,
+}
+
+const fn edge_color(edge: Edge, c: ColorU) -> P {
+    match edge {
+        Edge::Top => P::const_border_top_color(StyleBorderTopColor { inner: c }),
+        Edge::Left => P::const_border_left_color(StyleBorderLeftColor { inner: c }),
+        Edge::Right => P::const_border_right_color(StyleBorderRightColor { inner: c }),
+        Edge::Bottom => P::const_border_bottom_color(StyleBorderBottomColor { inner: c }),
+    }
+}
+
+/// One edge's border colour, light and dark.
+fn push_edge_color_both(
+    v: &mut Vec<Cond>,
+    edge: Edge,
+    t: &RibbonTheme,
+    field: fn(&RibbonTheme) -> ColorU,
+) {
+    let (light, dark) = both(t, field);
+    v.extend(Cond::themed(
+        edge_color(edge, light),
+        edge_color(edge, dark),
+    ));
+}
+
+/// [`push_border_colors`] in both modes: the four light values first, in the
+/// same order, then the four twins (the `hover_border_both` shape).
+fn push_border_colors_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) {
+    const EDGES: [Edge; 4] = [Edge::Top, Edge::Left, Edge::Right, Edge::Bottom];
+    let (light, dark) = both(t, field);
+    for edge in EDGES {
+        v.push(Cond::simple(edge_color(edge, light)));
+    }
+    for edge in EDGES {
+        v.push(Cond::dark_theme(edge_color(edge, dark)));
+    }
+}
+
+/// [`push_box_border`] with the colour in both modes.
+fn push_box_border_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) {
+    push_box_border_frame(v);
+    push_border_colors_both(v, t, field);
+}
+
+/// [`push_bottom_border`] with the colour in both modes.
+fn push_bottom_border_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&RibbonTheme) -> ColorU) {
+    push_bottom_border_frame(v);
+    push_edge_color_both(v, Edge::Bottom, t, field);
 }
 
 // -- Interactive states --
@@ -608,6 +779,14 @@ fn push_chrome_hover_border(v: &mut Vec<Cond>, t: &RibbonTheme) {
 
 /// Bottom border only (tab underline / ribbon bottom edge).
 fn push_bottom_border(v: &mut Vec<Cond>, c: ColorU) {
+    push_bottom_border_frame(v);
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
+}
+
+/// The width and style of [`push_bottom_border`], without the colour.
+fn push_bottom_border_frame(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )));
@@ -615,9 +794,6 @@ fn push_bottom_border(v: &mut Vec<Cond>, c: ColorU) {
         StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         },
-    )));
-    v.push(Cond::simple(P::const_border_bottom_color(
-        StyleBorderBottomColor { inner: c },
     )));
 }
 
@@ -642,14 +818,14 @@ fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_bg(t.chrome_bg),
     ];
-    push_bottom_border(&mut v, t.border);
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_bottom_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         // Replaced by the full-width mobile tab button on phones. The
@@ -659,8 +835,9 @@ fn theme_tab_bar(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
         Cond::simple(P::const_height(LayoutHeight::const_px(26))),
-        cond_bg(t.chrome_bg),
-    ])
+    ];
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -675,6 +852,8 @@ fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         inner: FloatValue::const_new(0),
     })));
     push_padding(&mut v, 7, 17, 7, 17);
+    // Its own colour in both modes: an accent fill and the label on it are
+    // the two resting surfaces with NO dark twin (see `dark_counterpart`).
     v.push(cond_bg(t.accent));
     v.push(cond_text_color(t.accent_text));
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
@@ -706,9 +885,9 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     push_padding(&mut v, 7, 13, 6, 13);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
-    v.push(cond_text_color(t.text));
-    v.push(cond_bg(t.chrome_bg));
-    push_bottom_border(&mut v, t.border);
+    v.extend(text_both(t, |p| p.text));
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_bottom_border_both(&mut v, t, |p| p.border);
     // Hover text, light and dark. The tab strip is page-neutral chrome and a
     // hovered tab's text takes the accent, so the dark twin is the theme's
     // `DARK_ACC` — the accent is the one state colour with a genuine per-mode
@@ -738,16 +917,13 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     })));
     push_padding(&mut v, 6, 12, 6, 12);
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
-    v.push(cond_text_color(t.accent));
-    v.push(cond_bg(t.chrome_bg));
-    push_box_border(&mut v, t.border);
+    v.extend(accent_text_both(t));
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_box_border_both(&mut v, t, |p| p.border);
     // Erase the underline below the active tab: the bottom border matches
-    // the chrome so the tab visually merges with the ribbon content.
-    v.push(Cond::simple(P::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: t.content_bg,
-        },
-    )));
+    // the chrome so the tab visually merges with the ribbon content — in
+    // both modes, so the pair follows the box border's pair (last wins).
+    push_edge_color_both(&mut v, Edge::Bottom, t, |p| p.content_bg);
     // One line, like every other tab - see `theme_tab`.
     v.push(Cond::simple(P::WhiteSpace(
         props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
@@ -759,12 +935,12 @@ fn theme_tab_filler(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
         1,
     )))];
-    push_bottom_border(&mut v, t.border);
+    push_bottom_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
@@ -773,12 +949,13 @@ fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
             inner: FloatValue::const_new(0),
         })),
         Cond::simple(P::const_height(LayoutHeight::const_px(92))),
-        cond_bg(t.content_bg),
-    ])
+    ];
+    v.extend(bg_both(t, |p| p.content_bg));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_group(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -794,20 +971,20 @@ fn theme_group(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_border_right_style(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         })),
-        Cond::simple(P::const_border_right_color(StyleBorderRightColor {
-            inner: t.separator,
-        })),
-    ])
+    ];
+    push_edge_color_both(&mut v, Edge::Right, t, |p| p.separator);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_group_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         Cond::simple(P::const_text_align(StyleTextAlign::Center)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
-        cond_text_color(t.label),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    ];
+    v.extend(text_both(t, |p| p.label));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -834,16 +1011,19 @@ fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_launcher_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
-        cond_text_color(t.label),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        11,
+    )))];
+    v.extend(text_both(t, |p| p.label));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_separator(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_width(LayoutWidth::const_px(1))),
         Cond::simple(P::const_height(LayoutHeight::const_px(22))),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -852,8 +1032,9 @@ fn theme_separator(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         })),
         Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(3))),
         Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(3))),
-        cond_bg(t.separator),
-    ])
+    ];
+    v.extend(bg_both(t, |p| p.separator));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_large_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -877,23 +1058,31 @@ fn theme_large_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_large_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(32))),
-        cond_text_color(t.icon),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        32,
+    )))];
+    v.extend(text_both(t, |p| p.icon));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_large_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_text_color(t.text),
-        Cond::simple(P::const_text_align(StyleTextAlign::Center)),
-        Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(3))),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        12,
+    )))];
+    v.extend(text_both(t, |p| p.text));
+    v.push(Cond::simple(P::const_text_align(StyleTextAlign::Center)));
+    v.push(Cond::simple(P::const_margin_top(
+        LayoutMarginTop::const_px(3),
+    )));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_small_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -913,38 +1102,49 @@ fn theme_small_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_small_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(16))),
-        cond_text_color(t.icon),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        16,
+    )))];
+    v.extend(text_both(t, |p| p.icon));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_small_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_text_color(t.text),
-        Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(5))),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        12,
+    )))];
+    v.extend(text_both(t, |p| p.text));
+    v.push(Cond::simple(P::const_margin_left(
+        LayoutMarginLeft::const_px(5),
+    )));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_arrow_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(14))),
-        cond_text_color(t.label),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        14,
+    )))];
+    v.extend(text_both(t, |p| p.label));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Appended to a button's container style when [`RibbonButton::toggled`] is
 /// set. Inline properties resolve last-wins, so these override the base.
 fn theme_checked(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = vec![cond_bg(t.checked_bg)];
-    push_border_colors(&mut v, t.hover_border);
+    let mut v: Vec<Cond> = bg_both(t, |p| p.checked_bg).to_vec();
+    push_border_colors_both(&mut v, t, |p| p.hover_border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -963,9 +1163,9 @@ fn theme_gallery_frame(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         // containers — see layout/tests/flex_intrinsic_text.rs.)
         Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
         Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
-        cond_bg(t.chrome_bg),
     ];
-    push_box_border(&mut v, t.border);
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_box_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -987,9 +1187,7 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     push_box_border(&mut v, TRANSPARENT);
     // Cells are divided by a thin rule on their right edge.
-    v.push(Cond::simple(P::const_border_right_color(
-        StyleBorderRightColor { inner: t.separator },
-    )));
+    push_edge_color_both(&mut v, Edge::Right, t, |p| p.separator);
     push_chrome_hover_fill(&mut v, t);
     push_chrome_hover_border(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
@@ -997,23 +1195,28 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 /// Appended to [`RibbonStyle::gallery_cell_style`] for the selected cell.
 fn theme_gallery_cell_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = vec![cond_bg(t.selected_bg)];
-    push_border_colors(&mut v, t.hover_border);
+    let mut v: Vec<Cond> = bg_both(t, |p| p.selected_bg).to_vec();
+    push_border_colors_both(&mut v, t, |p| p.hover_border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_gallery_cell_label(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(11))),
-        cond_text_color(t.text),
-        Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(2))),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        11,
+    )))];
+    v.extend(text_both(t, |p| p.text));
+    v.push(Cond::simple(P::const_margin_top(
+        LayoutMarginTop::const_px(2),
+    )));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_gallery_spinner(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -1027,10 +1230,9 @@ fn theme_gallery_spinner(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_border_left_style(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         })),
-        Cond::simple(P::const_border_left_color(StyleBorderLeftColor {
-            inner: t.separator,
-        })),
-    ])
+    ];
+    push_edge_color_both(&mut v, Edge::Left, t, |p| p.separator);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The gallery wrapper is the positioning context for the expansion panel;
@@ -1056,9 +1258,9 @@ fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_width(LayoutWidth::const_px(612))),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_wrap(LayoutFlexWrap::Wrap)),
-        cond_bg(t.chrome_bg),
     ];
-    push_box_border(&mut v, t.border);
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_box_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1092,12 +1294,15 @@ fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec
 }
 
 fn theme_gallery_spinner_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_text_color(t.label),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        12,
+    )))];
+    v.extend(text_both(t, |p| p.label));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Office-2013-look combobox parts, injected by [`RibbonStyle::styled_combo_box`].
@@ -1126,9 +1331,9 @@ fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     ];
     push_padding(&mut v, 0, 2, 0, 5);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Text)));
-    v.push(cond_bg(t.chrome_bg));
-    v.push(cond_text_color(t.text));
-    push_box_border(&mut v, t.field_border);
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    v.extend(text_both(t, |p| p.text));
+    push_box_border_both(&mut v, t, |p| p.field_border);
     // Focus ring, light and dark. The field sits on the neutral chrome and its
     // ring is the accent, so the dark twin is the theme's `DARK_ACC`. All four
     // edges: a ring that sets only some leaves the rest at their resting
@@ -1138,12 +1343,15 @@ fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_combo_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(14))),
-        cond_text_color(t.label),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        14,
+    )))];
+    v.extend(text_both(t, |p| p.label));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Mobile part styles --
@@ -1170,9 +1378,9 @@ fn theme_mobile_tab_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
         17,
     ))));
-    v.push(cond_text_color(t.accent));
-    v.push(cond_bg(t.chrome_bg));
-    push_bottom_border(&mut v, t.border);
+    v.extend(accent_text_both(t));
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_bottom_border_both(&mut v, t, |p| p.border);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     CssPropertyWithConditionsVec::from_vec(v)
@@ -1188,12 +1396,15 @@ fn theme_mobile_tab_label(_t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 /// Chevron on the mobile tab button.
 fn theme_mobile_tab_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(24))),
-        cond_text_color(t.accent),
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        24,
+    )))];
+    v.extend(accent_text_both(t));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Full-screen overlay listing every tab; opened by the mobile tab button.
@@ -1216,9 +1427,9 @@ fn theme_mobile_tab_overlay(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
             100,
         )))),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
-        cond_bg(t.chrome_bg),
     ];
-    push_box_border(&mut v, t.border);
+    v.extend(bg_both(t, |p| p.chrome_bg));
+    push_box_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1231,12 +1442,12 @@ fn theme_mobile_tab_overlay_item(t: &RibbonTheme) -> CssPropertyWithConditionsVe
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_height(LayoutHeight::const_px(48))),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(17))),
-        cond_text_color(t.text),
-        Cond::simple(P::const_cursor(StyleCursor::Pointer)),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
     ];
+    v.extend(text_both(t, |p| p.text));
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     push_padding(&mut v, 0, 16, 0, 16);
-    push_bottom_border(&mut v, t.separator);
+    push_bottom_border_both(&mut v, t, |p| p.separator);
     push_chrome_hover_fill(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -1258,7 +1469,7 @@ fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWit
     })));
     v.push(Cond::simple(P::const_overflow_y(LayoutOverflow::Scroll)));
     v.push(Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)));
-    v.push(cond_bg(t.chrome_bg));
+    v.extend(bg_both(t, |p| p.chrome_bg));
     // The list hugs the dominant hand: a border on the side that faces the
     // content, so the divider reads correctly whichever side it is on.
     if left_handed {
@@ -1270,9 +1481,7 @@ fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWit
                 inner: BorderStyle::Solid,
             },
         )));
-        v.push(Cond::simple(P::const_border_right_color(
-            StyleBorderRightColor { inner: t.separator },
-        )));
+        push_edge_color_both(&mut v, Edge::Right, t, |p| p.separator);
     } else {
         v.push(Cond::simple(P::const_border_left_width(
             LayoutBorderLeftWidth::const_px(1),
@@ -1282,9 +1491,7 @@ fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWit
                 inner: BorderStyle::Solid,
             },
         )));
-        v.push(Cond::simple(P::const_border_left_color(
-            StyleBorderLeftColor { inner: t.separator },
-        )));
+        push_edge_color_both(&mut v, Edge::Left, t, |p| p.separator);
     }
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -1297,19 +1504,21 @@ fn theme_mobile_group_list_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_height(LayoutHeight::const_px(44))),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(15))),
-        cond_text_color(t.text),
-        Cond::simple(P::const_cursor(StyleCursor::Pointer)),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
     ];
+    v.extend(text_both(t, |p| p.text));
+    v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     push_padding(&mut v, 0, 10, 0, 12);
-    push_bottom_border(&mut v, t.separator);
+    push_bottom_border_both(&mut v, t, |p| p.separator);
     push_chrome_hover_fill(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The selected entry of the mobile group list (appended, last-wins).
 fn theme_mobile_group_list_item_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.selected_bg), cond_text_color(t.accent)])
+    let mut v: Vec<Cond> = bg_both(t, |p| p.selected_bg).to_vec();
+    v.extend(accent_text_both(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Classes --
@@ -4910,18 +5119,22 @@ mod tests {
         );
 
         // An inactive tab's text takes the accent on hover; the dark twin is
-        // the theme's accent, not the palette's light-mode blue.
+        // the theme's accent, not the palette's light-mode blue. (The HOVER
+        // twin: the tab's resting text has a dark twin of its own now.)
         assert_every_state_rule_has_a_dark_twin("tab", tab.root.style.iter_inline_properties());
         let dark_hover_text = tab
             .root
             .style
             .iter_inline_properties()
             .find(|(p, conds)| {
+                let conds = conds.as_ref();
                 matches!(p, CssProperty::TextColor(_))
                     && conds
-                        .as_ref()
                         .iter()
                         .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    && conds
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
             })
             .map(|(p, _)| p.clone());
         assert_eq!(
@@ -5632,5 +5845,414 @@ mod tests {
             border_color.inner, neon,
             "combo field border follows the theme"
         );
+    }
+    // ------------------------------------------------------------------
+    // Resting colours, light and dark
+    // ------------------------------------------------------------------
+    //
+    // The ribbon's resting surfaces are declared from `RibbonTheme`, whose
+    // fields are LIGHT values; the dark twins come from `dark_counterpart`.
+    // These pins say two things: the light look is byte-for-byte what it was
+    // before the twins existed, and every twin is where last-match-wins can
+    // see it.
+
+    /// The colour a declaration carries, if it is a colour property. A
+    /// gradient or image background is not a colour (none in the ribbon).
+    fn colour_of(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BackgroundContent(b) => b
+                .get_property()
+                .and_then(|v| v.as_ref().first())
+                .and_then(|c| match c {
+                    StyleBackgroundContent::Color(c) => Some(*c),
+                    _ => None,
+                }),
+            CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
+            CssProperty::BorderTopColor(c) => c.get_property().map(|c| c.inner),
+            CssProperty::BorderLeftColor(c) => c.get_property().map(|c| c.inner),
+            CssProperty::BorderRightColor(c) => c.get_property().map(|c| c.inner),
+            CssProperty::BorderBottomColor(c) => c.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    /// `(type, colour)` of every unconditional colour declaration on `node`,
+    /// in declaration order — the light look of the node.
+    fn light_colours(node: &Dom) -> Vec<(CssPropertyType, ColorU)> {
+        crate::widgets::theme_probe::unconditional(node)
+            .iter()
+            .filter_map(|p| colour_of(p).map(|c| (p.get_type(), c)))
+            .collect()
+    }
+
+    #[test]
+    fn the_light_look_of_the_chrome_is_unchanged_by_the_dark_twins() {
+        use crate::widgets::theme_probe::unconditional;
+
+        let dom = Ribbon::new(tabs(2))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .dom();
+        let (bar, content) = parts(&dom);
+
+        // The root: white chrome over a #D4D4D4 bottom rule, exactly as the
+        // Office palette declares it.
+        assert_eq!(
+            unconditional(&dom),
+            vec![
+                P::const_display(LayoutDisplay::Flex),
+                P::const_flex_direction(LayoutFlexDirection::Column),
+                P::const_flex_grow(LayoutFlexGrow::const_new(0)),
+                P::const_font_family(SYSTEM_UI_FAMILY),
+                P::const_font_size(StyleFontSize::const_px(12)),
+                P::const_background_content(bg_vec(WHITE)),
+                P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1)),
+                P::const_border_bottom_style(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+                P::const_border_bottom_color(StyleBorderBottomColor { inner: W13_BORDER }),
+            ],
+            "root: the unconditional declarations are the light look, in order"
+        );
+        assert_eq!(
+            unconditional(bar),
+            vec![
+                P::const_box_sizing(LayoutBoxSizing::BorderBox),
+                P::const_display(LayoutDisplay::Flex),
+                P::const_flex_direction(LayoutFlexDirection::Row),
+                P::const_flex_grow(LayoutFlexGrow::const_new(0)),
+                P::const_height(LayoutHeight::const_px(26)),
+                P::const_background_content(bg_vec(WHITE)),
+            ],
+            "tab bar"
+        );
+        assert_eq!(
+            unconditional(content),
+            vec![
+                P::const_box_sizing(LayoutBoxSizing::BorderBox),
+                P::const_display(LayoutDisplay::Flex),
+                P::const_flex_direction(LayoutFlexDirection::Row),
+                P::const_flex_grow(LayoutFlexGrow::const_new(0)),
+                P::const_flex_shrink(LayoutFlexShrink {
+                    inner: FloatValue::const_new(0),
+                }),
+                P::const_height(LayoutHeight::const_px(92)),
+                P::const_background_content(bg_vec(WHITE)),
+            ],
+            "content band"
+        );
+    }
+
+    #[test]
+    fn the_light_colours_of_the_tab_strip_are_unchanged_by_the_dark_twins() {
+        use CssPropertyType as T;
+
+        let dom = Ribbon::new(tabs(2))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .dom();
+        let (bar, _) = parts(&dom);
+        let ch = bar.children.as_ref();
+        // [app, t0 (active), t1, filler]
+        let (app, active, tab, filler) = (&ch[0], &ch[1], &ch[2], &ch[3]);
+
+        assert_eq!(
+            light_colours(app),
+            vec![(T::BackgroundContent, W13_BLUE), (T::TextColor, WHITE)],
+            "application button: accent fill, white label"
+        );
+        assert_eq!(
+            light_colours(tab),
+            vec![
+                (T::TextColor, W13_TEXT),
+                (T::BackgroundContent, WHITE),
+                (T::BorderBottomColor, W13_BORDER),
+            ],
+            "inactive tab"
+        );
+        assert_eq!(
+            light_colours(active),
+            vec![
+                (T::TextColor, W13_BLUE),
+                (T::BackgroundContent, WHITE),
+                (T::BorderTopColor, W13_BORDER),
+                (T::BorderLeftColor, W13_BORDER),
+                (T::BorderRightColor, W13_BORDER),
+                (T::BorderBottomColor, W13_BORDER),
+                // The underline erased: the bottom edge matches the content band.
+                (T::BorderBottomColor, WHITE),
+            ],
+            "active tab"
+        );
+        assert_eq!(
+            light_colours(filler),
+            vec![(T::BorderBottomColor, W13_BORDER)],
+            "tab filler"
+        );
+    }
+    /// Every part builder, by name, over one palette (and the left-handed
+    /// group list, which is the one part that takes a second input).
+    fn every_builder(t: &RibbonTheme) -> Vec<(&'static str, CssPropertyWithConditionsVec)> {
+        vec![
+            ("container", theme_container(t)),
+            ("tab_bar", theme_tab_bar(t)),
+            ("app_button", theme_app_button(t)),
+            ("tab", theme_tab(t)),
+            ("tab_active", theme_tab_active(t)),
+            ("tab_filler", theme_tab_filler(t)),
+            ("content", theme_content(t)),
+            ("group", theme_group(t)),
+            ("group_label", theme_group_label(t)),
+            ("launcher_button", theme_launcher_button(t)),
+            ("launcher_icon", theme_launcher_icon(t)),
+            ("separator", theme_separator(t)),
+            ("large_button", theme_large_button(t)),
+            ("large_icon", theme_large_icon(t)),
+            ("large_label", theme_large_label(t)),
+            ("small_button", theme_small_button(t)),
+            ("small_icon", theme_small_icon(t)),
+            ("small_label", theme_small_label(t)),
+            ("arrow_icon", theme_arrow_icon(t)),
+            ("checked", theme_checked(t)),
+            ("gallery_frame", theme_gallery_frame(t)),
+            ("gallery_cell", theme_gallery_cell(t)),
+            ("gallery_cell_selected", theme_gallery_cell_selected(t)),
+            ("gallery_cell_label", theme_gallery_cell_label(t)),
+            ("gallery_spinner", theme_gallery_spinner(t)),
+            ("gallery_panel", theme_gallery_panel(t)),
+            ("gallery_spinner_button", theme_gallery_spinner_button(t)),
+            ("gallery_spinner_icon", theme_gallery_spinner_icon(t)),
+            (
+                "combo_wrapper",
+                CssPropertyWithConditionsVec::from_vec(theme_combo_wrapper_base(t)),
+            ),
+            ("combo_field", theme_combo_field(t)),
+            ("combo_arrow", theme_combo_arrow(t)),
+            ("mobile_tab_button", theme_mobile_tab_button(t)),
+            ("mobile_tab_label", theme_mobile_tab_label(t)),
+            ("mobile_tab_arrow", theme_mobile_tab_arrow(t)),
+            ("mobile_tab_overlay", theme_mobile_tab_overlay(t)),
+            ("mobile_tab_overlay_item", theme_mobile_tab_overlay_item(t)),
+            (
+                "mobile_group_list (right)",
+                theme_mobile_group_list(t, false),
+            ),
+            ("mobile_group_list (left)", theme_mobile_group_list(t, true)),
+            ("mobile_group_list_item", theme_mobile_group_list_item(t)),
+            (
+                "mobile_group_list_item_selected",
+                theme_mobile_group_list_item_selected(t),
+            ),
+        ]
+    }
+
+    fn is_state_gated(conds: &DynamicSelectorVec) -> bool {
+        conds
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::PseudoState(_)))
+    }
+
+    fn is_dark_gated(conds: &DynamicSelectorVec) -> bool {
+        conds
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+    }
+
+    /// Invariant I8 for the ribbon's RESTING colours: every opaque colour a
+    /// builder declares unconditionally has a dark twin of the same property,
+    /// declared AFTER it (last-match-wins), and no builder declares a resting
+    /// dark twin for a property it does not declare in light. The one
+    /// exception is the application button — an accent fill and the label on
+    /// it are their own colour in both modes. States are the other test's
+    /// business (`every_ribbon_state_rule_has_a_dark_twin_chosen_for_its_surface`).
+    #[test]
+    fn every_resting_colour_of_every_builder_has_a_dark_twin_after_it_and_nothing_else_does() {
+        use std::collections::BTreeSet;
+
+        let mut twins_seen = 0usize;
+        for (name, part) in every_builder(&RibbonTheme::office_2013()) {
+            let mut light: Vec<(CssPropertyType, usize)> = Vec::new();
+            let mut dark: Vec<(CssPropertyType, usize)> = Vec::new();
+            for (i, c) in part.as_ref().iter().enumerate() {
+                let Some(colour) = colour_of(&c.property) else {
+                    continue;
+                };
+                // Transparent fills/borders (a hover paints over them) have no
+                // dark value to take; states have their own twins.
+                if colour.a == 0 || is_state_gated(&c.apply_if) {
+                    continue;
+                }
+                if c.apply_if.as_ref().is_empty() {
+                    light.push((c.property.get_type(), i));
+                } else if is_dark_gated(&c.apply_if) {
+                    dark.push((c.property.get_type(), i));
+                }
+            }
+            let own_colour = name == "app_button";
+            let expect: BTreeSet<CssPropertyType> = if own_colour {
+                BTreeSet::new()
+            } else {
+                light.iter().map(|(t, _)| *t).collect()
+            };
+            let got: BTreeSet<CssPropertyType> = dark.iter().map(|(t, _)| *t).collect();
+            assert_eq!(
+                got, expect,
+                "{name}: the resting dark twins must cover exactly the resting light colours \
+                 (light: {light:?}, dark: {dark:?})"
+            );
+            for (ty, dark_at) in &dark {
+                let light_at = light
+                    .iter()
+                    .find(|(t, _)| t == ty)
+                    .map(|(_, i)| *i)
+                    .expect("covered by the set comparison above");
+                assert!(
+                    light_at < *dark_at,
+                    "{name}: the dark twin of {ty:?} (#{dark_at}) precedes its light value \
+                     (#{light_at}), so the light value wins in dark mode"
+                );
+            }
+            twins_seen += dark.len();
+        }
+        assert!(
+            twins_seen > 40,
+            "only {twins_seen} resting twins: the walk found nothing"
+        );
+    }
+
+    /// The dark half of the palette is the flat theme's tokens for every
+    /// page-neutral field, and the light value for every own-colour field.
+    #[test]
+    fn the_dark_palette_is_the_flat_themes_tokens_and_keeps_the_accent() {
+        let t = RibbonTheme::office_2013();
+        let d = t.dark_counterpart();
+        assert_eq!(d.chrome_bg, flat::DARK_SUR, "chrome");
+        assert_eq!(d.content_bg, flat::DARK_SUR, "content band");
+        assert_eq!(d.text, flat::DARK_INK, "control text");
+        assert_eq!(d.label, flat::DARK_INK2, "captions and secondary glyphs");
+        assert_eq!(d.icon, flat::DARK_ICON, "icon glyphs");
+        assert_eq!(d.border, flat::DARK_BD, "chrome borders");
+        assert_eq!(d.separator, flat::DARK_SEP, "separators");
+        assert_eq!(d.hover_bg, flat::DARK_HT, "hover fill");
+        assert_eq!(d.hover_border, flat::DARK_BD, "hover / toggled border");
+        assert_eq!(d.pressed_bg, flat::DARK_PT, "pressed fill");
+        assert_eq!(d.checked_bg, flat::DARK_PT, "toggled-on fill");
+        assert_eq!(d.selected_bg, flat::DARK_HT, "selected cell fill");
+        assert_eq!(d.field_border, flat::DARK_BD3, "field border");
+        // Own colour: the accent, its hover and the label on it.
+        assert_eq!(
+            (d.accent, d.accent_hover, d.accent_text),
+            (t.accent, t.accent_hover, t.accent_text),
+            "an accent fill does not change with the mode"
+        );
+        // The resting hover/pressed tokens are the ones the state twins use,
+        // so a hovered control and the surface under it come from one palette.
+        assert_eq!(
+            (d.hover_bg, d.hover_border, d.pressed_bg),
+            (flat::DARK_HT, flat::DARK_BD, flat::DARK_PT)
+        );
+        // A palette that reports its own accent keeps it in the dark too.
+        let mut sys = SystemStyle::default();
+        sys.colors.accent = Some(ColorU {
+            r: 9,
+            g: 99,
+            b: 199,
+            a: 255,
+        })
+        .into();
+        let os = RibbonTheme::from_system(sys);
+        assert_eq!(os.dark_counterpart().accent, os.accent);
+        // A transparent light value (see-through chrome over a window
+        // gradient) stays transparent instead of becoming an opaque slab.
+        let mut see_through = t;
+        see_through.chrome_bg = TRANSPARENT;
+        see_through.content_bg = TRANSPARENT;
+        let d = see_through.dark_counterpart();
+        assert_eq!(d.chrome_bg, TRANSPARENT);
+        assert_eq!(d.content_bg, TRANSPARENT);
+        assert_eq!(d.text, flat::DARK_INK, "the other fields still go dark");
+    }
+
+    /// The accent stays blue in dark mode: the application button keeps its
+    /// fill and label untouched (no resting twin at all), and the active
+    /// tab's label — the accent as TEXT on the neutral chrome — takes the
+    /// flat theme's accent, the same blue its hover text already took.
+    #[test]
+    fn the_accent_keeps_its_blue_in_dark_mode() {
+        use crate::widgets::theme_probe::dark;
+
+        let dom = Ribbon::new(tabs(2))
+            .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+            .dom();
+        let (bar, _) = parts(&dom);
+        let ch = bar.children.as_ref();
+        // [app, t0 (active), t1, filler]
+        let (app, active) = (&ch[0], &ch[1]);
+
+        let app_dark: Vec<CssProperty> = dark(app);
+        assert_eq!(
+            app_dark.iter().filter_map(colour_of).collect::<Vec<_>>(),
+            vec![W13_BLUE_HOVER],
+            "the application button's only dark declaration is its hover fill, and that is the \
+             palette's own accent_hover: {app_dark:?}"
+        );
+        assert!(
+            !app_dark
+                .iter()
+                .any(|p| matches!(p, CssProperty::TextColor(_))),
+            "the white label on the accent fill has no dark twin"
+        );
+
+        let active_dark_text: Vec<ColorU> = dark(active)
+            .iter()
+            .filter(|p| matches!(p, CssProperty::TextColor(_)))
+            .filter_map(colour_of)
+            .collect();
+        assert_eq!(
+            active_dark_text,
+            vec![flat::DARK_ACC],
+            "the active tab's label takes the theme's accent in dark mode"
+        );
+        // (`DARK_ACC` is #3b82f6 — still a blue.)
+        let active_dark_bg: Vec<ColorU> = dark(active)
+            .iter()
+            .filter(|p| matches!(p, CssProperty::BackgroundContent(_)))
+            .filter_map(colour_of)
+            .collect();
+        assert_eq!(
+            active_dark_bg,
+            vec![flat::DARK_SUR],
+            "and the chrome under it went dark"
+        );
+    }
+
+    /// The chrome itself — root, tab bar, content band — goes dark with the
+    /// window: this is the bar that stayed a white Office-2013 strip on a dark
+    /// window before the resting surfaces had twins.
+    #[test]
+    fn the_chrome_goes_dark_with_the_window() {
+        use crate::widgets::theme_probe::dark;
+
+        let dom = Ribbon::new(tabs(2)).dom();
+        let (bar, content) = parts(&dom);
+        let colours = |node: &Dom| dark(node).iter().filter_map(colour_of).collect::<Vec<_>>();
+        assert_eq!(
+            colours(&dom),
+            vec![flat::DARK_SUR, flat::DARK_BD],
+            "root: dark chrome over a dark bottom rule"
+        );
+        assert_eq!(colours(bar), vec![flat::DARK_SUR], "tab bar");
+        assert_eq!(colours(content), vec![flat::DARK_SUR], "content band");
+        // And every one of those twins is a dark-mode-only declaration; the
+        // light look is pinned separately
+        // (`the_light_look_of_the_chrome_is_unchanged_by_the_dark_twins`).
+        for node in [&dom, bar, content] {
+            for p in dark(node) {
+                assert!(
+                    !crate::widgets::theme_probe::unconditional(node).contains(&p),
+                    "a dark value leaked into the unconditional style: {p:?}"
+                );
+            }
+        }
     }
 }

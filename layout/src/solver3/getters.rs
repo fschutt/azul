@@ -2940,7 +2940,11 @@ pub fn get_vertical_align_for_node(
 /// does.
 #[derive(Default, Debug)]
 pub struct StyleCache {
-    by_node: HashMap<(u32, StyledNodeState, u32, u32), std::sync::Arc<StyleProperties>>,
+    /// Key: (node, pseudo-state, viewport w/h bits, cascade epoch). The epoch
+    /// (`CssPropertyCache::cascade_epoch`) makes a restyle, a context change
+    /// or a user override within one pass miss instead of serving the style
+    /// resolved before it.
+    by_node: HashMap<(u32, StyledNodeState, u32, u32, u64), std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
@@ -2969,6 +2973,7 @@ pub fn get_style_properties_cached(
         node_state,
         viewport_size.width.to_bits(),
         viewport_size.height.to_bits(),
+        styled_dom.get_css_property_cache().cascade_epoch,
     );
     if let Some(v) = cache.by_node.get(&key) {
         drop(crate::probe::Probe::span("style_props_memo_hit"));
@@ -3156,12 +3161,25 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    // CSS initial value for 'color' is UA-dependent but conventionally black.
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
     // Do NOT use system_style.colors.text here — that reflects the OS theme
     // (e.g. white on macOS dark mode) and would produce white text on
     // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
     // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or(ColorU::BLACK);
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {
@@ -5603,11 +5621,22 @@ pub fn get_scrollbar_style(
 ) -> ComputedScrollbarStyle {
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
-    let ctx = system_style.map_or_else(
-        azul_css::dynamic_selector::DynamicSelectorContext::default,
-        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-    );
+    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system —
+    // against the context the DOM was CASCADED under (it carries the
+    // window's own theme, viewport and OS), so the scrollbar follows an
+    // in-app theme switch like everything else does. A DOM no window has
+    // adopted yet falls back to a system-style-only context.
+    let ctx = styled_dom
+        .get_css_property_cache()
+        .dynamic_context
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| {
+            system_style.map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            )
+        });
     // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
     // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built

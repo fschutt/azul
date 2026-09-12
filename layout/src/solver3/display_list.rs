@@ -7609,15 +7609,24 @@ where
                     let node_state = &styled_nodes[nid].styled_node_state;
                     // No declared `color` anywhere up the chain: the UA default
                     // applies, and that default depends on the theme. Black is
-                    // right on a light window and invisible on a dark one, and
-                    // the window background already follows the system theme —
-                    // so the text has to as well or a dark-mode app renders
-                    // black-on-black until it styles every node itself.
+                    // right on a light window and invisible on a dark one. The
+                    // themed default is CASCADED (the root's `cascaded_props`,
+                    // every descendant's `computed_values`, the compact text
+                    // tier), so on a cascaded DOM `get_text_color` answers it
+                    // here; the fallback below re-derives it from the context
+                    // only for a DOM no UA pass has run on, and asserts that.
                     Some(
                         cache
                             .get_text_color(&node_data[nid], &nid, node_state)
                             .and_then(|c| c.get_property().copied())
                             .unwrap_or_else(|| {
+                                debug_assert!(
+                                    !cache.ua_applied,
+                                    "live_color: node {} has no `color` in its resolved style \
+                                     although the UA pass ran — the themed root default did \
+                                     not reach it (theme-chain analysis 2026-09-12, R1)",
+                                    nid.index()
+                                );
                                 // The SAME context the cascade evaluated this
                                 // DOM against — which carries the window's own
                                 // theme — not a fresh system-only one: the two

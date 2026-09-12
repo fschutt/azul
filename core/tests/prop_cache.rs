@@ -751,6 +751,7 @@ fn prune_handles_unflattened_cascaded_props() {
                 property: CssProperty::Display(CssPropertyValue::Exact(
                     azul_css::props::layout::display::LayoutDisplay::Block,
                 )),
+                ua_origin: false,
             },
         );
     }

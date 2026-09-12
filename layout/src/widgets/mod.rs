@@ -1038,4 +1038,208 @@ mod label_convention {
         assert!(bad[0].contains("tab_index"), "{}", bad[0]);
     }
 }
+#[cfg(test)]
+mod theme_pairs {
+    //! Workspace-level guard for invariant I8 of the theme-chain analysis
+    //! (2026-09-12): a dark twin never ships without its light half, and
+    //! never BEFORE it.
+    //!
+    //! Inline declarations resolve last-match-wins (`prop_cache.rs`,
+    //! `get_property_slow`), and the widgets rely on that ordering: the
+    //! widget declares its light face, the theme module appends the
+    //! `dark_theme(..)` twins after it. Two things can go wrong by hand and
+    //! nothing else catches either: a twin whose light counterpart was
+    //! never declared (the light window gets the UA default, the dark one a
+    //! widget colour — the halves come from different files), and a twin
+    //! pushed before its light value (dead under the dark theme: the later
+    //! unconditional value wins there too). Build pairs with
+    //! `CssPropertyWithConditions::themed*` and neither can happen; this
+    //! walk catches whatever is still built by hand.
+    //!
+    //! Scope, mechanically: every node of every widget `dom()` in the lint
+    //! manifest (`label_convention::every_widget_dom`), its inline
+    //! declarations only (the theme module writes them there). For each
+    //! declaration carrying a `Theme(Dark)` condition, there must be an
+    //! EARLIER declaration of the same property type whose conditions are the
+    //! same pseudo-states (in the same order) and no `Theme(Dark)` — the
+    //! unconditional light value, the `light_theme(..)` value, or the
+    //! `on_hover(..)` to a `dark_on_hover(..)`. The "vice versa" (a light
+    //! colour with no twin) is NOT a violation: a surface that is its own
+    //! colour keeps it in dark mode by design (see `hover_bg_both`).
+    use azul_core::dom::Dom;
+    use azul_css::dynamic_selector::CssPropertyWithConditions;
+
+    /// Sites the walk flags that are KNOWN and being fixed elsewhere: one
+    /// `(widget name, message prefix, reason)` per entry. Empty means every
+    /// widget is clean; an entry masks every finding of that widget whose
+    /// message contains the prefix (`the_known_list_masks_only_live_findings`
+    /// rejects an entry that masks nothing).
+    const KNOWN_HALF_PAIRS: &[(&str, &str, &str)] = &[
+        // A dark text twin with NO light half is the migration's "no opinion"
+        // shape: the light window takes the UA default on purpose (and since
+        // the UA text colour is themed and cascaded, the twin is belt and
+        // braces). Listed rather than paired, because inventing a light value
+        // here would be exactly the "light value moved" the migration forbids.
+        (
+            "list_view",
+            "node root declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/1/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+    ];
+
+    /// Every half-pair in one node's inline declarations, as messages. The
+    /// ONE message builder: the walk, the self-test and the known-list
+    /// staleness check all read these, so a prefix that matched a reported
+    /// finding matches here too.
+    fn findings(props: &[CssPropertyWithConditions], widget: &str, path: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (i, twin) in props.iter().enumerate() {
+            if !twin.is_dark_twin() {
+                continue;
+            }
+            let ty = twin.property.get_type();
+            let states = twin.pseudo_state_conditions();
+            let counterpart_at = props.iter().position(|p| {
+                p.property.get_type() == ty
+                    && p.is_light_half()
+                    && p.pseudo_state_conditions() == states
+            });
+            match counterpart_at {
+                None => out.push(format!(
+                    "{widget}: node {path} declares a dark twin for {ty:?} (states {states:?}) \
+                     with NO light counterpart — the light window gets the UA default here"
+                )),
+                Some(j) if j > i => out.push(format!(
+                    "{widget}: node {path} pushes the dark twin for {ty:?} (states {states:?}) \
+                     at #{i}, BEFORE its light value at #{j} — dead under the dark theme \
+                     (last match wins)"
+                )),
+                Some(_) => {}
+            }
+        }
+        out
+    }
+
+    fn is_known(widget: &str, msg: &str) -> bool {
+        KNOWN_HALF_PAIRS
+            .iter()
+            .any(|(w, prefix, _)| *w == widget && msg.contains(prefix))
+    }
+
+    fn inline_props(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, conds)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: conds.clone(),
+            })
+            .collect()
+    }
+
+    /// Every finding in the widget's tree, known ones included.
+    fn walk_raw(node: &Dom, widget: &str, path: &str, out: &mut Vec<String>) {
+        out.extend(findings(&inline_props(node), widget, path));
+        for (i, child) in node.children.as_ref().iter().enumerate() {
+            walk_raw(child, widget, &format!("{path}/{i}"), out);
+        }
+    }
+
+    /// The findings of every widget in the manifest, known ones included.
+    fn all_raw_findings() -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            let mut raw = Vec::new();
+            walk_raw(&dom, widget, "root", &mut raw);
+            out.extend(raw.into_iter().map(|m| (widget, m)));
+        }
+        out
+    }
+
+    #[test]
+    fn every_widget_dark_twin_has_a_light_half_declared_before_it() {
+        let bad: Vec<String> = all_raw_findings()
+            .into_iter()
+            .filter(|(widget, msg)| !is_known(widget, msg))
+            .map(|(_, msg)| msg)
+            .collect();
+        assert!(
+            bad.is_empty(),
+            "{} half-pair(s) in the widget styles:\n  {}\n\nBuild the pair with \
+             CssPropertyWithConditions::themed / themed_on_hover / themed_on_active (light \
+             value first), or list the site in KNOWN_HALF_PAIRS with the reason.",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// A guard on the guard: the walk must SEE both failure shapes, and the
+    /// builder's shape must be clean.
+    #[test]
+    fn the_walk_reports_a_missing_half_and_a_reversed_pair() {
+        use azul_css::props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor};
+        let c = |v: u8| {
+            CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(v, v, v),
+            })
+        };
+        // Missing half.
+        let bad = findings(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root");
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].contains("NO light counterpart"), "{}", bad[0]);
+        // Reversed pair.
+        let bad = findings(
+            &[
+                CssPropertyWithConditions::dark_theme(c(1)),
+                CssPropertyWithConditions::simple(c(2)),
+            ],
+            "fixture",
+            "root",
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].contains("BEFORE its light value"), "{}", bad[0]);
+        // The builder's shape is clean, in every state.
+        let mut props: Vec<_> = CssPropertyWithConditions::themed(c(1), c(2)).into();
+        props.extend(CssPropertyWithConditions::themed_on_hover(c(3), c(4)));
+        props.extend(CssPropertyWithConditions::themed_on_active(c(5), c(6)));
+        let bad = findings(&props, "fixture", "root");
+        assert!(bad.is_empty(), "{bad:?}");
+        // A hover twin is NOT paired by a resting light value.
+        let bad = findings(
+            &[
+                CssPropertyWithConditions::simple(c(1)),
+                CssPropertyWithConditions::dark_on_hover(c(2)),
+            ],
+            "fixture",
+            "root",
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+    }
+
+    /// An entry in `KNOWN_HALF_PAIRS` that masks nothing is stale and must
+    /// go: the finding it parked was fixed, so the parking is now hiding
+    /// whatever appears next under the same prefix.
+    #[test]
+    fn the_known_list_masks_only_live_findings() {
+        let raw = all_raw_findings();
+        for (w, prefix, reason) in KNOWN_HALF_PAIRS {
+            assert!(
+                raw.iter().any(|(widget, msg)| widget == w && msg.contains(prefix)),
+                "KNOWN_HALF_PAIRS entry ({w}, {prefix:?}) masks nothing any more — delete it \
+                 (reason on file: {reason})"
+            );
+        }
+    }
+}
+
 pub mod themes;

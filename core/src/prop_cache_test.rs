@@ -91,6 +91,7 @@ mod autotest_generated {
             state,
             prop_type: property.get_type(),
             property,
+            ua_origin: false,
         }
     }
 
@@ -1709,14 +1710,16 @@ mod autotest_generated {
         let mut c = CssPropertyCache::empty(1);
         c.apply_ua_css(&nodes);
 
-        let props = c.cascaded_props.build_get(0).expect("build phase");
+        // The pass leaves the store sorted + flattened (read phase).
+        assert!(c.cascaded_props.is_flattened());
+        let props = c.cascaded_props.get_slice(0);
         assert!(
-            props
-                .iter()
-                .any(|p| p.prop_type == CssPropertyType::Display
-                    && p.state == PseudoStateType::Normal),
-            "UA `div {{ display: block }}` must land in the cascade"
+            props.iter().any(|p| p.prop_type == CssPropertyType::Display
+                && p.state == PseudoStateType::Normal
+                && p.ua_origin),
+            "UA `div {{ display: block }}` must land in the cascade, tagged as UA-origin"
         );
+        assert!(c.ua_applied);
     }
 
     #[test]
@@ -1727,7 +1730,7 @@ mod autotest_generated {
         let mut c = CssPropertyCache::empty(1);
         c.apply_ua_css(&nodes);
 
-        let props = c.cascaded_props.build_get(0).expect("build phase");
+        let props = c.cascaded_props.get_slice(0);
         assert!(
             !props
                 .iter()

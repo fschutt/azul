@@ -534,3 +534,45 @@ fn re_asserting_the_current_theme_costs_nothing() {
          theme each frame would relayout forever",
     );
 }
+
+/// `WindowCreateOptions::theme` had no reader anywhere: an app that asked for
+/// a dark window got the `LightMode` default. It now seeds the window's theme
+/// at creation, in the one constructor every backend goes through.
+#[test]
+fn window_create_options_theme_seeds_the_initial_window_theme() {
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+
+    if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
+        return; // AZ_THEME outranks the request; nothing to compare
+    }
+
+    let counters = Counters::new();
+    let fc_cache = Arc::new(FcFontCache::default());
+    let app_data = Arc::new(RefCell::new(RefAny::new(counters)));
+    let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+
+    let mut options = WindowCreateOptions::default();
+    options.window_state.layout_callback = LayoutCallback {
+        cb: layout_cb,
+        ctx: azul_core::refany::OptionRefAny::None,
+    };
+    // The window state still says LightMode (its default) — the REQUEST wins.
+    options.theme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+
+    let window = HeadlessWindow::new(
+        options,
+        app_data,
+        azul::desktop::shell2::common::event::SharedUndoManager::new(),
+        AppConfig::default(),
+        icon_provider,
+        fc_cache,
+        None,
+    )
+    .expect("HeadlessWindow construction must succeed");
+
+    assert_eq!(
+        window.common.current_window_state().theme,
+        WindowTheme::DarkMode,
+        "the requested theme must seed the window at creation"
+    );
+}

@@ -790,6 +790,7 @@ impl Win32Window {
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu);
         let mut common = event::CommonWindowState::new(
             current_window_state,
+            options.theme,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,

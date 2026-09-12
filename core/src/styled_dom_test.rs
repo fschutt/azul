@@ -2073,3 +2073,492 @@ mod autotest_generated {
         );
     }
 }
+
+/// Theme-chain analysis 2026-09-12, item 1: a theme flip is a RESTYLE.
+///
+/// `set_dynamic_selector_context` used to rebuild the compact cache only, so
+/// `cascaded_props` / `computed_values` — what the slow path and the display
+/// list read — kept the answers of the context the DOM was created under.
+/// These pin the re-cascade and its idempotence (a UA entry is replaced, never
+/// duplicated, on every flip).
+#[cfg(test)]
+mod theme_flip_is_a_restyle {
+    use azul_css::{
+        dynamic_selector::{DynamicSelectorContext, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::dom::NodeType;
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            theme,
+            ..Default::default()
+        }
+    }
+
+    /// `body > button`, no author css, no inline style: the button's border
+    /// colour is a themed UA default (light `#c8c8c8`, dark `#5a5a5a`).
+    fn body_with_button() -> Dom {
+        Dom::create_body().with_child(Dom::create_node(NodeType::Button))
+    }
+
+    const BUTTON: NodeId = NodeId::new(1);
+
+    fn border_top_color(sd: &StyledDom) -> Option<CssProperty> {
+        let node_data = sd.node_data.as_container();
+        sd.get_css_property_cache()
+            .get_property_slow(
+                &node_data[BUTTON],
+                &BUTTON,
+                &StyledNodeState::default(),
+                &CssPropertyType::BorderTopColor,
+            )
+            .cloned()
+    }
+
+    fn ua_border_top_color(theme: ThemeCondition) -> CssProperty {
+        crate::ua_css::get_ua_property_themed(
+            &NodeType::Button,
+            CssPropertyType::BorderTopColor,
+            Some(&ctx(theme)),
+        )
+        .cloned()
+        .expect("the UA sheet defines the button border")
+    }
+
+    /// The Normal-state `BorderTopColor` entries in the button's cascaded
+    /// slice, with their origin tag.
+    fn cascaded_border_entries(sd: &StyledDom) -> Vec<(CssProperty, bool)> {
+        sd.get_css_property_cache()
+            .cascaded_props
+            .get_slice(BUTTON.index())
+            .iter()
+            .filter(|p| {
+                p.state == PseudoStateType::Normal && p.prop_type == CssPropertyType::BorderTopColor
+            })
+            .map(|p| (p.property.clone(), p.ua_origin))
+            .collect()
+    }
+
+    #[test]
+    fn a_theme_flip_replaces_the_ua_defaults_in_cascaded_props() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light)),
+            "no context yet: the light table"
+        );
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark)),
+            "the dark window's border must be the dark twin, in the resolved style"
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd),
+            vec![(ua_border_top_color(ThemeCondition::Dark), true)],
+            "exactly ONE UA-origin entry: the light one was stripped, not shadowed"
+        );
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light)),
+            "and back"
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd),
+            vec![(ua_border_top_color(ThemeCondition::Light), true)],
+            "still one entry after the second flip"
+        );
+    }
+
+    #[test]
+    fn a_dom_created_under_a_context_is_cascaded_for_it_at_once() {
+        let mut dom = body_with_button();
+        let mut sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark)),
+            "born dark: the first cascade already answered the dark table"
+        );
+        // (Creation prunes the compact-encoded Normal entries out of
+        // `cascaded_props` — the compact cache and `computed_values` carry
+        // them — so the border is asserted through the readers, not the
+        // store: the slow path above, the compact tier here.)
+        let dark_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache built at creation");
+        assert_ne!(dark_raw, 0, "the border is in the compact tier");
+        let epoch_before = sd.get_css_property_cache().cascade_epoch;
+        let cascaded_before = sd.get_css_property_cache().cascaded_props.clone();
+
+        // The funnel's offer of the SAME context is a no-op: no new
+        // generation, no second cascade, nothing pushed twice.
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(
+            sd.get_css_property_cache().cascade_epoch,
+            epoch_before,
+            "same context: not a new generation"
+        );
+        assert_eq!(sd.get_css_property_cache().cascaded_props, cascaded_before);
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark))
+        );
+    }
+
+    #[test]
+    fn create_from_dom_with_context_threads_the_context_through() {
+        let sd = StyledDom::create_from_dom_with_context(
+            body_with_button(),
+            Some(ctx(ThemeCondition::Dark)),
+        );
+        assert_eq!(
+            sd.get_css_property_cache()
+                .dynamic_context
+                .as_deref()
+                .map(|c| c.theme.clone()),
+            Some(ThemeCondition::Dark)
+        );
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark))
+        );
+    }
+
+    /// `restyle` with an empty sheet used to push into a flattened (emptied)
+    /// build vec and panic; a theme flip on an inline-styled widget DOM is
+    /// exactly that call.
+    #[test]
+    fn restyle_with_an_empty_stylesheet_recascades_instead_of_panicking() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        sd.restyle(Css::empty());
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light))
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd).len(),
+            1,
+            "a second full cascade must not duplicate the UA entry"
+        );
+        assert!(sd.get_css_property_cache().ua_applied);
+    }
+
+    #[test]
+    fn a_context_change_that_keeps_the_theme_costs_nothing_on_a_plain_dom() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create_with_context(
+            &mut dom,
+            Css::empty(),
+            Some(ctx(ThemeCondition::Light)),
+        );
+        let before = sd.get_css_property_cache().cascaded_props.clone();
+        // A resize: same theme, different viewport.
+        let resized = ctx(ThemeCondition::Light).with_viewport(320.0, 240.0);
+        sd.set_dynamic_selector_context(resized);
+        assert_eq!(
+            sd.get_css_property_cache().cascaded_props,
+            before,
+            "no conditional declaration anywhere, same theme: the cascade must be untouched"
+        );
+    }
+    // ------------------------------------------------------------------
+    // Item 3: one themed UA table, the text colour IN the resolved style
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_theme_flip_rebuilds_the_compact_cache_from_the_new_defaults() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        let light_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache built at creation");
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        let dark_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache rebuilt on the flip");
+        assert_ne!(light_raw, 0, "the light border is in the compact tier");
+        assert_ne!(dark_raw, 0, "the dark border is in the compact tier");
+        assert_ne!(
+            light_raw, dark_raw,
+            "the compact (normal-state fast path) tier must follow the theme too"
+        );
+    }
+
+    /// `body > p > "text"`, nothing styled: the text colour is the UA's
+    /// document default, and it must be IN the resolved style of every node
+    /// on every reader — root `cascaded_props`, descendant `computed_values`
+    /// (the slow path), the compact text tier (the fast path).
+    fn body_p_text() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        )
+    }
+
+    const ROOT: NodeId = NodeId::new(0);
+    const TEXT: NodeId = NodeId::new(2);
+
+    fn slow_text_color(sd: &StyledDom, node: NodeId) -> Option<(u8, u8, u8)> {
+        let node_data = sd.node_data.as_container();
+        match sd.get_css_property_cache().get_property_slow(
+            &node_data[node],
+            &node,
+            &StyledNodeState::default(),
+            &CssPropertyType::TextColor,
+        ) {
+            Some(CssProperty::TextColor(v)) => {
+                v.get_property().map(|c| (c.inner.r, c.inner.g, c.inner.b))
+            }
+            _ => None,
+        }
+    }
+
+    fn compact_text_color(sd: &StyledDom, node: NodeId) -> Option<(u8, u8, u8)> {
+        let raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_text_color_raw(node.index()))
+            .unwrap_or(0);
+        (raw != 0).then_some(((raw >> 24) as u8, (raw >> 16) as u8, (raw >> 8) as u8))
+    }
+
+    const BLACK: (u8, u8, u8) = (0, 0, 0);
+    const DARK_INK: (u8, u8, u8) = (0xe8, 0xe8, 0xe8);
+
+    #[test]
+    fn the_ua_text_colour_is_cascaded_onto_the_root_and_inherited_below() {
+        let mut dom = body_p_text();
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        // `computed_values` is the record of the cascade (creation prunes
+        // the compact-encoded Normal entries out of `cascaded_props` once
+        // the compact cache holds them): the root OWNS the colour — it came
+        // from the UA table, not from a parent — and every descendant
+        // INHERITS it rather than declaring one of its own (a UA `color` on
+        // a child would block inheritance of an author colour above it).
+        use crate::prop_cache::CssPropertyOrigin;
+        let cv = &sd.get_css_property_cache().computed_values;
+        let root = cv
+            .get(ROOT.index(), CssPropertyType::TextColor)
+            .expect("the root's resolved style carries `color`");
+        assert_eq!(
+            root.origin,
+            CssPropertyOrigin::Own,
+            "cascaded ONTO the root"
+        );
+        for node in [NodeId::new(1), TEXT] {
+            let v = cv
+                .get(node.index(), CssPropertyType::TextColor)
+                .unwrap_or_else(|| panic!("node {} has no resolved `color`", node.index()));
+            assert_eq!(
+                v.origin,
+                CssPropertyOrigin::Inherited,
+                "node {} must inherit the root's colour, not own a UA one",
+                node.index()
+            );
+        }
+        assert_eq!(slow_text_color(&sd, ROOT), Some(DARK_INK));
+        assert_eq!(
+            slow_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "computed_values"
+        );
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "compact text tier"
+        );
+    }
+
+    #[test]
+    fn the_two_readers_agree_on_the_text_colour_under_both_themes_and_across_a_flip() {
+        let mut dom = body_p_text();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "no context: light");
+        assert_eq!(compact_text_color(&sd, TEXT), Some(BLACK));
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(
+            slow_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "dark: slow path"
+        );
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "dark: fast path"
+        );
+        // The re-cascade does not prune, so here the store shows the entry
+        // itself: exactly one, UA-origin, on the root and nowhere else.
+        let ua_color_entries = |node: NodeId| -> Vec<bool> {
+            sd.get_css_property_cache()
+                .cascaded_props
+                .get_slice(node.index())
+                .iter()
+                .filter(|p| p.prop_type == CssPropertyType::TextColor)
+                .map(|p| p.ua_origin)
+                .collect()
+        };
+        assert_eq!(
+            ua_color_entries(ROOT),
+            vec![true],
+            "one UA `color` on the root"
+        );
+        assert_eq!(ua_color_entries(NodeId::new(1)), Vec::<bool>::new());
+        assert_eq!(ua_color_entries(TEXT), Vec::<bool>::new());
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "back: slow path");
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(BLACK),
+            "back: fast path"
+        );
+    }
+
+    #[test]
+    fn get_text_color_or_default_never_needs_its_default_on_a_cascaded_dom() {
+        let mut dom = body_p_text();
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        let node_data = sd.node_data.as_container();
+        for i in 0..sd.node_count() {
+            let n = NodeId::new(i);
+            let c = sd.get_css_property_cache().get_text_color_or_default(
+                &node_data[n],
+                &n,
+                &StyledNodeState::default(),
+            );
+            assert_eq!((c.inner.r, c.inner.g, c.inner.b), DARK_INK, "node {i}");
+        }
+    }
+
+    #[test]
+    fn an_author_colour_on_the_root_beats_the_ua_default() {
+        let mut dom = body_p_text();
+        dom.set_css("color: rgb(10, 20, 30);");
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        assert_eq!(slow_text_color(&sd, TEXT), Some((10, 20, 30)));
+        assert_eq!(compact_text_color(&sd, TEXT), Some((10, 20, 30)));
+        assert!(
+            sd.get_css_property_cache()
+                .cascaded_props
+                .get_slice(ROOT.index())
+                .iter()
+                .all(|p| !(p.prop_type == CssPropertyType::TextColor && p.ua_origin)),
+            "an inline `color` on the root suppresses the UA entry"
+        );
+    }
+}
+
+/// Theme-chain analysis 2026-09-12, item 4: `CssPropertyCache::cascade_epoch`
+/// is the ONE key that tells two cascades of one DOM apart for every cache
+/// that serves painted output.
+#[cfg(test)]
+mod cascade_epoch {
+    use azul_css::{
+        dynamic_selector::{DynamicSelectorContext, ThemeCondition},
+        props::{basic::color::ColorU, style::StyleTextColor},
+    };
+
+    use super::*;
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            theme,
+            ..Default::default()
+        }
+    }
+
+    fn fixture() -> StyledDom {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        );
+        StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Light)))
+    }
+
+    fn epoch(sd: &StyledDom) -> u64 {
+        sd.get_css_property_cache().cascade_epoch
+    }
+
+    fn red() -> CssProperty {
+        CssProperty::const_text_color(StyleTextColor {
+            inner: ColorU::rgb(255, 0, 0),
+        })
+    }
+
+    #[test]
+    fn a_theme_flip_bumps_the_epoch_and_an_equal_offer_does_not() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(epoch(&sd), e0, "the same context again is free");
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_ne!(epoch(&sd), e0, "a flip is a new generation");
+    }
+
+    #[test]
+    fn a_context_change_without_a_recascade_still_bumps() {
+        // Plain DOM, same theme, different viewport: nothing re-cascades,
+        // but the context is a cascade input and the DL key must move.
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light).with_viewport(1.0, 1.0));
+        assert_ne!(epoch(&sd), e0);
+    }
+
+    #[test]
+    fn a_restyle_bumps() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.restyle(Css::empty());
+        assert_ne!(epoch(&sd), e0);
+    }
+
+    #[test]
+    fn a_user_override_bumps_but_the_per_tick_channel_does_not() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        let _ = sd.restyle_user_property(&NodeId::new(1), &[red()]);
+        let e1 = epoch(&sd);
+        assert_ne!(e1, e0, "restyle_user_property changes the resolved style");
+
+        sd.set_user_property_override_fast(&NodeId::new(1), &[red()]);
+        assert_eq!(
+            epoch(&sd),
+            e1,
+            "the animation channel patches the display list itself and must not invalidate the DL \
+             cache every tick"
+        );
+    }
+
+    #[test]
+    fn a_recompute_of_the_compact_cache_bumps() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.recompute_inheritance_and_compact_cache();
+        assert_ne!(epoch(&sd), e0);
+    }
+}
