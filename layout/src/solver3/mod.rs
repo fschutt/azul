@@ -477,10 +477,17 @@ pub fn dl_input_fingerprint(
         azul_core::dom::DomNodeId,
         azul_css::props::basic::color::ColorU,
     )],
+    dynamic_context: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
 ) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     cursor_is_visible.hash(&mut h);
+    // The theme: its UA colour defaults are resolved at BUILD time and are
+    // not in any node's resolved style, so the subtree hash cannot see a
+    // switch (`DynamicSelectorContext::paint_defaults_fingerprint`).
+    dynamic_context
+        .map(azul_css::dynamic_selector::DynamicSelectorContext::paint_defaults_fingerprint)
+        .hash(&mut h);
     paint_selection_handles.hash(&mut h);
     // A seat's focus moving must miss the cache like a caret moving does.
     format!("{seat_focus_rings:?}").hash(&mut h);
@@ -768,6 +775,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         preedit_text.as_deref(),
         paint_selection_handles,
         &seat_focus_rings,
+        new_dom.get_css_property_cache().dynamic_context.as_deref(),
     );
     if let Some((
         cached_hash,
@@ -1862,7 +1870,35 @@ pub(super) fn get_containing_block_for_node(
     if let Some(parent_idx) = tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
             let pos = pos_get(calculated_positions, parent_idx).unwrap_or(viewport.origin);
-            let size = parent_node.used_size.unwrap_or_default();
+            // The parent's size — or, when the parent has none yet (a node
+            // the reconcile just rebuilt: an anonymous IFC wrapper created
+            // for this pass, a container whose child list changed), the
+            // nearest sized ancestor's content box. This used to be
+            // `unwrap_or_default()`: a silent 0x0 containing block, under
+            // which every shrink-to-fit box is min-content — the "Increase
+            // counter" button breaking into two words after a theme switch
+            // (an inline-level box dirtied by a colour twin, behind an
+            // unchanged block sibling). The POSITION still comes from the
+            // parent's own cached slot, which index reuse keeps current; only
+            // the dimensions are borrowed, which is what a containing block
+            // contributes to shrink-to-fit and percentage resolution.
+            let size = parent_node.used_size.unwrap_or_else(|| {
+                let mut cur = parent_node.parent;
+                loop {
+                    match cur.and_then(|i| tree.get(LayoutNodeId::new(i))) {
+                        Some(n) => match n.used_size {
+                            Some(s) => {
+                                break n.box_props.unpack().inner_size(
+                                    s,
+                                    azul_css::props::layout::LayoutWritingMode::default(),
+                                );
+                            }
+                            None => cur = n.parent,
+                        },
+                        None => break viewport.size,
+                    }
+                }
+            });
             // Position in calculated_positions is the margin-box position
             // To get content-box, add: border + padding (NOT margin, that's already in pos)
             let pbp = parent_node.box_props.unpack();

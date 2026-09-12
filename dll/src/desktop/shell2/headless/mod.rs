@@ -3778,13 +3778,19 @@ mod tests {
             }
             let mut ribbon = Ribbon::new(RibbonTabVec::from_vec(tabs))
                 .with_app_button(RibbonAppButton::new("FILE".into()));
-            let mut v = ribbon.style.container_style.as_ref().to_vec();
+            // The style bundle's fields are `None` = "no opinion" since the
+            // theme migration; the resolver is the theme's answer, and the
+            // font is appended to THAT.
+            let mut v = ribbon.style.resolved_container_style().as_slice().to_vec();
             v.push(CssPropertyWithConditions::simple(
                 CssProperty::const_font_family(StyleFontFamilyVec::from_vec(vec![
                     StyleFontFamily::System("Liberation Sans".into()),
                 ])),
             ));
-            ribbon.style.container_style = CssPropertyWithConditionsVec::from_vec(v);
+            ribbon.style.container_style =
+                azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+                    CssPropertyWithConditionsVec::from_vec(v),
+                );
             Dom::create_body().with_child(ribbon.dom_desktop())
         }
 

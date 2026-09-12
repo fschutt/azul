@@ -1171,6 +1171,24 @@ impl DynamicSelectorContext {
         ctx
     }
 
+    /// The facets of this context that change what a display list PAINTS
+    /// without changing what the cascade RESOLVES.
+    ///
+    /// The UA's colour defaults — the inherited text colour, `<hr>`'s rule,
+    /// the native button's border — are answered at query time from the
+    /// context's theme and never enter a node's resolved style, so two
+    /// cascades of the same DOM under different themes hash identically. A
+    /// display-list cache keyed on resolved style alone therefore served the
+    /// OTHER theme's list after a switch: dark window, black text. This is
+    /// the key component that tells them apart.
+    #[must_use]
+    pub fn paint_defaults_fingerprint(&self) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.theme.hash(&mut h);
+        h.finish()
+    }
+
     /// Update viewport dimensions (e.g., on window resize)
     #[must_use]
     pub fn with_viewport(&self, width: f32, height: f32) -> Self {

@@ -42,6 +42,11 @@ const EXEMPT: &[(&str, &str)] = &[
         "MapCSS palette constants for MapWidget: declares no widget type and no dom()",
     ),
     (
+        "themes",
+        "the flat/flora theme palettes and their state rules: no widget type, no dom() of its own \
+         — every widget it renders is registered under that widget's name",
+    ),
+    (
         "capture_common",
         "shared capture plumbing: declares no widget type and no dom()",
     ),
