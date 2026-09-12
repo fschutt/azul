@@ -110,25 +110,25 @@ impl ObjcLib {
 
     /// Look up an Objective-C class by its null-terminated name.
     #[inline]
-    unsafe fn cls(&self, name: &[u8]) -> Class {
+    unsafe fn cls(&self, name: &[u8]) -> Class { unsafe {
         (self.get_class)(name.as_ptr())
-    }
+    }}
     /// Register (or look up) an Objective-C selector by its null-terminated name.
     #[inline]
-    unsafe fn sel(&self, name: &[u8]) -> Sel {
+    unsafe fn sel(&self, name: &[u8]) -> Sel { unsafe {
         (self.sel_reg)(name.as_ptr())
-    }
+    }}
 
     /// `[target sel]` → Id
     #[inline]
-    unsafe fn send_id(&self, target: Id, sel: Sel) -> Id {
+    unsafe fn send_id(&self, target: Id, sel: Sel) -> Id { unsafe {
         let f: unsafe extern "C" fn(Id, Sel) -> Id = core::mem::transmute(self.msg_send);
         f(target, sel)
-    }
+    }}
 
     /// `[target sel]` → f64
     #[inline]
-    unsafe fn send_f64(&self, target: Id, sel: Sel) -> f64 {
+    unsafe fn send_f64(&self, target: Id, sel: Sel) -> f64 { unsafe {
         // A `double` comes back in xmm0 on x86-64 and d0 on arm64, which plain
         // objc_msgSend passes through untouched. `objc_msgSend_fpret` exists
         // only for x87 `long double` returns (and 32-bit x86), so it is not
@@ -136,28 +136,28 @@ impl ObjcLib {
         // `msg_send_stret`.
         let f: unsafe extern "C" fn(Id, Sel) -> f64 = core::mem::transmute(self.msg_send);
         f(target, sel)
-    }
+    }}
 
     /// `[target sel]` → i64
     #[inline]
-    unsafe fn send_i64(&self, target: Id, sel: Sel) -> i64 {
+    unsafe fn send_i64(&self, target: Id, sel: Sel) -> i64 { unsafe {
         let f: unsafe extern "C" fn(Id, Sel) -> i64 = core::mem::transmute(self.msg_send);
         f(target, sel)
-    }
+    }}
 
     /// `[target sel]` → bool (BOOL = signed char on arm64, int on x86_64)
     #[inline]
-    unsafe fn send_bool(&self, target: Id, sel: Sel) -> bool {
+    unsafe fn send_bool(&self, target: Id, sel: Sel) -> bool { unsafe {
         let f: unsafe extern "C" fn(Id, Sel) -> i8 = core::mem::transmute(self.msg_send);
         f(target, sel) != 0
-    }
+    }}
 
     /// `[target sel:arg]` → Id  (one Id argument)
     #[inline]
-    unsafe fn send_id_id(&self, target: Id, sel: Sel, arg: Id) -> Id {
+    unsafe fn send_id_id(&self, target: Id, sel: Sel, arg: Id) -> Id { unsafe {
         let f: unsafe extern "C" fn(Id, Sel, Id) -> Id = core::mem::transmute(self.msg_send);
         f(target, sel, arg)
-    }
+    }}
 
     /// `[color getRed:&r green:&g blue:&b alpha:&a]` (returns void, 4 out-pointers)
     #[inline]
@@ -169,7 +169,7 @@ impl ObjcLib {
         g: &mut f64,
         b: &mut f64,
         a: &mut f64,
-    ) {
+    ) { unsafe {
         let f: unsafe extern "C" fn(Id, Sel, *mut f64, *mut f64, *mut f64, *mut f64) =
             core::mem::transmute(self.msg_send);
         f(
@@ -180,7 +180,7 @@ impl ObjcLib {
             b as *mut f64,
             a as *mut f64,
         );
-    }
+    }}
 }
 
 impl Drop for ObjcLib {
@@ -235,7 +235,7 @@ fn extract_color(lib: &ObjcLib, color_obj: Id) -> Option<ColorU> {
 }
 
 /// Helper: read a UTF-8 string from an NSString and return it as an owned `String`.
-fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<alloc::string::String> {
+fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
     unsafe {
         if nsstr.is_null() {
             return None;
@@ -246,7 +246,7 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<alloc::string::String>
             return None;
         }
         let s = core::ffi::CStr::from_ptr(cstr as *const core::ffi::c_char);
-        s.to_str().ok().map(|s| alloc::string::String::from(s))
+        s.to_str().ok().map(|s| String::from(s))
     }
 }
 
@@ -256,7 +256,7 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<alloc::string::String>
 ///
 /// Falls back to the hardcoded `defaults::macos_modern_light()` if the
 /// Objective-C runtime cannot be loaded or if any query panics.
-pub(crate) fn discover() -> azul_css::system::SystemStyle {
+pub(crate) fn discover() -> SystemStyle {
     let lib = match ObjcLib::load() {
         Some(l) => l,
         None => return defaults::macos_modern_light(),
@@ -426,10 +426,10 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             );
 
             if reduce_motion {
-                style.prefers_reduced_motion = azul_css::dynamic_selector::BoolCondition::True;
+                style.prefers_reduced_motion = BoolCondition::True;
             }
             if increase_contrast {
-                style.prefers_high_contrast = azul_css::dynamic_selector::BoolCondition::True;
+                style.prefers_high_contrast = BoolCondition::True;
             }
 
             style.accessibility = AccessibilitySettings {
@@ -468,13 +468,13 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             let v = f(pi, osv_sel);
             style.os_version = match v.major {
                 // Apple changed version numbering: macOS 15 (Sequoia) → macOS 26 (Tahoe) in 2025
-                26 => azul_css::dynamic_selector::OsVersion::MACOS_TAHOE,
-                15 => azul_css::dynamic_selector::OsVersion::MACOS_SEQUOIA,
-                14 => azul_css::dynamic_selector::OsVersion::MACOS_SONOMA,
-                13 => azul_css::dynamic_selector::OsVersion::MACOS_VENTURA,
-                12 => azul_css::dynamic_selector::OsVersion::MACOS_MONTEREY,
-                11 => azul_css::dynamic_selector::OsVersion::MACOS_BIG_SUR,
-                _ => azul_css::dynamic_selector::OsVersion::MACOS_SONOMA,
+                26 => OsVersion::MACOS_TAHOE,
+                15 => OsVersion::MACOS_SEQUOIA,
+                14 => OsVersion::MACOS_SONOMA,
+                13 => OsVersion::MACOS_VENTURA,
+                12 => OsVersion::MACOS_MONTEREY,
+                11 => OsVersion::MACOS_BIG_SUR,
+                _ => OsVersion::MACOS_SONOMA,
             };
         }
 
@@ -488,7 +488,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             ) {
                 // Convert "en_US" → "en-US"
                 let bcp47 = ident.replace('_', "-");
-                style.language = azul_css::corety::AzString::from(bcp47);
+                style.language = AzString::from(bcp47);
             }
         }
     }
@@ -527,7 +527,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
     // App-specific stylesheet from ~/Library/Application Support/azul/styles/<exe>.css
     if style.app_specific_stylesheet.is_none() {
         style.app_specific_stylesheet =
-            load_app_specific_stylesheet().map(|s| alloc::boxed::Box::new(s));
+            load_app_specific_stylesheet().map(|s| Box::new(s));
     }
 
     style
@@ -541,7 +541,7 @@ fn run_command_with_timeout(
     program: &str,
     args: &[&str],
     timeout: core::time::Duration,
-) -> Result<alloc::string::String, ()> {
+) -> Result<String, ()> {
     use std::process::{Command, Stdio};
 
     let mut child = Command::new(program)
@@ -560,7 +560,7 @@ fn run_command_with_timeout(
                     return Err(());
                 }
                 let output = child.wait_with_output().map_err(|_| ())?;
-                let s = alloc::string::String::from_utf8(output.stdout).map_err(|_| ())?;
+                let s = String::from_utf8(output.stdout).map_err(|_| ())?;
                 return Ok(s.trim().to_string());
             }
             Ok(None) => {
@@ -737,12 +737,12 @@ fn detect_language_macos() -> AzString {
                 .trim_matches(|c: char| c == '"' || c == ',' || c == '(' || c == ')');
             let trimmed = trimmed.trim();
             if !trimmed.is_empty() && trimmed.contains('-') {
-                return AzString::from(alloc::string::String::from(trimmed));
+                return AzString::from(String::from(trimmed));
             }
         }
     }
 
-    AzString::from(alloc::string::String::new())
+    AzString::from(String::new())
 }
 
 /// Attempt to load an app-specific stylesheet from

@@ -479,7 +479,7 @@ fn run_headless(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
@@ -619,7 +619,7 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
@@ -694,7 +694,7 @@ pub fn run(
 
     debug_server::log(
         debug_server::LogLevel::Info,
-        debug_server::LogCategory::EventLoop,
+        LogCategory::EventLoop,
         "Starting macOS event loop setup",
         None,
     );
@@ -714,7 +714,7 @@ pub fn run(
 
         debug_server::log(
             debug_server::LogLevel::Debug,
-            debug_server::LogCategory::EventLoop,
+            LogCategory::EventLoop,
             "Got MainThreadMarker",
             None,
         );
@@ -750,7 +750,7 @@ pub fn run(
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
             debug_server::LogLevel::Info,
-            debug_server::LogCategory::Window,
+            LogCategory::Window,
             "Creating MacOSWindow...",
             None,
         );
@@ -768,7 +768,7 @@ pub fn run(
         )?;
         debug_server::log(
             debug_server::LogLevel::Info,
-            debug_server::LogCategory::Window,
+            LogCategory::Window,
             "MacOSWindow created successfully",
             None,
         );
@@ -804,7 +804,7 @@ pub fn run(
                     fm,
                 );
                 log_debug!(
-                    debug_server::LogCategory::Resources,
+                    LogCategory::Resources,
                     "[app-icon] {:?} -> {:?}",
                     spec.as_str(),
                     outcome
@@ -849,7 +849,7 @@ pub fn run(
                 }
                 None => {
                     log_debug!(
-                        debug_server::LogCategory::Resources,
+                        LogCategory::Resources,
                         "[tray] no font manager available; tray not installed"
                     );
                 }
@@ -901,7 +901,7 @@ pub fn run(
                 // This blocks until the app is explicitly terminated (Cmd+Q or quit menu)
                 debug_server::log(
                     debug_server::LogLevel::Info,
-                    debug_server::LogCategory::EventLoop,
+                    LogCategory::EventLoop,
                     "Using NSApplication.run() - app will stay in dock when windows close",
                     None,
                 );
@@ -944,7 +944,7 @@ pub fn run(
                             window.process_accessibility_actions();
 
                             while let Some(pending_create) = window.pending_window_creates.pop() {
-                                match super::macos::MacOSWindow::new_with_fc_cache(
+                                match MacOSWindow::new_with_fc_cache(
                                     pending_create,
                                     app_data.clone(),
                                     undo_manager.clone(),
@@ -973,7 +973,7 @@ pub fn run(
                                     },
                                     Err(e) => {
                                         log_error!(
-                                            debug_server::LogCategory::Window,
+                                            LogCategory::Window,
                                             "[macOS] Failed to create window: {:?}",
                                             e
                                         );
@@ -1013,7 +1013,7 @@ pub fn run(
                 {
                     debug_server::log(
                         debug_server::LogLevel::Info,
-                        debug_server::LogCategory::EventLoop,
+                        LogCategory::EventLoop,
                         "Using manual event loop - will return to main() when all windows close",
                         None,
                     );
@@ -1021,7 +1021,7 @@ pub fn run(
                 } else {
                     debug_server::log(
                         debug_server::LogLevel::Info,
-                        debug_server::LogCategory::EventLoop,
+                        LogCategory::EventLoop,
                         "Using manual event loop - will exit process when all windows close",
                         None,
                     );
@@ -1086,14 +1086,14 @@ pub fn run(
                             match config.termination_behavior {
                                 AppTerminationBehavior::ReturnToMain => {
                                     log_info!(
-                                        debug_server::LogCategory::EventLoop,
+                                        LogCategory::EventLoop,
                                         "[macOS] All windows closed, returning to main()"
                                     );
                                     return;
                                 }
                                 AppTerminationBehavior::EndProcess => {
                                     log_info!(
-                                        debug_server::LogCategory::EventLoop,
+                                        LogCategory::EventLoop,
                                         "[macOS] All windows closed, terminating process"
                                     );
                                     std::process::exit(0);
@@ -1126,7 +1126,7 @@ pub fn run(
                                 while let Some(pending_create) = window.pending_window_creates.pop()
                                 {
                                     log_debug!(
-                                        debug_server::LogCategory::Window,
+                                        LogCategory::Window,
                                         "[macOS] Creating new window from queue (type: {:?})",
                                         pending_create.window_state.flags.window_type
                                     );
@@ -1166,14 +1166,14 @@ pub fn run(
                                             (*new_window_ptr).request_redraw();
 
                                             log_debug!(
-                                                debug_server::LogCategory::Window,
+                                                LogCategory::Window,
                                                 "[macOS] Successfully created and registered new \
                                                  window"
                                             );
                                         }
                                         Err(e) => {
                                             log_error!(
-                                                debug_server::LogCategory::Window,
+                                                LogCategory::Window,
                                                 "[macOS] Failed to create window: {:?}",
                                                 e
                                             );
@@ -2565,7 +2565,7 @@ fn pump_tray_into_windows() {
             // than dropping a user's callback in silence; `run_tray_only` uses
             // a HeadlessWindow instead and never reaches this branch.
             log_debug!(
-                debug_server::LogCategory::Callbacks,
+                LogCategory::Callbacks,
                 "[tray] {} menu callback(s) had no window to run against",
                 tray_callbacks.len()
             );
@@ -2588,7 +2588,7 @@ fn pump_tray_into_windows() {
 /// so the decision belongs to the caller.
 #[cfg(target_os = "macos")]
 #[must_use]
-fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindow>(
+fn invoke_tray_callbacks<W: PlatformWindow>(
     window: &mut W,
     callbacks: Vec<azul_core::menu::CoreMenuCallback>,
 ) -> bool {
@@ -2642,7 +2642,7 @@ pub fn run_tray_only(
     font_registry: Option<Arc<FcFontRegistry>>,
     tray: azul_core::tray::TrayIconData,
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;

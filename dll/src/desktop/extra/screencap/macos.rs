@@ -290,7 +290,7 @@ unsafe fn make_config(
 /// fps, BGRA, with this process's own windows left out when
 /// `exclude_self`. Returns a boxed handle, or `0` on failure (test-pattern
 /// fallback).
-pub fn open(request: &CaptureRequest) -> u64 {
+pub(super) fn open(request: &CaptureRequest) -> u64 {
     let (index, width, height) = (request.index, request.width, request.height);
     if !ensure_sck_loaded() {
         return 0;
@@ -551,7 +551,7 @@ pub fn open(request: &CaptureRequest) -> u64 {
 /// so after the bounded wait an idle desktop is `Idle` — NOT end-of-stream,
 /// and NOT the previous frame re-served as a new buffer (that made an
 /// unchanged picture repaint the tile once a second).
-pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
+pub(super) fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
         Some(s) => s,
         None => return CaptureRead::Ended,
@@ -569,7 +569,7 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
 /// (`updateConfiguration:completionHandler:`), so a resized tile or a new
 /// consumer does not restart the capture. `false` on failure (the worker
 /// reopens).
-pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
+pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
     let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
         Some(s) => s,
         None => return false,
@@ -624,7 +624,7 @@ pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
 }
 
 /// Stop the stream + free the capture (drops the boxed `SckScreen`).
-pub fn close(handle: u64) {
+pub(super) fn close(handle: u64) {
     if handle != 0 {
         unsafe {
             let scr = Box::from_raw(handle as *mut SckScreen);

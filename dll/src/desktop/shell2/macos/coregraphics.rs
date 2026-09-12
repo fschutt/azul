@@ -8,13 +8,13 @@ use std::sync::Arc;
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
 
 /// CGDirectDisplayID - unique identifier for a physical display
-pub type CGDirectDisplayID = u32;
+pub(super) type CGDirectDisplayID = u32;
 
 /// Main display ID constant
-pub const CG_MAIN_DISPLAY_ID: CGDirectDisplayID = 0;
+pub(super) const CG_MAIN_DISPLAY_ID: CGDirectDisplayID = 0;
 
 /// Core Graphics function pointers loaded via dlopen
-pub struct CoreGraphicsFunctions {
+pub(super) struct CoreGraphicsFunctions {
     /// Function pointer to `CGMainDisplayID()` — returns the display ID of the main display
     cg_main_display_id: unsafe extern "C" fn() -> CGDirectDisplayID,
     /// Loaded library handle — kept alive to prevent unloading the function pointers
@@ -24,7 +24,7 @@ pub struct CoreGraphicsFunctions {
 
 impl CoreGraphicsFunctions {
     /// Load Core Graphics functions via dlopen
-    pub fn load() -> Result<Arc<Self>, String> {
+    pub(super) fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Load ApplicationServices framework (which includes CoreGraphics)
             let lib = crate::desktop::open_first_lib(&["/System/Library/Frameworks/\
@@ -45,7 +45,7 @@ impl CoreGraphicsFunctions {
     }
 
     /// Get the main display ID
-    pub fn main_display_id(&self) -> CGDirectDisplayID {
+    pub(super) fn main_display_id(&self) -> CGDirectDisplayID {
         unsafe { (self.cg_main_display_id)() }
     }
 }
@@ -54,7 +54,7 @@ impl CoreGraphicsFunctions {
 ///
 /// The deviceDescription dictionary contains a "NSScreenNumber" key
 /// which maps to the CGDirectDisplayID for that screen.
-pub fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CGDirectDisplayID> {
+pub(super) fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CGDirectDisplayID> {
     unsafe {
         use objc2::msg_send;
 
@@ -86,7 +86,7 @@ pub fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CG
 ///
 /// This hash can be used to identify the same physical monitor across sessions,
 /// even if the index changes (e.g., monitors were plugged/unplugged).
-pub fn compute_monitor_hash(
+pub(super) fn compute_monitor_hash(
     display_id: CGDirectDisplayID,
     bounds: objc2_foundation::NSRect,
 ) -> u64 {

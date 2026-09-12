@@ -308,7 +308,7 @@ pub struct CpuBackend {
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
     pub previous_display_list:
-        Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
+        Option<Arc<azul_layout::solver3::display_list::DisplayList>>,
     /// `LayoutCache::build_seq` at the last present — what
     /// `LayoutCache::pending_patch_damage` drains the patch log from, so two
     /// patched builds between presents both get repainted.
@@ -368,9 +368,9 @@ pub struct CpuBackend {
     /// this, the MapWidget showed only the placeholder grid on backends (Wayland)
     /// that don't get spurious WM expose events to force a full repaint.
     #[cfg(feature = "cpurender")]
-    pub previous_vview_dls: std::collections::BTreeMap<
+    pub previous_vview_dls: BTreeMap<
         azul_core::dom::DomId,
-        std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+        Arc<azul_layout::solver3::display_list::DisplayList>,
     >,
     /// GPU-animated values of the previous frame (`key.id → value`), for the
     /// frame-to-frame GPU-value diff. Scrollbar thumb position/fade opacity
@@ -473,7 +473,7 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
-            previous_vview_dls: std::collections::BTreeMap::new(),
+            previous_vview_dls: BTreeMap::new(),
             #[cfg(feature = "cpurender")]
             previous_gpu_transforms: std::collections::HashMap::new(),
             previous_zombie_rects: Vec::new(),
@@ -485,7 +485,7 @@ impl CpuBackend {
     /// Read the window's transparency / shape flags off the window state
     /// before a frame: what the frame is cleared to, and whether its shape
     /// is computed. Every backend's CPU present calls this first.
-    pub fn sync_window_flags(&mut self, state: &azul_layout::window_state::FullWindowState) {
+    pub fn sync_window_flags(&mut self, state: &FullWindowState) {
         self.transparent = !matches!(
             state.flags.background_material,
             azul_core::window::WindowBackgroundMaterial::Opaque
@@ -517,8 +517,8 @@ impl CpuBackend {
     #[cfg(feature = "cpurender")]
     pub fn render_frame(
         &mut self,
-        layout_window: &azul_layout::window::LayoutWindow,
-        renderer_resources: &azul_core::resources::RendererResources,
+        layout_window: &LayoutWindow,
+        renderer_resources: &RendererResources,
         width: f32,
         height: f32,
         dpi_factor: f32,
@@ -731,7 +731,7 @@ impl CpuBackend {
         // would change every subpixel phase — those frames re-render), the
         // previous frame's pixels are trustworthy, and this display list has
         // not already been shifted (buffers-held retry).
-        let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         // Shared with the e2e harness on purpose: this logic used to live only
         // here, and layout/src/e2e/cpu_backend.rs had no notion of a translate
         // hint at all — zero mentions of TranslateHint, dominant_delta or the
@@ -757,7 +757,7 @@ impl CpuBackend {
             Some(old_dl)
                 if can_reuse_previous_frame
                     && !gpu_damage.needs_full
-                    && std::sync::Arc::ptr_eq(old_dl, display_list) =>
+                    && Arc::ptr_eq(old_dl, display_list) =>
             {
                 Some(Vec::new())
             }
@@ -793,9 +793,9 @@ impl CpuBackend {
         // damaged below. This is why the map showed only the placeholder grid on
         // Wayland — which, unlike X11, gets no spurious WM expose/configure events
         // to force a full repaint and mask the bug.
-        let vview_dls: std::collections::BTreeMap<
+        let vview_dls: BTreeMap<
             DomId,
-            std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+            Arc<azul_layout::solver3::display_list::DisplayList>,
         > = layout_window
             .layout_results
             .iter()
@@ -842,7 +842,7 @@ impl CpuBackend {
         // pixel instead of being silently swallowed frame after frame (content
         // frozen while the logical offset advances arbitrarily far).
         let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
-        let next_scroll_baseline: azul_layout::cpurender::ScrollOffsetMap = scroll_offsets
+        let next_scroll_baseline: cpurender::ScrollOffsetMap = scroll_offsets
             .iter()
             .map(|(id, off)| {
                 if shifted_ids.contains(id) {
@@ -884,7 +884,7 @@ impl CpuBackend {
                 dl_damage,
                 self.previous_display_list
                     .as_ref()
-                    .is_some_and(|p| std::sync::Arc::ptr_eq(p, display_list)),
+                    .is_some_and(|p| Arc::ptr_eq(p, display_list)),
                 self.previous_display_list.as_ref().map(|p| p.items.len()),
                 display_list.items.len(),
             );
@@ -1204,11 +1204,11 @@ impl CpuBackend {
         // it's handed to the renderer here so the CPU `VirtualView` arm can
         // composite them. Without this the CPU backend only drew a placeholder.
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            let summary: std::vec::Vec<(usize, usize)> = vview_dls
+            let summary: Vec<(usize, usize)> = vview_dls
                 .iter()
                 .map(|(id, dl)| (id.inner, dl.items.len()))
                 .collect();
-            let all_ids: std::vec::Vec<usize> = layout_window
+            let all_ids: Vec<usize> = layout_window
                 .layout_results
                 .keys()
                 .map(|k| k.inner)
@@ -1655,7 +1655,7 @@ impl HeadlessWindow {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = debug_server::is_debug_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -1680,9 +1680,9 @@ impl HeadlessWindow {
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
             for msg in msgs {
-                crate::desktop::shell2::common::debug_server::log(
-                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
-                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                debug_server::log(
+                    debug_server::LogLevel::Debug,
+                    LogCategory::Layout,
                     msg.message.as_str().to_string(),
                     None,
                 );
@@ -1843,7 +1843,7 @@ impl HeadlessWindow {
     /// "new" are the same DOM — so layout was skipped and the frame kept the
     /// pre-mutation shaped text and geometry forever (the stale screen).
     pub fn relayout_only(&mut self) -> Result<(), String> {
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = debug_server::is_debug_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -1854,15 +1854,15 @@ impl HeadlessWindow {
         // rebuild) and the trait wrapper delivers the lifecycle events the
         // pass produced — see `PlatformWindow::incremental_relayout_dispatching`.
         self.incremental_relayout_dispatching(
-            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+            event::IncrementalRelayout::Restyle,
             &mut debug_messages,
         )?;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
-                crate::desktop::shell2::common::debug_server::log(
-                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
-                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                debug_server::log(
+                    debug_server::LogLevel::Debug,
+                    LogCategory::Layout,
                     msg.message.as_str().to_string(),
                     None,
                 );
@@ -2773,7 +2773,7 @@ impl HeadlessWindow {
                         // scrollable node — otherwise this is a no-op (just like
                         // wheeling over a non-scrollable area on the desktop).
                         let queue = if let Some(lw) = self.common.layout_window.as_mut() {
-                            let now = azul_core::task::Instant::from(std::time::Instant::now());
+                            let now = azul_core::task::Instant::from(Instant::now());
                             match lw.scroll_manager.record_scroll_from_hit_test(
                                 delta_x,
                                 delta_y,
@@ -2803,7 +2803,7 @@ impl HeadlessWindow {
                             let interval_ms =
                                 self.common.system_style.scroll_physics.timer_interval_ms;
                             let timer = azul_layout::timer::Timer::create(
-                                azul_core::refany::RefAny::new(physics_state),
+                                RefAny::new(physics_state),
                                 azul_layout::scroll_timer::scroll_physics_timer_callback
                                     as azul_layout::timer::TimerCallbackType,
                                 azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
@@ -3137,7 +3137,7 @@ impl PlatformWindow for HeadlessWindow {
     fn show_menu_from_callback(
         &mut self,
         _menu: &azul_core::menu::Menu,
-        _position: azul_core::geom::LogicalPosition,
+        _position: LogicalPosition,
         _anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // TODO: could create a sub-HeadlessWindow with the menu content

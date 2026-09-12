@@ -1156,7 +1156,7 @@ fn software_x264_available() -> bool {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
         // `gst-inspect-1.0 x264enc` exits 0 iff the element is registered.
-        return std::process::Command::new("gst-inspect-1.0")
+        return Command::new("gst-inspect-1.0")
             .arg("x264enc")
             .output()
             .map(|o| o.status.success())

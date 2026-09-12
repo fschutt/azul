@@ -50,7 +50,7 @@ pub(crate) fn create_titlebar_styled_dom(title: &str, system_style: &SystemStyle
 /// 1. `has_decorations` flag is true, AND
 /// 2. `decorations` is set to `None` (frameless window)
 #[inline]
-pub fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) -> bool {
+pub(crate) fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) -> bool {
     // MWA-C-csd: never inject a DESKTOP titlebar on mobile — iOS/Android
     // share regenerate_layout, and decorations==None there would otherwise
     // grow close/min/max buttons and a drag bar that make no sense on a
@@ -67,7 +67,7 @@ pub fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) 
 /// 1. Titlebar with close/min/max buttons (via [`Titlebar::dom_with_buttons`])
 /// 2. User's content DOM (which already includes the software menu bar, if any — that is injected
 ///    earlier in `regenerate_layout`, before this runs)
-pub fn wrap_user_dom_with_decorations(
+pub(crate) fn wrap_user_dom_with_decorations(
     user_dom: StyledDom,
     window_title: &str,
     should_inject_titlebar: bool,

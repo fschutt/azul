@@ -562,7 +562,7 @@ pub fn translate_displaylist_to_wr(
                         );
 
                         // Apply offset to scaled bounds for clip definition
-                        let raw_scaled_bounds = azul_core::geom::LogicalRect::new(
+                        let raw_scaled_bounds = LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
                                 scale_px(info.bounds.0.origin.x, dpi_scale),
                                 scale_px(info.bounds.0.origin.y, dpi_scale),
@@ -572,7 +572,7 @@ pub fn translate_displaylist_to_wr(
                                 scale_px(info.bounds.0.size.height, dpi_scale),
                             ),
                         );
-                        let scaled_bounds = azul_core::geom::LogicalRect::new(
+                        let scaled_bounds = LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
                                 raw_scaled_bounds.origin.x - current_offset.0,
                                 raw_scaled_bounds.origin.y - current_offset.1,
@@ -737,7 +737,7 @@ pub fn translate_displaylist_to_wr(
                         );
 
                         // Create clip for rounded thumb (with offset applied)
-                        let scaled_thumb_bounds = azul_core::geom::LogicalRect::new(
+                        let scaled_thumb_bounds = LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
                                 scale_px(info.thumb_bounds.0.origin.x, dpi_scale)
                                     - current_offset.0,
@@ -837,7 +837,7 @@ pub fn translate_displaylist_to_wr(
                     );
 
                     // Create scaled bounds for clip (offset-corrected for scroll frames)
-                    let scaled_bounds = azul_core::geom::LogicalRect::new(
+                    let scaled_bounds = LogicalRect::new(
                         azul_core::geom::LogicalPosition::new(
                             scale_px(bounds.0.origin.x, dpi_scale) - current_offset.0,
                             scale_px(bounds.0.origin.y, dpi_scale) - current_offset.1,
@@ -2563,7 +2563,7 @@ fn push_text(
     font_hash: u64,
     color: ColorU,
     renderer_resources: &azul_core::resources::RendererResources,
-    dpi: azul_core::resources::DpiScaleFactor,
+    dpi: DpiScaleFactor,
     font_size: azul_core::resources::Au,
     container_origin: azul_core::geom::LogicalPosition, // Container origin (already scaled)
     scroll_offset: (f32, f32),                          /* Offset to subtract from glyph
@@ -2615,7 +2615,7 @@ fn push_text(
         .iter()
         .map(|g| webrender::api::GlyphInstance {
             index: g.index,
-            point: webrender::api::units::LayoutPoint::new(
+            point: LayoutPoint::new(
                 g.point.x * dpi_scale - scroll_offset.0,
                 g.point.y * dpi_scale - scroll_offset.1,
             ),

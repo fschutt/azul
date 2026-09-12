@@ -189,7 +189,7 @@ unsafe fn apply_fps(device: &AVCaptureDevice, fps: u32) {
 /// through this null check instead of trusting the `&'static` type.
 unsafe fn devtype_opt(
     s: *const &'static AVCaptureDeviceType,
-) -> Option<&'static AVCaptureDeviceType> {
+) -> Option<&'static AVCaptureDeviceType> { unsafe {
     let raw: *const *const AVCaptureDeviceType = s.cast();
     let v = *raw;
     if v.is_null() {
@@ -197,14 +197,14 @@ unsafe fn devtype_opt(
     } else {
         Some(&*v)
     }
-}
+}}
 
 /// Pick the capture device for `index` via `AVCaptureDeviceDiscoverySession`
 /// (built-in wide angle + external + Continuity cameras — whichever device
 /// types this macOS knows about). Graceful fallback: `index` out of range →
 /// device 0 → `defaultDeviceWithMediaType`. Logs the enumerated device names
 /// (localizedName) once per process.
-unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCaptureDevice>> {
+unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCaptureDevice>> { unsafe {
     #[allow(deprecated)] // pre-macOS-14 synonym for AVCaptureDeviceTypeExternal
     use objc2_av_foundation::AVCaptureDeviceTypeExternalUnknown;
     use objc2_av_foundation::{
@@ -274,13 +274,13 @@ unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCa
     }
     // No discovery session types resolved / no devices found — last resort.
     AVCaptureDevice::defaultDeviceWithMediaType(media)
-}
+}}
 
 /// Open the video device at `request.index`, request BGRA frames at the
 /// smallest preset covering the requested size and the requested fps, start
 /// the session. Returns a boxed handle, or `0` on failure (worker uses the
 /// test pattern).
-pub fn open(request: &CaptureRequest) -> u64 {
+pub(super) fn open(request: &CaptureRequest) -> u64 {
     let (index, width, height) = (request.index, request.width, request.height);
     // TCC gate first: without authorization the session runs but vends only
     // black frames. Blocking (≤60 s prompt wait) is fine on this worker thread.
@@ -366,7 +366,7 @@ pub fn open(request: &CaptureRequest) -> u64 {
 /// is `Idle` — a stalled camera (sleep/wake, a Continuity camera
 /// reconnecting) used to be reported as end-of-stream, which killed the
 /// worker and froze the tile for good.
-pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
+pub(super) fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     let cam = match unsafe { (handle as *mut AvfCam).as_mut() } {
         Some(c) => c,
         None => return CaptureRead::Ended,
@@ -385,7 +385,7 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
 /// fps, without tearing the capture down (`beginConfiguration` /
 /// `commitConfiguration` is the documented live path). `false` only for a
 /// dead handle, in which case the worker reopens.
-pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
+pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
     let cam = match unsafe { (handle as *mut AvfCam).as_mut() } {
         Some(c) => c,
         None => return false,
@@ -410,7 +410,7 @@ pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
 }
 
 /// Stop the session + free the capture (drops the boxed `AvfCam`).
-pub fn close(handle: u64) {
+pub(super) fn close(handle: u64) {
     if handle != 0 {
         unsafe {
             let cam = Box::from_raw(handle as *mut AvfCam);

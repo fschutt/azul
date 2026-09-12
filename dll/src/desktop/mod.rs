@@ -43,11 +43,11 @@ pub mod compositor2;
 pub(crate) mod csd;
 /// CSS type definitions / CSS parsing functions
 pub(crate) mod css {
-    pub use azul_css::*;
-    pub mod css_parser {
-        pub use azul_css::parser2::*;
+    pub(crate) use azul_css::*;
+    pub(crate) mod css_parser {
+        pub(crate) use azul_css::parser2::*;
     }
-    pub use azul_css::css::Css;
+    pub(crate) use azul_css::css::Css;
 }
 /// Bindings to the native file-chooser, color picker, etc. dialogs.
 /// Desktop-only; Android/iOS have no equivalent from a Rust crate, and tfd
@@ -184,7 +184,7 @@ pub mod native_screenshot;
 /// Re-exports of errors
 pub(crate) mod errors {
     #[cfg(all(feature = "font_loading", feature = "std"))]
-    pub use azul_layout::font::loading::FontReloadError;
+    pub(crate) use azul_layout::font::loading::FontReloadError;
 }
 
 pub use azul_core::{callbacks, dom, gl, style, styled_dom, task};

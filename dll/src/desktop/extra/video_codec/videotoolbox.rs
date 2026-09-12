@@ -437,7 +437,7 @@ struct EncShared {
 }
 
 /// A live VTCompressionSession (H.264, realtime, no B-frames).
-pub struct VtEncoder {
+pub(super) struct VtEncoder {
     session: *mut c_void,
     shared: Arc<EncShared>,
     width: u32,
@@ -543,7 +543,7 @@ extern "C" fn enc_output(
 impl VtEncoder {
     /// Open a realtime H.264 VTCompressionSession. `None` if VideoToolbox is
     /// unavailable or the session can't be created (caller keeps the stub).
-    pub fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
+    pub(super) fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
         let lib = VtLib::get()?;
         let shared = Arc::new(EncShared {
             chunks: Mutex::new(VecDeque::new()),
@@ -630,7 +630,7 @@ impl VtEncoder {
     }
 
     /// Encode one RGBA frame → Annex-B chunk(s). Empty while VT buffers.
-    pub fn encode(&mut self, rgba: &[u8], force_keyframe: bool) -> Vec<u8> {
+    pub(super) fn encode(&mut self, rgba: &[u8], force_keyframe: bool) -> Vec<u8> {
         let lib = match VtLib::get() {
             Some(l) => l,
             None => return Vec::new(),
@@ -749,7 +749,7 @@ struct DecShared {
 }
 
 /// A live VTDecompressionSession fed Annex-B H.264.
-pub struct VtDecoder {
+pub(super) struct VtDecoder {
     session: *mut c_void,
     format_desc: *mut c_void,
     shared: Arc<DecShared>,
@@ -811,7 +811,7 @@ extern "C" fn dec_output(
 impl VtDecoder {
     /// `None` if VideoToolbox is unavailable (caller keeps the stub). The
     /// session itself is created lazily once SPS+PPS arrive in the stream.
-    pub fn open_h264() -> Option<VtDecoder> {
+    pub(super) fn open_h264() -> Option<VtDecoder> {
         VtLib::get()?;
         crate::plog_info!("[video] VideoToolbox H.264 decoder open (session on first SPS/PPS)");
         Some(VtDecoder {
@@ -900,7 +900,7 @@ impl VtDecoder {
 
     /// Feed one Annex-B chunk; decoded frames appear via the callback
     /// (synchronous decode → typically before this returns).
-    pub fn decode(&mut self, data: &[u8]) -> Vec<VideoFrame> {
+    pub(super) fn decode(&mut self, data: &[u8]) -> Vec<VideoFrame> {
         let lib = match VtLib::get() {
             Some(l) => l,
             None => return Vec::new(),
@@ -997,7 +997,7 @@ impl VtDecoder {
 
     /// End-of-stream: nothing is held back (synchronous decode, no B-frame
     /// delay in this profile) — just drain the queue.
-    pub fn flush(&mut self) -> Vec<VideoFrame> {
+    pub(super) fn flush(&mut self) -> Vec<VideoFrame> {
         self.drain()
     }
 

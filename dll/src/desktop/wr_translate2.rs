@@ -598,12 +598,12 @@ pub fn translate_world_point(
 /// `LayoutTree::content_inset`, so headless E2E and production can no longer
 /// disagree about where inside a padded node the pointer landed.
 fn content_inset_for(
-    layout_results: &alloc::collections::BTreeMap<
-        azul_core::dom::DomId,
-        azul_layout::window::DomLayoutResult,
+    layout_results: &BTreeMap<
+        DomId,
+        DomLayoutResult,
     >,
-    dom_id: azul_core::dom::DomId,
-    node_id: azul_core::dom::NodeId,
+    dom_id: DomId,
+    node_id: NodeId,
 ) -> ContentInset {
     layout_results
         .get(&dom_id)
@@ -625,12 +625,12 @@ fn content_inset_for(
 /// - Properly calculate point_relative_to_item coordinates
 pub fn translate_hit_test_result(
     wr_result: webrender::api::HitTestResult,
-    _focused_node: Option<azul_core::dom::DomNodeId>,
-    layout_results: &alloc::collections::BTreeMap<
-        azul_core::dom::DomId,
-        azul_layout::window::DomLayoutResult,
+    _focused_node: Option<DomNodeId>,
+    layout_results: &BTreeMap<
+        DomId,
+        DomLayoutResult,
     >,
-) -> azul_core::hit_test::FullHitTest {
+) -> FullHitTest {
     use alloc::collections::BTreeMap;
 
     use azul_core::{
@@ -1040,7 +1040,7 @@ pub fn collect_font_resource_updates(
 
 /// Translate azul-core ResourceUpdate to WebRender ResourceUpdate
 fn translate_resource_update(
-    update: azul_core::resources::ResourceUpdate,
+    update: ResourceUpdate,
 ) -> Option<webrender::ResourceUpdate> {
     use azul_core::resources::ResourceUpdate as AzResourceUpdate;
     use webrender::ResourceUpdate as WrResourceUpdate;
@@ -1169,7 +1169,7 @@ fn translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
 }
 
 /// Translate AddFont from azul-core to WebRender
-fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrender::AddFont> {
+fn translate_add_font(add_font: AddFont) -> Option<webrender::AddFont> {
     // WebRender's AddFont is an enum with Parsed variant
     // azul-core's AddFont already has both key and FontRef
     log_debug!(
@@ -1440,7 +1440,7 @@ const IMAGE_GC_KEEP_EPOCHS: u32 = 2;
 pub fn collect_stale_image_deletes(
     layout_window: &mut LayoutWindow,
     live_image_hashes: &azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
-) -> Vec<azul_core::resources::ResourceUpdate> {
+) -> Vec<ResourceUpdate> {
     use azul_core::resources::ResourceUpdate;
 
     let now = layout_window.epoch.into_u32();
@@ -2146,8 +2146,8 @@ fn wr_translate_border_style(
 /// Get WebRender border from Azul border properties
 /// Returns None if no border should be rendered
 pub fn get_webrender_border(
-    rect_size: azul_core::geom::LogicalSize,
-    radii: azul_css::props::style::border_radius::StyleBorderRadius,
+    rect_size: LogicalSize,
+    radii: StyleBorderRadius,
     widths: azul_layout::solver3::display_list::StyleBorderWidths,
     colors: azul_layout::solver3::display_list::StyleBorderColors,
     styles: azul_layout::solver3::display_list::StyleBorderStyles,
@@ -2781,7 +2781,7 @@ fn process_image_callback_updates(
         );
 
         let descriptor = texture.get_descriptor();
-        let image_key = azul_core::resources::ImageKey {
+        let image_key = ImageKey {
             namespace: layout_window.id_namespace,
             key: external_image_id.inner,
         };
@@ -2806,7 +2806,7 @@ fn process_image_callback_updates(
                 wr_key,
                 wr_descriptor,
                 wr_data,
-                &webrender::api::DirtyRect::All,
+                &DirtyRect::All,
             );
         } else {
             txn.add_image(wr_key, wr_descriptor, wr_data, None);

@@ -56,7 +56,7 @@ pub fn decode_mvt_tile(
 pub fn build_tile_url(
     url_template: &str,
     tile: azul_layout::widgets::map::MapTileId,
-) -> alloc::string::String {
+) -> String {
     use alloc::string::ToString;
     url_template
         .replace("{z}", &tile.z.to_string())
@@ -69,10 +69,10 @@ pub fn build_tile_url(
 /// compile and run without dragging in the MVT dep tree.
 #[cfg(not(feature = "map-tiles"))]
 pub fn decode_mvt_tile(
-    _bytes: alloc::vec::Vec<u8>,
+    _bytes: Vec<u8>,
     _tile: azul_layout::widgets::map::MapTileId,
-) -> Result<alloc::vec::Vec<()>, alloc::string::String> {
-    Err(alloc::string::String::from(
+) -> Result<Vec<()>, String> {
+    Err(String::from(
         "azul-dll built without `map-tiles` feature — MVT decode unavailable",
     ))
 }

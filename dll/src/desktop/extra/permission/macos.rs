@@ -121,7 +121,7 @@ fn input_monitoring_status() -> PermissionState {
     use crate::desktop::extra::hid::macos::InputMonitoringAccess;
     match crate::desktop::extra::hid::macos::input_monitoring_access() {
         InputMonitoringAccess::Granted => {
-            PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full)
+            PermissionState::Granted(PermissionQuality::Full)
         }
         InputMonitoringAccess::Denied => PermissionState::Denied,
         InputMonitoringAccess::Unknown => PermissionState::NotDetermined,

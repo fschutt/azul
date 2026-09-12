@@ -103,7 +103,7 @@ unsafe fn manager() -> *mut Object {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn subscribe(high_accuracy: bool, background: bool) {
+unsafe fn subscribe(high_accuracy: bool, background: bool) { unsafe {
     let mgr = manager();
     if mgr.is_null() {
         return;
@@ -115,7 +115,7 @@ unsafe fn subscribe(high_accuracy: bool, background: bool) {
         let _: () = msg_send![mgr, requestWhenInUseAuthorization];
     }
     let _: () = msg_send![mgr, startUpdatingLocation];
-}
+}}
 
 #[cfg(target_os = "macos")]
 unsafe fn set_accuracy(high_accuracy: bool) {

@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use log::LevelFilter;
 
 /// Whether to show a message box to the user when a panic occurs.
-pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
+pub(super) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
 /// Escape `<` and `>` so the panic dialog text renders as literal characters
 /// in `tinyfiledialogs` on Linux, which interprets the body as Pango markup.
@@ -59,7 +59,7 @@ pub fn set_up_logging(log_level: LevelFilter) {
 
 /// In the (rare) case of a panic, print it to the stdout, log it to the file and
 /// prompt the user with a message box.
-pub fn set_up_panic_hooks() {
+pub(super) fn set_up_panic_hooks() {
     use std::panic::{self, PanicInfo};
 
     use backtrace::{Backtrace, BacktraceFrame};
@@ -234,7 +234,7 @@ pub fn set_up_panic_hooks() {
 /// Parse `AZ_LOG` into a max level filter. `None` means "logging disabled".
 /// Unset (or any unrecognized truthy value) defaults to `Debug` — verbose but
 /// not the per-frame `Trace` firehose; pass `AZ_LOG=trace` for everything.
-pub fn az_log_level() -> Option<LevelFilter> {
+pub(super) fn az_log_level() -> Option<LevelFilter> {
     let raw = std::env::var("AZ_LOG").unwrap_or_default();
     match raw.trim().to_ascii_lowercase().as_str() {
         "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => None,
@@ -252,7 +252,7 @@ pub fn az_log_level() -> Option<LevelFilter> {
 // `&'static dyn Log`. State that the install computes (color, start time) lives
 // in module statics; the level filter is `log::max_level()` (set via
 // `set_max_level`), which the `log` macros also consult to skip work early.
-static LOG_COLOR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static LOG_COLOR: AtomicBool = AtomicBool::new(false);
 static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 /// True once [`StderrLogger`] is THE installed `log` sink for this process.
 ///
@@ -270,8 +270,8 @@ static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock:
 /// A HOST logger (android_logger, pyo3-log, env_logger) is a DIFFERENT sink and
 /// must keep receiving records, which is why this tracks specifically "is the
 /// installed logger ours" rather than "is any logger installed".
-static BUILTIN_LOGGER_INSTALLED: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
+static BUILTIN_LOGGER_INSTALLED: AtomicBool =
+    AtomicBool::new(false);
 
 struct StderrLogger;
 static STDERR_LOGGER: StderrLogger = StderrLogger;
@@ -290,7 +290,7 @@ impl log::Log for StderrLogger {
             .get()
             .map(|s| s.elapsed().as_micros())
             .unwrap_or(0);
-        let color = LOG_COLOR.load(core::sync::atomic::Ordering::Relaxed);
+        let color = LOG_COLOR.load(Ordering::Relaxed);
         let lvl = record.level();
         let (col, reset) = if color {
             let c = match lvl {
@@ -336,7 +336,7 @@ impl log::Log for StderrLogger {
 /// Install azul's built-in stderr logger unless `AZ_LOG` disables it (default
 /// ON). Idempotent and safe to call from every `App::create`: if a logger is
 /// already installed (by the host or a previous call) this is a no-op.
-pub fn init_default_logger() {
+pub(super) fn init_default_logger() {
     use std::sync::atomic::{AtomicBool, Ordering};
     // Only attempt the install once per process.
     static TRIED: AtomicBool = AtomicBool::new(false);
@@ -377,8 +377,8 @@ pub fn init_default_logger() {
 /// own logger (their sink is not this stderr), when `AZ_LOG=off` kept any
 /// logger from being installed, or when the level is below `log::max_level()`.
 #[must_use]
-pub fn builtin_stderr_logger_prints(level: log::Level) -> bool {
-    BUILTIN_LOGGER_INSTALLED.load(core::sync::atomic::Ordering::SeqCst) && level <= log::max_level()
+pub(super) fn builtin_stderr_logger_prints(level: log::Level) -> bool {
+    BUILTIN_LOGGER_INSTALLED.load(Ordering::SeqCst) && level <= log::max_level()
 }
 
 #[cfg(test)]

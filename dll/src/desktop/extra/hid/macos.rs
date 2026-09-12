@@ -155,7 +155,7 @@ fn access_granted(k: &IoKit) -> bool {
 }
 
 /// Read an integer device property, or `0` when absent.
-unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 {
+unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 { unsafe {
     let Ok(get_property) = k
         .lib
         .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
@@ -184,9 +184,9 @@ unsafe fn int_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> i64 {
     } else {
         0
     }
-}
+}}
 
-unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String {
+unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String { unsafe {
     let Ok(get_property) = k
         .lib
         .get::<unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> CFTypeRef>(
@@ -218,9 +218,9 @@ unsafe fn string_property(k: &IoKit, device: CFTypeRef, key: &[u8]) -> String {
     } else {
         String::new()
     }
-}
+}}
 
-unsafe fn cfstring(k: &IoKit, bytes: &[u8]) -> Option<CFTypeRef> {
+unsafe fn cfstring(k: &IoKit, bytes: &[u8]) -> Option<CFTypeRef> { unsafe {
     let create =
         k.cf.get::<unsafe extern "C" fn(CFAllocatorRef, *const u8, u32) -> CFTypeRef>(
             b"CFStringCreateWithCString\0",
@@ -236,16 +236,16 @@ unsafe fn cfstring(k: &IoKit, bytes: &[u8]) -> Option<CFTypeRef> {
     } else {
         Some(s)
     }
-}
+}}
 
-unsafe fn release(k: &IoKit, obj: CFTypeRef) {
+unsafe fn release(k: &IoKit, obj: CFTypeRef) { unsafe {
     if obj.is_null() {
         return;
     }
     if let Ok(f) = k.cf.get::<unsafe extern "C" fn(CFTypeRef)>(b"CFRelease\0") {
         f(obj);
     }
-}
+}}
 
 // ─── The manager ──────────────────────────────────────────────────────
 

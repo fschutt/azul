@@ -31,7 +31,7 @@ use objc2_avf_audio::{AVAudioEngine, AVAudioFormat, AVAudioPCMBuffer, AVAudioPla
 const MAX_IN_FLIGHT: usize = 8;
 
 /// An open AVAudioEngine playback graph for `AudioSink::play`.
-pub struct AvfSink {
+pub(super) struct AvfSink {
     engine: Retained<AVAudioEngine>,
     player: Retained<AVAudioPlayerNode>,
     format: Retained<AVAudioFormat>,
@@ -50,7 +50,7 @@ impl AvfSink {
     /// using the standard (deinterleaved Float32) format the player node
     /// requires. `None` on failure (note: the standard-format initializer
     /// rejects more than 2 channels).
-    pub fn open(rate: u32, channels: u16) -> Option<AvfSink> {
+    pub(super) fn open(rate: u32, channels: u16) -> Option<AvfSink> {
         let ch = channels.max(1) as u32;
         let sample_rate = if rate == 0 { 48_000.0 } else { rate as f64 };
         unsafe {
@@ -92,7 +92,7 @@ impl AvfSink {
     /// Deinterleave `samples` (interleaved f32) into a standard-format PCM
     /// buffer + schedule it. Drops the frame (logged once) when more than
     /// [`MAX_IN_FLIGHT`] buffers are already queued on the player node.
-    pub fn play(&self, samples: &[f32]) {
+    pub(super) fn play(&self, samples: &[f32]) {
         let ch = self.channels.max(1) as usize;
         let frames = samples.len() / ch;
         if frames == 0 {

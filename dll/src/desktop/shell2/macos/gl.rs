@@ -21,7 +21,7 @@ extern "C" {
 }
 
 // Wrapper to get access to the GL function pointers
-pub struct GlFunctions {
+pub(super) struct GlFunctions {
     /// The handle returned by dlopen.
     _opengl_lib_handle: *mut c_void,
 
@@ -42,7 +42,7 @@ impl fmt::Debug for GlFunctions {
 
 impl GlFunctions {
     /// Allocates and loads the OpenGL function pointers via dlopen
-    pub fn initialize() -> Result<Self, String> {
+    pub(super) fn initialize() -> Result<Self, String> {
         const RTLD_NOW: i32 = 2;
         const RTLD_GLOBAL: i32 = 8;
 
@@ -74,7 +74,7 @@ impl GlFunctions {
     }
 
     /// Returns the loaded function pointers (for use in your GL code).
-    pub fn get_context(&self) -> Rc<GenericGlContext> {
+    pub(super) fn get_context(&self) -> Rc<GenericGlContext> {
         self.functions.clone()
     }
 }

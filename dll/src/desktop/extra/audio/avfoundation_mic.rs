@@ -254,7 +254,7 @@ struct AvfMic {
 /// `rate`/`channels` are advisory (the HAL chooses the delivery format; they're
 /// stored so the delegate can downmix to mono when `channels == 1`). `0` on
 /// failure (test tone).
-pub fn mic_open(rate: u32, channels: u16) -> u64 {
+pub(super) fn mic_open(rate: u32, channels: u16) -> u64 {
     // TCC gate first: without authorization the session runs but vends only
     // silence. Blocking (≤60 s prompt wait) is fine on this worker thread.
     // The helper lives with the camera backend (same AVCaptureDevice API).
@@ -305,7 +305,7 @@ pub fn mic_open(rate: u32, channels: u16) -> u64 {
 
 /// Drain captured f32 samples into `out`. Spins briefly for the first buffer.
 /// Returns the sample count, or `0` if none yet (the worker retries).
-pub fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
+pub(super) fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
     let mic = match unsafe { (handle as *const AvfMic).as_ref() } {
         Some(m) => m,
         None => return 0,
@@ -324,7 +324,7 @@ pub fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
 }
 
 /// Stop the session + free the capture (drops the boxed `AvfMic`).
-pub fn mic_close(handle: u64) {
+pub(super) fn mic_close(handle: u64) {
     if handle != 0 {
         unsafe {
             let mic = Box::from_raw(handle as *mut AvfMic);

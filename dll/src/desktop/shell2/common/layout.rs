@@ -1191,8 +1191,8 @@ pub fn regenerate_layout(
             let mut callback_updates: Vec<(
                 usize,
                 azul_core::callbacks::CoreCallbackDataVec,
-                Option<azul_core::refany::RefAny>,
-                Option<azul_core::refany::RefAny>,
+                Option<RefAny>,
+                Option<RefAny>,
             )> = Vec::new();
             {
                 let old_nd_ref = layout_window
@@ -1684,7 +1684,7 @@ pub(super) fn incremental_relayout(
     // StyledDom — is the number the <8ms interactivity target is measured
     // against. Without this span the fast path was invisible in the log.
     let _span = crate::log_span!(
-        crate::desktop::shell2::common::debug_server::LogCategory::Window,
+        LogCategory::Window,
         "incremental_relayout",
     );
 
@@ -1869,7 +1869,7 @@ pub fn generate_frame(
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     document_id: DocumentId,
-    gl_context: &azul_core::gl::OptionGlContextPtr,
+    gl_context: &OptionGlContextPtr,
 ) {
     // Advance layout animations before the display list is translated, so this
     // frame shows the transform sampled for THIS frame rather than the previous
@@ -1890,7 +1890,7 @@ pub fn generate_frame(
         let style = layout_window
             .system_style
             .clone()
-            .unwrap_or_else(|| std::sync::Arc::new(azul_css::system::SystemStyle::default()));
+            .unwrap_or_else(|| Arc::new(SystemStyle::default()));
         let rr = std::mem::take(&mut layout_window.renderer_resources);
         let changes = layout_window.run_track_frames(
             1.0 / 60.0,
@@ -1944,7 +1944,7 @@ pub fn submit_lightweight_frame(
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     document_id: DocumentId,
-    gl_context: &azul_core::gl::OptionGlContextPtr,
+    gl_context: &OptionGlContextPtr,
     flush_scene_builder: bool,
     who: &str,
 ) -> bool {
@@ -2237,14 +2237,14 @@ pub(crate) fn reconcile_transient_windows(
 /// old behaviour and keeps this infallible to adopt.
 pub fn layout_window_sharing_fonts(
     app_font_manager: Option<
-        &std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        &Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
-    fc_cache: &rust_fontconfig::FcFontCache,
-) -> Result<azul_layout::window::LayoutWindow, azul_layout::solver3::LayoutError> {
+    fc_cache: &FcFontCache,
+) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
     match app_font_manager {
-        Some(fm) => Ok(azul_layout::window::LayoutWindow::from_font_manager(
+        Some(fm) => Ok(LayoutWindow::from_font_manager(
             fm.clone_shared(),
         )),
-        None => azul_layout::window::LayoutWindow::new(fc_cache.clone()),
+        None => LayoutWindow::new(fc_cache.clone()),
     }
 }

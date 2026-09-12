@@ -500,7 +500,7 @@ mod macos {
 
     use super::*;
 
-    pub fn get_displays() -> Vec<DisplayInfo> {
+    pub(super) fn get_displays() -> Vec<DisplayInfo> {
         // AppKit screen enumeration is main-thread only. This used to be
         // `.expect("Must be called on main thread")`, which made the PUBLIC
         // `App::get_monitors()` a hard panic when called from a worker thread
