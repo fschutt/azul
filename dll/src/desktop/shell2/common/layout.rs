@@ -535,6 +535,15 @@ pub fn regenerate_layout(
         (old_dims.width - new_dims.width).abs() > SIZE_CHANGE_THRESHOLD
             || (old_dims.height - new_dims.height).abs() > SIZE_CHANGE_THRESHOLD
     };
+    // The window's theme moved since the retained DOM was cascaded. The
+    // unchanged exit below returns WITHOUT entering the layout funnel, and the
+    // funnel is where the new context (and with it the themed UA defaults and
+    // every `@theme` twin) reaches the DOM — so a theme write that arrived
+    // without `RelayoutReason::ThemeChange` (a shell poll whose rediscovered
+    // style equalled the held one) used to keep the retained DOM's old theme
+    // for as long as the app's DOM stayed structurally identical.
+    let theme_changed_precheck =
+        layout_window.current_window_state.theme != current_window_state.theme;
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
@@ -623,7 +632,11 @@ pub fn regenerate_layout(
         // another zone, torn off, docked back) still has to re-graft: the
         // retained layout reflects the OLD docking.
         let docks_changed = layout_window.transient_docks_changed();
-        if !window_size_changed_precheck && !states_changed && !docks_changed {
+        if !window_size_changed_precheck
+            && !states_changed
+            && !docks_changed
+            && !theme_changed_precheck
+        {
             // Put the retained result back untouched.
             old_result.styled_dom = retained;
             layout_window
@@ -760,12 +773,15 @@ pub fn regenerate_layout(
                             "[regenerate_layout] E2E mount XML failed to parse: {e:?} — falling \
                              back to the app DOM"
                         );
-                        layout_window.style_user_dom(user_dom)
+                        layout_window.style_user_dom_for(user_dom, current_window_state)
                     }
                 },
             }
         }
-        None => layout_window.style_user_dom(user_dom),
+        // `_for`: cascaded under the context THIS pass installs, so a DOM
+        // built for a dark window is dark from its first cascade (the plain
+        // `style_user_dom` styles for the previous pass's state).
+        None => layout_window.style_user_dom_for(user_dom, current_window_state),
     };
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
     phases.mark("after_create_from_dom");

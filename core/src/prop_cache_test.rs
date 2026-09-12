@@ -91,6 +91,7 @@ mod autotest_generated {
             state,
             prop_type: property.get_type(),
             property,
+            ua_origin: false,
         }
     }
 

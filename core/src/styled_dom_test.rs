@@ -2073,3 +2073,182 @@ mod autotest_generated {
         );
     }
 }
+
+/// Theme-chain analysis 2026-09-12, item 1: a theme flip is a RESTYLE.
+///
+/// `set_dynamic_selector_context` used to rebuild the compact cache only, so
+/// `cascaded_props` / `computed_values` — what the slow path and the display
+/// list read — kept the answers of the context the DOM was created under.
+/// These pin the re-cascade and its idempotence (a UA entry is replaced, never
+/// duplicated, on every flip).
+#[cfg(test)]
+mod theme_flip_is_a_restyle {
+    use azul_css::{
+        dynamic_selector::{DynamicSelectorContext, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            theme,
+            ..Default::default()
+        }
+    }
+
+    /// `body > button`, no author css, no inline style: the button's border
+    /// colour is a themed UA default (light `#c8c8c8`, dark `#5a5a5a`).
+    fn body_with_button() -> Dom {
+        Dom::create_body().with_child(Dom::create_node(NodeType::Button))
+    }
+
+    const BUTTON: NodeId = NodeId::new(1);
+
+    fn border_top_color(sd: &StyledDom) -> Option<CssProperty> {
+        let node_data = sd.node_data.as_container();
+        sd.get_css_property_cache()
+            .get_property_slow(
+                &node_data[BUTTON],
+                &BUTTON,
+                &StyledNodeState::default(),
+                &CssPropertyType::BorderTopColor,
+            )
+            .cloned()
+    }
+
+    fn ua_border_top_color(theme: ThemeCondition) -> CssProperty {
+        crate::ua_css::get_ua_property_themed(
+            &NodeType::Button,
+            CssPropertyType::BorderTopColor,
+            Some(&ctx(theme)),
+        )
+        .cloned()
+        .expect("the UA sheet defines the button border")
+    }
+
+    /// The Normal-state `BorderTopColor` entries in the button's cascaded
+    /// slice, with their origin tag.
+    fn cascaded_border_entries(sd: &StyledDom) -> Vec<(CssProperty, bool)> {
+        sd.get_css_property_cache()
+            .cascaded_props
+            .get_slice(BUTTON.index())
+            .iter()
+            .filter(|p| {
+                p.state == PseudoStateType::Normal && p.prop_type == CssPropertyType::BorderTopColor
+            })
+            .map(|p| (p.property.clone(), p.ua_origin))
+            .collect()
+    }
+
+    #[test]
+    fn a_theme_flip_replaces_the_ua_defaults_in_cascaded_props() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light)),
+            "no context yet: the light table"
+        );
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark)),
+            "the dark window's border must be the dark twin, in the resolved style"
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd),
+            vec![(ua_border_top_color(ThemeCondition::Dark), true)],
+            "exactly ONE UA-origin entry: the light one was stripped, not shadowed"
+        );
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light)),
+            "and back"
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd),
+            vec![(ua_border_top_color(ThemeCondition::Light), true)],
+            "still one entry after the second flip"
+        );
+    }
+
+    #[test]
+    fn a_dom_created_under_a_context_is_cascaded_for_it_at_once() {
+        let mut dom = body_with_button();
+        let mut sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark)),
+            "born dark: the first cascade already answered the dark table"
+        );
+        let before = cascaded_border_entries(&sd);
+
+        // The funnel's offer of the SAME context is a no-op.
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(cascaded_border_entries(&sd), before);
+        assert_eq!(before.len(), 1, "one UA entry, not one per pass");
+    }
+
+    #[test]
+    fn create_from_dom_with_context_threads_the_context_through() {
+        let sd = StyledDom::create_from_dom_with_context(
+            body_with_button(),
+            Some(ctx(ThemeCondition::Dark)),
+        );
+        assert_eq!(
+            sd.get_css_property_cache()
+                .dynamic_context
+                .as_deref()
+                .map(|c| c.theme),
+            Some(ThemeCondition::Dark)
+        );
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Dark))
+        );
+    }
+
+    /// `restyle` with an empty sheet used to push into a flattened (emptied)
+    /// build vec and panic; a theme flip on an inline-styled widget DOM is
+    /// exactly that call.
+    #[test]
+    fn restyle_with_an_empty_stylesheet_recascades_instead_of_panicking() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        sd.restyle(Css::empty());
+        assert_eq!(
+            border_top_color(&sd),
+            Some(ua_border_top_color(ThemeCondition::Light))
+        );
+        assert_eq!(
+            cascaded_border_entries(&sd).len(),
+            1,
+            "a second full cascade must not duplicate the UA entry"
+        );
+        assert!(sd.get_css_property_cache().ua_applied);
+    }
+
+    #[test]
+    fn a_context_change_that_keeps_the_theme_costs_nothing_on_a_plain_dom() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create_with_context(
+            &mut dom,
+            Css::empty(),
+            Some(ctx(ThemeCondition::Light)),
+        );
+        let before = sd.get_css_property_cache().cascaded_props.clone();
+        // A resize: same theme, different viewport.
+        let resized = ctx(ThemeCondition::Light).with_viewport(320.0, 240.0);
+        sd.set_dynamic_selector_context(resized);
+        assert_eq!(
+            sd.get_css_property_cache().cascaded_props,
+            before,
+            "no conditional declaration anywhere, same theme: the cascade must be untouched"
+        );
+    }
+}

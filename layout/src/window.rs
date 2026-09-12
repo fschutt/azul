@@ -14619,10 +14619,28 @@ impl LayoutWindow {
     /// A window with no provider (headless, or an app that registered no
     /// icons) cascades unchanged - there is nothing to resolve against, and an
     /// unresolved icon node lays out as an empty inline.
+    ///
+    /// Cascades under this window's dynamic-selector context as of the LAST
+    /// pass (`self.current_window_state`). The funnel corrects that on the
+    /// pass that follows if the window moved in between; the producer that
+    /// knows the state it is styling for — `regenerate_layout` — uses
+    /// [`Self::style_user_dom_for`] so no correction is ever needed.
     #[must_use]
     pub fn style_user_dom(&self, dom: Dom) -> StyledDom {
+        self.style_user_dom_for(dom, &self.current_window_state)
+    }
+
+    /// [`Self::style_user_dom`] for a pass about to run under
+    /// `window_state`: the DOM is cascaded under exactly the context the
+    /// funnel will install (`dynamic_selector_context(window_state)`), so
+    /// the theme, viewport and OS the app's DOM is styled for are right from
+    /// its FIRST cascade — a DOM born in a dark window is dark, not light and
+    /// re-cascaded a moment later (theme-chain analysis 2026-09-12, R2).
+    #[must_use]
+    pub fn style_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {
-            return StyledDom::create_from_dom(dom);
+            return StyledDom::create_from_dom_with_context(dom, context);
         };
         // The shell sets style and provider together, so the fallback only
         // covers a DOM styled before the first `regenerate_layout`. Resolving
@@ -14636,7 +14654,12 @@ impl LayoutWindow {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
-        azul_core::icon::styled_dom_resolving_icons(dom, provider, system_style)
+        azul_core::icon::styled_dom_resolving_icons_with_context(
+            dom,
+            provider,
+            system_style,
+            context,
+        )
     }
 }
 

@@ -340,6 +340,19 @@ pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
     pub property: CssProperty,
+    /// `true` when this entry was pushed by [`CssPropertyCache::apply_ua_css`]
+    /// (a user-agent default), `false` for everything the author cascade and
+    /// the inheritance walk produced.
+    ///
+    /// The UA defaults are answered from the window's THEME (`<hr>` rule,
+    /// native button borders, the root text colour), so a theme flip has to
+    /// replace them. `apply_ua_css` guards duplicates with a per-node bitset
+    /// built from the entries already present — which made a second
+    /// application a no-op: the stale light entry marked the bit, the dark
+    /// twin was skipped, and the flip never reached `cascaded_props`. The
+    /// origin tag is what lets a re-application strip exactly its own
+    /// previous entries first (and nothing else).
+    pub ua_origin: bool,
 }
 
 // =============================================================================
@@ -1000,6 +1013,17 @@ pub struct CssPropertyCache {
     /// this field.
     pub dynamic_context: Option<Box<DynamicSelectorContext>>,
 
+    /// Whether [`Self::apply_ua_css`] has run on this cache at least once.
+    ///
+    /// Read by the re-application path: the UA defaults it pushed last time
+    /// were answered under the context of THAT time (the theme, above all),
+    /// so a second application first strips every `ua_origin` entry and
+    /// re-answers them. Also what the paint-time fallbacks assert against: a
+    /// cache the UA pass has run on carries the inherited text colour in its
+    /// resolved style, so a reader falling back to a constant is a bug there
+    /// and merely "no cascade yet" here.
+    pub ua_applied: bool,
+
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
     // Stored in a flat cache-friendly layout after sort_and_flatten().
@@ -1537,6 +1561,45 @@ impl CssPropertyCache {
                     .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
         };
 
+        // Re-enter build phase before repopulating. restyle() is not
+        // single-shot: StyledDom::create runs one restyle internally, and building
+        // the compact cache flattens these vecs — so on a later restyle both are in
+        // read phase, where the old reset `build_iter_mut().clear()` silently
+        // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
+        // below then indexed an emptied Vec and panicked.
+        //
+        // css_props is rebuilt from scratch each restyle (repopulated below,
+        // flattened at the end), so replace it with a fresh build-phase vec.
+        //
+        // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
+        // preserve-and-or_insert approach LEAKED properties of rules whose
+        // @-condition turned OFF — a color inherited under a min-width
+        // block survived in every descendant after crossing below it, so
+        // wide and narrow styling applied SIMULTANEOUSLY (the
+        // media_restyle_cost law pin caught it). Preservation is
+        // unnecessary: the inheritance walk is top-down (parents' fresh
+        // slices are written before children read them — the same
+        // ordering css_props relies on), so a fresh build-phase vec
+        // repopulates completely. The historical reason for preserving
+        // was a phase-bug in the old clear, not a data dependency.
+        //
+        // UNCONDITIONALLY, not only for a non-empty stylesheet: the
+        // inheritance walk below runs for every restyle and pushes into
+        // `cascaded_props` via `build_mut`, so a restyle with an EMPTY sheet
+        // on an already-built cache (a theme flip on an inline-styled DOM
+        // is exactly that) indexed the emptied build vec and panicked. The
+        // UA entries a previous `apply_ua_css` pushed go with the rest; the
+        // caller re-applies them.
+        let node_count = self.css_props.len();
+        self.css_props = FlatVecVec::new(node_count);
+        self.cascaded_props = FlatVecVec::new(node_count);
+        self.ua_applied = false;
+        // Collect global-only rule declarations ONCE (not per-node).
+        // These are stored in self.global_css_props and applied during
+        // build_compact_cache_with_inheritance for each node, avoiding
+        // 50K × N clones into per-node css_props Vecs.
+        self.global_css_props.clear();
+
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1558,36 +1621,6 @@ impl CssPropertyCache {
                 }
             }
 
-            // Re-enter build phase before repopulating. restyle() is not
-            // single-shot: StyledDom::create runs one restyle internally, and building
-            // the compact cache flattens these vecs — so on a later restyle both are in
-            // read phase, where the old reset `build_iter_mut().clear()` silently
-            // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
-            // below then indexed an emptied Vec and panicked.
-            //
-            // css_props is rebuilt from scratch each restyle (repopulated below,
-            // flattened at the end), so replace it with a fresh build-phase vec.
-            //
-            // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
-            // preserve-and-or_insert approach LEAKED properties of rules whose
-            // @-condition turned OFF — a color inherited under a min-width
-            // block survived in every descendant after crossing below it, so
-            // wide and narrow styling applied SIMULTANEOUSLY (the
-            // media_restyle_cost law pin caught it). Preservation is
-            // unnecessary: the inheritance walk is top-down (parents' fresh
-            // slices are written before children read them — the same
-            // ordering css_props relies on), so a fresh build-phase vec
-            // repopulates completely. The historical reason for preserving
-            // was a phase-bug in the old clear, not a data dependency.
-            let node_count = self.css_props.len();
-            self.css_props = FlatVecVec::new(node_count);
-            self.cascaded_props = FlatVecVec::new(node_count);
-
-            // Collect global-only rule declarations ONCE (not per-node).
-            // These are stored in self.global_css_props and applied during
-            // build_compact_cache_with_inheritance for each node, avoiding
-            // 50K × N clones into per-node css_props Vecs.
-            self.global_css_props.clear();
             for rule in &global_only_rules {
                 if !rule_applies(&rule.conditions) {
                     continue;
@@ -1705,6 +1738,7 @@ impl CssPropertyCache {
                                                 state: $state,
                                                 prop_type: prop.get_type(),
                                                 property: prop,
+                                                ua_origin: false,
                                             },
                                         );
                                     }
@@ -1826,6 +1860,7 @@ impl CssPropertyCache {
                                 state,
                                 prop_type: *prop_type,
                                 property: prop_value.clone(),
+                                ua_origin: false,
                             });
                         }
                     }
@@ -2365,6 +2400,7 @@ impl CssPropertyCache {
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
             dynamic_context: None,
+            ua_applied: false,
 
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
@@ -2393,6 +2429,8 @@ impl CssPropertyCache {
         if self.dynamic_context.is_none() {
             self.dynamic_context = other.dynamic_context.take();
         }
+        // The merged store carries UA entries as soon as either half did.
+        self.ua_applied |= other.ua_applied;
         self.cascaded_props.extend_from(&mut other.cascaded_props);
         self.css_props.extend_from(&mut other.css_props);
         self.computed_values.append(&mut other.computed_values);
@@ -4773,6 +4811,13 @@ impl CssPropertyCache {
     /// must be in the cascade maps so they can be inherited by child text nodes.
     ///
     /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
+    ///
+    /// Idempotent under a context change: the defaults are answered from
+    /// [`Self::dynamic_context`] (the theme picks the `<hr>` rule, the native
+    /// button border, the root text colour), and a second call — a theme
+    /// flip on a retained DOM — first removes the entries the previous call
+    /// pushed (`StatefulCssProperty::ua_origin`) and answers them again.
+    /// Leaves `cascaded_props` sorted and flattened.
     #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType};
@@ -4781,6 +4826,28 @@ impl CssPropertyCache {
         if node_count == 0 {
             return;
         }
+
+        // RE-APPLICATION: strip what the previous pass pushed before answering
+        // again. The UA defaults depend on the context's theme, and the bitset
+        // below treats an existing entry of a type as "already set" — so
+        // without this a theme flip found the stale light entry, skipped the
+        // dark twin, and `cascaded_props` never moved (the non-idempotence the
+        // theme-chain analysis of 2026-09-12 traces the whole
+        // black-text-on-dark family back to). Only `ua_origin` entries go;
+        // everything the author cascade and the inheritance walk produced
+        // stays, exactly as it was when the first pass ran after them.
+        if self.ua_applied {
+            if self.cascaded_props.is_flattened() {
+                self.cascaded_props.retain(|p| !p.ua_origin);
+            } else {
+                for v in self.cascaded_props.build_iter_mut() {
+                    v.retain(|p| !p.ua_origin);
+                }
+            }
+        }
+        // `push_to` needs the build phase; a cache that has been through the
+        // compact build (or a prune) is flattened.
+        self.cascaded_props.ensure_build_phase();
 
         // Build a bitset per node: which CssPropertyType values are already set (Normal state).
         // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
@@ -4919,6 +4986,7 @@ impl CssPropertyCache {
                             state: PseudoStateType::Normal,
                             prop_type: *prop_type,
                             property: ua_prop.clone(),
+                            ua_origin: true,
                         },
                     );
 
@@ -4931,6 +4999,13 @@ impl CssPropertyCache {
                 }
             }
         }
+
+        // Back to the read phase the rest of the pipeline expects
+        // (`append` merges two flattened stores; a build-phase half would
+        // drop the other's data). Sorted, so the slow path's binary search
+        // over `cascaded_props` stays valid after a re-application too.
+        self.sort_cascaded_props();
+        self.ua_applied = true;
     }
 
     /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.

@@ -1143,6 +1143,27 @@ impl StyledDom {
     //
     // The CSS will be left in-place, but will be re-ordered
     pub fn create(dom: &mut Dom, css: Css) -> Self {
+        Self::create_with_context(dom, css, None)
+    }
+
+    /// [`Self::create`], cascading under a known window context from the
+    /// start.
+    ///
+    /// The creation cascade evaluates `@theme` / `@media` / `@os` rules, the
+    /// themed UA defaults and every conditional inline declaration against
+    /// [`CssPropertyCache::dynamic_context`]. With `None` there is no context
+    /// yet — conditional rules do not apply and the UA answers its light
+    /// table — and the first [`Self::set_dynamic_selector_context`] the
+    /// layout funnel makes re-cascades what depends on it. Passing the
+    /// window's context here (what `LayoutWindow::style_user_dom_for` does)
+    /// makes that first offer a no-op instead of a second pass, and means a
+    /// DOM born in a dark window is dark from its first cascade rather than
+    /// light-then-fixed.
+    pub fn create_with_context(
+        dom: &mut Dom,
+        css: Css,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    ) -> Self {
         use core::mem;
 
         let mut swap_dom = Dom::create_body();
@@ -1188,7 +1209,7 @@ impl StyledDom {
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
 
-        Self::create_from_compact_dom(compact_dom, css, node_hierarchy)
+        Self::create_from_compact_dom(compact_dom, css, node_hierarchy, context)
     }
 
     /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
@@ -1268,7 +1289,7 @@ impl StyledDom {
         // 4. Delegate to create() which handles cascade, UA CSS, etc. We need a mutable Dom to pass
         //    to create(), but we already have CompactDom. Instead, inline the cascade logic from
         //    create() with our CompactDom.
-        Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items)
+        Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items, None)
     }
 
     /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
@@ -1281,6 +1302,7 @@ impl StyledDom {
         compact_dom: CompactDom,
         mut css: Css,
         node_hierarchy: NodeHierarchyItemVec,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     ) -> Self {
         use crate::dom::EventFilter;
 
@@ -1302,6 +1324,12 @@ impl StyledDom {
         ];
 
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
+        // Installed BEFORE the cascade below so that every stage of it — the
+        // author @-rule gating in `restyle`, the themed UA table in
+        // `apply_ua_css`, the conditional inline declarations the compact
+        // builder (and `compute_inherited_values`) evaluate — answers for the
+        // window this DOM is about to be shown in. See `create_with_context`.
+        css_property_cache.dynamic_context = context.map(Box::new);
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1461,7 +1489,17 @@ impl StyledDom {
     /// 4. Runs `apply_ua_css` -> `compute_inherited_values` -> `build_compact_cache`
     /// 5. Generates anonymous table elements
     #[must_use]
-    pub fn create_from_dom(mut dom: Dom) -> Self {
+    pub fn create_from_dom(dom: Dom) -> Self {
+        Self::create_from_dom_with_context(dom, None)
+    }
+
+    /// [`Self::create_from_dom`] cascading under a known window context from
+    /// the first pass — see [`Self::create_with_context`].
+    #[must_use]
+    pub fn create_from_dom_with_context(
+        mut dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    ) -> Self {
         use azul_css::css::Css;
 
         // #47: scope each node's inline css to its subtree BEFORE collecting, so a
@@ -1496,7 +1534,7 @@ impl StyledDom {
         strip_css_from_dom(&mut dom);
 
         // 4. Use existing StyledDom::create to flatten + cascade
-        Self::create(&mut dom, combined_css)
+        Self::create_with_context(&mut dom, combined_css, context)
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -1785,7 +1823,26 @@ impl StyledDom {
         // Keep the stylesheet for later structural restyles (inserted nodes).
         self.css_property_cache.downcast_mut().retained_author_css = css;
 
-        // Apply UA CSS properties before computing inheritance
+        self.recascade_ua_inheritance_and_compact();
+    }
+
+    /// The context-dependent tail of [`Self::restyle`], on its own: UA
+    /// defaults → inheritance → compact cache → resolved font sizes →
+    /// hit-test tags. Everything after the author cascade, which is the part
+    /// that does NOT depend on the window context unless the stylesheet has
+    /// conditional rules (`set_dynamic_selector_context` re-runs the author
+    /// cascade separately for those).
+    ///
+    /// This is what a theme flip runs. Before it existed, a flip rebuilt the
+    /// compact cache only, so `cascaded_props` and `computed_values` — the
+    /// slow path's and the display list's sources — kept the answers of the
+    /// context the DOM was CREATED under, forever: root cause R2 of the
+    /// theme-chain analysis (2026-09-12), the black-label-on-dark family.
+    pub fn recascade_ua_inheritance_and_compact(&mut self) {
+        cascade_trace(|| "UA + inheritance + compact RECASCADED".to_string());
+
+        // Apply UA CSS properties before computing inheritance (strips and
+        // re-answers its own previous entries, see `apply_ua_css`).
         self.css_property_cache
             .downcast_mut()
             .apply_ua_css(self.node_data.as_container().internal);
@@ -2334,27 +2391,39 @@ impl StyledDom {
     /// Inline conditional properties (`CssPropertyWithConditions` with
     /// viewport/@media/theme/OS selectors) evaluate against this context in
     /// BOTH production readers: `get_property_slow` (per lookup) and the
-    /// compact-cache builder (at build time). A freshly created `StyledDom`
-    /// has NO context - non-pseudo conditions do not apply until a window
-    /// adopts the DOM and calls this, which the layout funnel
-    /// (`LayoutWindow::layout_and_generate_display_list`) does before every
-    /// pass.
+    /// compact-cache builder (at build time). A `StyledDom` created without
+    /// one (`create` / `create_from_dom`) has NO context - non-pseudo
+    /// conditions do not apply until a window adopts the DOM and calls this,
+    /// which the layout funnel (`LayoutWindow::layout_and_generate_display_list`)
+    /// does before every pass; one created through `create_with_context`
+    /// (what the funnel's own producer, `LayoutWindow::style_user_dom_for`,
+    /// uses) already cascaded under it.
     ///
-    /// When the context actually changed AND the compact cache says some
-    /// node's resting style depends on it (`has_dynamic_conditions`), the
-    /// compact cache is rebuilt and hit-test tags are regenerated (a
-    /// condition can flip `display`, which decides which nodes carry tags).
-    /// For the common condition-free DOM a context change costs one bool
-    /// read.
+    /// A context change re-runs exactly the parts of the cascade that read
+    /// the context (theme-chain analysis 2026-09-12, item 1 — "a theme flip
+    /// is a restyle"):
+    ///
+    /// * the author cascade, when the retained stylesheet has conditional rules (`@theme` /
+    ///   `@media` / `@os` blocks, `env()` values) — those are baked at cascade time, so nothing
+    ///   short of re-running it can move them; `restyle_retained` includes the tail below;
+    /// * otherwise the tail — UA defaults, inheritance, compact cache, tags
+    ///   ([`Self::recascade_ua_inheritance_and_compact`]) — when the THEME changed (the UA colour
+    ///   defaults are themed) or when any node's resting style carries a conditional declaration
+    ///   (`has_dynamic_conditions`: viewport / OS / theme selectors on inline properties, evaluated
+    ///   by the compact builder and by the inheritance walk).
+    ///
+    /// For the common condition-free DOM under an unchanged theme a context
+    /// change (a resize, a focus flip) costs one bool read. A DOM created
+    /// with the context already installed (`create_with_context`) pays
+    /// nothing at all here: the offer compares equal and returns.
     pub fn set_dynamic_selector_context(
         &mut self,
         context: azul_css::dynamic_selector::DynamicSelectorContext,
     ) {
-        // The compact cache holds QUERY RESULTS, and the UA's colour defaults
-        // (inherited text, `<hr>`, native button borders) are answered from
-        // the context's theme at query time — so a theme flip stales it even
-        // when no node carries a conditional property. Decided before the
-        // context is replaced; `None` (no window yet) counts as a flip.
+        // Decided before the context is replaced; `None` (no window yet)
+        // counts as a flip — the no-context cascade answered the light UA
+        // table and dropped every conditional declaration, and only a
+        // re-run can tell whether the real context agrees.
         let theme_changed;
         {
             let cache = self.get_css_property_cache_mut();
@@ -2384,23 +2453,20 @@ impl StyledDom {
             .iter()
             .any(azul_css::css::CssRuleBlock::depends_on_dynamic_context);
         if author_conditional {
+            // Full: author cascade + the tail. (`restyle_retained` is a no-op
+            // for an empty sheet, but an empty sheet has no conditional
+            // rules, so this arm is never reached with one.)
             self.restyle_retained();
+            return;
         }
-        let needs_rebuild = theme_changed
+        let needs_recascade = theme_changed
             || self
                 .get_css_property_cache()
                 .compact_cache
                 .as_ref()
                 .is_none_or(|cc| cc.has_dynamic_conditions);
-        if needs_rebuild {
-            self.recompute_inheritance_and_compact_cache();
-            self.get_css_property_cache_mut()
-                .invalidate_resolved_font_sizes();
-            let new_tag_ids = self
-                .css_property_cache
-                .downcast_mut()
-                .generate_tag_ids(&self.node_data.as_container(), &self.node_hierarchy);
-            self.tag_ids_to_node_ids = new_tag_ids.into();
+        if needs_recascade {
+            self.recascade_ua_inheritance_and_compact();
         }
     }
 
