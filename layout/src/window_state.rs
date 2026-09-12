@@ -25,18 +25,14 @@ use crate::callbacks::OptionCallback;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowCreateOptions {
+    // Field order is by DECREASING alignment (8, 4, 1) so the struct carries no
+    // interior padding: `azul-doc autofix` flags any other order as an FFI
+    // layout issue. It is `#[repr(C)]`, so api.json lists the fields in this
+    // same order and every binding lays them out the same way.
     /// Initial state for the new window
     pub window_state: FullWindowState,
     /// Optional callback invoked after the window is created
     pub create_callback: OptionCallback,
-    /// Optional renderer configuration (e.g., `VSync`, SRGB)
-    pub renderer: azul_core::window::OptionRendererOptions,
-    /// Optional window theme override (light/dark)
-    pub theme: azul_core::window::OptionWindowTheme,
-    /// If true, the window is resized to fit its content after the first layout
-    pub size_to_content: bool,
-    /// If true, enables hot-reloading of CSS and resources
-    pub hot_reload: bool,
     /// Parent window's platform id (the window-registry key: X Window id on X11,
     /// `wl_surface` ptr on Wayland, HWND on Windows, `NSWindow` ptr on macOS), or 0
     /// for a top-level window with no parent. Child windows (menus, dropdowns,
@@ -44,10 +40,20 @@ pub struct WindowCreateOptions {
     /// and, on X11, reuse the parent's display connection for the single shared
     /// event pump. 0 = no parent.
     pub parent_window_id: u64,
-    /// Explicitly defined background color for light theme. If set, overrides the system light window background.
+    /// Optional renderer configuration (e.g., `VSync`, SRGB)
+    pub renderer: azul_core::window::OptionRendererOptions,
+    /// Optional window theme override (light/dark)
+    pub theme: azul_core::window::OptionWindowTheme,
+    /// Explicitly defined background color for light theme. If set, overrides the system light
+    /// window background.
     pub background_color_light: OptionColorU,
-    /// Explicitly defined background color for dark theme. If set, overrides the system dark window background.
+    /// Explicitly defined background color for dark theme. If set, overrides the system dark
+    /// window background.
     pub background_color_dark: OptionColorU,
+    /// If true, the window is resized to fit its content after the first layout
+    pub size_to_content: bool,
+    /// If true, enables hot-reloading of CSS and resources
+    pub hot_reload: bool,
 }
 
 impl Default for WindowCreateOptions {

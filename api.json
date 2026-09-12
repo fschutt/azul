@@ -8052,30 +8052,46 @@
                             {
                                 "window_state": {
                                     "type": "FullWindowState"
-                                },
+                                }
+                            },
+                            {
                                 "create_callback": {
                                     "type": "OptionCallback"
-                                },
-                                "renderer": {
-                                    "type": "OptionRendererOptions"
-                                },
-                                "theme": {
-                                    "type": "OptionWindowTheme"
-                                },
-                                "size_to_content": {
-                                    "type": "bool"
-                                },
-                                "hot_reload": {
-                                    "type": "bool"
-                                },
+                                }
+                            },
+                            {
                                 "parent_window_id": {
                                     "type": "u64"
-                                },
+                                }
+                            },
+                            {
+                                "renderer": {
+                                    "type": "OptionRendererOptions"
+                                }
+                            },
+                            {
+                                "theme": {
+                                    "type": "OptionWindowTheme"
+                                }
+                            },
+                            {
                                 "background_color_light": {
                                     "type": "OptionColorU"
-                                },
+                                }
+                            },
+                            {
                                 "background_color_dark": {
                                     "type": "OptionColorU"
+                                }
+                            },
+                            {
+                                "size_to_content": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "hot_reload": {
+                                    "type": "bool"
                                 }
                             }
                         ],
