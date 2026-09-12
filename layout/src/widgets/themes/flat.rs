@@ -1832,3 +1832,106 @@ pub const ROW_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions:
         StyleBackgroundContent::Color(DARK_ROW_HOVER),
     ])),
 );
+
+/// The focus ring: the focused control's border takes the accent colour.
+///
+/// One const per edge, because a border colour is four properties and a focus
+/// ring that sets only some of them leaves the rest at their resting colour.
+/// Each has a dark twin using [`DARK_ACC`] — the accent is the one state colour
+/// that genuinely has a per-mode value in both palettes, which is why the plan
+/// names it.
+pub const FOCUS_BORDER_TOP: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_ACC,
+    }));
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_BOTTOM: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_ACC }),
+);
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_LEFT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_ACC }),
+);
+
+/// See [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditions::on_focus(
+    CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_ACC }),
+);
+
+/// The dark twin of [`FOCUS_BORDER_TOP`].
+pub const FOCUS_BORDER_TOP_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_top_color(
+        StyleBorderTopColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_BOTTOM`].
+pub const FOCUS_BORDER_BOTTOM_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_LEFT`].
+pub const FOCUS_BORDER_LEFT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor { inner: DARK_ACC },
+    ));
+
+/// The dark twin of [`FOCUS_BORDER_RIGHT`].
+pub const FOCUS_BORDER_RIGHT_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: DARK_ACC },
+    ));
+
+/// Option-row hover for a drop-down list, light mode (#EAF4FC).
+///
+/// A shade lighter than [`LIGHT_ROW_HOVER`]: a menu that is already floating
+/// over the page needs less contrast than a row inside a field.
+pub const LIGHT_OPTION_HOVER: ColorU = ColorU {
+    r: 234,
+    g: 244,
+    b: 252,
+    a: 255,
+};
+
+/// The hover fill for one row of a drop-down list — light mode. Pair with
+/// [`OPTION_HOVER_DARK`].
+pub const OPTION_HOVER: CssPropertyWithConditions = CssPropertyWithConditions::on_hover(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(LIGHT_OPTION_HOVER),
+    ])),
+);
+
+/// The dark twin of [`OPTION_HOVER`], reusing the row-hover dark fill: a menu
+/// and a list row want the same treatment once the surface is dark.
+pub const OPTION_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark_on_hover(
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+        StyleBackgroundContent::Color(DARK_ROW_HOVER),
+    ])),
+);
+
+/// A hover fill at a caller-supplied colour, paired with this theme's own dark
+/// value.
+///
+/// For chrome whose LIGHT hover colour arrives from outside this palette — a
+/// window-decoration colour the compositor reported, say. It still gets a twin:
+/// azul's dark mode is its own CSS condition, not a reflection of the OS theme
+/// (an app can force dark while the desktop is light), so a system colour
+/// chosen for a light desktop is not automatically right here. The caller's
+/// colour is used in light mode and [`DARK_HT`] in dark mode.
+///
+/// Returns both halves so a caller cannot take one without the other.
+#[must_use]
+pub fn hover_bg_pair(light: ColorU) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(light)]),
+        )),
+        CssPropertyWithConditions::dark_on_hover(CssProperty::const_background_content(
+            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
+                DARK_HT
+            )]),
+        )),
+    ]
+}

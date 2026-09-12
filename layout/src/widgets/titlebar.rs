@@ -761,19 +761,21 @@ fn build_button_container(
     // The hover background a control takes, as an inline `:hover` declaration.
     // Emitted per button rather than as one class rule because CLOSE has its
     // own colour on Breeze and Windows alike (red), and the others do not.
-    let hover_style =
-        |c: OptionColorU| -> CssPropertyWithConditionsVec {
-            match c {
-                OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(vec![
-                    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
-                        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(c)]),
-                    )),
-                ]),
-                // Nothing stated: declare nothing, so an app's own `.csd-button`
-                // styling keeps full control.
-                OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
-            }
-        };
+    let hover_style = |c: OptionColorU| -> CssPropertyWithConditionsVec {
+        match c {
+            // Built by the theme module, which pairs the compositor's colour
+            // with a dark twin. The twin is not redundant: azul's dark mode is
+            // its own CSS condition rather than a reflection of the desktop's,
+            // so a decoration colour reported for a light desktop is not
+            // automatically right when the app renders dark.
+            OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(
+                crate::widgets::themes::flat::hover_bg_pair(c).to_vec(),
+            ),
+            // Nothing stated: declare nothing, so an app's own `.csd-button`
+            // styling keeps full control.
+            OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        }
+    };
 
     let mut children = Vec::new();
 

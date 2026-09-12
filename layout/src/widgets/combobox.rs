@@ -130,32 +130,16 @@ const BORDER_COLOR: ColorU = ColorU {
     b: 172,
     a: 255,
 }; // #acacac
-const BORDER_FOCUS: ColorU = ColorU {
-    r: 66,
-    g: 134,
-    b: 244,
-    a: 255,
-}; // #4286f4
 const TEXT_COLOR: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 }; // #333333
-const OPTION_HOVER_BG: ColorU = ColorU {
-    r: 234,
-    g: 244,
-    b: 252,
-    a: 255,
-}; // #eaf4fc
 
 const WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
 const WHITE_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(WHITE_BG_ITEMS);
-const OPTION_HOVER_BG_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(OPTION_HOVER_BG)];
-const OPTION_HOVER_BG_VEC: StyleBackgroundContentVec =
-    StyleBackgroundContentVec::from_const_slice(OPTION_HOVER_BG_ITEMS);
 
 /// Callback invoked when an option is chosen. The [`ComboBoxState`] carries the
 /// new `selected` index and the field `text` (set to the chosen label).
@@ -384,25 +368,18 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    // focus: highlight border
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_FOCUS,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
+    // Focus ring, light and dark. Declared in the theme module — see
+    // `themes::flat::FOCUS_BORDER_TOP` — because the dark half needs the
+    // palette's `DARK_ACC`, which this file cannot see. All four edges, because
+    // a ring that sets only some leaves the rest at their resting colour.
+    crate::widgets::themes::flat::FOCUS_BORDER_TOP,
+    crate::widgets::themes::flat::FOCUS_BORDER_BOTTOM,
+    crate::widgets::themes::flat::FOCUS_BORDER_LEFT,
+    crate::widgets::themes::flat::FOCUS_BORDER_RIGHT,
+    crate::widgets::themes::flat::FOCUS_BORDER_TOP_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_BOTTOM_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_LEFT_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_RIGHT_DARK,
 ];
 
 /// The editable text inside the field - takes the remaining horizontal space.
@@ -526,7 +503,9 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(OPTION_HOVER_BG_VEC)),
+    // Option-row hover, light and dark — see `themes::flat::OPTION_HOVER`.
+    crate::widgets::themes::flat::OPTION_HOVER,
+    crate::widgets::themes::flat::OPTION_HOVER_DARK,
 ];
 
 impl ComboBox {
