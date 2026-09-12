@@ -1168,7 +1168,9 @@ lang_go() {
     else
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
     fi
-    go build -o "$OUT" . || exit 1
+    # -x: every toolchain command in the log, so a timeout names the step
+    # (the cgo probe, the package compile, the link) instead of "hung".
+    go build -x -o "$OUT" . || exit 1
     "./$OUT"
   ) >"$f" 2>&1
   finish go "go build/run failed (cgo + libazul link)"
@@ -2233,6 +2235,13 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # costs about as much again: 1m48s for a clean `make` on an M-series Mac,
     # and CI's ubuntu runner is slower. The default 240s left no margin.
     fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # cgo compiles the generated azul-go package from scratch on every run: five
+    # MB of Go over 126k lines (wrappers.go alone is 2.8 MB) plus the DWARF
+    # probe of azul.h. 32 s on an M-series Mac; the 2-core ubuntu runner ran
+    # past 600 s on both attempts (2026-09-12, run 34707993902) with nothing
+    # after `go build` in the log. Same budget as the other big generated
+    # packages; `go build -x` below names the step if it ever times out again.
+    go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`
