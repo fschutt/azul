@@ -1537,6 +1537,17 @@ fn extract_type_name(ty: &syn::Type) -> String {
 /// For pointer types (*const T, *mut T), Box<T>, and Option<Box<T>>, the type is replaced with
 /// "c_void" and the ref_kind is set appropriately. This prevents recursion through opaque pointers.
 fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
+    // `ManuallyDrop<T>` is layout-transparent: it suppresses T's destructor and
+    // changes nothing about what the field IS, so it is peeled before the
+    // pointer rules below. Without this, `ManuallyDrop<Box<X>>` fell through to
+    // the fallback as a raw type string, `autofix` proposed it into api.json,
+    // and every non-C binding then carried `ManuallyDrop<Box<X>>.by_value` as
+    // a field type (`azul.rb` failed to parse on exactly that). api.json
+    // describes these handles as `c_void` mut-pointers — which is what the
+    // `Box` rule yields once the wrapper is gone.
+    if let Some(inner) = manually_drop_inner(ty) {
+        return extract_struct_field_type(inner);
+    }
     match ty {
         syn::Type::Ptr(ptr_type) => {
             // *const T or *mut T -> type becomes "c_void", ref_kind is ConstPtr/MutPtr
@@ -1581,6 +1592,24 @@ fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
             // Any other type - extract just the type name
             (extract_type_name(ty), RefKind::Value)
         }
+    }
+}
+
+/// The `T` of a `ManuallyDrop<T>` (`core::mem::ManuallyDrop` or bare), else `None`.
+fn manually_drop_inner(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "ManuallyDrop" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+    match args.args.first()? {
+        syn::GenericArgument::Type(inner) => Some(inner),
+        _ => None,
     }
 }
 
@@ -4558,5 +4587,56 @@ pub struct OnTextInputReturn {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod opaque_handle_fields {
+    //! The struct-field mapper's treatment of opaque handles. Pinned because the
+    //! gap it closes reached api.json through `autofix` and broke every non-C
+    //! binding, and nothing else in the pipeline checks the mapper on its own.
+    use super::*;
+
+    fn map(src: &str) -> (String, RefKind) {
+        extract_struct_field_type(&syn::parse_str::<syn::Type>(src).expect("a valid type"))
+    }
+
+    fn is_c_void(res: &(String, RefKind), kind: RefKind) -> bool {
+        res.0 == "c_void" && res.1 == kind
+    }
+
+    #[test]
+    fn manually_drop_box_is_an_opaque_mut_pointer() {
+        // The three fields that leaked into api.json as raw Rust types, plus the
+        // fully-qualified spelling.
+        for src in [
+            "ManuallyDrop<Box<IconProviderInner>>",
+            "ManuallyDrop<Box<CssPropertyCache>>",
+            "ManuallyDrop<Box<Rc<GlContextPtrInner>>>",
+            "core::mem::ManuallyDrop<Box<X>>",
+        ] {
+            let res = map(src);
+            assert!(
+                is_c_void(&res, RefKind::MutPtr),
+                "{src} mapped to {:?}",
+                res.0
+            );
+        }
+    }
+
+    #[test]
+    fn the_pointer_rules_are_unchanged() {
+        assert!(is_c_void(&map("Box<X>"), RefKind::MutPtr));
+        assert!(is_c_void(&map("Option<Box<X>>"), RefKind::MutPtr));
+        assert!(is_c_void(&map("*mut X"), RefKind::MutPtr));
+        assert!(is_c_void(&map("*const X"), RefKind::ConstPtr));
+    }
+
+    #[test]
+    fn a_manually_drop_value_is_still_its_inner_type() {
+        // Peeling the wrapper must not turn a by-value field into a pointer.
+        let res = map("ManuallyDrop<Foo>");
+        assert_eq!(res.0, "Foo");
+        assert!(res.1 == RefKind::Value);
     }
 }
