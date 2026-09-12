@@ -2168,6 +2168,353 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 //
 
 // == STATES: tabs ==
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES — tabs
+// ---------------------------------------------------------------------------
+//
+// The hover of an inactive tab, in the Windows-classic idiom `tabs.rs` draws:
+//
+//     .__azul-native-tabs-tab-not-active:hover {
+//         border: 1px solid #7EB4EA;
+//         background: linear-gradient(#ECF4FC, #DDEDFC);
+//     }
+//
+// Thirteen declarations once the `border` shorthand is expanded — four widths,
+// four styles, four colours — plus the fill, and they are one set. The widths
+// and styles are not decoration: a `-noleftborder` / `-norightborder` tab has
+// nulled the edge it shares with the active tab, and these are what draw it
+// back while the pointer is over the tab, so the hover ring is whole. Take the
+// colours without the widths and the two tabs beside the active one hover with
+// a side missing.
+//
+// A width or a style has no per-mode value, so its dark twin repeats it. That
+// is deliberate: every rule in this section is a pair, with no exceptions a
+// reader would have to know about, and "dark >= light" is the invariant the
+// check script holds the themes to.
+
+/// Hover border of an inactive tab, light mode (#7EB4EA).
+///
+/// The Windows "hot" tab edge: a SOFT accent blue, neither the accent itself
+/// nor the neutral #ACACAC the tab rests at. On this palette's accent ramp it
+/// is the `SOFT` rung — [`LIGHT_SOFT`] is #6EA8FE — and that is what picks its
+/// dark twin.
+pub const LIGHT_TAB_HOVER_BORDER: ColorU = ColorU {
+    r: 126,
+    g: 180,
+    b: 234,
+    a: 255,
+};
+
+/// Hover border of an inactive tab, dark mode: [`DARK_SOFT`], the same rung of
+/// the ramp in the other mode.
+///
+/// Not [`DARK_ACC`], which is the full accent and would ring a hovered tab
+/// harder in dark mode than in light; not [`DARK_BD`], which is the neutral
+/// border and would lose the tint altogether.
+pub const DARK_TAB_HOVER_BORDER: ColorU = DARK_SOFT;
+
+/// Top stop of an inactive tab's hover fill, light mode (#ECF4FC).
+pub const LIGHT_TAB_HOVER_TOP: ColorU = ColorU {
+    r: 236,
+    g: 244,
+    b: 252,
+    a: 255,
+};
+
+/// Bottom stop of an inactive tab's hover fill, light mode (#DDEDFC).
+pub const LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
+    r: 221,
+    g: 237,
+    b: 252,
+    a: 255,
+};
+
+// The light fill is a top-to-bottom gradient, so the dark one is too, and its
+// stops are this theme's own hover pair: a tab strip is a page-neutral surface,
+// and `HT` -> `HB` is what the plan names for a hovered control face.
+const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(LIGHT_TAB_HOVER_TOP),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(LIGHT_TAB_HOVER_BOTTOM),
+    },
+];
+
+const TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(DARK_HT),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(DARK_HB),
+    },
+];
+
+const TAB_HOVER_FILL: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(TAB_HOVER_STOPS),
+    })];
+
+const TAB_HOVER_FILL_DARK: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(TAB_HOVER_STOPS_DARK),
+    })];
+
+/// A hovered inactive tab's border: 1px on every edge — light mode.
+///
+/// The first of the thirteen rules in [`TAB_HOVER_STATES`]; use the set, not
+/// the rule. A border width has no per-mode value, so the dark twin repeats it.
+pub const TAB_HOVER_BORDER_BOTTOM_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_LEFT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_RIGHT_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_TOP_WIDTH: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_BOTTOM_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_LEFT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_RIGHT_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_TOP_STYLE: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    }));
+
+/// See [`TAB_HOVER_STATES`]. The colour is [`LIGHT_TAB_HOVER_BORDER`].
+pub const TAB_HOVER_BORDER_BOTTOM_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_LEFT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: LIGHT_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_RIGHT_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LIGHT_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BORDER_TOP_COLOR: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LIGHT_TAB_HOVER_BORDER,
+    }));
+
+/// A hovered inactive tab's fill — light mode: the [`LIGHT_TAB_HOVER_TOP`] to
+/// [`LIGHT_TAB_HOVER_BOTTOM`] gradient. See [`TAB_HOVER_STATES`].
+pub const TAB_HOVER_BG: CssPropertyWithConditions =
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(TAB_HOVER_FILL),
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_BOTTOM_WIDTH`] — the same width; see
+/// the section comment for why a twin exists at all.
+pub const TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_LEFT_WIDTH`].
+pub const TAB_HOVER_BORDER_LEFT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_RIGHT_WIDTH`].
+pub const TAB_HOVER_BORDER_RIGHT_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_TOP_WIDTH`].
+pub const TAB_HOVER_BORDER_TOP_WIDTH_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_BOTTOM_STYLE`].
+pub const TAB_HOVER_BORDER_BOTTOM_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_LEFT_STYLE`].
+pub const TAB_HOVER_BORDER_LEFT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_RIGHT_STYLE`].
+pub const TAB_HOVER_BORDER_RIGHT_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_TOP_STYLE`].
+pub const TAB_HOVER_BORDER_TOP_STYLE_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_BOTTOM_COLOR`]: [`DARK_TAB_HOVER_BORDER`].
+pub const TAB_HOVER_BORDER_BOTTOM_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: DARK_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_LEFT_COLOR`].
+pub const TAB_HOVER_BORDER_LEFT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: DARK_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_RIGHT_COLOR`].
+pub const TAB_HOVER_BORDER_RIGHT_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: DARK_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BORDER_TOP_COLOR`].
+pub const TAB_HOVER_BORDER_TOP_COLOR_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_top_color(
+        StyleBorderTopColor {
+            inner: DARK_TAB_HOVER_BORDER,
+        },
+    ));
+
+/// The dark twin of [`TAB_HOVER_BG`]: the [`DARK_HT`] to [`DARK_HB`] gradient.
+pub const TAB_HOVER_BG_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::dark_on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(TAB_HOVER_FILL_DARK),
+    ));
+
+/// Every state an inactive tab takes: the hover ring (four widths, four
+/// styles, four colours) and the hover fill, each with its dark twin.
+///
+/// One array so a theme function can append the whole set in a line and cannot
+/// ship half of it. `tabs.rs` holds its styles in const slices, which cannot
+/// splice an array, so it names these twenty-six one by one — in this order.
+pub const TAB_HOVER_STATES: [CssPropertyWithConditions; 26] = [
+    TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    TAB_HOVER_BORDER_LEFT_WIDTH,
+    TAB_HOVER_BORDER_RIGHT_WIDTH,
+    TAB_HOVER_BORDER_TOP_WIDTH,
+    TAB_HOVER_BORDER_BOTTOM_STYLE,
+    TAB_HOVER_BORDER_LEFT_STYLE,
+    TAB_HOVER_BORDER_RIGHT_STYLE,
+    TAB_HOVER_BORDER_TOP_STYLE,
+    TAB_HOVER_BORDER_BOTTOM_COLOR,
+    TAB_HOVER_BORDER_LEFT_COLOR,
+    TAB_HOVER_BORDER_RIGHT_COLOR,
+    TAB_HOVER_BORDER_TOP_COLOR,
+    TAB_HOVER_BG,
+    TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    TAB_HOVER_BG_DARK,
+];
+
 // == /STATES: tabs ==
 
 //
