@@ -51,25 +51,81 @@ def theme_files() -> list[Path]:
     return sorted(THEME_DIR.glob("*.rs"))
 
 
-def strip_test_modules(src: str) -> str:
-    """Drop `#[cfg(test)] mod tests { .. }` so test code is not mistaken for API.
+# A test module's attribute is not always the bare `#[cfg(test)]`: this repo also
+# uses `#[cfg(all(test, feature = "std"))]`, and some modules carry an
+# `#[allow(..)]` between the cfg and the `mod`.
+TEST_MOD = re.compile(
+    r"#\[cfg\((?:test|all\(\s*test\b[^)]*\)[^)]*)\)\]"   # #[cfg(test)] / #[cfg(all(test, ..))]
+    r"(?:\s*#\[[^\]]*\])*"                                  # any further attributes
+    r"\s*mod\s+\w+\s*\{"
+)
 
-    Brace-counts from the module's opening brace; good enough for this repo,
-    where the test module is the last item in the file and is not nested.
+
+def _module_end(src: str, open_brace: int) -> int | None:
+    """Index just past the `}` closing the block that opens at `open_brace`.
+
+    Counts braces while SKIPPING string literals, char literals, comments and
+    raw strings. Doing this naively reads `"{ctx}: ..."` or `"\\u{0301}"` as real
+    braces and closes the module hundreds of lines early, which silently leaks
+    the rest of the test module into every check below (it did: label.rs).
     """
-    marker = re.search(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{", src)
-    if not marker:
-        return src
-    i = marker.end() - 1
     depth = 0
-    for j in range(i, len(src)):
-        if src[j] == "{":
+    i = open_brace
+    n = len(src)
+    while i < n:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j == -1 else j + 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        if c == "r" and i + 1 < n and src[i + 1] in '"#':
+            m = re.match(r'r(#*)"', src[i:])
+            if m:
+                close = '"' + m.group(1)
+                j = src.find(close, i + m.end())
+                i = n if j == -1 else j + len(close)
+                continue
+        if c == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                i += 2 if src[i] == "\\" else 1
+            i += 1
+            continue
+        if c == "'":
+            # A lifetime (`'a`) is not a char literal; a char literal closes on
+            # the next unescaped quote within a few bytes.
+            m = re.match(r"'(?:\\.|[^\\'])'", src[i:])
+            if m:
+                i += m.end()
+                continue
+            i += 1
+            continue
+        if c == "{":
             depth += 1
-        elif src[j] == "}":
+        elif c == "}":
             depth -= 1
             if depth == 0:
-                return src[: marker.start()] + src[j + 1 :]
-    return src[: marker.start()]
+                return i + 1
+        i += 1
+    return None
+
+
+def strip_test_modules(src: str) -> str:
+    """Drop every `#[cfg(test)] mod .. { .. }` so test code is not mistaken for API.
+
+    Strips ALL such modules, not just the first: a file may carry more than one,
+    and stopping at the first leaves the rest readable by the checks.
+    """
+    while True:
+        marker = TEST_MOD.search(src)
+        if not marker:
+            return src
+        end = _module_end(src, marker.end() - 1)
+        src = src[: marker.start()] + (src[end:] if end is not None else "")
 
 
 # ---------------------------------------------------------------------------

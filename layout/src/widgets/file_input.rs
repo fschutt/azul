@@ -246,15 +246,13 @@ impl FileInput {
             container_style: self.container_style,
             label_style: self.label_style,
             image_style: self.image_style,
-            // Explicitly EMPTY, not `None`: a file input draws no icon, and
-            // `Some(empty)` says that, where `None` would let the Button fall
-            // back to its own icon style if one ever appeared.
-            icon_style: OptionCssPropertyWithConditionsVec::Some(
-                CssPropertyWithConditionsVec::from_const_slice(&[]),
-            ),
-            trailing_icon_style: OptionCssPropertyWithConditionsVec::Some(
-                CssPropertyWithConditionsVec::from_const_slice(&[]),
-            ),
+            // No opinion, not an explicit empty. The Button below is built with
+            // `icon: ""`, `icon_dom: None` and `trailing_icon: ""`, so neither
+            // icon node is ever created and neither style is ever read — the two
+            // spellings are identical today, and `None` is the one that does not
+            // claim the caller asked for something.
+            icon_style: OptionCssPropertyWithConditionsVec::None,
+            trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {

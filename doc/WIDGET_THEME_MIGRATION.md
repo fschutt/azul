@@ -76,7 +76,22 @@ same `match` (which had already happened for `CheckBox`).
 **Tests** assert against the resolver, not the raw field. A test that reads the
 field after this change reads `None` and passes whatever the widget renders.
 
-Done: `alert`, `check_box`. `2fd0034d1..` has the shape.
+**Phase 1 is DONE** (`python3 scripts/check_widget_theme_migration.py --phase 1`
+passes): 131 style fields across every widget and every style BUNDLE
+(`RibbonStyle`, `StatusBarStyle`, `QuickAccessStyle`, `BackstageStyle`).
+`2fd0034d1..` has the shape; `92e6d7131..` are the conversions.
+
+Three things learned doing it, in case phase 2 hits them too:
+
+* The style bundles stored a `theme` AND every part derived from it, so an override
+  was indistinguishable from a derivation. Their resolvers call the same `theme_*`
+  helpers the constructors used to, read out of the constructor body rather than
+  retyped, so the 43 + 18 + 9 + 9 resolvers cannot disagree with what they replace.
+* `RibbonStyle` now also stores `handedness`: one part is derived from it, and
+  `from_theme_handed` used to bake it in and discard the flag.
+* Tests named for a GUARD ("never disagree", "rebuilds rather than appends",
+  "heals", "desyncs") were each pinning a redundancy this phase deletes, and pass
+  vacuously afterwards. Eight needed rewriting rather than renaming.
 
 ## Phase 2 — interactive states move into the theme modules, with dark twins
 

@@ -138,14 +138,18 @@ fn azwriter_like_ribbon() -> Dom {
                 property::CssProperty,
             },
         };
-        let mut v = ribbon.style.container_style.as_ref().to_vec();
+        // Start from what the bundle resolves (the field itself is `None` until
+        // something overrides it), then store the result as an explicit override.
+        let mut v = ribbon.style.resolved_container_style().as_ref().to_vec();
         v.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_family(StyleFontFamilyVec::from_vec(vec![
                 StyleFontFamily::System("Liberation Sans".into()),
             ])),
         ));
         ribbon.style.container_style =
-            azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(v);
+            azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+                azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(v),
+            );
     }
     Dom::create_body().with_child(ribbon.dom_desktop())
 }

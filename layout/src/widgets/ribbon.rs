@@ -1421,98 +1421,321 @@ pub struct RibbonStyle {
     /// [`Self::styled_combo_box`] and for consumers deriving matching
     /// custom parts.
     pub theme: RibbonTheme,
+    /// The handedness the mobile parts were derived for.
+    ///
+    /// Stored for the same reason as [`Self::theme`]: it is an INPUT to one of
+    /// the parts (`mobile_group_list_style` puts the divider on the far side for
+    /// a left-handed layout), and `from_theme_handed` used to bake it into that
+    /// vec and then throw the flag away — so the bundle could not re-derive the
+    /// part, and nothing downstream could tell which hand it had been built for.
+    pub handedness: Handedness,
     /// Root container (vertical: tab bar over content).
-    pub container_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// The horizontal tab strip.
-    pub tab_bar_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub tab_bar_style: OptionCssPropertyWithConditionsVec,
     /// The blue application button ("FILE").
-    pub app_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub app_button_style: OptionCssPropertyWithConditionsVec,
     /// An inactive tab header.
-    pub tab_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub tab_style: OptionCssPropertyWithConditionsVec,
     /// The active tab header.
-    pub tab_active_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub tab_active_style: OptionCssPropertyWithConditionsVec,
     /// The filler segment after the last tab (carries the underline).
-    pub tab_filler_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub tab_filler_style: OptionCssPropertyWithConditionsVec,
     /// The content band below the tab strip (horizontal group list).
-    pub content_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub content_style: OptionCssPropertyWithConditionsVec,
     /// One group (vertical: items over footer), incl. the right separator.
-    pub group_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_style: OptionCssPropertyWithConditionsVec,
     /// The item area of a group.
-    pub group_items_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_items_style: OptionCssPropertyWithConditionsVec,
     /// The footer row of a group (label + dialog launcher).
-    pub group_footer_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_footer_style: OptionCssPropertyWithConditionsVec,
     /// The centered group caption.
-    pub group_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_label_style: OptionCssPropertyWithConditionsVec,
     /// Invisible spacer balancing the launcher so the caption stays centered.
-    pub footer_spacer_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub footer_spacer_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into the dialog-launcher [`Button`].
-    pub launcher_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub launcher_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the dialog-launcher [`Button`].
-    pub launcher_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub launcher_icon_style: OptionCssPropertyWithConditionsVec,
     /// A [`RibbonColumn`] packing box.
-    pub column_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub column_style: OptionCssPropertyWithConditionsVec,
     /// A [`RibbonRow`] packing box.
-    pub row_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub row_style: OptionCssPropertyWithConditionsVec,
     /// A [`RibbonItem::Separator`] rule.
-    pub separator_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub separator_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into large-button [`Button`]s.
-    pub large_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub large_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into large-button [`Button`]s.
-    pub large_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub large_icon_style: OptionCssPropertyWithConditionsVec,
     /// Label style injected into large-button [`Button`]s.
-    pub large_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub large_label_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into small-button [`Button`]s.
-    pub small_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub small_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into small-button [`Button`]s.
-    pub small_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub small_icon_style: OptionCssPropertyWithConditionsVec,
     /// Label style injected into small-button [`Button`]s.
-    pub small_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub small_label_style: OptionCssPropertyWithConditionsVec,
     /// Style of the drop-down arrow glyph on Menu/Split buttons.
-    pub arrow_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub arrow_icon_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the button container when [`RibbonButton::toggled`] is set.
-    pub checked_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub checked_style: OptionCssPropertyWithConditionsVec,
     /// The gallery outer frame.
-    pub gallery_frame_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_frame_style: OptionCssPropertyWithConditionsVec,
     /// The horizontal cell strip inside the gallery frame.
-    pub gallery_strip_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_strip_style: OptionCssPropertyWithConditionsVec,
     /// One gallery cell.
-    pub gallery_cell_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_cell_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the selected gallery cell.
-    pub gallery_cell_selected_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_cell_selected_style: OptionCssPropertyWithConditionsVec,
     /// The name label under a gallery cell preview.
-    pub gallery_cell_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_cell_label_style: OptionCssPropertyWithConditionsVec,
     /// The vertical spinner column on the gallery's right edge.
-    pub gallery_spinner_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_spinner_style: OptionCssPropertyWithConditionsVec,
     /// Positioning context wrapping the gallery frame + expansion panel.
-    pub gallery_wrapper_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_wrapper_style: OptionCssPropertyWithConditionsVec,
     /// The expansion panel shown by the gallery's "More" button.
-    pub gallery_panel_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_panel_style: OptionCssPropertyWithConditionsVec,
     /// Full-width tab button shown INSTEAD of the tab strip on phones.
-    pub mobile_tab_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_tab_button_style: OptionCssPropertyWithConditionsVec,
     /// Active-tab label inside the mobile tab button.
-    pub mobile_tab_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_tab_label_style: OptionCssPropertyWithConditionsVec,
     /// Chevron on the mobile tab button.
-    pub mobile_tab_arrow_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_tab_arrow_style: OptionCssPropertyWithConditionsVec,
     /// Full-screen tab picker opened by the mobile tab button.
-    pub mobile_tab_overlay_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_tab_overlay_style: OptionCssPropertyWithConditionsVec,
     /// One row of the mobile tab picker.
-    pub mobile_tab_overlay_item_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_tab_overlay_item_style: OptionCssPropertyWithConditionsVec,
     /// Scrollable group list shown beside the visible group on phones.
-    pub mobile_group_list_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_group_list_style: OptionCssPropertyWithConditionsVec,
     /// One entry of the mobile group list.
-    pub mobile_group_list_item_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_group_list_item_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the selected mobile group-list entry.
-    pub mobile_group_list_item_selected_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into the three spinner [`Button`]s.
-    pub gallery_spinner_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_spinner_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the three spinner [`Button`]s.
-    pub gallery_spinner_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl RibbonStyle {
     /// The the Office-2013-era look look (white chrome, #2B579A accents) - the default.
     #[must_use]
-    pub fn office_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self::from_theme(RibbonTheme::office_2013())
     }
 
@@ -1520,7 +1743,7 @@ impl RibbonStyle {
     /// override API: build a [`RibbonTheme`] (or start from a preset), then
     /// replace individual `*_style` fields for finer control.
     #[must_use]
-    pub fn from_theme(theme: RibbonTheme) -> Self {
+    pub const fn from_theme(theme: RibbonTheme) -> Self {
         Self::from_theme_handed(theme, Handedness::RightHanded)
     }
 
@@ -1528,61 +1751,492 @@ impl RibbonStyle {
     /// on the dominant-hand side so the thumb reaches it. Independent of text
     /// direction - see [`Handedness`].
     #[must_use]
-    pub fn from_theme_handed(theme: RibbonTheme, handedness: Handedness) -> Self {
-        let left_handed = matches!(handedness, Handedness::LeftHanded);
-        let theme = &theme;
+    pub const fn from_theme_handed(theme: RibbonTheme, handedness: Handedness) -> Self {
         Self {
-            theme: *theme,
-            container_style: theme_container(theme),
-            tab_bar_style: theme_tab_bar(theme),
-            app_button_style: theme_app_button(theme),
-            tab_style: theme_tab(theme),
-            tab_active_style: theme_tab_active(theme),
-            tab_filler_style: theme_tab_filler(theme),
-            content_style: theme_content(theme),
-            group_style: theme_group(theme),
-            group_items_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE),
-            group_footer_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE),
-            group_label_style: theme_group_label(theme),
-            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(
-                FOOTER_SPACER_STYLE,
-            ),
-            launcher_button_style: theme_launcher_button(theme),
-            launcher_icon_style: theme_launcher_icon(theme),
-            column_style: CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE),
-            row_style: CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE),
-            separator_style: theme_separator(theme),
-            large_button_style: theme_large_button(theme),
-            large_icon_style: theme_large_icon(theme),
-            large_label_style: theme_large_label(theme),
-            small_button_style: theme_small_button(theme),
-            small_icon_style: theme_small_icon(theme),
-            small_label_style: theme_small_label(theme),
-            arrow_icon_style: theme_arrow_icon(theme),
-            checked_style: theme_checked(theme),
-            gallery_frame_style: theme_gallery_frame(theme),
-            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(
-                GALLERY_STRIP_STYLE,
-            ),
-            gallery_cell_style: theme_gallery_cell(theme),
-            gallery_cell_selected_style: theme_gallery_cell_selected(theme),
-            gallery_cell_label_style: theme_gallery_cell_label(theme),
-            gallery_spinner_style: theme_gallery_spinner(theme),
-            gallery_wrapper_style: CssPropertyWithConditionsVec::from_const_slice(
-                GALLERY_WRAPPER_STYLE,
-            ),
-            gallery_panel_style: theme_gallery_panel(theme),
-            mobile_tab_button_style: theme_mobile_tab_button(theme),
-            mobile_tab_label_style: theme_mobile_tab_label(theme),
-            mobile_tab_arrow_style: theme_mobile_tab_arrow(theme),
-            mobile_tab_overlay_style: theme_mobile_tab_overlay(theme),
-            mobile_tab_overlay_item_style: theme_mobile_tab_overlay_item(theme),
-            mobile_group_list_style: theme_mobile_group_list(theme, left_handed),
-            mobile_group_list_item_style: theme_mobile_group_list_item(theme),
-            mobile_group_list_item_selected_style: theme_mobile_group_list_item_selected(theme),
-            gallery_spinner_button_style: theme_gallery_spinner_button(theme),
-            gallery_spinner_icon_style: theme_gallery_spinner_icon(theme),
+            theme,
+            handedness,
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            tab_bar_style: OptionCssPropertyWithConditionsVec::None,
+            app_button_style: OptionCssPropertyWithConditionsVec::None,
+            tab_style: OptionCssPropertyWithConditionsVec::None,
+            tab_active_style: OptionCssPropertyWithConditionsVec::None,
+            tab_filler_style: OptionCssPropertyWithConditionsVec::None,
+            content_style: OptionCssPropertyWithConditionsVec::None,
+            group_style: OptionCssPropertyWithConditionsVec::None,
+            group_items_style: OptionCssPropertyWithConditionsVec::None,
+            group_footer_style: OptionCssPropertyWithConditionsVec::None,
+            group_label_style: OptionCssPropertyWithConditionsVec::None,
+            footer_spacer_style: OptionCssPropertyWithConditionsVec::None,
+            launcher_button_style: OptionCssPropertyWithConditionsVec::None,
+            launcher_icon_style: OptionCssPropertyWithConditionsVec::None,
+            column_style: OptionCssPropertyWithConditionsVec::None,
+            row_style: OptionCssPropertyWithConditionsVec::None,
+            separator_style: OptionCssPropertyWithConditionsVec::None,
+            large_button_style: OptionCssPropertyWithConditionsVec::None,
+            large_icon_style: OptionCssPropertyWithConditionsVec::None,
+            large_label_style: OptionCssPropertyWithConditionsVec::None,
+            small_button_style: OptionCssPropertyWithConditionsVec::None,
+            small_icon_style: OptionCssPropertyWithConditionsVec::None,
+            small_label_style: OptionCssPropertyWithConditionsVec::None,
+            arrow_icon_style: OptionCssPropertyWithConditionsVec::None,
+            checked_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_frame_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_strip_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_cell_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_cell_selected_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_cell_label_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_spinner_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_wrapper_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_panel_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_tab_button_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_tab_label_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_tab_arrow_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_tab_overlay_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_tab_overlay_item_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_group_list_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_group_list_item_style: OptionCssPropertyWithConditionsVec::None,
+            mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_spinner_button_style: OptionCssPropertyWithConditionsVec::None,
+            gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// Whether the mobile parts are laid out for a left-handed grip.
+    #[must_use]
+    pub const fn is_left_handed(&self) -> bool {
+        matches!(self.handedness, Handedness::LeftHanded)
+    }
+
+    /// The `container_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_container(&self.theme))
+    }
+
+    /// The `tab_bar_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_tab_bar_style(&self) -> CssPropertyWithConditionsVec {
+        self.tab_bar_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_tab_bar(&self.theme))
+    }
+
+    /// The `app_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_app_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.app_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_app_button(&self.theme))
+    }
+
+    /// The `tab_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_tab_style(&self) -> CssPropertyWithConditionsVec {
+        self.tab_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_tab(&self.theme))
+    }
+
+    /// The `tab_active_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_tab_active_style(&self) -> CssPropertyWithConditionsVec {
+        self.tab_active_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_tab_active(&self.theme))
+    }
+
+    /// The `tab_filler_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_tab_filler_style(&self) -> CssPropertyWithConditionsVec {
+        self.tab_filler_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_tab_filler(&self.theme))
+    }
+
+    /// The `content_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
+        self.content_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_content(&self.theme))
+    }
+
+    /// The `group_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_group(&self.theme))
+    }
+
+    /// The `group_items_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_items_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_items_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE))
+    }
+
+    /// The `group_footer_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_footer_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_footer_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE))
+    }
+
+    /// The `group_label_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_group_label(&self.theme))
+    }
+
+    /// The `footer_spacer_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_footer_spacer_style(&self) -> CssPropertyWithConditionsVec {
+        self.footer_spacer_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(FOOTER_SPACER_STYLE))
+    }
+
+    /// The `launcher_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_launcher_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.launcher_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_launcher_button(&self.theme))
+    }
+
+    /// The `launcher_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_launcher_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.launcher_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_launcher_icon(&self.theme))
+    }
+
+    /// The `column_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_column_style(&self) -> CssPropertyWithConditionsVec {
+        self.column_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE))
+    }
+
+    /// The `row_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_row_style(&self) -> CssPropertyWithConditionsVec {
+        self.row_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE))
+    }
+
+    /// The `separator_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_separator_style(&self) -> CssPropertyWithConditionsVec {
+        self.separator_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_separator(&self.theme))
+    }
+
+    /// The `large_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_large_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.large_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_large_button(&self.theme))
+    }
+
+    /// The `large_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_large_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.large_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_large_icon(&self.theme))
+    }
+
+    /// The `large_label_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_large_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.large_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_large_label(&self.theme))
+    }
+
+    /// The `small_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_small_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.small_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_small_button(&self.theme))
+    }
+
+    /// The `small_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_small_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.small_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_small_icon(&self.theme))
+    }
+
+    /// The `small_label_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_small_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.small_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_small_label(&self.theme))
+    }
+
+    /// The `arrow_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_arrow_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.arrow_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_arrow_icon(&self.theme))
+    }
+
+    /// The `checked_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_checked_style(&self) -> CssPropertyWithConditionsVec {
+        self.checked_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_checked(&self.theme))
+    }
+
+    /// The `gallery_frame_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_frame_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_frame_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_frame(&self.theme))
+    }
+
+    /// The `gallery_strip_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_strip_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_strip_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(GALLERY_STRIP_STYLE))
+    }
+
+    /// The `gallery_cell_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_cell_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_cell_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_cell(&self.theme))
+    }
+
+    /// The `gallery_cell_selected_style` this bundle renders with: the caller's override if there
+    /// is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_cell_selected_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_cell_selected_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_cell_selected(&self.theme))
+    }
+
+    /// The `gallery_cell_label_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_cell_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_cell_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_cell_label(&self.theme))
+    }
+
+    /// The `gallery_spinner_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_spinner_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_spinner_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_spinner(&self.theme))
+    }
+
+    /// The `gallery_wrapper_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_wrapper_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_wrapper_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(GALLERY_WRAPPER_STYLE)
+            })
+    }
+
+    /// The `gallery_panel_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_panel_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_panel_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_panel(&self.theme))
+    }
+
+    /// The `mobile_tab_button_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_tab_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_tab_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_tab_button(&self.theme))
+    }
+
+    /// The `mobile_tab_label_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_tab_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_tab_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_tab_label(&self.theme))
+    }
+
+    /// The `mobile_tab_arrow_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_tab_arrow_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_tab_arrow_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_tab_arrow(&self.theme))
+    }
+
+    /// The `mobile_tab_overlay_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_tab_overlay_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_tab_overlay_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_tab_overlay(&self.theme))
+    }
+
+    /// The `mobile_tab_overlay_item_style` this bundle renders with: the caller's override if there
+    /// is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_tab_overlay_item_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_tab_overlay_item_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_tab_overlay_item(&self.theme))
+    }
+
+    /// The `mobile_group_list_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_group_list_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_group_list_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_group_list(&self.theme, self.is_left_handed()))
+    }
+
+    /// The `mobile_group_list_item_style` this bundle renders with: the caller's override if there
+    /// is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_group_list_item_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_group_list_item_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_group_list_item(&self.theme))
+    }
+
+    /// The `mobile_group_list_item_selected_style` this bundle renders with: the caller's override
+    /// if there is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_mobile_group_list_item_selected_style(&self) -> CssPropertyWithConditionsVec {
+        self.mobile_group_list_item_selected_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_mobile_group_list_item_selected(&self.theme))
+    }
+
+    /// The `gallery_spinner_button_style` this bundle renders with: the caller's override if there
+    /// is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_spinner_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_spinner_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_spinner_button(&self.theme))
+    }
+
+    /// The `gallery_spinner_icon_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_gallery_spinner_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.gallery_spinner_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_gallery_spinner_icon(&self.theme))
     }
 
     /// Derives the ribbon style from the OS theme (see
@@ -1730,12 +2384,15 @@ pub struct RibbonTab {
     /// shared [`RibbonStyle::tab_style`] / [`RibbonStyle::tab_active_style`]
     /// — so they win, and they apply in BOTH states.
     ///
-    /// Empty (the default) leaves the tab looking like every other one.
+    /// `None` (the default) leaves the tab looking like every other one; `Some`
+    /// APPENDS, so a caller cannot drop the shared tab style the strip depends
+    /// on. An empty vec used to be the sentinel for "no extras", which is the
+    /// confusion this option removes.
     /// This is the only per-tab hook: `RibbonStyle` describes the tab
     /// STRIP, so without it a single tab could not be tinted, badged or
     /// given its own border, and telling two tabs apart in a screenshot
     /// meant reading their labels.
-    pub style: CssPropertyWithConditionsVec,
+    pub style: OptionCssPropertyWithConditionsVec,
 }
 
 /// A captioned group of controls within a [`RibbonTab`].
@@ -1966,14 +2623,14 @@ impl RibbonTab {
         Self {
             label,
             groups: RibbonGroupVec::from_const_slice(&[]),
-            style: CssPropertyWithConditionsVec::new(),
+            style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
     /// Appends per-tab style properties to this tab's header (see
     /// [`RibbonTab::style`]).
     pub fn set_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.style = style;
+        self.style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     /// Builder method: sets the per-tab header style and returns `self`.
@@ -2356,7 +3013,7 @@ impl Ribbon {
         if let Some(ab) = app_button.into_option() {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
-                .with_css_props(style.app_button_style.clone())
+                .with_css_props(style.resolved_app_button_style())
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                     ab.label,
                 )]));
@@ -2391,18 +3048,19 @@ impl Ribbon {
 
         for (idx, tab) in tabs.as_slice().iter().enumerate() {
             let (classes, part_style) = if idx == active_tab {
-                (CLS_TAB_ACTIVE, style.tab_active_style.clone())
+                (CLS_TAB_ACTIVE, style.resolved_tab_active_style())
             } else {
-                (CLS_TAB, style.tab_style.clone())
+                (CLS_TAB, style.resolved_tab_style())
             };
             // Per-tab properties go AFTER the shared ones so they win, and
             // they are applied in both the active and inactive state.
-            let part_style = if tab.style.as_ref().is_empty() {
-                part_style
-            } else {
-                let mut merged = part_style.into_library_owned_vec();
-                merged.extend(tab.style.as_ref().iter().cloned());
-                CssPropertyWithConditionsVec::from_vec(merged)
+            let part_style = match tab.style.as_ref() {
+                None => part_style,
+                Some(extra) => {
+                    let mut merged = part_style.into_library_owned_vec();
+                    merged.extend(extra.as_ref().iter().cloned());
+                    CssPropertyWithConditionsVec::from_vec(merged)
+                }
             };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
@@ -2462,12 +3120,12 @@ impl Ribbon {
         bar_children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_FILLER))
-                .with_css_props(style.tab_filler_style.clone()),
+                .with_css_props(style.resolved_tab_filler_style()),
         );
 
         let tab_bar = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
-            .with_css_props(style.tab_bar_style.clone())
+            .with_css_props(style.resolved_tab_bar_style())
             .with_children(DomVec::from_vec(bar_children));
 
         let mut group_doms: Vec<Dom> =
@@ -2504,15 +3162,15 @@ impl Ribbon {
 
         let mut mobile_tab_button = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
-            .with_css_props(style.mobile_tab_button_style.clone())
+            .with_css_props(style.resolved_mobile_tab_button_style())
             .with_children(DomVec::from_vec(vec![
                 crate::widgets::widget_p()
-                    .with_css_props(style.mobile_tab_label_style.clone())
+                    .with_css_props(style.resolved_mobile_tab_label_style())
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(active_label),
                     ])),
                 Dom::create_icon(AzString::from_const_str("expand_more"))
-                    .with_css_props(style.mobile_tab_arrow_style.clone()),
+                    .with_css_props(style.resolved_mobile_tab_arrow_style()),
             ]));
 
         let mut mobile_cbs: Vec<CoreCallbackData> = Vec::with_capacity(2);
@@ -2550,7 +3208,7 @@ impl Ribbon {
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(
                         CLS_MOBILE_TAB_OVERLAY_ITEM,
                     ))
-                    .with_css_props(style.mobile_tab_overlay_item_style.clone())
+                    .with_css_props(style.resolved_mobile_tab_overlay_item_style())
                     .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                         label.clone(),
                     )]));
@@ -2575,7 +3233,7 @@ impl Ribbon {
             .collect();
         let mobile_tab_overlay = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_OVERLAY))
-            .with_css_props(style.mobile_tab_overlay_style.clone())
+            .with_css_props(style.resolved_mobile_tab_overlay_style())
             .with_children(DomVec::from_vec(overlay_items));
 
         // Group list: on phones ONE group is visible and the rest are a
@@ -2586,11 +3244,11 @@ impl Ribbon {
             .map(|(idx, label)| {
                 let item_style = if idx == 0 {
                     merged_style(
-                        &style.mobile_group_list_item_style,
-                        &style.mobile_group_list_item_selected_style,
+                        &style.resolved_mobile_group_list_item_style(),
+                        &style.resolved_mobile_group_list_item_selected_style(),
                     )
                 } else {
-                    style.mobile_group_list_item_style.clone()
+                    style.resolved_mobile_group_list_item_style()
                 };
                 let mut item = Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(
@@ -2610,8 +3268,9 @@ impl Ribbon {
                             },
                             refany: RefAny::new(GroupListClickData {
                                 group_idx: idx,
-                                selected_style: style.mobile_group_list_item_selected_style.clone(),
-                                base_style: style.mobile_group_list_item_style.clone(),
+                                selected_style: style
+                                    .resolved_mobile_group_list_item_selected_style(),
+                                base_style: style.resolved_mobile_group_list_item_style(),
                             }),
                         }]
                         .into(),
@@ -2622,12 +3281,12 @@ impl Ribbon {
             .collect();
         let mobile_group_list = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_GROUP_LIST))
-            .with_css_props(style.mobile_group_list_style.clone())
+            .with_css_props(style.resolved_mobile_group_list_style())
             .with_children(DomVec::from_vec(group_list_items));
 
         let content = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT))
-            .with_css_props(style.content_style.clone())
+            .with_css_props(style.resolved_content_style())
             .with_children(DomVec::from_vec(group_doms));
 
         // Structural modes pin the chrome's visibility unconditionally
@@ -2683,7 +3342,7 @@ impl Ribbon {
         };
         let mut container = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
-            .with_css_props(style.container_style)
+            .with_css_props(style.resolved_container_style())
             .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
         // DATASET so it follows node identity across RefreshDom rebuilds
@@ -2749,12 +3408,12 @@ fn styled_button(
 
 fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
     let base = if large {
-        &s.large_button_style
+        &s.resolved_large_button_style()
     } else {
-        &s.small_button_style
+        &s.resolved_small_button_style()
     };
     let container = if rb.toggled {
-        merged_style(base, &s.checked_style)
+        merged_style(base, &s.resolved_checked_style())
     } else {
         base.clone()
     };
@@ -2763,9 +3422,15 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
         RibbonArrow::Menu | RibbonArrow::Split => AzString::from_const_str("arrow_drop_down"),
     };
     let (icon_style, label_style) = if large {
-        (s.large_icon_style.clone(), s.large_label_style.clone())
+        (
+            s.resolved_large_icon_style(),
+            s.resolved_large_label_style(),
+        )
     } else {
-        (s.small_icon_style.clone(), s.small_label_style.clone())
+        (
+            s.resolved_small_icon_style(),
+            s.resolved_small_label_style(),
+        )
     };
     styled_button(
         rb.icon,
@@ -2774,7 +3439,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
         container,
         icon_style,
         label_style,
-        s.arrow_icon_style.clone(),
+        s.resolved_arrow_icon_style(),
         rb.on_click,
     )
 }
@@ -2785,7 +3450,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s),
         RibbonItem::Column(col) => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_COLUMN))
-            .with_css_props(s.column_style.clone())
+            .with_css_props(s.resolved_column_style())
             .with_children(DomVec::from_vec(
                 col.items
                     .into_library_owned_vec()
@@ -2795,7 +3460,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
             )),
         RibbonItem::Row(row) => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ROW))
-            .with_css_props(s.row_style.clone())
+            .with_css_props(s.resolved_row_style())
             .with_children(DomVec::from_vec(
                 row.items
                     .into_library_owned_vec()
@@ -2809,7 +3474,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b),
         RibbonItem::Separator => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
-            .with_css_props(s.separator_style.clone()),
+            .with_css_props(s.resolved_separator_style()),
         RibbonItem::Custom(dom) => dom,
     }
 }
@@ -2844,7 +3509,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
 
     let items_row = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_ITEMS))
-        .with_css_props(s.group_items_style.clone())
+        .with_css_props(s.resolved_group_items_style())
         .with_children(DomVec::from_vec(item_doms));
 
     let has_launcher = launcher.is_some();
@@ -2854,13 +3519,13 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         footer_children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_FOOTER_SPACER))
-                .with_css_props(s.footer_spacer_style.clone()),
+                .with_css_props(s.resolved_footer_spacer_style()),
         );
     }
     footer_children.push(
         crate::widgets::widget_p()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
-            .with_css_props(s.group_label_style.clone())
+            .with_css_props(s.resolved_group_label_style())
             .with_children(DomVec::from_vec(vec![
                 Dom::create_text_do_not_use_without_block_level_wrapper(label),
             ])),
@@ -2870,25 +3535,25 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
             AzString::from_const_str("south_east"),
             AzString::from_const_str(""),
             AzString::from_const_str(""),
-            s.launcher_button_style.clone(),
-            s.launcher_icon_style.clone(),
-            s.small_label_style.clone(),
-            s.arrow_icon_style.clone(),
+            s.resolved_launcher_button_style(),
+            s.resolved_launcher_icon_style(),
+            s.resolved_small_label_style(),
+            s.resolved_arrow_icon_style(),
             Some(l).into(),
         ));
     }
     let footer = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_FOOTER))
-        .with_css_props(s.group_footer_style.clone())
+        .with_css_props(s.resolved_group_footer_style())
         .with_children(DomVec::from_vec(footer_children));
 
     let group_style = if fills_space {
         merged_style(
-            &s.group_style,
+            &s.resolved_group_style(),
             &CssPropertyWithConditionsVec::from_const_slice(GROUP_FILL_STYLE),
         )
     } else {
-        s.group_style.clone()
+        s.resolved_group_style()
     };
 
     Dom::create_div()
@@ -2914,13 +3579,16 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
-                    merged_style(&s.gallery_cell_style, &s.gallery_cell_selected_style),
+                    merged_style(
+                        &s.resolved_gallery_cell_style(),
+                        &s.resolved_gallery_cell_selected_style(),
+                    ),
                 )
             } else {
-                (CLS_GALLERY_CELL, s.gallery_cell_style.clone())
+                (CLS_GALLERY_CELL, s.resolved_gallery_cell_style())
             };
             let label = crate::widgets::widget_p()
-                .with_css_props(s.gallery_cell_label_style.clone())
+                .with_css_props(s.resolved_gallery_cell_label_style())
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),
                 ]));
@@ -2941,8 +3609,8 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                             on_select: on_select.clone(),
                             auto_select: b.auto_select_gallery,
                             in_panel,
-                            selected_style: s.gallery_cell_selected_style.clone(),
-                            base_style: s.gallery_cell_style.clone(),
+                            selected_style: s.resolved_gallery_cell_selected_style(),
+                            base_style: s.resolved_gallery_cell_style(),
                         }),
                     }]
                     .into(),
@@ -2955,7 +3623,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
 
     let strip = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_STRIP))
-        .with_css_props(s.gallery_strip_style.clone())
+        .with_css_props(s.resolved_gallery_strip_style())
         .with_children(DomVec::from_vec(build_cells(false)));
 
     // Spinner column: scroll-up, scroll-down, and the "More" button that
@@ -2969,10 +3637,10 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                 AzString::from(*icon),
                 AzString::from_const_str(""),
                 AzString::from_const_str(""),
-                s.gallery_spinner_button_style.clone(),
-                s.gallery_spinner_icon_style.clone(),
-                s.small_label_style.clone(),
-                s.arrow_icon_style.clone(),
+                s.resolved_gallery_spinner_button_style(),
+                s.resolved_gallery_spinner_icon_style(),
+                s.resolved_small_label_style(),
+                s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
             );
             // The third button is "More": it expands the panel.
@@ -2996,12 +3664,12 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
 
     let spinner = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_SPINNER))
-        .with_css_props(s.gallery_spinner_style.clone())
+        .with_css_props(s.resolved_gallery_spinner_style())
         .with_children(DomVec::from_vec(spinner_buttons));
 
     let frame = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY))
-        .with_css_props(s.gallery_frame_style.clone())
+        .with_css_props(s.resolved_gallery_frame_style())
         .with_children(DomVec::from_vec(vec![strip, spinner]));
 
     if !b.expandable_gallery {
@@ -3012,12 +3680,12 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
     // cell, hidden until "More" is clicked (the popover/combobox pattern).
     let panel = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_PANEL))
-        .with_css_props(s.gallery_panel_style.clone())
+        .with_css_props(s.resolved_gallery_panel_style())
         .with_children(DomVec::from_vec(build_cells(true)));
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_WRAPPER))
-        .with_css_props(s.gallery_wrapper_style.clone())
+        .with_css_props(s.resolved_gallery_wrapper_style())
         .with_children(DomVec::from_vec(vec![frame, panel]))
 }
 
@@ -3848,8 +4516,11 @@ mod tests {
 
         // the active tab carries the active style, the others the plain style
         let s = RibbonStyle::office_2013();
-        assert_eq!(inline_props(&ch[1]), style_props(&s.tab_style));
-        assert_eq!(inline_props(&ch[2]), style_props(&s.tab_active_style));
+        assert_eq!(inline_props(&ch[1]), style_props(&s.resolved_tab_style()));
+        assert_eq!(
+            inline_props(&ch[2]),
+            style_props(&s.resolved_tab_active_style())
+        );
     }
 
     #[test]
@@ -4080,10 +4751,22 @@ mod tests {
         assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
 
         let s = RibbonStyle::office_2013();
-        assert_eq!(inline_props(&node), style_props(&s.large_button_style));
-        assert_eq!(inline_props(&ch[0]), style_props(&s.large_icon_style));
-        assert_eq!(inline_props(&ch[1]), style_props(&s.large_label_style));
-        assert_eq!(inline_props(&ch[2]), style_props(&s.arrow_icon_style));
+        assert_eq!(
+            inline_props(&node),
+            style_props(&s.resolved_large_button_style())
+        );
+        assert_eq!(
+            inline_props(&ch[0]),
+            style_props(&s.resolved_large_icon_style())
+        );
+        assert_eq!(
+            inline_props(&ch[1]),
+            style_props(&s.resolved_large_label_style())
+        );
+        assert_eq!(
+            inline_props(&ch[2]),
+            style_props(&s.resolved_arrow_icon_style())
+        );
     }
 
     #[test]
@@ -4100,8 +4783,8 @@ mod tests {
         let node = render_item(RibbonItem::SmallButton(rb));
 
         let s = RibbonStyle::office_2013();
-        let mut expected = style_props(&s.small_button_style);
-        expected.extend(style_props(&s.checked_style));
+        let mut expected = style_props(&s.resolved_small_button_style());
+        expected.extend(style_props(&s.resolved_checked_style()));
         assert_eq!(
             inline_props(&node),
             expected,
@@ -4200,8 +4883,8 @@ mod tests {
 
         // selected cell style = base + selected extras appended
         let s = RibbonStyle::office_2013();
-        let mut expected = style_props(&s.gallery_cell_style);
-        expected.extend(style_props(&s.gallery_cell_selected_style));
+        let mut expected = style_props(&s.resolved_gallery_cell_style());
+        expected.extend(style_props(&s.resolved_gallery_cell_selected_style()));
         assert_eq!(inline_props(&cells[2]), expected);
 
         assert!(has_class(spinner, "__azul-native-ribbon-gallery-spinner"));
@@ -4253,7 +4936,7 @@ mod tests {
                 .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
         );
         let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
-        r.style.small_button_style = injected.clone();
+        r.style.small_button_style = OptionCssPropertyWithConditionsVec::Some(injected.clone());
         let dom = r.dom();
         let (_, content) = parts(&dom);
         let (items, _) = group_parts(content, 0);
@@ -4363,7 +5046,7 @@ mod tests {
 
         // The app button's fill is the accent color.
         let app_bg = s
-            .app_button_style
+            .resolved_app_button_style()
             .as_ref()
             .iter()
             .find_map(|c| match &c.property {
@@ -4379,7 +5062,7 @@ mod tests {
 
         // The active tab's text is the accent color.
         let active_text = s
-            .tab_active_style
+            .resolved_tab_active_style()
             .as_ref()
             .iter()
             .find_map(|c| match &c.property {
@@ -4633,8 +5316,8 @@ mod tests {
     fn the_desktop_tab_strip_is_hidden_under_the_mobile_breakpoint() {
         let s = RibbonStyle::office_2013();
 
-        let displays: Vec<(&LayoutDisplay, bool)> = s
-            .tab_bar_style
+        let tab_bar = s.resolved_tab_bar_style();
+        let displays: Vec<(&LayoutDisplay, bool)> = tab_bar
             .as_ref()
             .iter()
             .filter_map(|c| match &c.property {
@@ -4658,8 +5341,8 @@ mod tests {
         );
 
         // ...and the mobile button is the mirror image.
-        let mobile: Vec<(&LayoutDisplay, bool)> = s
-            .mobile_tab_button_style
+        let mobile_tab = s.resolved_mobile_tab_button_style();
+        let mobile: Vec<(&LayoutDisplay, bool)> = mobile_tab
             .as_ref()
             .iter()
             .filter_map(|c| match &c.property {
@@ -4682,7 +5365,14 @@ mod tests {
             RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::RightHanded);
         let left =
             RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::LeftHanded);
-        assert_ne!(right.mobile_group_list_style, left.mobile_group_list_style);
+        // The bundle stores the HANDEDNESS now and derives the part from it, so
+        // comparing the fields would compare two `None`s. Both facts are worth
+        // pinning: the input differs, and so does what it resolves to.
+        assert_ne!(right.handedness, left.handedness);
+        assert_ne!(
+            right.resolved_mobile_group_list_style(),
+            left.resolved_mobile_group_list_style()
+        );
 
         let has = |s: &CssPropertyWithConditionsVec, want_left: bool| {
             s.as_ref().iter().any(|c| {
@@ -4694,11 +5384,11 @@ mod tests {
             })
         };
         assert!(
-            has(&right.mobile_group_list_style, true),
+            has(&right.resolved_mobile_group_list_style(), true),
             "a right-handed list sits at the right edge, so its divider is on its LEFT"
         );
         assert!(
-            has(&left.mobile_group_list_style, false),
+            has(&left.resolved_mobile_group_list_style(), false),
             "a left-handed list sits at the left edge, so its divider is on its RIGHT"
         );
     }

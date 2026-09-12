@@ -53717,31 +53717,31 @@
                                     "type": "QuickAccessTheme"
                                 },
                                 "bar_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "leading_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "action_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "action_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "menu_arrow_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "title_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "window_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "window_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "close_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -53893,58 +53893,58 @@
                                     "type": "StatusBarTheme"
                                 },
                                 "bar_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "segment_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "segment_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "segment_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "filler_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "views_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "view_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "view_button_active_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "view_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_track_host_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_rail_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_tick_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "slider_track_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "slider_thumb_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "zoom_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -54162,31 +54162,31 @@
                                     "type": "BackstageTheme"
                                 },
                                 "root_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "nav_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "back_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "back_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "nav_item_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "nav_item_active_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "nav_item_gap_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "right_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "content_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -54842,19 +54842,19 @@
                                     "type": "ButtonType"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "image_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "trailing_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "on_click": {
                                     "type": "OptionButtonOnClick"
@@ -55114,13 +55114,13 @@
                                     "type": "OptionImageRef"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "image_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -55752,7 +55752,7 @@
                                     "type": "ColorInputStateWrapper"
                                 },
                                 "style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -56531,7 +56531,7 @@
                                     "type": "TextInput"
                                 },
                                 "style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -58086,7 +58086,7 @@
                                     "type": "RibbonGroupVec"
                                 },
                                 "style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -58882,10 +58882,10 @@
                                     "type": "SliderStateWrapper"
                                 },
                                 "track_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "thumb_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -59626,134 +59626,137 @@
                                 "theme": {
                                     "type": "RibbonTheme"
                                 },
+                                "handedness": {
+                                    "type": "Handedness"
+                                },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "tab_bar_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "app_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "tab_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "tab_active_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "tab_filler_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "content_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "group_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "group_items_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "group_footer_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "group_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "footer_spacer_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "launcher_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "launcher_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "column_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "row_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "separator_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "large_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "large_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "large_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "small_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "small_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "small_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "arrow_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "checked_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_frame_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_strip_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_cell_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_cell_selected_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_cell_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_spinner_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_wrapper_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_panel_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_tab_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_tab_label_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_tab_arrow_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_tab_overlay_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_tab_overlay_item_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_group_list_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_group_list_item_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "mobile_group_list_item_selected_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_spinner_button_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_spinner_icon_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -62624,10 +62627,10 @@
                                     "type": "Dom"
                                 },
                                 "wrapper_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "content_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -63426,7 +63429,7 @@
                                     "type": "String"
                                 },
                                 "wrapper_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "tip_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
@@ -63781,22 +63784,22 @@
                                     "type": "String"
                                 },
                                 "wrapper_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "field_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "text_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "arrow_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "option_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "list_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -64971,7 +64974,7 @@
                                     "type": "DatePickerStateWrapper"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -84793,7 +84796,7 @@
                                     "type": "TimePickerStateWrapper"
                                 },
                                 "container_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -118397,7 +118400,9 @@
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Ord",
+                            "PartialOrd"
                         ],
                         "enum_fields": [
                             {
