@@ -6,17 +6,17 @@
 //! parses as an `f32` within the configured `min`/`max` range.
 
 use std::string::String;
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::Dom,
     refany::RefAny,
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditionsVec, 
+    dynamic_selector::CssPropertyWithConditionsVec,
     props::{
         basic::*,
         layout::*,
@@ -639,8 +639,10 @@ mod autotest_generated {
     /// `n` properties lifted off the default container style — an easy way to mint
     /// style vectors that are pairwise distinct without hard-coding CSS.
     fn style(n: usize) -> CssPropertyWithConditionsVec {
-        let all: Vec<CssPropertyWithConditions> =
-            TextInput::default().container_style.as_ref().to_vec();
+        let all: Vec<CssPropertyWithConditions> = TextInput::default()
+            .resolved_container_style()
+            .as_slice()
+            .to_vec();
         assert!(n <= all.len(), "not enough default properties to slice");
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
@@ -1060,8 +1062,8 @@ mod autotest_generated {
             .with_container_style(container.clone())
             .with_label_style(label.clone());
 
-        assert_eq!(input.text_input.container_style, container);
-        assert_eq!(input.text_input.label_style, label);
+        assert_eq!(input.text_input.resolved_container_style(), container);
+        assert_eq!(input.text_input.resolved_label_style(), label);
         assert_eq!(
             input.style,
             NumberInput::default().style,

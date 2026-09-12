@@ -28,8 +28,7 @@ use azul_core::{
     refany::RefAny,
     task::OptionTimerId,
 };
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
-use azul_css::css::BoxOrStatic;
+use azul_css::{css::BoxOrStatic, dynamic_selector::OptionCssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -824,6 +823,31 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
+    /// The container style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_CONTAINER_PROPS)
+            })
+    }
+
+    /// The label style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS)
+        })
+    }
+
     /// Name this control for assistive technology.
     #[must_use]
     pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
@@ -1072,7 +1096,7 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_focus_received(
     mut text_input: RefAny,
     mut info: CallbackInfo,
@@ -1106,7 +1130,7 @@ pub extern "C" fn default_on_focus_received(
     Update::DoNothing
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
@@ -1137,7 +1161,7 @@ pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: Callba
     }
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
@@ -1268,7 +1292,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     Some(result.update)
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
@@ -1326,7 +1350,7 @@ fn default_on_virtual_key_down_inner(
     Some(result.update)
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
     let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
@@ -1365,6 +1389,7 @@ mod autotest_generated {
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         managers::text_input::PendingTextEdit,
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1823,8 +1848,10 @@ mod autotest_generated {
     /// `n` properties lifted off the default container style — an easy way to mint
     /// pairwise-distinct style vectors without hard-coding any CSS.
     fn style(n: usize) -> CssPropertyWithConditionsVec {
-        let all: Vec<CssPropertyWithConditions> =
-            TextInput::default().container_style.as_ref().to_vec();
+        let all: Vec<CssPropertyWithConditions> = TextInput::default()
+            .resolved_container_style()
+            .as_slice()
+            .to_vec();
         assert!(n <= all.len(), "not enough default properties to slice");
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
@@ -2053,8 +2080,11 @@ mod autotest_generated {
                 .map(|s| s.as_str().to_string()),
             Some("type here".to_string()),
         );
-        assert_eq!(input.container_style, before.container_style);
-        assert_eq!(input.label_style, before.label_style);
+        assert_eq!(
+            input.resolved_container_style(),
+            before.resolved_container_style()
+        );
+        assert_eq!(input.resolved_label_style(), before.resolved_label_style());
         assert_eq!(
             input.text_input_state.inner.max_len,
             before.text_input_state.inner.max_len
@@ -2151,13 +2181,19 @@ mod autotest_generated {
 
         let mut b = TextInput::create();
         b.set_container_style(marker.clone());
-        assert_eq!(b.container_style, marker);
-        assert_eq!(b.label_style, TextInput::create().label_style);
+        assert_eq!(b.resolved_container_style(), marker);
+        assert_eq!(
+            b.resolved_label_style(),
+            TextInput::create().resolved_label_style()
+        );
 
         let mut c = TextInput::create();
         c.set_label_style(marker.clone());
-        assert_eq!(c.label_style, marker);
-        assert_eq!(c.container_style, TextInput::create().container_style);
+        assert_eq!(c.resolved_label_style(), marker);
+        assert_eq!(
+            c.resolved_container_style(),
+            TextInput::create().resolved_container_style()
+        );
     }
 
     #[test]
@@ -2179,7 +2215,7 @@ mod autotest_generated {
         let input = TextInput::create()
             .with_container_style(empty.clone())
             .with_label_style(empty.clone());
-        assert!(input.container_style.is_empty());
+        assert!(input.resolved_container_style().is_empty());
 
         // Stripping every declared property must not stop the widget from rendering.
         let dom = input.dom();
@@ -2191,7 +2227,7 @@ mod autotest_generated {
         let mut input = TextInput::create();
         input.set_container_style(style(4));
         input.set_container_style(style(1));
-        assert_eq!(input.container_style.len(), 1);
+        assert_eq!(input.resolved_container_style().len(), 1);
     }
 
     // ==================================================================
@@ -2400,7 +2436,7 @@ mod autotest_generated {
                 .text_input_state
                 .update_text_input_before_calling_vk_down_fn
         );
-        assert!(!input.container_style.is_empty());
+        assert!(!input.resolved_container_style().is_empty());
     }
 
     #[test]
@@ -2709,21 +2745,40 @@ mod autotest_generated {
             .with_container_style(container_style.clone())
             .dom();
 
-        let inline = |node: &Dom| -> Vec<CssProperty> {
-            node.root
-                .style
-                .iter_inline_properties()
-                .map(|(p, _)| p.clone())
-                .collect()
-        };
         let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
             v.as_ref().iter().map(|p| p.property.clone()).collect()
         };
 
-        assert_eq!(inline(&dom), declared(&container_style));
+        // The theme appends its dark twins on top of what the caller set, so
+        // only the theme-independent half is the caller's style verbatim.
+        assert_eq!(theme_probe::unthemed(&dom), declared(&container_style));
         assert_eq!(
-            inline(&dom.children.as_ref()[LABEL_CHILD]),
+            theme_probe::unthemed(&dom.children.as_ref()[LABEL_CHILD]),
             declared(&label_style)
+        );
+    }
+
+    #[test]
+    fn dom_gives_the_container_and_the_label_a_dark_mode_twin() {
+        // A caller-supplied style replaces the widget's own, but it must not
+        // disable the theme's dark half — otherwise setting any style at all
+        // leaves the field painting a light fill on a dark surface.
+        let dom = TextInput::create()
+            .with_container_style(style(3))
+            .with_label_style(style(2))
+            .dom();
+
+        assert!(
+            theme_probe::dark(&dom)
+                .iter()
+                .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+            "the container keeps its light fill in dark mode",
+        );
+        assert!(
+            theme_probe::dark(&dom.children.as_ref()[LABEL_CHILD])
+                .iter()
+                .any(|p| matches!(p, CssProperty::TextColor(_))),
+            "the label keeps its light ink in dark mode",
         );
     }
 

@@ -419,12 +419,39 @@ impl Default for TextArea {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
+            ),
         }
     }
 }
 
 impl TextArea {
+    /// The container style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(TEXT_AREA_CONTAINER_PROPS)
+            })
+    }
+
+    /// The label style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(TEXT_AREA_LABEL_PROPS)
+        })
+    }
+
     /// Name this control for assistive technology.
     #[must_use]
     pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
@@ -634,7 +661,7 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_focus_received(
     mut text_area: RefAny,
     mut info: CallbackInfo,
@@ -663,7 +690,7 @@ pub extern "C" fn default_on_focus_received(
     Update::DoNothing
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
         return Update::DoNothing;
@@ -692,7 +719,7 @@ pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: Callbac
     }
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_text_input(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_area, info).unwrap_or(Update::DoNothing)
 }
@@ -806,7 +833,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     Some(result.update)
 }
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn default_on_virtual_key_down(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_area, info).unwrap_or(Update::DoNothing)
 }
@@ -982,8 +1009,10 @@ mod autotest_generated {
     /// `n` properties lifted off the default container style — an easy way to
     /// mint pairwise-distinct style vectors without hard-coding CSS.
     fn style(n: usize) -> CssPropertyWithConditionsVec {
-        let all: Vec<CssPropertyWithConditions> =
-            TextArea::default().container_style.as_ref().to_vec();
+        let all: Vec<CssPropertyWithConditions> = TextArea::default()
+            .resolved_container_style()
+            .as_slice()
+            .to_vec();
         assert!(n <= all.len(), "not enough default properties to slice");
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
@@ -1482,8 +1511,8 @@ mod autotest_generated {
         // `::placeholder` cascade (an `on_placeholder` declaration on the
         // label), not through a separate vector with no node to apply to.
         let area = TextArea::create();
-        assert!(!area.container_style.as_ref().is_empty());
-        assert!(!area.label_style.as_ref().is_empty());
+        assert!(!area.resolved_container_style().as_ref().is_empty());
+        assert!(!area.resolved_label_style().as_ref().is_empty());
     }
 
     #[test]
@@ -1604,7 +1633,7 @@ mod autotest_generated {
                 .map(AzString::as_str),
             Some("type here")
         );
-        assert_eq!(area.container_style.len(), 3);
+        assert_eq!(area.resolved_container_style().len(), 3);
         assert_eq!(area.text_area_state.inner.get_text(), "body");
     }
 
@@ -1826,10 +1855,10 @@ mod autotest_generated {
     #[test]
     fn set_container_style_replaces_the_whole_vector() {
         let mut area = TextArea::create();
-        let before = area.container_style.len();
+        let before = area.resolved_container_style().len();
         area.set_container_style(style(2));
 
-        assert_eq!(area.container_style.len(), 2);
+        assert_eq!(area.resolved_container_style().len(), 2);
         assert_ne!(before, 2, "the fixture has to actually change something");
     }
 
@@ -1837,7 +1866,7 @@ mod autotest_generated {
     fn an_empty_container_style_is_accepted() {
         let area = TextArea::create()
             .with_container_style(CssPropertyWithConditionsVec::from_vec(Vec::new()));
-        assert!(area.container_style.as_ref().is_empty());
+        assert!(area.resolved_container_style().as_ref().is_empty());
 
         // ...and still produces a DOM.
         let dom = area.dom();
@@ -1846,10 +1875,10 @@ mod autotest_generated {
 
     #[test]
     fn container_style_does_not_leak_into_the_other_style_slots() {
-        let default_label = TextArea::create().label_style;
+        let default_label = TextArea::create().resolved_label_style();
         let area = TextArea::create().with_container_style(style(1));
 
-        assert_eq!(area.label_style, default_label);
+        assert_eq!(area.resolved_label_style(), default_label);
     }
 
     // ==================================================================

@@ -34,9 +34,11 @@ use azul_core::{
     dom::{DatasetMergeCallbackType, Dom, OptionDom},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
-use azul_css::{dynamic_selector::CssPropertyWithConditionsVec, AzString};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
+    AzString,
+};
 
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
@@ -781,10 +783,13 @@ impl MapWidget {
 
         // A caller-supplied container style replaces the default fill above
         // (`with_css_props` replaces the inline style) — the caller then owns sizing.
-        if self.container_style.into_option().is_none() {
-            root
-        } else {
-            root.with_css_props(self.container_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::new()))
+        match self.container_style.into_option() {
+            // No opinion: keep the default fill declared above.
+            None => root,
+            // A caller-supplied style REPLACES it (`with_css_props` replaces the
+            // inline style), so an empty vec is a real answer here — it means
+            // "no properties", and the caller takes over sizing.
+            Some(css) => root.with_css_props(css),
         }
     }
 }
@@ -2105,6 +2110,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         .replace("{y}", &tile.y.to_string())
 }
 
+#[must_use]
 /// Worker-thread → main-thread writeback.
 ///
 /// `cache_dataset` is the
@@ -2112,7 +2118,6 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
 /// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
 /// a relayout so the `VirtualView` renders the new content.
-#[must_use]
 pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
@@ -4168,7 +4173,10 @@ mod autotest_generated {
         let widget = MapWidget::create(layer.clone());
         assert_eq!(widget.layer, layer);
         assert_eq!(widget.viewport, MapViewport::default());
-        assert!(widget.container_style.as_slice().is_empty());
+        assert!(
+            widget.container_style.as_ref().is_none(),
+            "a fresh widget has no opinion on its container style"
+        );
         assert!(matches!(
             widget.on_viewport_changed,
             OptionMapViewportChanged::None
@@ -4227,12 +4235,27 @@ mod autotest_generated {
         let parsed_len = css.as_slice().len();
         assert!(parsed_len > 0, "positive control: the style must parse");
         let widget = MapWidget::create(MapTileLayer::default()).with_container_style(css);
-        assert_eq!(widget.container_style.as_slice().len(), parsed_len);
+        assert_eq!(
+            widget
+                .container_style
+                .as_ref()
+                .expect("the builder stores what it was given")
+                .as_slice()
+                .len(),
+            parsed_len
+        );
 
-        // An unparseable style yields an empty vec, and the builder stores it.
+        // An unparseable style yields an EMPTY vec, and the builder stores that
+        // as `Some(empty)` — a real answer ("no properties"), distinct from the
+        // `None` a fresh widget carries.
         let widget = MapWidget::create(MapTileLayer::default())
             .with_container_style(CssPropertyWithConditionsVec::parse(""));
-        assert!(widget.container_style.as_slice().is_empty());
+        assert!(widget
+            .container_style
+            .as_ref()
+            .expect("an explicit empty style is still an opinion")
+            .as_slice()
+            .is_empty());
     }
 
     #[test]
@@ -4249,7 +4272,7 @@ mod autotest_generated {
             let widget = MapWidget::create(MapTileLayer::default())
                 .with_container_style(CssPropertyWithConditionsVec::parse(style));
             // Reaching here means neither the parser nor the builder panicked.
-            let _ = widget.container_style.as_slice().len();
+            let _ = widget.container_style.as_ref().map(|c| c.as_slice().len());
         }
     }
 
