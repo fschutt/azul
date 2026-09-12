@@ -60495,7 +60495,7 @@
                                     "type": "BadgeKind"
                                 },
                                 "badge_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],
@@ -63254,7 +63254,7 @@
                                     "type": "ColorU"
                                 },
                                 "spinner_style": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                    "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
                         ],

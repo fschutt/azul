@@ -24,7 +24,9 @@
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{color::ColorU, *},
         layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutWidth},
@@ -72,8 +74,13 @@ pub struct Spinner {
     pub color: ColorU,
     /// Colour of the three inactive ("track") sides.
     pub track_color: ColorU,
-    /// The computed inline style for the ring.
-    pub spinner_style: CssPropertyWithConditionsVec,
+    /// The ring's CSS, or `None` for "no opinion" — in which case the style is
+    /// derived from `size`, `color` and `track_color` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub spinner_style: OptionCssPropertyWithConditionsVec,
 }
 
 /// Builds the ring style for the given diameter and colours. All three are
@@ -161,7 +168,7 @@ impl Spinner {
     /// Creates a new spinner with the default size (24px) and accent colour.
     #[inline]
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self::with_size(DEFAULT_SIZE)
     }
 
@@ -169,56 +176,67 @@ impl Spinner {
     /// default colours.
     #[inline]
     #[must_use]
-    pub fn with_size(size: isize) -> Self {
+    pub const fn with_size(size: isize) -> Self {
         Self {
             size,
             color: DEFAULT_ACCENT_COLOR,
             track_color: DEFAULT_TRACK_COLOR,
-            spinner_style: build_spinner_style(size, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
+            spinner_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the ring diameter (logical px), recomputing the style.
+    /// The ring CSS this spinner renders with.
+    ///
+    /// `None` means no opinion, so the geometry and colours decide — the same
+    /// answer both themes give, asked in one place so they cannot drift. It is
+    /// also what makes the three setters below plain field writes: there is no
+    /// cached vec left for them to keep in step.
+    #[must_use]
+    pub fn resolved_spinner_style(&self) -> CssPropertyWithConditionsVec {
+        self.spinner_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_spinner_style(self.size, self.color, self.track_color))
+    }
+
+    /// Sets the ring diameter (logical px).
     #[inline]
-    pub fn set_size(&mut self, size: isize) {
+    pub const fn set_size(&mut self, size: isize) {
         self.size = size;
-        self.spinner_style = build_spinner_style(size, self.color, self.track_color);
     }
 
     /// Builder-style setter for the ring diameter.
     #[inline]
     #[must_use]
-    pub fn with_spinner_size(mut self, size: isize) -> Self {
+    pub const fn with_spinner_size(mut self, size: isize) -> Self {
         self.set_size(size);
         self
     }
 
-    /// Sets the active-arc colour, recomputing the style.
+    /// Sets the active-arc colour.
     #[inline]
-    pub fn set_color(&mut self, color: ColorU) {
+    pub const fn set_color(&mut self, color: ColorU) {
         self.color = color;
-        self.spinner_style = build_spinner_style(self.size, color, self.track_color);
     }
 
     /// Builder-style setter for the active-arc colour.
     #[inline]
     #[must_use]
-    pub fn with_color(mut self, color: ColorU) -> Self {
+    pub const fn with_color(mut self, color: ColorU) -> Self {
         self.set_color(color);
         self
     }
 
-    /// Sets the inactive "track" colour, recomputing the style.
+    /// Sets the inactive "track" colour.
     #[inline]
-    pub fn set_track_color(&mut self, track_color: ColorU) {
+    pub const fn set_track_color(&mut self, track_color: ColorU) {
         self.track_color = track_color;
-        self.spinner_style = build_spinner_style(self.size, self.color, track_color);
     }
 
     /// Builder-style setter for the inactive "track" colour.
     #[inline]
     #[must_use]
-    pub fn with_track_color(mut self, track_color: ColorU) -> Self {
+    pub const fn with_track_color(mut self, track_color: ColorU) -> Self {
         self.set_track_color(track_color);
         self
     }
@@ -226,7 +244,7 @@ impl Spinner {
     /// Replaces `self` with a default spinner and returns the original.
     #[inline]
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -239,7 +257,7 @@ impl Spinner {
     pub fn dom(self) -> Dom {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
-            .with_css_props(self.spinner_style)
+            .with_css_props(self.resolved_spinner_style())
     }
 }
 
@@ -913,12 +931,15 @@ mod autotest_generated {
             }
         );
         assert_eq!(
-            s.spinner_style,
+            s.resolved_spinner_style(),
             build_spinner_style(DEFAULT_SIZE, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
         );
         // 24px → 3px border, 12px radius.
-        assert_eq!(raw(border_widths(&s.spinner_style)[0]), 3 * FP_SCALE);
-        assert_eq!(raw(radii(&s.spinner_style)[0]), 12 * FP_SCALE);
+        assert_eq!(
+            raw(border_widths(&s.resolved_spinner_style())[0]),
+            3 * FP_SCALE
+        );
+        assert_eq!(raw(radii(&s.resolved_spinner_style())[0]), 12 * FP_SCALE);
     }
 
     #[test]
@@ -934,12 +955,12 @@ mod autotest_generated {
             assert_eq!(s.size, size, "the size field does not match the argument");
             assert_eq!(s.color, DEFAULT_ACCENT_COLOR);
             assert_eq!(s.track_color, DEFAULT_TRACK_COLOR);
-            assert_eq!(s.spinner_style.len(), DECLARATIONS);
+            assert_eq!(s.resolved_spinner_style().len(), DECLARATIONS);
             assert_eq!(
-                s.spinner_style,
+                s.resolved_spinner_style(),
                 build_spinner_style(size, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
             );
-            assert_eq!(raw(width(&s.spinner_style)) / FP_SCALE, size);
+            assert_eq!(raw(width(&s.resolved_spinner_style())) / FP_SCALE, size);
         }
     }
 
@@ -957,8 +978,11 @@ mod autotest_generated {
         assert_eq!(s.size, 64);
         assert_eq!(s.color, RED);
         assert_eq!(s.track_color, GREEN);
-        assert_eq!(border_colors(&s.spinner_style), [RED, GREEN, GREEN, GREEN]);
-        assert_eq!(raw(width(&s.spinner_style)), 64 * FP_SCALE);
+        assert_eq!(
+            border_colors(&s.resolved_spinner_style()),
+            [RED, GREEN, GREEN, GREEN]
+        );
+        assert_eq!(raw(width(&s.resolved_spinner_style())), 64 * FP_SCALE);
     }
 
     #[test]
@@ -968,8 +992,11 @@ mod autotest_generated {
 
         assert_eq!(s.size, 48, "set_color moved the diameter");
         assert_eq!(s.track_color, GREEN, "set_color clobbered the track colour");
-        assert_eq!(border_colors(&s.spinner_style), [RED, GREEN, GREEN, GREEN]);
-        assert_eq!(raw(width(&s.spinner_style)), 48 * FP_SCALE);
+        assert_eq!(
+            border_colors(&s.resolved_spinner_style()),
+            [RED, GREEN, GREEN, GREEN]
+        );
+        assert_eq!(raw(width(&s.resolved_spinner_style())), 48 * FP_SCALE);
     }
 
     #[test]
@@ -979,7 +1006,10 @@ mod autotest_generated {
 
         assert_eq!(s.size, 48, "set_track_color moved the diameter");
         assert_eq!(s.color, RED, "set_track_color clobbered the accent colour");
-        assert_eq!(border_colors(&s.spinner_style), [RED, GREEN, GREEN, GREEN]);
+        assert_eq!(
+            border_colors(&s.resolved_spinner_style()),
+            [RED, GREEN, GREEN, GREEN]
+        );
     }
 
     #[test]
@@ -996,7 +1026,11 @@ mod autotest_generated {
         let once = Spinner::with_size(24)
             .with_color(RED)
             .with_track_color(GREEN);
-        assert_eq!(s.spinner_style.len(), DECLARATIONS, "the style vec grew");
+        assert_eq!(
+            s.resolved_spinner_style().len(),
+            DECLARATIONS,
+            "the style vec grew"
+        );
         assert_eq!(
             s, once,
             "repeated setters diverged from a single application"
@@ -1012,7 +1046,7 @@ mod autotest_generated {
             s.set_size(size);
 
             assert_eq!(s.size, size);
-            assert_eq!(s.spinner_style.len(), DECLARATIONS);
+            assert_eq!(s.resolved_spinner_style().len(), DECLARATIONS);
             assert_eq!(
                 s,
                 Spinner::with_size(size)
@@ -1094,9 +1128,9 @@ mod autotest_generated {
         assert_eq!(taken, expected, "the returned spinner is not the original");
         assert_eq!(s, Spinner::create(), "the receiver is not a fresh default");
         // The returned value must own a live style, not a moved-out husk.
-        assert_eq!(taken.spinner_style.len(), DECLARATIONS);
+        assert_eq!(taken.resolved_spinner_style().len(), DECLARATIONS);
         assert_eq!(
-            border_colors(&taken.spinner_style),
+            border_colors(&taken.resolved_spinner_style()),
             [RED, GREEN, GREEN, GREEN]
         );
     }
@@ -1134,13 +1168,23 @@ mod autotest_generated {
     fn clone_deep_copies_the_style_buffer() {
         // `CssPropertyWithConditionsVec` is a raw-pointer FFI vec: a shallow clone
         // would alias one allocation into two owners and double-free it.
-        let original = Spinner::with_size(32).with_color(RED);
+        // Only a STORED style owns a buffer — a resolved one is built fresh per
+        // call and has nothing to alias — so this asks with an explicit style.
+        let mut original = Spinner::with_size(32).with_color(RED);
+        original.spinner_style =
+            OptionCssPropertyWithConditionsVec::Some(build_spinner_style(32, RED, GREEN));
         let copy = original.clone();
 
         assert_eq!(copy, original);
+        let buffer = |s: &Spinner| {
+            s.spinner_style
+                .as_ref()
+                .expect("the fixture stores a style")
+                .as_ptr()
+        };
         assert_ne!(
-            original.spinner_style.as_ptr(),
-            copy.spinner_style.as_ptr(),
+            buffer(&original),
+            buffer(&copy),
             "the clone shares the original's style buffer",
         );
     }
@@ -1158,8 +1202,11 @@ mod autotest_generated {
             "mutating the clone moved the original's size"
         );
         assert_eq!(original.track_color, DEFAULT_TRACK_COLOR);
-        assert_eq!(raw(width(&original.spinner_style)), 32 * FP_SCALE);
-        assert_eq!(border_colors(&original.spinner_style)[0], RED);
+        assert_eq!(
+            raw(width(&original.resolved_spinner_style())),
+            32 * FP_SCALE
+        );
+        assert_eq!(border_colors(&original.resolved_spinner_style())[0], RED);
     }
 
     // ==================================================================
@@ -1187,7 +1234,7 @@ mod autotest_generated {
             let s = Spinner::with_size(size)
                 .with_color(RED)
                 .with_track_color(GREEN);
-            let expected = props(&s.spinner_style);
+            let expected = props(&s.resolved_spinner_style());
             let dom = s.dom();
 
             assert_eq!(
