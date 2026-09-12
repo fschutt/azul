@@ -1831,6 +1831,101 @@ impl CssPropertyWithConditions {
         Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Light)])
     }
 
+    /// A light value TOGETHER with its dark twin, in the only order that
+    /// works: `[simple(light), dark_theme(dark)]`.
+    ///
+    /// Inline declarations resolve last-match-wins, so a `dark_theme(X)`
+    /// pushed BEFORE an unconditional `X` of the same property is dead under
+    /// the dark theme, and a `dark_theme(X)` with no light `X` at all leaves
+    /// the light window with the UA default. Both were shipped by hand more
+    /// than once (theme-chain analysis 2026-09-12, R6 / I8): the widgets
+    /// declare their light face in one place and the theme module appends
+    /// twins in another, and nothing checked the pair. Building the pair
+    /// here makes half of one unrepresentable; the widget lint
+    /// (`widgets::theme_pairs`) catches the hand-rolled remainder.
+    ///
+    /// Both halves must be the same property type — that is what makes them
+    /// a pair — and a mismatch is a programming error, checked in debug.
+    #[must_use]
+    pub fn themed(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed(): the dark twin must be the same property as its light value"
+        );
+        [Self::simple(light), Self::dark_theme(dark)]
+    }
+
+    /// [`Self::themed`] for the hover state: `[on_hover(light), dark_on_hover(dark)]`.
+    #[must_use]
+    pub fn themed_on_hover(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_hover(): type mismatch"
+        );
+        [Self::on_hover(light), Self::dark_on_hover(dark)]
+    }
+
+    /// [`Self::themed`] for the pressed state: `[on_active(light), dark_on_active(dark)]`.
+    #[must_use]
+    pub fn themed_on_active(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_active(): type mismatch"
+        );
+        [Self::on_active(light), Self::dark_on_active(dark)]
+    }
+
+    /// [`Self::themed`] for the focused state: `[on_focus(light), dark_on_focus(dark)]`.
+    #[must_use]
+    pub fn themed_on_focus(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_focus(): type mismatch"
+        );
+        [Self::on_focus(light), Self::dark_on_focus(dark)]
+    }
+
+    /// Whether this declaration is a DARK twin: carries a
+    /// `Theme(Dark)` condition (possibly alongside pseudo-state ones).
+    #[must_use]
+    pub fn is_dark_twin(&self) -> bool {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+    }
+
+    /// The pseudo-state conditions of this declaration, in order — what a
+    /// dark twin and its light counterpart must share.
+    #[must_use]
+    pub fn pseudo_state_conditions(&self) -> alloc::vec::Vec<PseudoStateType> {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .filter_map(|c| match c {
+                DynamicSelector::PseudoState(s) => Some(*s),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether this declaration can be the LIGHT half of a pair: no
+    /// `Theme(Dark)` condition, and no condition other than pseudo-states and
+    /// an explicit `Theme(Light)`.
+    #[must_use]
+    pub fn is_light_half(&self) -> bool {
+        self.apply_if.as_slice().iter().all(|c| {
+            matches!(
+                c,
+                DynamicSelector::PseudoState(_) | DynamicSelector::Theme(ThemeCondition::Light)
+            )
+        })
+    }
+
     /// Create a property for Windows only (const version)
     #[must_use]
     pub const fn on_windows(property: CssProperty) -> Self {
@@ -5367,5 +5462,63 @@ mod safe_area_context_tests {
         }
         assert_eq!(EnvVariable::from_css_name("safe-area-inset"), None);
         assert_eq!(EnvVariable::from_css_name(""), None);
+    }
+}
+
+#[cfg(test)]
+mod themed_pairs {
+    //! Item 7 of the theme-chain analysis (2026-09-12): the pair builder.
+    use super::*;
+    use crate::props::{basic::color::ColorU, style::StyleTextColor};
+
+    fn colour(v: u8) -> CssProperty {
+        CssProperty::const_text_color(StyleTextColor {
+            inner: ColorU::rgb(v, v, v),
+        })
+    }
+
+    #[test]
+    fn themed_emits_the_light_value_first_and_the_dark_twin_second() {
+        let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
+        assert!(!light.is_conditional(), "the light half is unconditional");
+        assert!(dark.is_dark_twin());
+        assert_eq!(light.property, colour(0));
+        assert_eq!(dark.property, colour(255));
+        assert_eq!(dark.pseudo_state_conditions(), Vec::new());
+        assert!(light.is_light_half());
+        assert!(!dark.is_light_half());
+    }
+
+    #[test]
+    fn the_state_variants_carry_the_state_on_both_halves() {
+        let [l, d] = CssPropertyWithConditions::themed_on_hover(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Hover]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Hover]);
+        assert!(d.is_dark_twin() && !l.is_dark_twin());
+        let [l, d] = CssPropertyWithConditions::themed_on_active(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Active]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Active]);
+        let [l, d] = CssPropertyWithConditions::themed_on_focus(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Focus]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Focus]);
+    }
+
+    #[test]
+    fn the_dark_twin_only_matches_a_dark_context() {
+        let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.theme = ThemeCondition::Light;
+        assert!(light.matches(&ctx) && !dark.matches(&ctx));
+        ctx.theme = ThemeCondition::Dark;
+        assert!(
+            light.matches(&ctx) && dark.matches(&ctx),
+            "last match wins: the twin"
+        );
+    }
+
+    #[test]
+    fn a_light_theme_only_value_is_a_light_half_but_an_os_gated_one_is_not() {
+        assert!(CssPropertyWithConditions::light_theme(colour(0)).is_light_half());
+        assert!(!CssPropertyWithConditions::on_macos(colour(0)).is_light_half());
     }
 }
