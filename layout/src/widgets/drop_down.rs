@@ -100,7 +100,9 @@ impl Default for DropDown {
             label_style: OptionCssPropertyWithConditionsVec::None,
             arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
+            ),
         }
     }
 }
@@ -201,7 +203,7 @@ struct ChoiceCallbackData {
 // Callbacks
 // ============================================================================
 
-#[must_use] 
+#[must_use]
 pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(refany) = refany.downcast_ref::<DropDown>() else {
         return Update::DoNothing;
@@ -1242,7 +1244,7 @@ mod autotest_generated {
         );
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
-            on_dropdown_click(refany.clone(), env.info());
+            let _ = on_dropdown_click(refany.clone(), env.info());
             let CallbackChange::OpenMenu {
                 menu,
                 position,
@@ -1281,7 +1283,7 @@ mod autotest_generated {
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
             for round in 0..3 {
-                on_dropdown_click(refany.clone(), env.info());
+                let _ = on_dropdown_click(refany.clone(), env.info());
                 let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                     panic!("round {round}: expected an OpenMenu change");
                 };
@@ -1300,7 +1302,7 @@ mod autotest_generated {
         let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(4.0, 8.0));
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
-            on_dropdown_click(refany.clone(), env.info());
+            let _ = on_dropdown_click(refany.clone(), env.info());
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };
@@ -1472,7 +1474,7 @@ mod autotest_generated {
         let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(4.0, 8.0));
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
-            on_dropdown_click(refany.clone(), env.info());
+            let _ = on_dropdown_click(refany.clone(), env.info());
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };
@@ -1509,7 +1511,7 @@ mod autotest_generated {
         let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(4.0, 8.0));
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
-            on_dropdown_click(refany.clone(), env.info());
+            let _ = on_dropdown_click(refany.clone(), env.info());
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };

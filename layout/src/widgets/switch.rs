@@ -173,7 +173,7 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
 /// Build the track (pill container) style. Background colour is the only
 /// state-dependent property, so the style is built at runtime per the recipe's
 /// "runtime vec if param-dependent" path.
-#[must_use] 
+#[must_use]
 pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
     let bg = if checked { TRACK_ON_BG } else { TRACK_OFF_BG };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -224,7 +224,7 @@ pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
 
 /// Build the knob style. The knob's `margin-left` is the state-dependent
 /// property that slides it between the off (left) and on (right) positions.
-#[must_use] 
+#[must_use]
 pub fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
     let margin = if checked { KNOB_TRAVEL } else { 0 };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -365,7 +365,7 @@ pub mod input {
     use super::{SwitchOnToggle, SwitchStateWrapper, KNOB_TRAVEL, TRACK_OFF_BG, TRACK_ON_BG};
     use crate::callbacks::CallbackInfo;
 
-    #[must_use] 
+    #[must_use]
     pub extern "C" fn default_on_switch_clicked(
         mut switch: RefAny,
         mut info: CallbackInfo,

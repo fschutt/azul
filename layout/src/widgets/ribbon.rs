@@ -46,9 +46,13 @@ use azul_core::{
     },
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)]
+use azul_css::{
+    dynamic_selector::OptionCssPropertyWithConditionsVec,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    system::{Handedness, SystemStyle},
+};
 // widget/render module pulls in the css property/value types it builds with
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
+#[allow(clippy::wildcard_imports)]
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec, DynamicSelector,
@@ -65,10 +69,6 @@ use azul_css::{
         style::*,
     },
     *,
-};
-use azul_css::{
-    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
-    system::{Handedness, SystemStyle},
 };
 
 use super::{
@@ -1544,7 +1544,9 @@ impl RibbonStyle {
             group_items_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE),
             group_footer_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE),
             group_label_style: theme_group_label(theme),
-            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(FOOTER_SPACER_STYLE),
+            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(
+                FOOTER_SPACER_STYLE,
+            ),
             launcher_button_style: theme_launcher_button(theme),
             launcher_icon_style: theme_launcher_icon(theme),
             column_style: CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE),
@@ -1559,12 +1561,16 @@ impl RibbonStyle {
             arrow_icon_style: theme_arrow_icon(theme),
             checked_style: theme_checked(theme),
             gallery_frame_style: theme_gallery_frame(theme),
-            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(GALLERY_STRIP_STYLE),
+            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(
+                GALLERY_STRIP_STYLE,
+            ),
             gallery_cell_style: theme_gallery_cell(theme),
             gallery_cell_selected_style: theme_gallery_cell_selected(theme),
             gallery_cell_label_style: theme_gallery_cell_label(theme),
             gallery_spinner_style: theme_gallery_spinner(theme),
-            gallery_wrapper_style: CssPropertyWithConditionsVec::from_const_slice(GALLERY_WRAPPER_STYLE),
+            gallery_wrapper_style: CssPropertyWithConditionsVec::from_const_slice(
+                GALLERY_WRAPPER_STYLE,
+            ),
             gallery_panel_style: theme_gallery_panel(theme),
             mobile_tab_button_style: theme_mobile_tab_button(theme),
             mobile_tab_label_style: theme_mobile_tab_label(theme),

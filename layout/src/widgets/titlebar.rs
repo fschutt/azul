@@ -941,7 +941,6 @@ pub mod callbacks {
 
     /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
-    #[must_use]
     pub extern "C" fn titlebar_drag_start(_data: RefAny, mut info: CallbackInfo) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
         // We must use xdg_toplevel_move via begin_interactive_move().
@@ -993,7 +992,6 @@ pub mod callbacks {
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use]
     pub extern "C" fn titlebar_drag(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::{geom::PhysicalPositionI32, window::WindowPosition};
 
@@ -1026,8 +1024,8 @@ pub mod callbacks {
         Update::DoNothing
     }
 
-    /// `DoubleClick` - toggle Maximized ↔ Normal.
     #[must_use]
+    /// `DoubleClick` - toggle Maximized ↔ Normal.
     pub extern "C" fn titlebar_double_click(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();

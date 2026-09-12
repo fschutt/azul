@@ -418,13 +418,13 @@ extern "C" fn video_replay_worker(
     }
 }
 
+#[must_use]
 /// Writeback (main thread): store the decoded frame as the widget's
 /// `current_frame` (a CPU `ImageRef`) and re-render the `VirtualView` in place so it
 /// re-reads it - exactly like `map_tile_writeback`.
 ///
 /// Renders on cpurender AND
 /// webrender (no GL `present_frame`, no DOM rebuild).
-#[must_use]
 pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,

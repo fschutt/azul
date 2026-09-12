@@ -27,9 +27,10 @@ use azul_core::{
     dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -626,7 +627,10 @@ mod autotest_generated {
             CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)
         );
         assert_eq!(t.wrapper_style.len(), TOOLTIP_WRAPPER_STYLE.len());
-        assert_eq!(t.resolved_tip_style().as_slice().len(), TOOLTIP_TIP_STYLE.len());
+        assert_eq!(
+            t.resolved_tip_style().as_slice().len(),
+            TOOLTIP_TIP_STYLE.len()
+        );
     }
 
     #[test]
@@ -768,7 +772,8 @@ mod autotest_generated {
 
         assert_eq!(mutated, built);
         assert_eq!(
-            mutated.resolved_tip_style(), style,
+            mutated.resolved_tip_style(),
+            style,
             "the style must be stored verbatim"
         );
     }

@@ -22,8 +22,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{
-        CssPropertyWithConditions, CssPropertyWithConditionsVec,
-        OptionCssPropertyWithConditionsVec,
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     impl_option_inner,
     props::{
@@ -395,7 +394,7 @@ impl Alert {
     /// `kind` when the DOM is built, so changing the kind is enough. Writing it
     /// here would also overwrite a caller's explicit style.
     #[inline]
-    pub fn set_kind(&mut self, kind: AlertKind) {
+    pub const fn set_kind(&mut self, kind: AlertKind) {
         self.kind = kind;
     }
 
@@ -419,7 +418,7 @@ impl Alert {
     /// Builder-style setter for the colour variant.
     #[inline]
     #[must_use]
-    pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
+    pub const fn with_alert_kind(mut self, kind: AlertKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -1195,7 +1194,8 @@ mod autotest_generated {
             let before = resolved_style(&alert);
             alert.set_kind(kind);
             assert_eq!(
-                resolved_style(&alert), before,
+                resolved_style(&alert),
+                before,
                 "{kind:?}: set_kind must be idempotent"
             );
         }
@@ -1247,7 +1247,10 @@ mod autotest_generated {
             .with_alert_kind(AlertKind::Danger)
             .with_alert_kind(AlertKind::Success);
         assert_eq!(alert.kind, AlertKind::Success);
-        assert_eq!(resolved_style(&alert), build_alert_style(AlertKind::Success));
+        assert_eq!(
+            resolved_style(&alert),
+            build_alert_style(AlertKind::Success)
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1267,7 +1270,8 @@ mod autotest_generated {
         assert_eq!(alert.kind, AlertKind::Warning);
         assert_eq!(alert.message.as_str(), "m");
         assert_eq!(
-            resolved_style(&alert), style_before,
+            resolved_style(&alert),
+            style_before,
             "toggling must not restyle"
         );
         assert!(
