@@ -460,7 +460,7 @@ pub const DARK_ON_ACC: ColorU = ColorU {
     a: 255,
 };
 
-#[must_use] 
+#[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
         Some(ButtonOnClick {
@@ -577,7 +577,7 @@ pub fn button(btn: Button) -> Dom {
 
 use crate::widgets::check_box::CheckBox;
 
-#[must_use] 
+#[must_use]
 pub fn check_box(cb: CheckBox) -> Dom {
     let cb_name = cb.accessibility_name.clone();
     crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
@@ -652,7 +652,7 @@ use crate::widgets::text_input::{
     TEXT_INPUT_LABEL_CLASS,
 };
 
-#[must_use] 
+#[must_use]
 pub fn text_input(mut ti: TextInput) -> Dom {
     let a11y_name: Option<AzString> = ti.text_input_state.inner.placeholder.as_ref().cloned();
     let a11y_value: String = ti
@@ -690,10 +690,16 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         .map(|s| s.as_str().to_string())
         .unwrap_or_default();
 
+    // Resolved before `ti.text_input_state` is moved out below, and through the
+    // widget's own resolver rather than a second copy of its default — the point
+    // of the resolver is that flat and flora cannot drift on this answer.
+    let resolved_container_style = ti.resolved_container_style();
+    let resolved_label_style = ti.resolved_label_style();
+
     let state_ref = RefAny::new(ti.text_input_state);
 
     let mut container_style: Vec<CssPropertyWithConditions> =
-        ti.container_style.into_option().map(|s| s.as_slice().to_vec()).unwrap_or_else(|| crate::widgets::text_input::TEXT_INPUT_CONTAINER_PROPS.to_vec());
+        resolved_container_style.as_slice().to_vec();
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
@@ -716,7 +722,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
-    let mut label_style: Vec<CssPropertyWithConditions> = ti.label_style.into_option().map(|s| s.as_slice().to_vec()).unwrap_or_else(|| crate::widgets::text_input::TEXT_INPUT_LABEL_PROPS.to_vec());
+    let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
     label_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
@@ -790,20 +796,19 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         )
 }
 
-#[must_use] 
+#[must_use]
 pub fn label(l: crate::widgets::label::Label) -> Dom {
     use azul_core::dom::{IdOrClass::Class, IdOrClassVec};
     use AzString;
 
-    static LABEL_CLASS: &[IdOrClass] =
-        &[Class(AzString::from_const_str("__azul-native-label"))];
+    static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
 
     crate::widgets::widget_p_with_text(l.string)
         .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
         .with_css_props(l.label_style)
 }
 
-#[must_use] 
+#[must_use]
 pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let is_checked = s.switch_state.inner.checked;
     // Resolved up front: the knob's Dom is built after `s.switch_state` has
@@ -825,10 +830,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from(
             crate::widgets::switch::SWITCH_TRACK_CLASS,
         ))
-        .with_css_props(
-            resolved_track_style.as_slice().to_vec()
-            .into(),
-        )
+        .with_css_props(resolved_track_style.as_slice().to_vec().into())
         .with_callbacks(
             alloc::vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -858,10 +860,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
                 .with_ids_and_classes(IdOrClassVec::from(
                     crate::widgets::switch::SWITCH_KNOB_CLASS
                 ))
-                .with_css_props(
-                    resolved_knob_style.as_slice().to_vec()
-                    .into()
-                )]
+                .with_css_props(resolved_knob_style.as_slice().to_vec().into())]
             .into(),
         )
 }
@@ -873,10 +872,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 #[must_use]
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
     let height = bar.height;
-    let dataset =
-        RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset {
-            bar,
-        });
+    let dataset = RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset { bar });
     Dom::create_virtual_view(
         dataset.clone(),
         azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
@@ -1336,13 +1332,13 @@ pub fn progressbar_render_bar_impl(
     }
 }
 
+#[must_use]
 /// The widget's `VirtualView` callback: render the CURRENT state of the bar
 /// into the node's bounds. Invoked on mount and again every time
 /// [`ProgressBar::update_progress`] queues a re-render.
 ///
 /// The bar is not scrollable content, so all three rects collapse to one:
 /// `materialized` == `virtual_rect` == the container's box at origin zero.
-#[must_use] 
 pub extern "C" fn progressbar_render_virtual_view(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -1465,7 +1461,7 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         )
 }
 
-#[must_use] 
+#[must_use]
 pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     let ta_name: Option<AzString> = ta.text_area_state.inner.placeholder.as_ref().cloned();
 
@@ -1721,7 +1717,7 @@ const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     })),
 ];
 
-#[must_use] 
+#[must_use]
 pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
@@ -1786,7 +1782,7 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         ]))
 }
 
-#[must_use] 
+#[must_use]
 pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
     use azul_core::dom::{Dom, IdOrClassVec};
     let size = a.size;
