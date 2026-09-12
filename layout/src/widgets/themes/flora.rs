@@ -915,21 +915,28 @@ pub fn button(btn: Button) -> Dom {
             }
         }
 
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-        ));
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-        ));
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-        ));
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-        ));
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-        ));
+        // Dark ink and dark borders belong to the NEUTRAL surface (raised
+        // paper); a coloured stone keeps its own text and edge colours in
+        // both modes, and the link has no face to border. Same rule as the
+        // resting face above, from the one place it lives:
+        // `ButtonType::surface`.
+        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
+            ));
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
+            ));
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
+            ));
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
+            ));
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
+            ));
+        }
 
         // Here we could wrap the button in decorative DOM nodes for the skeumorphic flora look.
         // For now, we apply basic properties to test the theming engine.
@@ -2399,7 +2406,7 @@ pub fn button_states(
     }
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
-    let neutral = button_type == ButtonType::Default;
+    let neutral = button_type.surface() == crate::widgets::button::ButtonSurface::Neutral;
     // The neutral button is paper: it hovers and presses to the theme's faces,
     // each with its dark twin. A coloured button is a stone: the same colour in
     // both modes (see above), under the rig flora.css lays on a stone.

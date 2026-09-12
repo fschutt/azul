@@ -56,7 +56,39 @@ pub enum ButtonType {
     Link,
 }
 
+/// What a button type's face IS, which decides what a theme may do to it
+/// in dark mode. The migration's rule: a page-neutral surface takes the
+/// theme's dark tokens; a surface that is its own colour keeps it in both
+/// modes; a light value never moves.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ButtonSurface {
+    /// The standard command: light grey paper, dark text. Page-neutral —
+    /// the theme paints it in its dark face and ink.
+    Neutral,
+    /// A coloured command (primary, success, danger, ...): the colour is the
+    /// meaning. The theme leaves face, text and border alone.
+    OwnColour,
+    /// The link button: no face at all, only text.
+    NoSurface,
+}
+
 impl ButtonType {
+    /// See [`ButtonSurface`].
+    #[must_use]
+    pub const fn surface(self) -> ButtonSurface {
+        match self {
+            Self::Default => ButtonSurface::Neutral,
+            Self::Link => ButtonSurface::NoSurface,
+            Self::Primary
+            | Self::Secondary
+            | Self::Success
+            | Self::Danger
+            | Self::Warning
+            | Self::Info => ButtonSurface::OwnColour,
+        }
+    }
+
     /// Get the CSS class name for this button type
     #[must_use]
     pub const fn class_name(&self) -> &'static str {
@@ -1713,6 +1745,56 @@ mod autotest_generated {
                 "{ty:?}: the container style did not reach the node"
             );
         }
+    }
+
+    /// `ButtonType::surface` decides what the theme may do in dark mode: the
+    /// neutral (Default) face takes the theme's dark face; a coloured command
+    /// keeps its own colour — no dark background twin at all — and the link
+    /// has no face. A blue primary button on a dark window stays blue.
+    #[test]
+    fn only_the_neutral_surface_takes_a_dark_face() {
+        use azul_css::props::property::CssPropertyType;
+
+        // RESTING dark twins only — `[Theme(Dark)]` and nothing else. The
+        // hover/pressed twins from `button_states` carry a pseudo-state too,
+        // and a coloured command legitimately has those (in its own colour).
+        let dark_backgrounds = |ty: ButtonType| {
+            use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
+            btn("OK", ty)
+                .dom()
+                .root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, c)| {
+                    p.get_type() == CssPropertyType::BackgroundContent
+                        && !c.as_ref().is_empty()
+                        && c.as_ref()
+                            .iter()
+                            .all(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                })
+                .count()
+        };
+        assert!(
+            dark_backgrounds(ButtonType::Default) >= 1,
+            "the neutral face takes the theme's dark face"
+        );
+        for ty in [
+            ButtonType::Primary,
+            ButtonType::Secondary,
+            ButtonType::Success,
+            ButtonType::Danger,
+            ButtonType::Warning,
+            ButtonType::Info,
+        ] {
+            assert_eq!(ty.surface(), ButtonSurface::OwnColour);
+            assert_eq!(
+                dark_backgrounds(ty),
+                0,
+                "{ty:?}: a coloured command keeps its colour in dark mode"
+            );
+        }
+        assert_eq!(ButtonType::Link.surface(), ButtonSurface::NoSurface);
+        assert_eq!(ButtonType::Default.surface(), ButtonSurface::Neutral);
     }
 
     #[test]
