@@ -965,14 +965,18 @@ impl TextInput {
     /// selection from its display list).
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme.into_option() {
-            Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::text_input(self)
-            }
-            Some(crate::widgets::themes::UiTheme::Flora) => {
+        // `UiTheme::default()` is Flat, and so is every other widget's fallback:
+        // an unset theme here used to reach FLORA, which is why an unthemed
+        // TextInput rendered skeuomorphic next to a flat Button.
+        let theme = self
+            .theme
+            .into_option()
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+        match theme {
+            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
+            crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::text_input(self)
             }
-            None => crate::widgets::themes::flora::text_input(self),
         }
     }
 }
