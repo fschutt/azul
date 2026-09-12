@@ -9363,48 +9363,16 @@
                                 "Positron": {},
                                 "Bright": {},
                                 "Liberty": {},
-                                "Dark": {},
-                                "GoogleLight": {},
-                                "GoogleNight": {},
-                                "AppleLight": {},
-                                "AppleDark": {},
+                                "Google": {},
+                                "Apple": {},
                                 "Custom": {}
                             }
                         ],
                         "functions": {
                             "stylesheet": {
                                 "doc": [
-                                    "The MapCSS sheet of a preset; empty for `Custom` and the unresolved",
-                                    "`System` (resolve it with [`Self::resolve`] first)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "String"
-                                },
-                                "fn_body": "object.stylesheet()"
-                            },
-                            "is_dark_look": {
-                                "doc": [
-                                    "Is this a dark look? (`System` answers for the dark resolution.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_dark_look()"
-                            },
-                            "resolve": {
-                                "doc": [
-                                    "`System` resolved against the window's theme; every other preset",
-                                    "is its own resolution."
+                                    "The MapCSS sheet this theme renders with under `window_theme`; empty for",
+                                    "`Custom` (the layer's `style_css` is the sheet then)."
                                 ],
                                 "fn_args": [
                                     {
@@ -9415,26 +9383,29 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MapTheme"
+                                    "type": "String"
                                 },
-                                "fn_body": "object.resolve(window_theme)"
+                                "fn_body": "object.stylesheet(window_theme)"
                             },
                             "credit": {
                                 "doc": [
-                                    "The credit line a preset's licence asks for (CC BY 4.0 for the",
-                                    "OpenFreeMap designs, Apache-2.0 for Google's sample); empty for the",
-                                    "authored looks and `Custom`. Appended to the layer's attribution by",
-                                    "[`MapTileLayer::with_theme`]."
+                                    "The credit line the design rendered under `window_theme` asks for (CC BY 4.0",
+                                    "for the OpenFreeMap designs, Apache-2.0 for Google's night sample); empty for",
+                                    "the authored looks and `Custom`. Both halves are appended to the layer's",
+                                    "attribution by [`MapTileLayer::with_theme`]."
                                 ],
                                 "fn_args": [
                                     {
                                         "self": "value"
+                                    },
+                                    {
+                                        "window_theme": "WindowTheme"
                                     }
                                 ],
                                 "returns": {
                                     "type": "String"
                                 },
-                                "fn_body": "object.credit()"
+                                "fn_body": "object.credit(window_theme)"
                             }
                         },
                         "repr": "C"
@@ -53902,8 +53873,9 @@
                         "functions": {
                             "with_theme": {
                                 "doc": [
-                                    "Pick a look. Appends the preset's licence credit (if any) to the",
-                                    "attribution so an app that shows `attribution` complies with CC BY."
+                                    "Pick a theme. Appends the licence credit of both its halves (where a design",
+                                    "has one) to the attribution, so an app that shows `attribution` complies with",
+                                    "CC BY whichever way the window is themed."
                                 ],
                                 "fn_args": [
                                     {
@@ -53920,22 +53892,22 @@
                             },
                             "effective_style_css": {
                                 "doc": [
-                                    "The MapCSS the tiles are decoded with for `resolved` (a resolved",
-                                    "theme, see [`MapTheme::resolve`]): a non-empty `style_css` always",
-                                    "wins; else the preset's sheet; else the built-in palette (empty)."
+                                    "The MapCSS the tiles are decoded with under `window_theme`: a non-empty",
+                                    "`style_css` always wins; else the theme's sheet for that half; else the",
+                                    "built-in palette (empty)."
                                 ],
                                 "fn_args": [
                                     {
                                         "self": "ref"
                                     },
                                     {
-                                        "resolved": "MapTheme"
+                                        "window_theme": "WindowTheme"
                                     }
                                 ],
                                 "returns": {
                                     "type": "String"
                                 },
-                                "fn_body": "object.effective_style_css(resolved).into()"
+                                "fn_body": "object.effective_style_css(window_theme).into()"
                             }
                         },
                         "repr": "C"

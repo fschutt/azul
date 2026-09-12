@@ -426,14 +426,14 @@ mod tests {
 
     #[test]
     fn a_theme_drives_the_canvas_and_colours_a_motorway_by_class() {
-        use azul_layout::widgets::map::MapTheme;
+        use azul_layout::widgets::map::MapLook;
         let tile = MapTileId {
             z: 11,
             x: 327,
             y: 791,
         };
         // Dark Matter: dark base, motorway lighter than a minor road.
-        let dark = MapTheme::Dark.stylesheet();
+        let dark = MapLook::DarkMatter.stylesheet();
         let dark = dark.as_str();
         let svg = features_to_svg(
             &[line_feature("transportation", Some("motorway"))],
@@ -465,16 +465,16 @@ mod tests {
 
     #[test]
     fn every_preset_parses_into_rules_with_a_canvas() {
-        use azul_layout::widgets::map::MapTheme;
+        use azul_layout::widgets::map::MapLook;
         for theme in [
-            MapTheme::Positron,
-            MapTheme::Bright,
-            MapTheme::Liberty,
-            MapTheme::Dark,
-            MapTheme::GoogleLight,
-            MapTheme::GoogleNight,
-            MapTheme::AppleLight,
-            MapTheme::AppleDark,
+            MapLook::Positron,
+            MapLook::Bright,
+            MapLook::Liberty,
+            MapLook::DarkMatter,
+            MapLook::GoogleLight,
+            MapLook::GoogleNight,
+            MapLook::AppleLight,
+            MapLook::AppleDark,
         ] {
             let sheet = MapCss::parse(theme.stylesheet().as_str());
             assert!(

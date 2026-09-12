@@ -106,12 +106,12 @@ pub extern "C" fn tile_fetch_worker(
         widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg},
     };
 
-    let (tile, url, mapcss, theme, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
+    let (tile, url, mapcss, look, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
         Some(i) => (
             i.tile,
             i.url.as_str().to_string(),
             i.style_css.as_str().to_string(),
-            i.theme,
+            i.look,
             i.bytes.as_ref().to_vec(),
         ),
         None => return,
@@ -129,7 +129,7 @@ pub extern "C" fn tile_fetch_worker(
                 tile,
                 svg,
                 error,
-                theme,
+                look,
                 bytes: azul_css::U8Vec::from_vec(bytes),
             }),
         )
@@ -150,7 +150,7 @@ pub extern "C" fn tile_fetch_worker(
     let bytes = if restyle {
         if dbg {
             eprintln!(
-                "[map] worker restyle tile=({},{},{}) theme={theme:?} — {} cached bytes, no fetch",
+                "[map] worker restyle tile=({},{},{}) look={look:?} — {} cached bytes, no fetch",
                 tile.z,
                 tile.x,
                 tile.y,
@@ -206,7 +206,7 @@ pub extern "C" fn tile_fetch_worker(
             let svg = features_to_svg(&features, tile, &mapcss);
             if dbg {
                 eprintln!(
-                    "[map] worker decoded tile=({},{},{}) theme={theme:?} {} features svg_len={}",
+                    "[map] worker decoded tile=({},{},{}) look={look:?} {} features svg_len={}",
                     tile.z,
                     tile.x,
                     tile.y,

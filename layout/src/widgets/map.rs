@@ -85,37 +85,37 @@ pub struct MapTileLayer {
     pub max_zoom: u8,
 }
 
-/// A map look. Presets are vendored `MapCSS` palettes
-/// (`widgets::map_themes`, see its header for provenance and licences —
-/// the `OpenFreeMap` designs are CC BY 4.0, credit is shown through
-/// [`MapTheme::credit`] / the layer's attribution); `System` follows the
-/// window's light / dark theme with the platform-native look; `Custom`
-/// uses `MapTileLayer::style_css` (the built-in palette when that is
-/// empty). A theme change re-decodes the visible tiles.
+/// A map THEME: which map the user is looking at — the cartography. Presets
+/// are vendored `MapCSS` palettes (`widgets::map_themes`, see its header for
+/// provenance and licences — the `OpenFreeMap` designs are CC BY 4.0, credit
+/// is shown through [`MapTheme::credit`] / the layer's attribution); `Custom`
+/// uses `MapTileLayer::style_css` (the built-in palette when that is empty).
+///
+/// Every theme has a LIGHT and a DARK rendering, and which one shows is not
+/// the theme's decision but the cascade's — the same
+/// `@media (prefers-color-scheme: dark)` answer every other node follows. So
+/// `Apple` is ONE theme, not a light and a dark one: a window that turns dark
+/// re-decodes the visible tiles with the dark palette on its own. The two
+/// halves are [`MapTheme::stylesheet`] under a light and a dark window theme.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MapTheme {
-    /// Follow the window theme: the platform's familiar look in light mode
-    /// (Apple-like on macOS / iOS, Google-like on Android, Positron
-    /// elsewhere) and its dark counterpart in dark mode.
+    /// The platform's familiar cartography: Apple-like on macOS / iOS,
+    /// Google-like on Android, Positron elsewhere.
     #[default]
     System,
-    /// CARTO Positron via `OpenFreeMap` (light, desaturated).
+    /// CARTO Positron via `OpenFreeMap` (desaturated); CARTO Dark Matter in
+    /// dark mode.
     Positron,
-    /// OSM Bright via `OpenFreeMap` (light, colourful).
+    /// OSM Bright via `OpenFreeMap` (colourful); Dark Matter in dark mode.
     Bright,
-    /// OSM Liberty via `OpenFreeMap` (light, blue sea).
+    /// OSM Liberty via `OpenFreeMap` (blue sea); Dark Matter in dark mode.
     Liberty,
-    /// CARTO Dark Matter via `OpenFreeMap` (dark).
-    Dark,
-    /// A Google-Maps-like light look.
-    GoogleLight,
-    /// Google Maps' published "Night mode" palette (dark).
-    GoogleNight,
-    /// An Apple-Maps-like light look.
-    AppleLight,
-    /// An Apple-Maps-like dark look.
-    AppleDark,
+    /// A Google-Maps-like look; Google Maps' published "Night mode" palette
+    /// in dark mode.
+    Google,
+    /// An Apple-Maps-like look, light and dark.
+    Apple,
     /// The caller's own `MapTileLayer::style_css`.
     Custom,
 }
@@ -159,143 +159,104 @@ impl MapColorScheme {
     }
 }
 
-/// The CARTOGRAPHY half of a map look — the axis the APP owns.
-///
-/// "Which map am I looking at" (OSM-ish, Google-like, Apple-like) is a product
-/// decision and belongs to the widget's caller. It is orthogonal to light/dark:
-/// each of these has both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum MapTileStyle {
-    /// CARTO Positron / Dark Matter via `OpenFreeMap`.
-    #[default]
-    Standard,
-    /// OSM Bright (light only; pairs with Dark Matter).
+/// One concrete `MapCSS` sheet: a [`MapTheme`] taken to a [`MapColorScheme`]
+/// — THE join of the two axes, and the only thing a tile is ever decoded with
+/// or keyed by. Not public API (`MapTheme` is): the widget's cache and worker
+/// speak in looks, the app speaks in themes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum MapLook {
+    /// CARTO Positron (light).
+    Positron,
+    /// OSM Bright (light).
     Bright,
-    /// OSM Liberty (light only; pairs with Dark Matter).
+    /// OSM Liberty (light).
     Liberty,
-    /// Google-Maps-like.
-    Google,
-    /// Apple-Maps-like.
-    Apple,
-    /// The caller's own `MapTileLayer::style_css`.
+    /// CARTO Dark Matter — the dark half of every `OpenFreeMap` theme.
+    DarkMatter,
+    /// Google-Maps-like, light.
+    GoogleLight,
+    /// Google Maps' published "Night mode" palette.
+    GoogleNight,
+    /// Apple-Maps-like, light.
+    AppleLight,
+    /// Apple-Maps-like, dark.
+    AppleDark,
+    /// The caller's own `MapTileLayer::style_css`, in either scheme.
     Custom,
 }
 
-impl MapTileStyle {
-    /// This cartography rendered for `scheme`. THE join of the two axes: the
-    /// only place a (style, scheme) pair becomes one concrete sheet.
-    #[must_use]
-    pub const fn look(self, scheme: MapColorScheme) -> MapTheme {
-        let dark = matches!(scheme, MapColorScheme::Dark);
-        match self {
-            Self::Standard => {
-                if dark {
-                    MapTheme::Dark
-                } else {
-                    MapTheme::Positron
-                }
-            }
-            // Bright and Liberty are light-only designs; their dark counterpart
-            // is Dark Matter, the same pairing MapLibre's demo styles use.
-            Self::Bright => {
-                if dark {
-                    MapTheme::Dark
-                } else {
-                    MapTheme::Bright
-                }
-            }
-            Self::Liberty => {
-                if dark {
-                    MapTheme::Dark
-                } else {
-                    MapTheme::Liberty
-                }
-            }
-            Self::Google => {
-                if dark {
-                    MapTheme::GoogleNight
-                } else {
-                    MapTheme::GoogleLight
-                }
-            }
-            Self::Apple => {
-                if dark {
-                    MapTheme::AppleDark
-                } else {
-                    MapTheme::AppleLight
-                }
-            }
-            Self::Custom => MapTheme::Custom,
-        }
-    }
-
+impl MapTheme {
     /// The platform's familiar cartography. A FAMILY choice, not a light/dark
     /// one — picking Apple-like maps on Apple platforms is a product decision
     /// that has nothing to do with the colour scheme, which is why this `cfg!`
-    /// is legitimate where the old `resolve()`'s light/dark `cfg!` was not.
+    /// is legitimate where a light/dark `cfg!` would not be.
     #[must_use]
-    pub const fn platform_default() -> Self {
+    pub const fn platform_family() -> Self {
         if cfg!(any(target_os = "macos", target_os = "ios")) {
             Self::Apple
         } else if cfg!(target_os = "android") {
             Self::Google
         } else {
-            Self::Standard
+            Self::Positron
         }
+    }
+
+    /// This theme rendered for `scheme`: the only place a (theme, scheme) pair
+    /// becomes one concrete sheet. Bright and Liberty are light-only designs;
+    /// their dark half is Dark Matter, the same pairing `MapLibre`'s demo
+    /// styles use.
+    #[must_use]
+    pub const fn look(self, scheme: MapColorScheme) -> MapLook {
+        let dark = matches!(scheme, MapColorScheme::Dark);
+        match self {
+            Self::System => Self::platform_family().look(scheme),
+            Self::Positron | Self::Bright | Self::Liberty if dark => MapLook::DarkMatter,
+            Self::Positron => MapLook::Positron,
+            Self::Bright => MapLook::Bright,
+            Self::Liberty => MapLook::Liberty,
+            Self::Google => {
+                if dark {
+                    MapLook::GoogleNight
+                } else {
+                    MapLook::GoogleLight
+                }
+            }
+            Self::Apple => {
+                if dark {
+                    MapLook::AppleDark
+                } else {
+                    MapLook::AppleLight
+                }
+            }
+            Self::Custom => MapLook::Custom,
+        }
+    }
+
+    /// The `MapCSS` sheet this theme renders with under `window_theme`; empty
+    /// for `Custom` (the layer's `style_css` is the sheet then).
+    #[must_use]
+    pub fn stylesheet(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+        AzString::from(
+            self.look(MapColorScheme::from_window_theme(window_theme))
+                .sheet(),
+        )
+    }
+
+    /// The credit line the design rendered under `window_theme` asks for (CC
+    /// BY 4.0 for the `OpenFreeMap` designs, Apache-2.0 for Google's night
+    /// sample); empty for the authored looks and `Custom`. Both halves are
+    /// appended to the layer's attribution by [`MapTileLayer::with_theme`].
+    #[must_use]
+    pub fn credit(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+        AzString::from(
+            self.look(MapColorScheme::from_window_theme(window_theme))
+                .credit_str(),
+        )
     }
 }
 
-impl MapTheme {
-    /// Which cartography this look belongs to (the app-owned axis).
-    #[must_use]
-    pub const fn style(self) -> MapTileStyle {
-        match self {
-            Self::Positron | Self::Dark => MapTileStyle::Standard,
-            Self::Bright => MapTileStyle::Bright,
-            Self::Liberty => MapTileStyle::Liberty,
-            Self::GoogleLight | Self::GoogleNight => MapTileStyle::Google,
-            Self::AppleLight | Self::AppleDark => MapTileStyle::Apple,
-            Self::Custom => MapTileStyle::Custom,
-            Self::System => MapTileStyle::platform_default(),
-        }
-    }
-
-    /// The scheme this look PINS, or `None` when it defers to the cascade.
-    ///
-    /// Only `System` defers. Naming a light or dark preset explicitly is an app
-    /// overriding the cascade on purpose, and an explicit override wins — the
-    /// same contract as writing a colour directly on a node.
-    #[must_use]
-    pub const fn pinned_scheme(self) -> Option<MapColorScheme> {
-        match self {
-            Self::Positron
-            | Self::Bright
-            | Self::Liberty
-            | Self::GoogleLight
-            | Self::AppleLight => Some(MapColorScheme::Light),
-            Self::Dark | Self::GoogleNight | Self::AppleDark => Some(MapColorScheme::Dark),
-            Self::System | Self::Custom => None,
-        }
-    }
-
-    /// This look as it should be rendered when the cascade says `scheme`.
-    ///
-    /// Replaces `resolve(window_theme)` as the widget's internal entry point:
-    /// the light/dark input is the CASCADE's, and the platform `cfg!` that
-    /// remains only picks the cartography family.
-    #[must_use]
-    pub const fn for_scheme(self, scheme: MapColorScheme) -> Self {
-        match self.pinned_scheme() {
-            Some(_) => self,
-            None => match self {
-                Self::Custom => Self::Custom,
-                _ => self.style().look(scheme),
-            },
-        }
-    }
-
-    /// The `MapCSS` sheet of a preset; empty for `Custom` and the unresolved
-    /// `System` (resolve it with [`Self::resolve`] first).
+impl MapLook {
+    /// The `MapCSS` sheet; empty for `Custom`.
     #[must_use]
     pub fn stylesheet(self) -> AzString {
         AzString::from(self.sheet())
@@ -309,80 +270,47 @@ impl MapTheme {
             Self::Positron => t::POSITRON,
             Self::Bright => t::BRIGHT,
             Self::Liberty => t::LIBERTY,
-            Self::Dark => t::DARK,
+            Self::DarkMatter => t::DARK,
             Self::GoogleLight => t::GOOGLE_LIGHT,
             Self::GoogleNight => t::GOOGLE_NIGHT,
             Self::AppleLight => t::APPLE_LIGHT,
             Self::AppleDark => t::APPLE_DARK,
-            Self::System | Self::Custom => "",
+            Self::Custom => "",
         }
     }
 
-    /// Is this a dark look? (`System` answers for the dark resolution.)
-    /// Named `is_dark_look` because `is_dark` is the auto-emitted variant
-    /// predicate for `MapTheme::Dark` in the bindings.
+    /// Is this the dark half?
     #[must_use]
-    pub const fn is_dark_look(self) -> bool {
-        matches!(self, Self::Dark | Self::GoogleNight | Self::AppleDark)
+    pub const fn is_dark(self) -> bool {
+        matches!(self, Self::DarkMatter | Self::GoogleNight | Self::AppleDark)
     }
 
-    /// `System` resolved against the window's theme; every other preset
-    /// is its own resolution.
-    /// COMPATIBILITY entry point, kept because it is public API. Internals use
-    /// [`Self::for_scheme`] with the scheme the CASCADE resolved instead: the
-    /// window theme and the cascade's `prefers-color-scheme` are fed from two
-    /// different places (`FullWindowState::theme` vs `SystemStyle::theme`) and
-    /// on macOS only the former is refreshed on a theme flip, so resolving off
-    /// the window theme makes the map disagree with its own stylesheet.
-    #[must_use]
-    pub const fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
-        let scheme = if matches!(window_theme, azul_core::window::WindowTheme::DarkMode) {
-            MapColorScheme::Dark
-        } else {
-            MapColorScheme::Light
-        };
-        self.for_scheme(scheme)
-    }
-
-    /// The credit line a preset's licence asks for (CC BY 4.0 for the
-    /// `OpenFreeMap` designs, Apache-2.0 for Google's sample); empty for the
-    /// authored looks and `Custom`. Appended to the layer's attribution by
-    /// [`MapTileLayer::with_theme`].
-    #[must_use]
-    pub fn credit(self) -> AzString {
-        AzString::from(self.credit_str())
-    }
-
-    /// [`Self::credit`] as the static slice (internal, no allocation).
+    /// The credit line a design's licence asks for (internal, no allocation).
     #[must_use]
     pub(crate) const fn credit_str(self) -> &'static str {
         match self {
             Self::Positron => "Style: Positron © CARTO (CC BY 4.0) via OpenFreeMap",
-            Self::Dark => "Style: Dark Matter © CARTO (CC BY 4.0) via OpenFreeMap",
+            Self::DarkMatter => "Style: Dark Matter © CARTO (CC BY 4.0) via OpenFreeMap",
             Self::Bright => "Style: OSM Bright © OpenMapTiles (CC BY 4.0) via OpenFreeMap",
             Self::Liberty => "Style: OSM Liberty (CC BY 4.0) via OpenFreeMap",
             Self::GoogleNight => "Style: Google Maps Platform night-mode sample (Apache-2.0)",
-            Self::System
-            | Self::GoogleLight
-            | Self::AppleLight
-            | Self::AppleDark
-            | Self::Custom => "",
+            Self::GoogleLight | Self::AppleLight | Self::AppleDark | Self::Custom => "",
         }
     }
 }
 
 impl MapTileLayer {
-    /// Pick a look. Appends the preset's licence credit (if any) to the
-    /// attribution so an app that shows `attribution` complies with CC BY.
+    /// Pick a theme. Appends the licence credit of BOTH its halves (where a
+    /// design has one) to the attribution, so an app that shows `attribution`
+    /// complies with CC BY whichever way the window is themed.
     #[must_use]
     pub fn with_theme(mut self, theme: MapTheme) -> Self {
         self.theme = theme;
-        for t in [
-            theme,
-            theme.resolve(azul_core::window::WindowTheme::LightMode),
-            theme.resolve(azul_core::window::WindowTheme::DarkMode),
+        for look in [
+            theme.look(MapColorScheme::Light),
+            theme.look(MapColorScheme::Dark),
         ] {
-            let credit = t.credit_str();
+            let credit = look.credit_str();
             if !credit.is_empty() && !self.attribution.as_str().contains(credit) {
                 let mut s = self.attribution.as_str().to_string();
                 if !s.is_empty() {
@@ -395,15 +323,25 @@ impl MapTileLayer {
         self
     }
 
-    /// The `MapCSS` the tiles are decoded with for `resolved` (a resolved
-    /// theme, see [`MapTheme::resolve`]): a non-empty `style_css` always
-    /// wins; else the preset's sheet; else the built-in palette (empty).
+    /// The `MapCSS` the tiles are decoded with under `window_theme`: a
+    /// non-empty `style_css` always wins; else the theme's sheet for that
+    /// half; else the built-in palette (empty).
     #[must_use]
-    pub fn effective_style_css(&self, resolved: MapTheme) -> AzString {
+    pub fn effective_style_css(&self, window_theme: azul_core::window::WindowTheme) -> AzString {
+        self.effective_style_css_for(
+            self.theme
+                .look(MapColorScheme::from_window_theme(window_theme)),
+        )
+    }
+
+    /// [`Self::effective_style_css`] for one concrete look — what the cache
+    /// and the worker deal in.
+    #[must_use]
+    pub(crate) fn effective_style_css_for(&self, look: MapLook) -> AzString {
         if !self.style_css.as_str().is_empty() {
             return self.style_css.clone();
         }
-        AzString::from(resolved.sheet())
+        AzString::from(look.sheet())
     }
 }
 
@@ -821,14 +759,12 @@ impl MapWidget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileStyleKey {
     pub tile: MapTileId,
-    pub theme: MapTheme,
+    pub look: MapLook,
 }
 
-// Ordered by hand rather than derived: `MapTheme` is an api.json type whose
-// derive list is generated, and widening it just to key a private map would be
-// drift. A fieldless `#[repr(C)]` enum casts to its discriminant, which is all
-// the ordering needs — it only has to be total and stable so the `BTreeMap`
-// iterates deterministically for the debug log and the e2e snapshots.
+// Ordered by hand: the ordering only has to be total and stable so the
+// `BTreeMap` iterates deterministically for the debug log and the e2e
+// snapshots, and a fieldless enum's discriminant is exactly that.
 impl PartialOrd for TileStyleKey {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
@@ -838,7 +774,7 @@ impl Ord for TileStyleKey {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.tile
             .cmp(&other.tile)
-            .then_with(|| (self.theme as u8).cmp(&(other.theme as u8)))
+            .then_with(|| (self.look as u8).cmp(&(other.look as u8)))
     }
 }
 
@@ -898,7 +834,7 @@ pub struct MapTileCache {
     /// info) know which key to fill. It is deliberately NOT a validity stamp:
     /// changing it invalidates nothing and discards nothing, because the look
     /// is part of every tile's key.
-    pub active_theme: MapTheme,
+    pub active_look: MapLook,
     /// The light/dark answer THE CASCADE gave, recorded by whichever callback
     /// last had a `CallbackInfo` (mount, the 250 ms sweep, any pointer event).
     ///
@@ -918,7 +854,7 @@ pub struct MapTileCache {
 impl MapTileCache {
     #[must_use]
     pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
-        let active_theme = layer.theme;
+        let active_look = layer.theme.look(MapColorScheme::Light);
         Self {
             layer,
             viewport,
@@ -929,7 +865,7 @@ impl MapTileCache {
             pinch_anchor: None,
             press_origin: None,
             tilt_anchor: None,
-            active_theme,
+            active_look,
             cascade_scheme: None,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
@@ -939,12 +875,12 @@ impl MapTileCache {
     /// The look to render right now: the layer's choice of cartography, taken
     /// to the cascade's light/dark. An explicitly pinned preset wins.
     #[must_use]
-    pub const fn current_look(&self) -> MapTheme {
+    pub const fn current_look(&self) -> MapLook {
         match self.cascade_scheme {
-            Some(scheme) => self.layer.theme.for_scheme(scheme),
+            Some(scheme) => self.layer.theme.look(scheme),
             // Nothing has told us what the cascade says yet (pre-mount). Use the
-            // layer's own look; the sweep re-keys within 250 ms, for free.
-            None => self.layer.theme,
+            // light half; the sweep re-keys within 250 ms, for free.
+            None => self.layer.theme.look(MapColorScheme::Light),
         }
     }
 
@@ -956,9 +892,9 @@ impl MapTileCache {
     /// look now selects a key, so a change here costs nothing — the tiles for
     /// the new look are styled from bytes already in `tile_bytes`, and the
     /// tiles for the old look stay cached.
-    pub fn set_active_theme(&mut self, resolved: MapTheme) -> bool {
-        let changed = self.active_theme != resolved;
-        self.active_theme = resolved;
+    pub fn set_active_look(&mut self, look: MapLook) -> bool {
+        let changed = self.active_look != look;
+        self.active_look = look;
         changed
     }
 
@@ -967,7 +903,7 @@ impl MapTileCache {
     pub const fn key_at_current_look(&self, tile: MapTileId) -> TileStyleKey {
         TileStyleKey {
             tile,
-            theme: self.current_look(),
+            look: self.current_look(),
         }
     }
 
@@ -1008,14 +944,13 @@ impl MapTileCache {
     pub fn best_available_svg(
         &self,
         tile: MapTileId,
-        want: MapTheme,
-    ) -> Option<(MapTheme, AzString)> {
-        if let Some(TileEntry::Ready { svg }) = self.tiles.get(&TileStyleKey { tile, theme: want })
-        {
+        want: MapLook,
+    ) -> Option<(MapLook, AzString)> {
+        if let Some(TileEntry::Ready { svg }) = self.tiles.get(&TileStyleKey { tile, look: want }) {
             return Some((want, svg.clone()));
         }
         self.tiles.iter().find_map(|(k, e)| match e {
-            TileEntry::Ready { svg } if k.tile == tile => Some((k.theme, svg.clone())),
+            TileEntry::Ready { svg } if k.tile == tile => Some((k.look, svg.clone())),
             _ => None,
         })
     }
@@ -1047,10 +982,10 @@ impl MapTileCache {
         // (tile, look) PAIRS, so while two looks are live the number of distinct
         // tiles the cache can hold would silently halve.
         const OTHER_LOOK_PENALTY: f64 = 1.0e9;
-        let active = self.active_theme;
+        let active = self.active_look;
         let score = |k: &TileStyleKey| {
             tile_viewport_score(&self.viewport, &self.layer, k.tile)
-                + if k.theme == active {
+                + if k.look == active {
                     0.0
                 } else {
                     OTHER_LOOK_PENALTY
@@ -1188,7 +1123,7 @@ pub struct TileFetchInit {
     pub style_css: AzString,
     /// The look `style_css` belongs to — echoed back in `TileReadyMsg` so the
     /// result is filed under the key it was actually styled for.
-    pub theme: MapTheme,
+    pub look: MapLook,
     /// The tile's MVT payload when the cache already holds it.
     ///
     /// Non-empty turns this job into a pure RESTYLE: the worker decodes and
@@ -1209,8 +1144,8 @@ pub struct TileReadyMsg {
     pub svg: AzString,
     /// Empty on success; an error message on failure.
     pub error: AzString,
-    /// The theme the SVG was decoded for (from `TileFetchInit::theme`).
-    pub theme: MapTheme,
+    /// The look the SVG was decoded for (from `TileFetchInit::look`).
+    pub look: MapLook,
     /// The MVT payload the worker downloaded, handed back so the main thread
     /// can cache it and never fetch this tile again. Empty when the worker was
     /// given bytes to begin with (a restyle) — there is nothing new to store.
@@ -1653,10 +1588,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         for t in map_visible_tiles(&vp, bounds, &layer) {
             cache
                 .tiles
-                .entry(TileStyleKey {
-                    tile: t,
-                    theme: look,
-                })
+                .entry(TileStyleKey { tile: t, look })
                 .or_insert(TileEntry::Pending);
         }
         (vp, cache.on_viewport_changed.clone())
@@ -1983,7 +1915,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
         cache.cascade_scheme = Some(scheme);
         let look = cache.current_look();
-        let look_changed = cache.set_active_theme(look);
+        let look_changed = cache.set_active_look(look);
         #[cfg(feature = "std")]
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             std::eprintln!(
@@ -2021,17 +1953,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         let stale: Vec<TileStyleKey> = cache
             .tiles
             .iter()
-            .filter(|(k, e)| matches!(e, TileEntry::Pending) && k.theme != look)
+            .filter(|(k, e)| matches!(e, TileEntry::Pending) && k.look != look)
             .map(|(k, _)| *k)
             .collect();
         for k in stale {
             cache.tiles.remove(&k);
             cache
                 .tiles
-                .entry(TileStyleKey {
-                    tile: k.tile,
-                    theme: look,
-                })
+                .entry(TileStyleKey { tile: k.tile, look })
                 .or_insert(TileEntry::Pending);
         }
 
@@ -2050,7 +1979,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             // carry jobs for two different looks at once (the new one being
             // filled in, an old one still queued) and neither invalidates the
             // other.
-            let style_css = cache.layer.effective_style_css(key.theme);
+            let style_css = cache.layer.effective_style_css_for(key.look);
             // Bytes already in hand => restyle, no network. This is the whole
             // point of the split cache: geometry is fetched once per tile, ever.
             let bytes = cache
@@ -2063,7 +1992,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 tile: key.tile,
                 url: AzString::from(url),
                 style_css,
-                theme: key.theme,
+                look: key.look,
                 bytes,
             });
         }
@@ -2166,7 +2095,7 @@ pub extern "C" fn map_tile_writeback(
         m.tile,
         m.svg.clone(),
         m.error.clone(),
-        m.theme,
+        m.look,
         m.bytes.clone(),
     );
     drop(m);
@@ -2202,7 +2131,7 @@ pub extern "C" fn map_tile_writeback(
         // instantly; until then it serves as the fallback for its own tile.
         let key = TileStyleKey {
             tile: msg.0,
-            theme: msg.3,
+            look: msg.3,
         };
         let ok = msg.2.as_str().is_empty();
         let svg_len = msg.1.as_str().len();
@@ -2384,7 +2313,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // timer decodes it under the new sheet).
             c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_theme));
             let look = c.current_look();
-            c.set_active_theme(look);
+            c.set_active_look(look);
             (c.layer.clone(), c.viewport, look)
         }
         None => {
@@ -2464,10 +2393,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 };
                 cache
                     .tiles
-                    .entry(TileStyleKey {
-                        tile: id,
-                        theme: look,
-                    })
+                    .entry(TileStyleKey { tile: id, look })
                     .or_insert(TileEntry::Pending);
             }
         }
@@ -2494,10 +2420,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                     let disp = if let Some((_, svg)) = c.best_available_svg(k.tile, look) {
                         TileDisplay::Svg(svg)
                     } else {
-                        match c.tiles.get(&TileStyleKey {
-                            tile: k.tile,
-                            theme: look,
-                        }) {
+                        match c.tiles.get(&TileStyleKey { tile: k.tile, look }) {
                             Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
                             Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
                             _ => TileDisplay::Glyph("…"),
@@ -2810,66 +2733,107 @@ mod theme_tests {
     use super::*;
 
     #[test]
-    fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
-        let light = MapTheme::System.resolve(WindowTheme::LightMode);
-        let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
-        assert!(
-            !light.is_dark_look() && dark.is_dark_look(),
-            "{light:?} / {dark:?}"
-        );
-        assert_ne!(light, MapTheme::System);
+    fn a_theme_is_one_cartography_with_a_light_and_a_dark_half() {
+        // `System` is the platform family, taken to whichever half the window is.
+        let light = MapTheme::System.look(MapColorScheme::Light);
+        let dark = MapTheme::System.look(MapColorScheme::Dark);
+        assert!(!light.is_dark() && dark.is_dark(), "{light:?} / {dark:?}");
         assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
-        for preset in [
+        assert_eq!(
+            light,
+            MapTheme::platform_family().look(MapColorScheme::Light)
+        );
+        // Every theme has both halves, and the half says which it is.
+        for theme in [
             MapTheme::Positron,
-            MapTheme::Dark,
-            MapTheme::GoogleNight,
-            MapTheme::AppleLight,
-            MapTheme::Custom,
+            MapTheme::Bright,
+            MapTheme::Liberty,
+            MapTheme::Google,
+            MapTheme::Apple,
         ] {
-            assert_eq!(preset.resolve(WindowTheme::DarkMode), preset);
-            assert_eq!(preset.resolve(WindowTheme::LightMode), preset);
+            let l = theme.look(MapColorScheme::Light);
+            let d = theme.look(MapColorScheme::Dark);
+            assert!(!l.is_dark() && d.is_dark(), "{theme:?}: {l:?} / {d:?}");
+            assert!(
+                !l.sheet().is_empty() && !d.sheet().is_empty(),
+                "{theme:?} must have a sheet for both halves"
+            );
+            assert_eq!(theme.stylesheet(WindowTheme::LightMode).as_str(), l.sheet());
+            assert_eq!(theme.stylesheet(WindowTheme::DarkMode).as_str(), d.sheet());
         }
-        assert!(MapTheme::Custom.sheet().is_empty());
-        assert_eq!(MapTheme::Dark.stylesheet().as_str(), MapTheme::Dark.sheet());
+        // Apple is ONE theme: the dark window picks its dark palette, no
+        // second variant needed.
+        assert_eq!(
+            MapTheme::Apple.look(MapColorScheme::Light),
+            MapLook::AppleLight
+        );
+        assert_eq!(
+            MapTheme::Apple.look(MapColorScheme::Dark),
+            MapLook::AppleDark
+        );
+        // The light-only OpenFreeMap designs share Dark Matter as their dark half.
+        for theme in [MapTheme::Positron, MapTheme::Bright, MapTheme::Liberty] {
+            assert_eq!(theme.look(MapColorScheme::Dark), MapLook::DarkMatter);
+        }
+        assert!(MapTheme::Custom
+            .stylesheet(WindowTheme::LightMode)
+            .as_str()
+            .is_empty());
+        assert_eq!(
+            MapLook::DarkMatter.stylesheet().as_str(),
+            MapLook::DarkMatter.sheet()
+        );
     }
 
     #[test]
     fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
         let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
         assert_eq!(
-            layer.effective_style_css(MapTheme::Positron).as_str(),
+            layer.effective_style_css(WindowTheme::LightMode).as_str(),
             super::super::map_themes::POSITRON
         );
+        assert_eq!(
+            layer.effective_style_css(WindowTheme::DarkMode).as_str(),
+            super::super::map_themes::DARK,
+            "the dark window gets the theme's dark half"
+        );
         assert!(
-            layer.attribution.as_str().contains("CC BY 4.0"),
+            layer.attribution.as_str().contains("Positron ©"),
             "the CC BY design credit must reach the attribution: {}",
+            layer.attribution.as_str()
+        );
+        assert!(
+            layer.attribution.as_str().contains("Dark Matter ©"),
+            "…and so must the dark half's: {}",
             layer.attribution.as_str()
         );
         // with_theme twice does not duplicate the credit
         let twice = layer.clone().with_theme(MapTheme::Positron);
-        assert_eq!(twice.attribution.as_str().matches("CC BY 4.0").count(), 1);
+        assert_eq!(twice.attribution.as_str().matches("Positron ©").count(), 1);
 
-        let mut custom = MapTileLayer::default().with_theme(MapTheme::Dark);
+        let mut custom = MapTileLayer::default().with_theme(MapTheme::Apple);
         custom.style_css = AzString::from("water { fill: #123456; }");
         assert_eq!(
-            custom.effective_style_css(MapTheme::Dark).as_str(),
+            custom.effective_style_css(WindowTheme::DarkMode).as_str(),
             "water { fill: #123456; }"
         );
         // authored looks carry no third-party credit
         assert!(
-            MapTheme::AppleLight.credit_str().is_empty()
-                && MapTheme::GoogleLight.credit_str().is_empty()
+            MapLook::AppleLight.credit_str().is_empty()
+                && MapLook::GoogleLight.credit_str().is_empty()
         );
         assert_eq!(
-            MapTheme::Positron.credit().as_str(),
-            MapTheme::Positron.credit_str()
+            MapTheme::Positron.credit(WindowTheme::LightMode).as_str(),
+            MapLook::Positron.credit_str()
         );
-        // System credits BOTH resolutions' designs where they have one
+        assert_eq!(
+            MapTheme::Positron.credit(WindowTheme::DarkMode).as_str(),
+            MapLook::DarkMatter.credit_str()
+        );
+        // System credits BOTH halves' designs where they have one
         let sys = MapTileLayer::default().with_theme(MapTheme::System);
-        let l = MapTheme::System
-            .resolve(WindowTheme::LightMode)
-            .credit_str();
-        let d = MapTheme::System.resolve(WindowTheme::DarkMode).credit_str();
+        let l = MapTheme::System.look(MapColorScheme::Light).credit_str();
+        let d = MapTheme::System.look(MapColorScheme::Dark).credit_str();
         assert!(l.is_empty() || sys.attribution.as_str().contains(l));
         assert!(d.is_empty() || sys.attribution.as_str().contains(d));
     }
@@ -2881,11 +2845,11 @@ mod theme_tests {
         let look_a = cache.key_at_current_look(id);
         cache.mark_tile_ready(look_a, AzString::from("<svg/>"));
         assert!(
-            !cache.set_active_theme(cache.active_theme),
+            !cache.set_active_look(cache.active_look),
             "same look: nothing to do"
         );
         assert!(matches!(cache.tiles[&look_a], TileEntry::Ready { .. }));
-        assert!(cache.set_active_theme(MapTheme::Dark));
+        assert!(cache.set_active_look(MapLook::DarkMatter));
         // A look change RE-KEYS the lookup; it must never invalidate geometry
         // that is already decoded. Look A's tile stays Ready and instantly
         // available if the user flips back.
@@ -2893,9 +2857,12 @@ mod theme_tests {
             matches!(cache.tiles[&look_a], TileEntry::Ready { .. }),
             "a look change must not discard a decoded tile"
         );
-        assert_eq!(cache.active_theme, MapTheme::Dark);
+        assert_eq!(cache.active_look, MapLook::DarkMatter);
         assert_eq!(
-            cache.layer.effective_style_css(cache.active_theme).as_str(),
+            cache
+                .layer
+                .effective_style_css_for(cache.active_look)
+                .as_str(),
             super::super::map_themes::DARK
         );
     }
@@ -5405,7 +5372,7 @@ mod autotest_generated {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
 
         let ok = RefAny::new(TileReadyMsg {
-            theme: MapTheme::System,
+            look: MapLook::AppleLight,
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
@@ -5426,7 +5393,7 @@ mod autotest_generated {
         }
 
         let failed = RefAny::new(TileReadyMsg {
-            theme: MapTheme::System,
+            look: MapLook::AppleLight,
             tile,
             svg: AzString::from(""),
             error: AzString::from("404"),
@@ -5451,7 +5418,7 @@ mod autotest_generated {
         };
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
         let msg = RefAny::new(TileReadyMsg {
-            theme: MapTheme::System,
+            look: MapLook::AppleLight,
             tile,
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
@@ -5481,7 +5448,7 @@ mod autotest_generated {
     #[test]
     fn tile_writeback_with_a_wrong_typed_cache_is_a_no_op() {
         let msg = RefAny::new(TileReadyMsg {
-            theme: MapTheme::System,
+            look: MapLook::AppleLight,
             tile: MapTileId { z: 1, x: 0, y: 0 },
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
@@ -5496,51 +5463,54 @@ mod autotest_generated {
     // ── The two axes: cartography (the app's) vs light/dark (the cascade's) ──
 
     #[test]
-    fn a_look_is_a_cartography_taken_to_a_colour_scheme_and_every_style_has_both() {
-        // The property that makes (style, scheme) a real product rather than
-        // ten ad-hoc enum variants: every cartography renders in either scheme,
-        // and the look you get back says which scheme it is.
-        for style in [
-            MapTileStyle::Standard,
-            MapTileStyle::Bright,
-            MapTileStyle::Liberty,
-            MapTileStyle::Google,
-            MapTileStyle::Apple,
+    fn a_look_is_a_theme_taken_to_a_colour_scheme_and_every_theme_has_both() {
+        // The property that makes (theme, scheme) a real product rather than
+        // ten ad-hoc enum variants: every cartography renders in either
+        // scheme, and the look you get back says which scheme it is.
+        for theme in [
+            MapTheme::Positron,
+            MapTheme::Bright,
+            MapTheme::Liberty,
+            MapTheme::Google,
+            MapTheme::Apple,
         ] {
             for scheme in [MapColorScheme::Light, MapColorScheme::Dark] {
-                let look = style.look(scheme);
+                let look = theme.look(scheme);
                 assert_eq!(
-                    look.pinned_scheme(),
-                    Some(scheme),
-                    "{style:?} in {scheme:?} must render as {scheme:?}"
+                    look.is_dark(),
+                    matches!(scheme, MapColorScheme::Dark),
+                    "{theme:?} in {scheme:?} must render as {scheme:?}"
                 );
                 assert!(
                     !look.stylesheet().as_str().is_empty(),
-                    "{style:?} in {scheme:?} must have a sheet to decode with"
+                    "{theme:?} in {scheme:?} must have a sheet to decode with"
                 );
             }
         }
     }
 
     #[test]
-    fn only_system_defers_to_the_cascade_and_an_explicit_preset_overrides_it() {
-        // `System` is the only look with no opinion of its own — the cascade
-        // fills the scheme in. Everything else is an app deliberately
-        // overriding the cascade, and an explicit override has to win.
-        assert_eq!(MapTheme::System.pinned_scheme(), None);
+    fn no_theme_pins_a_scheme_the_cascade_always_decides() {
+        // There is no "light Apple" and "dark Apple": Apple is one theme and
+        // the window's scheme picks the half. `System` only adds the platform
+        // family on top.
         assert_eq!(
-            MapTheme::System.for_scheme(MapColorScheme::Dark),
-            MapTileStyle::platform_default().look(MapColorScheme::Dark),
+            MapTheme::System.look(MapColorScheme::Dark),
+            MapTheme::platform_family().look(MapColorScheme::Dark),
         );
         assert_eq!(
-            MapTheme::AppleLight.for_scheme(MapColorScheme::Dark),
-            MapTheme::AppleLight,
-            "an app that asked for the light Apple look keeps it in dark mode"
+            MapTheme::Apple.look(MapColorScheme::Dark),
+            MapLook::AppleDark
         );
         assert_eq!(
-            MapTheme::Dark.for_scheme(MapColorScheme::Light),
-            MapTheme::Dark
+            MapTheme::Apple.look(MapColorScheme::Light),
+            MapLook::AppleLight
         );
+        assert_ne!(
+            MapTheme::Google.look(MapColorScheme::Dark),
+            MapTheme::Google.look(MapColorScheme::Light)
+        );
+        assert_eq!(MapTheme::Custom.look(MapColorScheme::Dark), MapLook::Custom);
     }
 
     #[test]
@@ -5550,34 +5520,34 @@ mod autotest_generated {
         // second download of the entire viewport.
         let tile = MapTileId { z: 2, x: 1, y: 1 };
         let mut cache = cache_at(0.0, 0.0, 2.0);
-        let light = MapTileStyle::Apple.look(MapColorScheme::Light);
-        let dark = MapTileStyle::Apple.look(MapColorScheme::Dark);
+        let light = MapTheme::Apple.look(MapColorScheme::Light);
+        let dark = MapTheme::Apple.look(MapColorScheme::Dark);
 
         cache.mark_tile_ready(
-            TileStyleKey { tile, theme: light },
+            TileStyleKey { tile, look: light },
             AzString::from("<svg id='l'/>"),
         );
-        assert!(cache.set_active_theme(dark), "the look moved");
+        assert!(cache.set_active_look(dark), "the look moved");
 
         assert!(
             matches!(
-                cache.tiles.get(&TileStyleKey { tile, theme: light }),
+                cache.tiles.get(&TileStyleKey { tile, look: light }),
                 Some(TileEntry::Ready { .. })
             ),
             "the light tile is still correct data for the light look and must survive the flip — \
              re-key, never invalidate"
         );
-        assert_eq!(cache.active_theme, dark);
+        assert_eq!(cache.active_look, dark);
     }
 
     #[test]
     fn an_unstyled_look_falls_back_to_a_decoded_one_instead_of_a_grey_placeholder() {
         let tile = MapTileId { z: 2, x: 1, y: 1 };
         let mut cache = cache_at(0.0, 0.0, 2.0);
-        let light = MapTileStyle::Apple.look(MapColorScheme::Light);
-        let dark = MapTileStyle::Apple.look(MapColorScheme::Dark);
+        let light = MapTheme::Apple.look(MapColorScheme::Light);
+        let dark = MapTheme::Apple.look(MapColorScheme::Dark);
         cache.mark_tile_ready(
-            TileStyleKey { tile, theme: light },
+            TileStyleKey { tile, look: light },
             AzString::from("<svg id='l'/>"),
         );
 
@@ -5589,7 +5559,7 @@ mod autotest_generated {
 
         // An exact hit always wins over the stand-in.
         cache.mark_tile_ready(
-            TileStyleKey { tile, theme: dark },
+            TileStyleKey { tile, look: dark },
             AzString::from("<svg id='d'/>"),
         );
         let (got, svg) = cache.best_available_svg(tile, dark).expect("exact hit");
@@ -5605,17 +5575,17 @@ mod autotest_generated {
         // `ok=true` on the way past, before the check that discarded it.
         let tile = MapTileId { z: 4, x: 1, y: 2 };
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
-        let arrived_for = MapTileStyle::Apple.look(MapColorScheme::Dark);
+        let arrived_for = MapTheme::Apple.look(MapColorScheme::Dark);
         {
             let mut c = dataset.downcast_mut::<MapTileCache>().expect("cache");
-            c.set_active_theme(MapTileStyle::Apple.look(MapColorScheme::Light));
+            c.set_active_look(MapTheme::Apple.look(MapColorScheme::Light));
         }
 
         let msg = RefAny::new(TileReadyMsg {
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
-            theme: arrived_for,
+            look: arrived_for,
             bytes: azul_css::U8Vec::from_vec(Vec::from([1u8, 2, 3])),
         });
         let _ = with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
@@ -5625,7 +5595,7 @@ mod autotest_generated {
             matches!(
                 cache.tiles.get(&TileStyleKey {
                     tile,
-                    theme: arrived_for
+                    look: arrived_for
                 }),
                 Some(TileEntry::Ready { .. })
             ),
@@ -5650,7 +5620,7 @@ mod autotest_generated {
             cache.mark_tile_ready(
                 TileStyleKey {
                     tile,
-                    theme: MapTileStyle::Google.look(scheme),
+                    look: MapTheme::Google.look(scheme),
                 },
                 AzString::from("<svg/>"),
             );
