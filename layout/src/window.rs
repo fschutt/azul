@@ -26663,6 +26663,61 @@ mod window_theme_context {
         );
     }
 
+    /// The app's path (`style_user_dom_for`: the DOM is cascaded under the
+    /// window's context from its first cascade) under a DARK window: every
+    /// widget label is painted light. The widgets demo's button, tree view
+    /// and ribbon labels were dark-on-dark on this path while the harness
+    /// paths (context set after creation) came out right — the restyle's
+    /// inheritance walk handed the children the light value as their own
+    /// (`a_dom_created_under_the_dark_context_inherits_the_twin` in core).
+    #[test]
+    fn a_dom_styled_for_a_dark_window_paints_its_widget_labels_light() {
+        use crate::{
+            solver3::display_list::DisplayListItem,
+            widgets::{
+                button::Button,
+                tree_view::{TreeView, TreeViewNode},
+            },
+        };
+
+        let mut lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let mut ws = FullWindowState {
+            theme: WindowTheme::DarkMode,
+            ..Default::default()
+        };
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        let dom = Dom::create_body()
+            .with_child(Button::create("Click me!".into()).dom())
+            .with_child(TreeView::new(TreeViewNode::new("Home")).dom());
+        let styled = lw.style_user_dom_for(dom, &ws);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("dark layout");
+
+        let colours: Vec<_> = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("root laid out")
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            colours.len() >= 2,
+            "the button label and the tree item are painted"
+        );
+        assert!(
+            colours.iter().all(is_light),
+            "under a dark window every widget label is light, got {colours:?}"
+        );
+    }
+
     /// The theme changes COLOURS, never geometry: the same DOM laid out under
     /// a light and a dark window has identical node rects. (A dark twin that
     /// carried a size or a display value would fail this.)

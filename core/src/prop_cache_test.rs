@@ -1520,6 +1520,78 @@ mod autotest_generated {
         );
     }
 
+    /// The same twin on a DOM CREATED under the dark context — the app's
+    /// path (`style_user_dom_for` → `create_with_context`), not one that
+    /// had the context set after the fact. The restyle's inheritance walk
+    /// materializes the parent's inline declarations into the children's
+    /// cascaded props; it used to admit only pseudo-state conditions, so the
+    /// light value went down as the child's OWN declaration and beat the
+    /// inherited twin. The other path only came out right because the prune
+    /// had emptied the cascaded props before the recascade.
+    #[test]
+    fn a_dom_created_under_the_dark_context_inherits_the_twin() {
+        use azul_css::{
+            dynamic_selector::{
+                CssPropertyWithConditions, CssPropertyWithConditionsVec, ThemeCondition,
+            },
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let light = ColorU::rgb(33, 37, 41);
+        let dark = ColorU::rgb(232, 232, 232);
+        let build = |ctx: Option<DynamicSelectorContext>| {
+            let mut dom = Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        CssPropertyWithConditions::simple(CssProperty::const_text_color(
+                            StyleTextColor { inner: light },
+                        )),
+                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                            StyleTextColor { inner: dark },
+                        )),
+                    ]))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("label"),
+                    )),
+            );
+            StyledDom::create_with_context(&mut dom, azul_css::css::Css::empty(), ctx)
+        };
+        // body(0) > div(1) > p(2) > text(3)
+        let colour_of = |sd: &StyledDom, i: usize| {
+            let node_data = sd.node_data.as_container();
+            let n = NodeId::new(i);
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("node"), &n, &normal())
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
+        let sd = build(Some(ctx));
+        assert_eq!(colour_of(&sd, 1), Some(dark), "the container's own twin");
+        assert_eq!(
+            colour_of(&sd, 2),
+            Some(dark),
+            "the p inherits the twin, not the light value the restyle walk used to hand it"
+        );
+        assert_eq!(colour_of(&sd, 3), Some(dark), "…and so does the text");
+
+        let light_ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
+        let sd = build(Some(light_ctx));
+        assert_eq!(
+            colour_of(&sd, 3),
+            Some(light),
+            "under a light window the twin stays out"
+        );
+    }
+
     /// A container's conditional declaration is inherited by its children
     /// when the condition holds — `dark_theme(color: ..)` on a button reaches
     /// the label's text under a dark window, and stays out of the way under a

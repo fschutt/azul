@@ -1828,28 +1828,55 @@ impl CssPropertyCache {
             ];
 
             for &state in &all_states {
-                // 1. Inherit inline CSS properties from parent for this pseudo-state
-                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data
-                    [parent_id]
-                    .style
-                    .iter_inline_properties()
-                    .filter(|(_prop, conds)| {
+                // 1. Inherit inline CSS properties from parent for this pseudo-state.
+                //
+                // A declaration belongs to the pseudo-state named in its
+                // conditions (none = Normal), and its OTHER conditions — the
+                // theme, the viewport, the OS — must hold under the dynamic
+                // context, exactly as `apply_cascade_properties` decides for
+                // the node itself. Last match wins per property, the way inline
+                // declarations resolve everywhere else. This used to keep only
+                // declarations whose every condition was a pseudo-state, so a
+                // `dark_theme(color)` twin never qualified and the child got
+                // the light value as a cascaded declaration of ITS OWN — which
+                // `compute_inherited_values` then preferred over the twin it
+                // had just inherited from the parent. Every widget label under
+                // a dark window (the button's, the tree view's, the ribbon's)
+                // was dark-on-dark on a DOM cascaded under the window's
+                // context from the start; a DOM that had the context set
+                // afterwards was recascaded after the prune and came out
+                // right by accident.
+                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = {
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for (prop, conds) in node_data[parent_id].style.iter_inline_properties() {
                         let conditions = conds.as_slice();
-                        if conditions.is_empty() {
-                            state == PseudoStateType::Normal
-                        } else {
-                            conditions.iter().all(
-                                |c| matches!(c, DynamicSelector::PseudoState(s) if *s == state),
-                            )
+                        let decl_state = conditions
+                            .iter()
+                            .find_map(|c| match c {
+                                DynamicSelector::PseudoState(s) => Some(*s),
+                                _ => None,
+                            })
+                            .unwrap_or(PseudoStateType::Normal);
+                        let applies = decl_state == state
+                            && conditions.iter().all(|c| match c {
+                                DynamicSelector::PseudoState(s) => *s == state,
+                                other => dyn_ctx.as_deref().is_some_and(|ctx| other.matches(ctx)),
+                            });
+                        let prop_type = prop.get_type();
+                        if !applies
+                            || !prop_type.is_inheritable()
+                            || is_resolved_parent_inherited(prop_type)
+                        {
+                            continue;
                         }
-                    })
-                    .map(|(prop, _)| prop)
-                    .filter(|prop| {
-                        prop.get_type().is_inheritable()
-                            && !is_resolved_parent_inherited(prop.get_type())
-                    })
-                    .map(|p| (p.get_type(), clone_inheritable_property(p)))
-                    .collect();
+                        let value = clone_inheritable_property(prop);
+                        match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((prop_type, value)),
+                        }
+                    }
+                    picked
+                };
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
