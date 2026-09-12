@@ -17996,6 +17996,10 @@ impl LayoutWindow {
             self.text_edit_manager.preedit_text.as_deref(),
             self.text_edit_manager.selection_handles,
             &seat_focus_rings,
+            styled_dom
+                .get_css_property_cache()
+                .dynamic_context
+                .as_deref(),
         );
 
         // Build a temporary LayoutContext with all the state we need

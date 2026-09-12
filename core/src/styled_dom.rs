@@ -2350,6 +2350,12 @@ impl StyledDom {
         &mut self,
         context: azul_css::dynamic_selector::DynamicSelectorContext,
     ) {
+        // The compact cache holds QUERY RESULTS, and the UA's colour defaults
+        // (inherited text, `<hr>`, native button borders) are answered from
+        // the context's theme at query time — so a theme flip stales it even
+        // when no node carries a conditional property. Decided before the
+        // context is replaced; `None` (no window yet) counts as a flip.
+        let theme_changed;
         {
             let cache = self.get_css_property_cache_mut();
             let same = cache.dynamic_context.as_deref() == Some(&context);
@@ -2357,6 +2363,10 @@ impl StyledDom {
             if same {
                 return;
             }
+            theme_changed = cache
+                .dynamic_context
+                .as_deref()
+                .is_none_or(|c| c.theme != context.theme);
             cache.dynamic_context = Some(Box::new(context));
         }
         // Author-css @-rule conditions are baked at CASCADE time (restyle
@@ -2376,11 +2386,26 @@ impl StyledDom {
         if author_conditional {
             self.restyle_retained();
         }
-        let needs_rebuild = self
-            .get_css_property_cache()
-            .compact_cache
-            .as_ref()
-            .is_none_or(|cc| cc.has_dynamic_conditions);
+        // The inherited values (`computed_values`, what the slow path answers
+        // for a child with no declaration of its own) were computed under
+        // the PREVIOUS context — for a DOM styled before any window adopted
+        // it, under none, where no conditional declaration applies. A theme
+        // flip changes which of a container's twins its children inherit,
+        // so they are recomputed here; the compact rebuild below reads them.
+        if theme_changed {
+            self.css_property_cache
+                .downcast_mut()
+                .compute_inherited_values(
+                    self.node_hierarchy.as_container().internal,
+                    self.node_data.as_container().internal,
+                );
+        }
+        let needs_rebuild = theme_changed
+            || self
+                .get_css_property_cache()
+                .compact_cache
+                .as_ref()
+                .is_none_or(|cc| cc.has_dynamic_conditions);
         if needs_rebuild {
             self.recompute_inheritance_and_compact_cache();
             self.get_css_property_cache_mut()

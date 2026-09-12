@@ -477,10 +477,17 @@ pub fn dl_input_fingerprint(
         azul_core::dom::DomNodeId,
         azul_css::props::basic::color::ColorU,
     )],
+    dynamic_context: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
 ) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     cursor_is_visible.hash(&mut h);
+    // The theme: its UA colour defaults are resolved at BUILD time and are
+    // not in any node's resolved style, so the subtree hash cannot see a
+    // switch (`DynamicSelectorContext::paint_defaults_fingerprint`).
+    dynamic_context
+        .map(azul_css::dynamic_selector::DynamicSelectorContext::paint_defaults_fingerprint)
+        .hash(&mut h);
     paint_selection_handles.hash(&mut h);
     // A seat's focus moving must miss the cache like a caret moving does.
     format!("{seat_focus_rings:?}").hash(&mut h);
@@ -768,6 +775,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         preedit_text.as_deref(),
         paint_selection_handles,
         &seat_focus_rings,
+        new_dom.get_css_property_cache().dynamic_context.as_deref(),
     );
     if let Some((
         cached_hash,
