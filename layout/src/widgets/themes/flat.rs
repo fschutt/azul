@@ -651,9 +651,6 @@ pub fn button(btn: Button) -> Dom {
     // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
-    // The hover / pressed / focus states the widget no longer declares, paired
-    // light and dark. Appended after the base so they win.
-    container_style.extend(button_states(btn_type));
 
     // In a flat theme we just override the background and text color for dark mode
     container_style.push(CssPropertyWithConditions::dark_theme(
@@ -665,6 +662,12 @@ pub fn button(btn: Button) -> Dom {
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
     ));
+
+    // The interactive states go LAST. Inline declarations resolve last-match
+    // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
+    // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
+    // would shadow it — no ring, no hover face, in dark mode.
+    container_style.extend(button_states(btn_type));
 
     button
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))
@@ -1478,9 +1481,6 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    // The interactive states the widget no longer declares. Appended after the
-    // base style so they win, and as one array so half of them cannot ship.
-    container_style.extend_from_slice(&FIELD_BORDER_STATES);
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
@@ -1502,6 +1502,12 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     label_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
     ));
+
+    // The interactive states go LAST. Inline declarations resolve last-match
+    // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
+    // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
+    // would shadow it — no ring, no hover face, in dark mode.
+    container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
