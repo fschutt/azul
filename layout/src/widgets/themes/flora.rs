@@ -460,6 +460,331 @@ pub const DARK_ON_ACC: ColorU = ColorU {
     a: 255,
 };
 
+// ---------------------------------------------------------------------------
+// GRADIENTS
+// ---------------------------------------------------------------------------
+//
+// flora.css's `linear-gradient(..)` declarations, transcribed with the angles
+// and stops the CSS has; an `rgba(..)` alpha is rounded the way the CSS parser
+// rounds it, `(a * 255).round()`. Everything here is `const`: `LinearGradient`
+// and its stop vec have const constructors, so a gradient can sit in a `const`
+// style slice as well as in a runtime `vec!`. The stop slices are named consts
+// rather than inline borrows because a gradient value has drop glue (its stop
+// vec implements `Drop`), and a borrowed temporary of such a value is not
+// promotable — the shape `tabs.rs` uses for the same reason.
+//
+// The `RT`/`RB`, `HT`/`HB` and `PT`/`PB` tokens above are the two stops of the
+// raised, hovered and pressed control faces — that is what they exist for —
+// and the six `*_FACE_*` gradients are those pairs. `flat.rs` keeps flat fills:
+// its stop pairs are equal values, which is what lets the same widget code read
+// correctly under both themes.
+//
+// Layer order: a `StyleBackgroundContentVec` is painted first-to-last, so a base
+// colour goes FIRST and a translucent overlay after it — the reverse of a CSS
+// comma list, whose first layer is on top.
+//
+// Not transcribed, and why:
+// * `--fl-grain` / `--fl-fibre`: `repeating-linear-gradient` with PIXEL stops (`0 1px, transparent
+//   1px 3px`); a stop here is a percentage.
+// * `--fl-rolled-tab`: a `calc()` stop.
+// * The `mask-image` gradients (not backgrounds) and the `.docs-card::after` sheen (a keyframe
+//   animation).
+// * `--fl-band`, `--fl-rolled`, `--fl-rule-metal-bg`, `--fl-gem-sunken`, the `.fl-tab-*` pieces and
+//   the scrollbar thumb: tabs, ribbon rules and scrollbars have no theme function in this module
+//   yet. They belong with the widget that gets one, not as consts nothing declares.
+
+/// The CSS default direction: `linear-gradient(a, b)` with no angle runs top to
+/// bottom.
+const TO_BOTTOM: Direction = Direction::FromTo(DirectionCorners {
+    dir_from: DirectionCorner::Top,
+    dir_to: DirectionCorner::Bottom,
+});
+
+/// `<n>deg`, as the CSS writes an explicit angle.
+const fn deg(degrees: isize) -> Direction {
+    Direction::Angle(AngleValue::const_deg(degrees))
+}
+
+/// A colour stop at `offset` percent.
+const fn stop(offset: isize, color: ColorU) -> NormalizedLinearColorStop {
+    NormalizedLinearColorStop::new(PercentageValue::const_new(offset), color)
+}
+
+/// A `background` of these layers, painted first to last.
+fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
+    CssProperty::BackgroundContent(StyleBackgroundContentVec::from_vec(list).into())
+}
+
+// -- the raised face --------------------------------------------------------
+
+const RAISED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, LIGHT_RT), stop(100, LIGHT_RB)];
+
+/// `.btn-secondary`: raised paper, the standard command at rest.
+///
+/// `linear-gradient(var(--fl-rT), var(--fl-rB))` — [`LIGHT_RT`] over
+/// [`LIGHT_RB`]. Also `.navbar`, `.btn-hero-secondary`, `.pill`, and the
+/// `padding-box` layer of `.btn-hero-primary`, `.hero-badge` and `.pill-soon`.
+pub const RAISED_FACE_LIGHT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RAISED_FACE_LIGHT_STOPS),
+    });
+
+const RAISED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, DARK_RT), stop(100, DARK_RB)];
+
+/// [`RAISED_FACE_LIGHT`] under `:root[data-theme="dark"]`, where the tokens
+/// take their dark values. [`DARK_RT`] over [`DARK_RB`].
+pub const RAISED_FACE_DARK: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RAISED_FACE_DARK_STOPS),
+    });
+
+/// [`RAISED_FACE_LIGHT`] as a one-layer background, for `const` style slices.
+const RAISED_FACE_LIGHT_LAYER: &[StyleBackgroundContent] = &[RAISED_FACE_LIGHT];
+
+/// [`RAISED_FACE_DARK`] as a one-layer background, for `const` style slices.
+const RAISED_FACE_DARK_LAYER: &[StyleBackgroundContent] = &[RAISED_FACE_DARK];
+
+// -- the hovered face -------------------------------------------------------
+
+const HOVER_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, LIGHT_HT), stop(100, LIGHT_HB)];
+
+/// `.btn-secondary:hover`: the raised face lifted toward the light.
+///
+/// `linear-gradient(var(--fl-hT), var(--fl-hB))` — [`LIGHT_HT`] over
+/// [`LIGHT_HB`]. Also `.nav-links a:hover`, `.btn-hero-secondary:hover` and
+/// `.mobile-menu a:focus`.
+pub const HOVER_FACE_LIGHT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(HOVER_FACE_LIGHT_STOPS),
+    });
+
+const HOVER_FACE_DARK_STOPS: &[NormalizedLinearColorStop] = &[stop(0, DARK_HT), stop(100, DARK_HB)];
+
+/// [`HOVER_FACE_LIGHT`] in dark mode. [`DARK_HT`] over [`DARK_HB`].
+pub const HOVER_FACE_DARK: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(HOVER_FACE_DARK_STOPS),
+    });
+
+// -- the pressed face -------------------------------------------------------
+
+const PRESSED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, LIGHT_PT), stop(100, LIGHT_PB)];
+
+/// `.btn-secondary:active`: the face pushed in.
+///
+/// `linear-gradient(var(--fl-pT), var(--fl-pB))` — [`LIGHT_PT`] over
+/// [`LIGHT_PB`]: darker at the top, where the near lip shades it. Also
+/// `.nav-links a:active`.
+pub const PRESSED_FACE_LIGHT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(PRESSED_FACE_LIGHT_STOPS),
+    });
+
+const PRESSED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, DARK_PT), stop(100, DARK_PB)];
+
+/// [`PRESSED_FACE_LIGHT`] in dark mode. [`DARK_PT`] over [`DARK_PB`].
+pub const PRESSED_FACE_DARK: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(PRESSED_FACE_DARK_STOPS),
+    });
+
+// -- the stone: a coloured command's depth -----------------------------------
+//
+// flora.css draws its accent command as a stone and lays a "depth rig" over it
+// in two pseudo-elements: `::after` shades the edges the light does not reach
+// and `::before` rakes a specular streak across the face. Their fills are
+// translucent, so they go OVER the command's own colour and work for any
+// colour — which is how a Success or Danger button, a stone in its own colour,
+// gets the same depth as the Primary one. The pseudo-elements' `opacity`
+// (0.85 at rest, 1 on hover) is not a background property and is not
+// reproduced; the stops are the CSS's own.
+
+const STONE_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(12, 10, 4, 87)),
+    stop(32, ColorU::new(12, 10, 4, 0)),
+];
+
+/// `.btn-primary::after`, second layer: the shadow the top edge throws down
+/// the face.
+///
+/// `linear-gradient(180deg, rgba(12, 10, 4, 0.34) 0%, rgba(12, 10, 4, 0) 32%)`.
+pub const STONE_RIG_TOP: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(180),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_RIG_TOP_STOPS),
+    });
+
+const STONE_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(12, 10, 4, 56)),
+    stop(15, ColorU::new(12, 10, 4, 0)),
+];
+
+/// `.btn-primary::after`, third layer: the same shadow, off the left edge.
+///
+/// `linear-gradient(90deg, rgba(12, 10, 4, 0.22) 0%, rgba(12, 10, 4, 0) 15%)`.
+pub const STONE_RIG_LEFT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_RIG_LEFT_STOPS),
+    });
+
+const STONE_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(6, ColorU::new(255, 248, 215, 0)),
+    stop(15, ColorU::new(255, 248, 215, 51)),
+    stop(22, ColorU::new(255, 248, 215, 15)),
+    stop(32, ColorU::new(255, 248, 215, 0)),
+];
+
+/// `.btn-primary::before`: the specular streak raked across the face at rest.
+///
+/// `linear-gradient(115deg, rgba(255, 248, 215, 0) 6%, rgba(255, 248, 215,
+/// 0.20) 15%, rgba(255, 248, 215, 0.06) 22%, rgba(255, 248, 215, 0) 32%)`.
+pub const STONE_STREAK: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(115),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_STREAK_STOPS),
+    });
+
+const STONE_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(4, ColorU::new(255, 248, 215, 0)),
+    stop(14, ColorU::new(255, 248, 215, 87)),
+    stop(23, ColorU::new(255, 248, 215, 26)),
+    stop(34, ColorU::new(255, 248, 215, 0)),
+];
+
+/// `.btn-primary:hover::before`: the streak, brighter and wider, as the face
+/// turns toward the light.
+///
+/// `linear-gradient(115deg, rgba(255, 248, 215, 0) 4%, rgba(255, 248, 215,
+/// 0.34) 14%, rgba(255, 248, 215, 0.10) 23%, rgba(255, 248, 215, 0) 34%)`.
+pub const STONE_STREAK_HOVER: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(115),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_STREAK_HOVER_STOPS),
+    });
+
+// The stone pressed. flora.css's sunken stone (`.nav-links a.active::after`,
+// `.lang-grid button.active::after`) is "lit from below the near edge instead
+// of above it: the light falls INTO the well, so the top edge darkens and the
+// bottom lifts. That inversion is the whole difference between pressed and
+// raised" — so it is what a coloured command shows while it is held down.
+
+const SUNKEN_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(8, 6, 2, 122)),
+    stop(42, ColorU::new(8, 6, 2, 0)),
+];
+
+/// `.nav-links a.active::after`, second layer: the near lip's shadow, deeper
+/// than the raised rig's.
+///
+/// `linear-gradient(180deg, rgba(8, 6, 2, 0.48) 0%, rgba(8, 6, 2, 0) 42%)`.
+pub const SUNKEN_RIG_TOP: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(180),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_RIG_TOP_STOPS),
+    });
+
+const SUNKEN_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(8, 6, 2, 77)),
+    stop(18, ColorU::new(8, 6, 2, 0)),
+];
+
+/// `.nav-links a.active::after`, third layer: the same shadow, off the left
+/// edge.
+///
+/// `linear-gradient(90deg, rgba(8, 6, 2, 0.30) 0%, rgba(8, 6, 2, 0) 18%)`.
+pub const SUNKEN_RIG_LEFT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_RIG_LEFT_STOPS),
+    });
+
+const SUNKEN_RIG_BOTTOM_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 253, 238, 26)),
+    stop(14, ColorU::new(255, 253, 238, 0)),
+];
+
+/// `.nav-links a.active::after`, fourth layer: the far wall's light lifting
+/// the bottom edge.
+///
+/// `linear-gradient(0deg, rgba(255, 253, 238, 0.10) 0%, rgba(255, 253, 238, 0)
+/// 14%)`.
+pub const SUNKEN_RIG_BOTTOM: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(0),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_RIG_BOTTOM_STOPS),
+    });
+
+/// A coloured command is a stone: its own colour, then the rig
+/// `.btn-primary::after` lays on it, then the streak of `::before`.
+///
+/// The colour is the base layer because layers paint first-to-last; the rig is
+/// translucent, so the colour shows through it.
+fn stone_face(color: ColorU, streak: StyleBackgroundContent) -> Vec<StyleBackgroundContent> {
+    vec![
+        StyleBackgroundContent::Color(color),
+        STONE_RIG_TOP,
+        STONE_RIG_LEFT,
+        streak,
+    ]
+}
+
+/// The stone held down: its pressed colour under the sunken rig.
+fn sunken_stone_face(color: ColorU) -> Vec<StyleBackgroundContent> {
+    vec![
+        StyleBackgroundContent::Color(color),
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_LEFT,
+        SUNKEN_RIG_BOTTOM,
+    ]
+}
+
+// -- the orb's gloss --------------------------------------------------------
+
+const ORB_GLOSS_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 255, 255, 158)),
+    stop(52, ColorU::new(255, 255, 255, 56)),
+    stop(100, ColorU::new(255, 255, 255, 8)),
+];
+
+/// `.fl-orb-gloss`: "the specular cap. Hard along the top, dissolving at the
+/// equator."
+///
+/// `linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255,
+/// 0.22) 52%, rgba(255, 255, 255, 0.03) 100%)`. The CSS puts it on a separate
+/// element covering the dome's upper half; here it spans the whole box it is
+/// laid over, so it reads as a top-lit sheen on a domed knob.
+pub const ORB_GLOSS: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(180),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(ORB_GLOSS_STOPS),
+    });
+
 #[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -548,17 +873,42 @@ pub fn button(btn: Button) -> Dom {
     // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
+    // The resting face, in flora.css's terms. The standard command is raised
+    // paper (`.btn-secondary`: `linear-gradient(var(--fl-rT), var(--fl-rB))`),
+    // with its dark twin. A coloured command is a stone: its own colour in
+    // both modes, under the depth rig and the streak the CSS lays on its
+    // accent stone. The Link button has no surface and keeps what it had, the
+    // dark surface included. It is part of the BASE: after the widget's flat
+    // fill, which it wins over, and before the states, which win over it.
+    {
+        use crate::widgets::button::ButtonType;
+        match btn_type {
+            ButtonType::Default => {
+                container_style.push(CssPropertyWithConditions::simple(layers(vec![
+                    RAISED_FACE_LIGHT,
+                ])));
+                container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                    RAISED_FACE_DARK,
+                ])));
+            }
+            ButtonType::Link => {
+                container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                    StyleBackgroundContent::Color(DARK_SUR),
+                ])));
+            }
+            _ => {
+                let (bg, _, _) = crate::widgets::button::get_button_colors(btn_type);
+                container_style.push(CssPropertyWithConditions::simple(layers(stone_face(
+                    bg,
+                    STONE_STREAK,
+                ))));
+            }
+        }
+    }
     // The hover / pressed / focus states the widget no longer declares, paired
     // light and dark. Appended after the base so they win.
     container_style.extend(button_states(btn_type));
 
-    // Flora specific styling: we use DARK_SUR for background in dark mode, DARK_INK for text
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
-                .into(),
-        ),
-    ));
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
@@ -1446,19 +1796,34 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let mut track_style = resolved_track_style.as_slice().to_vec();
     let mut thumb_style = resolved_thumb_style.as_slice().to_vec();
 
-    // Flora specific:
+    // Flora specific. The rail stays a flat track: flora.css's `--fl-track` is
+    // a flat token, and the rail has no border to hold a paler well against the
+    // page. The thumb is the one domed control here, and the CSS caps its dome
+    // with `.fl-orb-gloss`: laid OVER whatever colour the widget resolved for
+    // the thumb — read back rather than restated, so it cannot drift from
+    // slider.rs — and over the theme's accent in dark mode.
     track_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_TRACK)])
                 .into(),
         ),
     ));
-    thumb_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_ACC)])
-                .into(),
-        ),
-    ));
+    let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
+        .iter()
+        .rev()
+        .find_map(|p| match &p.property {
+            CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
+                b.get_property().map(|b| b.as_ref().to_vec())
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
+    thumb_layers.push(ORB_GLOSS);
+    thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
+    thumb_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+        StyleBackgroundContent::Color(DARK_ACC),
+        ORB_GLOSS,
+    ])));
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
@@ -1683,7 +2048,7 @@ const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
         StyleBorderBottomRightRadius::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(LIGHT_SUR)]),
+        StyleBackgroundContentVec::from_const_slice(RAISED_FACE_LIGHT_LAYER),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_INK,
@@ -1701,7 +2066,7 @@ const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
         StyleBorderRightColor { inner: LIGHT_BD },
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_SUR)]),
+        StyleBackgroundContentVec::from_const_slice(RAISED_FACE_DARK_LAYER),
     )),
     CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
         inner: DARK_INK,
@@ -1982,31 +2347,29 @@ pub const FIELD_BORDER_STATES: [CssPropertyWithConditions; 16] = [
 /// Every state a button of one semantic type takes: hover fill, pressed fill and
 /// focus ring, each with its dark twin.
 ///
-/// The light values come from [`crate::widgets::button::get_button_colors`], so
-/// there is still one source of truth for them; the DARK halves are chosen here,
-/// because this is the only place the palette is in scope.
+/// The coloured types' values come from [`crate::widgets::button::get_button_colors`],
+/// so there is still one source of truth for them; the neutral type's faces and
+/// every DARK half are chosen here, because this is the only place the palette
+/// is in scope.
 ///
-/// The dark rule differs by type on purpose:
+/// The rule differs by type on purpose:
 ///
-/// * `Default` is the neutral grey button, so its surface belongs to the PAGE and its dark states
-///   come from the theme ([`DARK_HT`] / [`DARK_PT`]).
+/// * `Default` is the neutral paper button, so its surface belongs to the PAGE: it hovers and
+///   presses to the theme's faces — [`HOVER_FACE_LIGHT`] / [`HOVER_FACE_DARK`] and
+///   [`PRESSED_FACE_LIGHT`] / [`PRESSED_FACE_DARK`], the gradients flora.css draws for
+///   `.btn-secondary:hover` and `:active`.
 /// * Every other type carries its own semantic colour — a Primary button is blue whichever mode the
 ///   app is in — so the same hover and pressed colours apply in dark mode. A neutral grey hover on
 ///   a blue button would be wrong, and inventing a second blue would be a design decision this
-///   refactor has no business making.
+///   refactor has no business making. That colour is the base layer; over it goes the depth rig
+///   flora.css lays on its accent stone (`.btn-primary::after` and `::before`), sunken while
+///   pressed.
 /// * `Link` has no surface at all: it underlines instead, in both modes.
 #[must_use]
 pub fn button_states(
     button_type: crate::widgets::button::ButtonType,
 ) -> Vec<CssPropertyWithConditions> {
     use crate::widgets::button::ButtonType;
-
-    let bg = |c: ColorU| {
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(c)])
-                .into(),
-        )
-    };
 
     if button_type == ButtonType::Link {
         return alloc::vec![
@@ -2021,17 +2384,30 @@ pub fn button_states(
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
     let neutral = button_type == ButtonType::Default;
-    let (dark_hover, dark_active) = if neutral {
-        (DARK_HT, DARK_PT)
+    // The neutral button is paper: it hovers and presses to the theme's faces,
+    // each with its dark twin. A coloured button is a stone: the same colour in
+    // both modes (see above), under the rig flora.css lays on a stone.
+    let (hover, dark_hover, active, dark_active) = if neutral {
+        (
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        )
     } else {
-        (bg_hover, bg_active)
+        (
+            stone_face(bg_hover, STONE_STREAK_HOVER),
+            stone_face(bg_hover, STONE_STREAK_HOVER),
+            sunken_stone_face(bg_active),
+            sunken_stone_face(bg_active),
+        )
     };
 
     let mut out = alloc::vec![
-        CssPropertyWithConditions::on_hover(bg(bg_hover)),
-        CssPropertyWithConditions::dark_on_hover(bg(dark_hover)),
-        CssPropertyWithConditions::on_active(bg(bg_active)),
-        CssPropertyWithConditions::dark_on_active(bg(dark_active)),
+        CssPropertyWithConditions::on_hover(layers(hover)),
+        CssPropertyWithConditions::dark_on_hover(layers(dark_hover)),
+        CssPropertyWithConditions::on_active(layers(active)),
+        CssPropertyWithConditions::dark_on_active(layers(dark_active)),
     ];
 
     // The neutral button is the only one with a visible resting border, so it is
@@ -2105,6 +2481,317 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
         CssPropertyWithConditions::on_active(bg(light)),
         CssPropertyWithConditions::dark_on_active(bg(dark)),
     ]
+}
+
+// The PHASE 2 anchor block below stays LAST (the plan's parallel-work
+// contract), and the consts the other migrations place in it are items after
+// this module — which is exactly what `items_after_test_module` objects to.
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod gradient_tests {
+    //! Phase 3 of `doc/WIDGET_THEME_MIGRATION.md`: the raised / hover / pressed
+    //! faces are gradients built from the stop tokens, and the controls this
+    //! module renders carry them — a gradient defined and never declared on a
+    //! node would be the same smell as a token referenced only by itself.
+
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition};
+
+    use super::*;
+    use crate::widgets::{
+        button::{get_button_colors, Button, ButtonType},
+        slider::Slider,
+        themes::{OptionUiTheme, UiTheme},
+    };
+
+    /// `(offset %, colour)` per stop, in order. Panics on anything but a linear
+    /// gradient of concrete colours, which every gradient here is.
+    fn stops_of(bg: &StyleBackgroundContent) -> Vec<(PercentageValue, ColorU)> {
+        let StyleBackgroundContent::LinearGradient(g) = bg else {
+            panic!("not a linear gradient: {bg:?}");
+        };
+        g.stops
+            .as_ref()
+            .iter()
+            .map(|s| match s.color {
+                ColorOrSystem::Color(c) => (s.offset, c),
+                ColorOrSystem::System(_) => panic!("a system colour in a transcribed stop"),
+            })
+            .collect()
+    }
+
+    /// The layer lists of every `background` declared on the root whose
+    /// conditions satisfy `pred`, in declaration order — the last one wins.
+    fn backgrounds_where(
+        dom: &Dom,
+        pred: impl Fn(&[DynamicSelector]) -> bool,
+    ) -> Vec<Vec<StyleBackgroundContent>> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| pred(c.as_ref()))
+            .filter_map(|(p, _)| match p {
+                CssProperty::BackgroundContent(b) => b.get_property().map(|b| b.as_ref().to_vec()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The resting background: the last unconditional declaration.
+    fn resting_background(dom: &Dom) -> Option<Vec<StyleBackgroundContent>> {
+        backgrounds_where(dom, <[DynamicSelector]>::is_empty).pop()
+    }
+
+    /// The dark-mode resting background: gated on the dark theme and nothing
+    /// else — a `dark_on_hover` rule is not it.
+    fn dark_resting_background(dom: &Dom) -> Option<Vec<StyleBackgroundContent>> {
+        backgrounds_where(dom, |c| {
+            matches!(c, [DynamicSelector::Theme(ThemeCondition::Dark)])
+        })
+        .pop()
+    }
+
+    /// The background for `state`, in light mode (`dark == false`: no theme
+    /// condition) or dark mode (`dark == true`: the dark condition as well).
+    fn state_background(
+        dom: &Dom,
+        state: PseudoStateType,
+        dark: bool,
+    ) -> Option<Vec<StyleBackgroundContent>> {
+        backgrounds_where(dom, |c| {
+            c.iter()
+                .any(|s| matches!(s, DynamicSelector::PseudoState(st) if *st == state))
+                && c.iter()
+                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    == dark
+        })
+        .pop()
+    }
+
+    fn flora_button(label: &'static str, ty: ButtonType) -> Button {
+        let mut b = Button::with_type(AzString::from_const_str(label), ty);
+        b.theme = OptionUiTheme::Some(UiTheme::Flora);
+        b
+    }
+
+    #[test]
+    fn each_face_is_a_two_stop_vertical_gradient_from_its_top_token_to_its_bottom_token() {
+        let faces = [
+            ("RAISED_FACE_LIGHT", RAISED_FACE_LIGHT, LIGHT_RT, LIGHT_RB),
+            ("RAISED_FACE_DARK", RAISED_FACE_DARK, DARK_RT, DARK_RB),
+            ("HOVER_FACE_LIGHT", HOVER_FACE_LIGHT, LIGHT_HT, LIGHT_HB),
+            ("HOVER_FACE_DARK", HOVER_FACE_DARK, DARK_HT, DARK_HB),
+            ("PRESSED_FACE_LIGHT", PRESSED_FACE_LIGHT, LIGHT_PT, LIGHT_PB),
+            ("PRESSED_FACE_DARK", PRESSED_FACE_DARK, DARK_PT, DARK_PB),
+        ];
+        for (name, face, top, bottom) in faces {
+            let StyleBackgroundContent::LinearGradient(g) = &face else {
+                panic!("{name} is not a linear gradient: {face:?}");
+            };
+            assert_eq!(
+                g.direction, TO_BOTTOM,
+                "{name}: `linear-gradient(a, b)` has no angle, so it runs top to bottom"
+            );
+            assert_eq!(g.extend_mode, ExtendMode::Clamp, "{name}");
+            assert_eq!(
+                stops_of(&face),
+                vec![
+                    (PercentageValue::const_new(0), top),
+                    (PercentageValue::const_new(100), bottom),
+                ],
+                "{name}: two stops, the top token then the bottom token"
+            );
+            // flat.rs's pairs are equal values; flora's are not, or the
+            // "gradient" would be a flat fill with extra steps.
+            assert_ne!(top, bottom, "{name}: a flora face has two different stops");
+        }
+    }
+
+    #[test]
+    fn the_overlays_never_hide_the_colour_beneath_them() {
+        // The rig and the gloss are laid OVER a command's own colour, so every
+        // stop must be translucent and each one must fade to nothing somewhere.
+        for (name, overlay) in [
+            ("STONE_RIG_TOP", STONE_RIG_TOP),
+            ("STONE_RIG_LEFT", STONE_RIG_LEFT),
+            ("STONE_STREAK", STONE_STREAK),
+            ("STONE_STREAK_HOVER", STONE_STREAK_HOVER),
+            ("SUNKEN_RIG_TOP", SUNKEN_RIG_TOP),
+            ("SUNKEN_RIG_LEFT", SUNKEN_RIG_LEFT),
+            ("SUNKEN_RIG_BOTTOM", SUNKEN_RIG_BOTTOM),
+            ("ORB_GLOSS", ORB_GLOSS),
+        ] {
+            let stops = stops_of(&overlay);
+            assert!(stops.len() >= 2, "{name}: fewer than two stops");
+            assert!(
+                stops.iter().all(|(_, c)| c.a < 255),
+                "{name}: an opaque stop would hide the colour beneath: {stops:?}"
+            );
+            assert!(
+                stops.iter().any(|(_, c)| c.a < 32),
+                "{name}: an overlay fades out somewhere: {stops:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_default_button_rests_on_the_raised_paper_face_in_both_modes() {
+        let dom = button(Button::with_type(
+            AzString::from_const_str("OK"),
+            ButtonType::Default,
+        ));
+        let light = resting_background(&dom).expect("the button declares a resting background");
+        assert!(
+            matches!(
+                light.first(),
+                Some(StyleBackgroundContent::LinearGradient(_))
+            ),
+            "the resting face is a flat Color, not flora's raised paper: {light:?}"
+        );
+        assert_eq!(light, vec![RAISED_FACE_LIGHT]);
+        assert_eq!(dark_resting_background(&dom), Some(vec![RAISED_FACE_DARK]));
+    }
+
+    #[test]
+    fn the_rendered_flora_default_button_hovers_and_presses_to_the_face_gradients() {
+        // `Button::dom` is the path that renders in the product: it builds its
+        // own tree and appends `button_states` for the theme the button carries.
+        let dom = flora_button("OK", ButtonType::Default).dom();
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Hover, false),
+            Some(vec![HOVER_FACE_LIGHT])
+        );
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Hover, true),
+            Some(vec![HOVER_FACE_DARK])
+        );
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Active, false),
+            Some(vec![PRESSED_FACE_LIGHT])
+        );
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Active, true),
+            Some(vec![PRESSED_FACE_DARK])
+        );
+    }
+
+    #[test]
+    fn a_coloured_button_keeps_its_own_colour_as_the_base_layer_under_the_rig() {
+        let (bg, bg_hover, bg_active) = get_button_colors(ButtonType::Primary);
+
+        let dom = button(Button::with_type(
+            AzString::from_const_str("Go"),
+            ButtonType::Primary,
+        ));
+        assert_eq!(
+            resting_background(&dom),
+            Some(vec![
+                StyleBackgroundContent::Color(bg),
+                STONE_RIG_TOP,
+                STONE_RIG_LEFT,
+                STONE_STREAK,
+            ]),
+            "the stone's colour paints first; the rig and streak go over it"
+        );
+        assert_eq!(
+            dark_resting_background(&dom),
+            None,
+            "a stone keeps its colour in dark mode, so it needs no dark override"
+        );
+
+        let dom = flora_button("Go", ButtonType::Primary).dom();
+        let hovered = vec![
+            StyleBackgroundContent::Color(bg_hover),
+            STONE_RIG_TOP,
+            STONE_RIG_LEFT,
+            STONE_STREAK_HOVER,
+        ];
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Hover, false),
+            Some(hovered.clone())
+        );
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Hover, true),
+            Some(hovered)
+        );
+        let pressed = vec![
+            StyleBackgroundContent::Color(bg_active),
+            SUNKEN_RIG_TOP,
+            SUNKEN_RIG_LEFT,
+            SUNKEN_RIG_BOTTOM,
+        ];
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Active, false),
+            Some(pressed.clone())
+        );
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Active, true),
+            Some(pressed)
+        );
+    }
+
+    #[test]
+    fn the_link_button_has_no_surface_and_grows_no_face() {
+        let dom = button(Button::with_type(
+            AzString::from_const_str("more"),
+            ButtonType::Link,
+        ));
+        assert_eq!(
+            resting_background(&dom),
+            Some(vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)]),
+            "the widget's transparent fill is untouched"
+        );
+        let dom = flora_button("more", ButtonType::Link).dom();
+        assert_eq!(
+            state_background(&dom, PseudoStateType::Hover, false),
+            None,
+            "a link underlines on hover; it does not take a face"
+        );
+    }
+
+    #[test]
+    fn the_dropdown_wrapper_rests_on_the_raised_paper_face_in_both_modes() {
+        let backgrounds: Vec<(bool, Vec<StyleBackgroundContent>)> = FLORA_DROPDOWN_WRAPPER_STYLE
+            .iter()
+            .filter_map(|p| match &p.property {
+                CssProperty::BackgroundContent(b) => Some((
+                    matches!(
+                        p.apply_if.as_ref(),
+                        [DynamicSelector::Theme(ThemeCondition::Dark)]
+                    ),
+                    b.get_property()?.as_ref().to_vec(),
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            backgrounds,
+            vec![
+                (false, vec![RAISED_FACE_LIGHT]),
+                (true, vec![RAISED_FACE_DARK]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_slider_thumb_wears_the_orb_gloss_over_its_own_colour() {
+        let dom = slider(Slider::create(50.0, 0.0, 100.0));
+        let thumb = &dom.children.as_ref()[0];
+
+        let light = resting_background(thumb).expect("the thumb declares a background");
+        assert!(
+            matches!(light.first(), Some(StyleBackgroundContent::Color(_))),
+            "the widget's own thumb colour is the base layer, read back rather than restated: \
+             {light:?}"
+        );
+        assert_eq!(light.last(), Some(&ORB_GLOSS), "the gloss is the top layer");
+        assert_eq!(light.len(), 2);
+
+        assert_eq!(
+            dark_resting_background(thumb),
+            Some(vec![StyleBackgroundContent::Color(DARK_ACC), ORB_GLOSS]),
+            "dark mode: the same cap over the theme's accent"
+        );
+    }
 }
 
 // ===========================================================================
