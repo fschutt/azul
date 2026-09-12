@@ -178,11 +178,11 @@ impl TexelRect {
     }
 }
 
-impl Into<TexelRect> for DeviceIntRect {
-    fn into(self) -> TexelRect {
+impl From<DeviceIntRect> for TexelRect {
+    fn from(val: DeviceIntRect) -> Self {
         TexelRect {
-            uv0: self.min.to_f32(),
-            uv1: self.max.to_f32(),
+            uv0: val.min.to_f32(),
+            uv1: val.max.to_f32(),
         }
     }
 }
@@ -223,6 +223,9 @@ impl AuHelpers<LayoutPointAu> for LayoutPoint {
     }
 
     fn to_au(&self) -> LayoutPointAu {
+        // `min().max()`, not `clamp()`: a NaN coordinate saturates to
+        // MAX_AU_FLOAT here, which is what the rest of the pipeline expects a
+        // sanitizer to guarantee. `clamp` returns NaN unchanged.
         let x = self.x.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
         let y = self.y.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
 

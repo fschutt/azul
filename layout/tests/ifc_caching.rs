@@ -7,23 +7,31 @@
 //! 4. `RestyleResult.max_relayout_scope` is tracked during restyle
 //! 5. IFC layouts with text produce correct item_metrics
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
 use azul_css::props::property::{CssPropertyType, RelayoutScope};
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::layout_tree::{CachedInlineLayout, InlineItemMetrics};
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::cache::AvailableSpace;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        layout_tree::{CachedInlineLayout, InlineItemMetrics},
+        paged_layout::layout_document_paged_with_config,
+        pagination::FakePageConfig,
+        LayoutNodeId,
+    },
+    text3::{cache::AvailableSpace, default::PathLoader},
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 // ==================== RelayoutScope Classification Tests ====================
 
@@ -223,11 +231,13 @@ fn test_can_trigger_relayout_consistent_with_relayout_scope() {
 
         assert_eq!(
             old_result, *expected_can_trigger,
-            "{prop_type:?}: can_trigger_relayout() returned {old_result}, expected {expected_can_trigger}"
+            "{prop_type:?}: can_trigger_relayout() returned {old_result}, expected \
+             {expected_can_trigger}"
         );
         assert_eq!(
             old_result, new_result,
-            "{prop_type:?}: can_trigger_relayout()={old_result} but relayout_scope(true)={new_scope:?} ({new_result})"
+            "{prop_type:?}: can_trigger_relayout()={old_result} but \
+             relayout_scope(true)={new_scope:?} ({new_result})"
         );
     }
 }
@@ -599,8 +609,8 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     assert!(total_items > 0, "Should have inline items from text");
     assert!(
         items_with_source > 0,
-        "At least some items should have source_node_id (text clusters), \
-         but got 0 out of {total_items} total items"
+        "At least some items should have source_node_id (text clusters), but got 0 out of \
+         {total_items} total items"
     );
 }
 

@@ -166,15 +166,14 @@ impl A11yTreeMirror {
     /// panicked on.
     ///
     /// Merge rules mirrored from `tree.rs::State::update`:
-    /// - `tree: Some` re-roots; `tree: None` keeps the delivered root
-    ///   (and needs one).
-    /// - every child an update node lists must exist (delivered or in the
-    ///   update); a child listed twice is a duplicate.
-    /// - an update node must be the root, already delivered, or listed as a
-    ///   child by another update node.
-    /// - nodes an updated parent no longer lists become unreachable and are
-    ///   dropped (with their subtrees) — the consumer removes them silently,
-    ///   which is why a focus on such a node is the classic abort.
+    /// - `tree: Some` re-roots; `tree: None` keeps the delivered root (and needs one).
+    /// - every child an update node lists must exist (delivered or in the update); a child listed
+    ///   twice is a duplicate.
+    /// - an update node must be the root, already delivered, or listed as a child by another update
+    ///   node.
+    /// - nodes an updated parent no longer lists become unreachable and are dropped (with their
+    ///   subtrees) — the consumer removes them silently, which is why a focus on such a node is the
+    ///   classic abort.
     /// - root and focus must survive in the reachable set.
     pub fn apply(&self, update: &TreeUpdate) -> Result<Self, A11yUpdateError> {
         let root = match (&update.tree, self.root) {
@@ -191,10 +190,7 @@ impl A11yTreeMirror {
                     return Err(A11yUpdateError::DuplicateChild(child));
                 }
                 if !self.children.contains_key(&child) && !update_ids.contains(&child) {
-                    return Err(A11yUpdateError::UnknownChild {
-                        parent: *id,
-                        child,
-                    });
+                    return Err(A11yUpdateError::UnknownChild { parent: *id, child });
                 }
             }
         }
@@ -404,7 +400,9 @@ impl A11yManager {
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
     ) -> LogicalPosition {
         let mut acc = LogicalPosition::zero();
-        let mut cur = node_hierarchy.get(dom_idx).and_then(NodeHierarchyItem::parent_id);
+        let mut cur = node_hierarchy
+            .get(dom_idx)
+            .and_then(NodeHierarchyItem::parent_id);
         let mut guard = 0usize;
         while let Some(parent) = cur {
             guard += 1;
@@ -415,7 +413,9 @@ impl A11yManager {
                 acc.x += off.x;
                 acc.y += off.y;
             }
-            cur = node_hierarchy.get(parent.index()).and_then(NodeHierarchyItem::parent_id);
+            cur = node_hierarchy
+                .get(parent.index())
+                .and_then(NodeHierarchyItem::parent_id);
         }
         acc
     }
@@ -427,12 +427,11 @@ impl A11yManager {
     ///
     /// Given `node_ids` (every node present in the update, in order), the
     /// `root_id`, and the raw `root_children` + `parent_children_map`, this:
-    /// - drops any child that names no present node, is its own parent, or was
-    ///   ALREADY claimed by another parent (accesskit forbids a node having two
-    ///   parents — a GLOBAL duplicate, tree.rs:225), and clears the child list of
-    ///   a parent that is itself not present;
-    /// - re-hangs every exposed non-root node that no parent claimed off the root,
-    ///   so every node is reachable (accesskit tree.rs:307).
+    /// - drops any child that names no present node, is its own parent, or was ALREADY claimed by
+    ///   another parent (accesskit forbids a node having two parents — a GLOBAL duplicate,
+    ///   tree.rs:225), and clears the child list of a parent that is itself not present;
+    /// - re-hangs every exposed non-root node that no parent claimed off the root, so every node is
+    ///   reachable (accesskit tree.rs:307).
     ///
     /// Root's children win a tie (they are processed first). The result is a
     /// forest rooted at `root_id` with each node reachable exactly once.
@@ -535,12 +534,8 @@ impl A11yManager {
                 // ancestor scroller's offset. Bounds used to be the
                 // unscrolled layout rects, so after any scroll VoiceOver's
                 // cursor rectangles sat where the content had been.
-                let ancestor_scroll = Self::ancestor_scroll_offset(
-                    *dom_id,
-                    node_hierarchy,
-                    dom_idx,
-                    scroll_manager,
-                );
+                let ancestor_scroll =
+                    Self::ancestor_scroll_offset(*dom_id, node_hierarchy, dom_idx, scroll_manager);
                 let layout_info = layout_info.map(|(hot, idx, pos)| {
                     (
                         hot,
@@ -849,7 +844,10 @@ impl A11yManager {
 
     /// Builds an accesskit Node from Azul's `NodeData` and layout information.
     #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -1249,7 +1247,9 @@ impl A11yManager {
     /// Maps Azul's `AccessibilityRole` to accesskit's Role.
     // Exhaustive AccessibilityRole -> AccessKit Role mapping table (see node_type_to_role).
     #[allow(clippy::match_same_arms)]
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn map_role(role: &AccessibilityRole) -> Role {
         match role {
             AccessibilityRole::TitleBar => Role::TitleBar,
@@ -1327,8 +1327,8 @@ impl A11yManager {
 ///
 /// The `A11yNodeId` encodes both values in a single u64:
 /// - Upper 32 bits: `DomId` (which DOM tree the node belongs to)
-/// - Lower 32 bits: `NodeId + 1` (index within that DOM tree, offset by 1 to avoid
-///   colliding with the accesskit root node id, matching the encoding in `update_tree`)
+/// - Lower 32 bits: `NodeId + 1` (index within that DOM tree, offset by 1 to avoid colliding with
+///   the accesskit root node id, matching the encoding in `update_tree`)
 #[cfg(feature = "a11y")]
 #[must_use]
 pub const fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
@@ -1438,8 +1438,9 @@ impl A11yManager {
 
 #[cfg(all(test, feature = "a11y"))]
 mod a11y_relation_tests {
-    use super::A11yManager;
     use accesskit::NodeId as A11yNodeId;
+
+    use super::A11yManager;
 
     /// The a11y node-id encoding must stay in lockstep with the tree walk:
     /// `(dom.inner << 32) | (idx + 1)`. `labelled_by/described_by` relations encode
@@ -2999,12 +3000,13 @@ mod autotest_generated {
             A11yNodeId(4),
             A11yNodeId(5),
         ];
-        //   99 = child that names no present node   -> must be dropped (else tree.rs:75/307-adjacent)
-        //   2  = claimed by root AND node 1          -> a node with two parents (tree.rs:225)
-        //   3  = claimed by node 1 AND node 2        -> two parents again
-        //   4  = its own child                       -> self-cycle
+        //   99 = child that names no present node   -> must be dropped (else
+        // tree.rs:75/307-adjacent)   2  = claimed by root AND node 1          -> a node
+        // with two parents (tree.rs:225)   3  = claimed by node 1 AND node 2        -> two
+        // parents again   4  = its own child                       -> self-cycle
         //   88 = parent that is not a present node   -> its child list must be cleared
-        //   5  = only child of missing parent 88     -> orphan; must be re-hung reachable (tree.rs:307)
+        //   5  = only child of missing parent 88     -> orphan; must be re-hung reachable
+        // (tree.rs:307)
         let mut root_children = vec![A11yNodeId(1), A11yNodeId(2), A11yNodeId(99)];
         let mut map: HashMap<A11yNodeId, Vec<A11yNodeId>> = HashMap::new();
         map.insert(A11yNodeId(1), vec![A11yNodeId(2), A11yNodeId(3)]);

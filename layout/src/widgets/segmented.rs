@@ -17,8 +17,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -79,8 +81,13 @@ pub struct Segmented {
     pub segmented_state: SegmentedStateWrapper,
     /// The label of each segment, in order.
     pub labels: StringVec,
-    /// Style for the row container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the row container, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -161,7 +168,8 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// rounding of the outer corners (only the first segment is rounded on the left,
 /// only the last on the right) are the position-dependent properties, so the
 /// style is built at runtime.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn build_segment_style(
     selected: bool,
     is_first: bool,
@@ -302,10 +310,22 @@ impl Segmented {
                 ..Default::default()
             },
             labels,
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                SEGMENTED_CONTAINER_STYLE,
-            ),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The container CSS this segmented row renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(SEGMENTED_CONTAINER_STYLE)
+            })
     }
 
     /// Sets the currently selected segment index.
@@ -364,6 +384,8 @@ impl Segmented {
 
         let selected = self.segmented_state.inner.selected_index;
         let count = self.labels.as_ref().len();
+        // Resolved before `self.segmented_state` is moved out below.
+        let container_style = self.resolved_container_style();
 
         // One shared RefAny across every segment's callback (RefAny::clone shares
         // the underlying state — same pattern as tabs/map).
@@ -403,7 +425,7 @@ impl Segmented {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENTED_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -1383,14 +1405,15 @@ mod autotest_generated {
     fn create_installs_the_shared_container_style() {
         let seg = Segmented::create(labels(&["a", "b"]));
         assert_eq!(
-            seg.container_style.as_ref(),
+            seg.resolved_container_style().as_ref(),
             SEGMENTED_CONTAINER_STYLE,
             "create must install the shared container style"
         );
 
         // Decode the semantics too, so a silent edit of the const is caught here
         // rather than only in a screenshot: a horizontal, content-hugging row.
-        let style = &seg.container_style;
+        let style = seg.resolved_container_style();
+        let style = &style;
         assert_eq!(
             declares(style, |p| matches!(
                 p, CssProperty::Display(d) if d.get_property() == Some(&LayoutDisplay::Flex))),
@@ -1420,7 +1443,7 @@ mod autotest_generated {
             "the group hugs its segments instead of filling the parent"
         );
 
-        for p in seg.container_style.as_ref() {
+        for p in seg.resolved_container_style().as_ref() {
             assert!(
                 p.apply_if.as_ref().is_empty(),
                 "{:?} is conditional",
@@ -1515,7 +1538,8 @@ mod autotest_generated {
 
         assert_eq!(seg.labels, before.labels, "labels changed");
         assert_eq!(
-            seg.container_style, before.container_style,
+            seg.resolved_container_style(),
+            before.resolved_container_style(),
             "container style changed"
         );
         assert_eq!(
@@ -1545,7 +1569,10 @@ mod autotest_generated {
         let built = base.clone().with_selected_index(2);
 
         assert_eq!(built.labels, base.labels);
-        assert_eq!(built.container_style, base.container_style);
+        assert_eq!(
+            built.resolved_container_style(),
+            base.resolved_container_style()
+        );
         assert_eq!(
             built.labels.as_ref().len(),
             3,
@@ -1735,7 +1762,7 @@ mod autotest_generated {
             "the selection must survive"
         );
         assert_eq!(
-            seg.container_style.as_ref(),
+            seg.resolved_container_style().as_ref(),
             SEGMENTED_CONTAINER_STYLE,
             "the container style must survive"
         );

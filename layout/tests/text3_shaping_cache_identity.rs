@@ -126,16 +126,16 @@ fn assert_identity(runs: &[RunIdentity]) -> Result<(), String> {
     // Pin 1: distinct colours survive the shared shaping cache.
     if runs[0].1 == runs[1].1 {
         return Err(format!(
-            "both runs have colour {:?} — the cache returned the first \
-             node's paint for the second node",
+            "both runs have colour {:?} — the cache returned the first node's paint for the \
+             second node",
             runs[0].1
         ));
     }
     // Pin 3: distinct source_node_index (damage/hit-test identity).
     if runs[0].0 == runs[1].0 || runs[0].0.is_none() || runs[1].0.is_none() {
         return Err(format!(
-            "source_node_index not distinct: {:?} vs {:?} — the second \
-             node's text is attributed to the first",
+            "source_node_index not distinct: {:?} vs {:?} — the second node's text is attributed \
+             to the first",
             runs[0].0, runs[1].0
         ));
     }
@@ -202,16 +202,15 @@ fn identity_gate_negative_control() {
     // the child actually ran the pin.
     assert!(
         stdout.contains("running 1 test"),
-        "the negative control's child ran no test — `--exact {name}` matched \
-         nothing, so its exit status says nothing about the defect. (libtest \
-         names tests by module path; if this file was renamed or moved, \
-         `positive_pin_test_name` needs to follow.) stdout:\n{stdout}\n\
-         stderr:\n{stderr}"
+        "the negative control's child ran no test — `--exact {name}` matched nothing, so its exit \
+         status says nothing about the defect. (libtest names tests by module path; if this file \
+         was renamed or moved, `positive_pin_test_name` needs to follow.) \
+         stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
         !out.status.success(),
-        "NEGATIVE CONTROL DID NOT FIRE: with AZ_T2_SKIP_RESTAMP=1 the \
-         identity pins still passed (exit {code:?}) — the gate cannot see \
-         the defect it exists to catch. stdout:\n{stdout}\nstderr:\n{stderr}"
+        "NEGATIVE CONTROL DID NOT FIRE: with AZ_T2_SKIP_RESTAMP=1 the identity pins still passed \
+         (exit {code:?}) — the gate cannot see the defect it exists to catch. \
+         stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }

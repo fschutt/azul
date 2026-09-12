@@ -222,8 +222,14 @@ mod tests {
 
     #[test]
     fn both_spellings_of_a_valued_flag_work() {
-        assert_eq!(parse(&["--size", "800x600"]).unwrap().size, Some((800.0, 600.0)));
-        assert_eq!(parse(&["--size=800x600"]).unwrap().size, Some((800.0, 600.0)));
+        assert_eq!(
+            parse(&["--size", "800x600"]).unwrap().size,
+            Some((800.0, 600.0))
+        );
+        assert_eq!(
+            parse(&["--size=800x600"]).unwrap().size,
+            Some((800.0, 600.0))
+        );
         assert_eq!(parse(&["--shot-delay-ms=10"]).unwrap().shot_delay_ms, 10);
     }
 
@@ -256,8 +262,14 @@ mod tests {
             parse(&["--screen", "backstage-info"]).unwrap().screen,
             Screen::BackstageInfo
         );
-        assert_eq!(parse(&["--frame-log", "all"]).unwrap().frame_log, FrameLog::All);
-        assert_eq!(parse(&["--frame-log", "slow"]).unwrap().frame_log, FrameLog::Slow);
+        assert_eq!(
+            parse(&["--frame-log", "all"]).unwrap().frame_log,
+            FrameLog::All
+        );
+        assert_eq!(
+            parse(&["--frame-log", "slow"]).unwrap().frame_log,
+            FrameLog::Slow
+        );
     }
 
     #[test]

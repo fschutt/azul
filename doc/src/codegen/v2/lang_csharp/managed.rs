@@ -8,15 +8,12 @@
 //!
 //! ## What this emits
 //!
-//! 1. **`[DllImport]` declarations** for the host-invoker C-ABI exports
-//!    inside `Azul.NativeMethods` (the same internal class the rest of
-//!    the bindings live in).
-//! 2. **Delegate types** for each per-kind invoker — pointer-arg
-//!    signatures throughout, so `Marshal.GetFunctionPointerForDelegate`
-//!    produces a stable thunk.
-//! 3. **Static `Azul.HostInvoker` class** holding the id→Delegate
-//!    dictionary, the GC-pinning list, the lazy `EnsureInitialized()`
-//!    method, public `RegisterCallback(...)` factories per kind, and
+//! 1. **`[DllImport]` declarations** for the host-invoker C-ABI exports inside `Azul.NativeMethods`
+//!    (the same internal class the rest of the bindings live in).
+//! 2. **Delegate types** for each per-kind invoker — pointer-arg signatures throughout, so
+//!    `Marshal.GetFunctionPointerForDelegate` produces a stable thunk.
+//! 3. **Static `Azul.HostInvoker` class** holding the id→Delegate dictionary, the GC-pinning list,
+//!    the lazy `EnsureInitialized()` method, public `RegisterCallback(...)` factories per kind, and
 //!    `RefanyCreate(object)` / `RefanyGet(IntPtr)` user-data helpers.
 //!
 //! User code looks like:
@@ -35,10 +32,14 @@
 //! Button.SetOnClick(button, dataClone, cb);
 //! ```
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::DLL_NAME;
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::CodegenIR,
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    DLL_NAME,
+};
 
 /// Emit a separate `NativeMethodsManaged` class with `[DllImport]`
 /// declarations for the host-invoker exports. Lives next to `NativeMethods`
@@ -136,7 +137,10 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 
     // Storage
-    builder.line("private static readonly System.Collections.Generic.Dictionary<ulong, object> _handles = new();");
+    builder.line(
+        "private static readonly System.Collections.Generic.Dictionary<ulong, object> _handles = \
+         new();",
+    );
     builder.line("private static ulong _nextHandleId = 0;");
     builder.line(
         "private static readonly System.Collections.Generic.List<Delegate> _livePins = new();",
@@ -165,7 +169,10 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.line("};");
     builder.line("_livePins.Add(releaser);");
-    builder.line("NativeMethodsManaged.AzApp_setHostHandleReleaser(System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(releaser));");
+    builder.line(
+        "NativeMethodsManaged.AzApp_setHostHandleReleaser(System.Runtime.InteropServices.Marshal.\
+         GetFunctionPointerForDelegate(releaser));",
+    );
     builder.blank();
 
     for cb in host_invoker_kinds(ir) {
@@ -404,7 +411,10 @@ fn emit_per_kind_invoker_init(
         // neuter the wrapper (internal __Consume, reached via the same
         // reflection handle) so its GC finalizer can't Az<X>_delete the
         // heap pointers the framework now owns (double-free).
-        builder.line("var __consume = ret.GetType().GetMethod(\"__Consume\", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);");
+        builder.line(
+            "var __consume = ret.GetType().GetMethod(\"__Consume\", \
+             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);",
+        );
         builder.line("if (__consume != null) __consume.Invoke(ret, null);");
         builder.dedent();
         builder.line("}");
@@ -429,7 +439,8 @@ fn emit_per_kind_invoker_init(
     builder.indent();
     builder.line("var __inner = tie.InnerException ?? (Exception)tie;");
     builder.line(&format!(
-        "Console.Error.WriteLine($\"[azul] {} error: {{__inner.GetType().Name}}: {{__inner.Message}}\\n{{__inner.StackTrace}}\");",
+        "Console.Error.WriteLine($\"[azul] {} error: {{__inner.GetType().Name}}: \
+         {{__inner.Message}}\\n{{__inner.StackTrace}}\");",
         wrapper
     ));
     builder.dedent();
@@ -438,7 +449,8 @@ fn emit_per_kind_invoker_init(
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "Console.Error.WriteLine($\"[azul] {} error: {{e.GetType().Name}}: {{e.Message}}\\n{{e.StackTrace}}\");",
+        "Console.Error.WriteLine($\"[azul] {} error: {{e.GetType().Name}}: \
+         {{e.Message}}\\n{{e.StackTrace}}\");",
         wrapper
     ));
     builder.dedent();
@@ -447,7 +459,8 @@ fn emit_per_kind_invoker_init(
     builder.line("};");
     builder.line(&format!("_livePins.Add({}Invoker);", lower_first(wrapper)));
     builder.line(&format!(
-        "NativeMethodsManaged.AzApp_set{}Invoker(System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate({}Invoker));",
+        "NativeMethodsManaged.AzApp_set{}Invoker(System.Runtime.InteropServices.Marshal.\
+         GetFunctionPointerForDelegate({}Invoker));",
         wrapper,
         lower_first(wrapper)
     ));
@@ -612,7 +625,8 @@ fn emit_cs_data_typed_delegate(
                 // through `PtrToStructure<Az<Type>>` first, then
                 // construct the wrapper.
                 builder.line(&format!(
-                    "var __{} = new {}(System.Runtime.InteropServices.Marshal.PtrToStructure<{}>({}));",
+                    "var __{} = new \
+                     {}(System.Runtime.InteropServices.Marshal.PtrToStructure<{}>({}));",
                     name, ty, ffi_ty, name
                 ));
                 call_args.push(format!("__{}", name));

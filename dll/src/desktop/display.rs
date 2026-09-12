@@ -3,6 +3,11 @@
 //! This module provides cross-platform display enumeration and information.
 //! Used primarily for menu positioning to avoid overflow at screen edges.
 
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
+
 use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec},
@@ -12,11 +17,7 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 
 /// Information about a display/monitor
 #[derive(Debug, Clone, PartialEq)]
@@ -499,7 +500,7 @@ mod macos {
 
     use super::*;
 
-    pub fn get_displays() -> Vec<DisplayInfo> {
+    pub(super) fn get_displays() -> Vec<DisplayInfo> {
         // AppKit screen enumeration is main-thread only. This used to be
         // `.expect("Must be called on main thread")`, which made the PUBLIC
         // `App::get_monitors()` a hard panic when called from a worker thread
@@ -513,8 +514,8 @@ mod macos {
         let Some(mtm) = MainThreadMarker::new() else {
             log_debug!(
                 LogCategory::Window,
-                "[display] get_displays() called off the main thread; returning an empty \
-                 monitor list (AppKit screen enumeration is main-thread only)"
+                "[display] get_displays() called off the main thread; returning an empty monitor \
+                 list (AppKit screen enumeration is main-thread only)"
             );
             return Vec::new();
         };
@@ -923,9 +924,11 @@ mod linux {
     }
 
     mod wayland {
-        use std::process::Command;
-        use std::sync::Mutex;
-        use std::time::{Duration, Instant};
+        use std::{
+            process::Command,
+            sync::Mutex,
+            time::{Duration, Instant},
+        };
 
         use super::*;
 
@@ -1491,7 +1494,9 @@ fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayIn
         LogicalSize::new(out.width as f32, out.height as f32),
     );
     let name = if out.name.is_empty() {
-        alloc::format!("{} {}", out.make, out.model).trim().to_string()
+        alloc::format!("{} {}", out.make, out.model)
+            .trim()
+            .to_string()
     } else {
         out.name.clone()
     };
@@ -1508,7 +1513,9 @@ fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayIn
             bit_depth: 32,
             // mHz -> Hz, ROUNDED: a 144 Hz panel reports 143997 mHz, and the
             // frame pacer divides by this. Truncating paces every frame late.
-            refresh_rate: u16::try_from((out.refresh_mhz + 500) / 1000).unwrap_or(60).max(1),
+            refresh_rate: u16::try_from((out.refresh_mhz + 500) / 1000)
+                .unwrap_or(60)
+                .max(1),
         }],
     }
 }

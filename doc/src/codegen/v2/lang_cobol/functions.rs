@@ -30,12 +30,14 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::types::pic_for_type;
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
     cobol_identifier, emit_doc_comment, sanitize_cobol_identifier, sanitize_doc, to_cobol_case,
+    types::pic_for_type,
 };
 
 pub fn generate_function_constants(

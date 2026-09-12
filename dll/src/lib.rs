@@ -51,9 +51,16 @@
     elided_lifetimes_in_paths,
     single_use_lifetimes,
     variant_size_differences,
+    let_underscore_drop,
+    // Restored: both were dropped from this set inside a commit about renaming
+    // `Theme`, which is not where a safety-lint relaxation belongs.
+    // `unsafe_op_in_unsafe_fn` is the only thing that forces an explicit
+    // `unsafe {}` around each dangerous operation inside a long
+    // `unsafe extern "C" fn` — without it nothing marks which line in an FFI
+    // entry point is the one that can go wrong. `non_ascii_idents` is the
+    // homoglyph guard.
     non_ascii_idents,
     unsafe_op_in_unsafe_fn,
-    let_underscore_drop,
 )]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
@@ -87,10 +94,9 @@
 // together so it can't happen by mistake.
 #[cfg(all(feature = "web-transpiler", feature = "debug-server"))]
 compile_error!(
-    "the `debug-server` feature (AZ_DEBUG port + AZ_E2E runner) must not be enabled \
-     together with the web transpiler (`web-transpiler`/`web-transpiler-static`): a \
-     deployed web build must not expose a debug port. Build libazulwithremill.so \
-     without `debug-server`."
+    "the `debug-server` feature (AZ_DEBUG port + AZ_E2E runner) must not be enabled together with \
+     the web transpiler (`web-transpiler`/`web-transpiler-static`): a deployed web build must not \
+     expose a debug port. Build libazulwithremill.so without `debug-server`."
 );
 
 // ---------------------------------------------------------------------------

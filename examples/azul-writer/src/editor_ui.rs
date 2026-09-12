@@ -1,26 +1,28 @@
 //! The main editing screen: title band (QAT), ribbon, page canvas and
 //! status bar — the Office-2013-era look print-layout look.
 
-use azul::callbacks::{
-    ButtonOnClickCallbackType, RefAny, SliderOnValueChangeCallbackType,
-    StatusBarOnViewSelectCallbackType, VirtualViewCallbackInfo, VirtualViewReturn,
-};
-use azul::component::ComponentEventFilter;
-use azul::css::{EventFilter, FocusEventFilter, LayoutSize, LogicalPosition, LogicalSize};
-use azul::dom::{Dom, IdOrClass, SliderOnValueChangeCallback, StatusBarOnViewSelectCallback};
-use azul::option::{OptionDom, OptionRefAny};
-use azul::str::String as AzString;
-use azul::svg::LogicalRect;
-use azul::css::SystemStyle;
-use azul::widgets::{
-    ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, QuickAccessTheme,
-    SliderOnValueChange,
-    StatusBar, StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
+use azul::{
+    callbacks::{
+        ButtonOnClickCallbackType, RefAny, SliderOnValueChangeCallbackType,
+        StatusBarOnViewSelectCallbackType, VirtualViewCallbackInfo, VirtualViewReturn,
+    },
+    component::ComponentEventFilter,
+    css::{EventFilter, FocusEventFilter, LayoutSize, LogicalPosition, LogicalSize, SystemStyle},
+    dom::{Dom, IdOrClass, SliderOnValueChangeCallback, StatusBarOnViewSelectCallback},
+    option::{OptionDom, OptionRefAny},
+    str::String as AzString,
+    svg::LogicalRect,
+    widgets::{
+        ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, QuickAccessTheme,
+        SliderOnValueChange, StatusBar, StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
+    },
 };
 
-use crate::document::{self, FontCacheSnapshot};
-use crate::palette::{self, Palette};
-use crate::AppState;
+use crate::{
+    document::{self, FontCacheSnapshot},
+    palette::{self, Palette},
+    AppState,
+};
 
 /// #28 (b): sheet geometry derives from the ONE `document::A4_*` source —
 /// the same constants the pagination content box is computed from. (The
@@ -70,8 +72,7 @@ pub fn title_band(
     compact: bool,
 ) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
-    let mut band =
-        QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo(pal));
+    let mut band = QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo(pal));
     // The band IS this window's titlebar, so it takes the DESKTOP's titlebar
     // colours (header fill, its own close-button hover) rather than the
     // The band draws NO fill of its own: `editor_screen` runs one gradient
@@ -92,7 +93,8 @@ pub fn title_band(
             .with_on_click(data.clone(), crate::on_redo as ButtonOnClickCallbackType),
     ]
     .into();
-    crate::fonts::push_ui_font(&mut band.style.bar_style);
+    let band_bar = band.style.resolved_bar_style();
+    crate::fonts::push_ui_font(&mut band.style.bar_style, band_bar);
     if compact {
         // A phone has no window to minimize, maximize or close — the OS owns
         // that. Drawing them anyway spends a third of a 320 px band on controls
@@ -144,9 +146,9 @@ fn canvas(
             // app's controls and the document. Without it a dark ribbon and a
             // dark canvas read as one surface and the ribbon appears to float
             // in nothing.
-            "flex-grow: 1; min-height: 0px; background: {canvas}; display: flex; \
-             flex-direction: column; align-items: center; padding-top: 18px; \
-             border-top: 1px solid {edge}; overflow: hidden;",
+            "flex-grow: 1; min-height: 0px; background: {canvas}; display: flex; flex-direction: \
+             column; align-items: center; padding-top: 18px; border-top: 1px solid {edge}; \
+             overflow: hidden;",
             canvas = Palette::hex(pal.canvas),
             edge = Palette::hex(pal.chrome_edge)
         ),
@@ -284,10 +286,9 @@ extern "C" fn pages_virtual_view(
     let stride = page_h + 16.0;
 
     let page_css = format!(
-        "width: {}px; height: {}px; background: {sheet}; flex-grow: 0; \
-         flex-shrink: 0; border: 1px solid {border}; box-shadow: 0px 1px 4px {shadow}; \
-         margin-bottom: 16px; box-sizing: border-box; padding: {pad}px; \
-         overflow: hidden;",
+        "width: {}px; height: {}px; background: {sheet}; flex-grow: 0; flex-shrink: 0; border: \
+         1px solid {border}; box-shadow: 0px 1px 4px {shadow}; margin-bottom: 16px; box-sizing: \
+         border-box; padding: {pad}px; overflow: hidden;",
         page_w as isize,
         page_h as isize,
         sheet = Palette::hex(pal.sheet),
@@ -335,7 +336,11 @@ extern "C" fn pages_virtual_view(
             // border-box`) makes every click inside the margins reach the
             // editable host, which then seeds the caret at the end of the text.
             .with_css("min-height: 100%;");
-        col.add_child(Dom::create_div().with_css(page_css.as_str()).with_child(page));
+        col.add_child(
+            Dom::create_div()
+                .with_css(page_css.as_str())
+                .with_child(page),
+        );
     }
 
     VirtualViewReturn {
@@ -412,7 +417,8 @@ pub fn status_bar(
     // A BRAND-filled strip over the desktop's neutrals - the office blue is
     // AzWriter's, not the session's accent.
     bar.style = crate::palette::widgets::status_bar(pal, sys);
-    crate::fonts::push_ui_font(&mut bar.style.bar_style);
+    let status_bar = bar.style.resolved_bar_style();
+    crate::fonts::push_ui_font(&mut bar.style.bar_style, status_bar);
     bar.dom()
 }
 
@@ -489,8 +495,8 @@ pub fn editor_screen(
     let chrome = Dom::create_div()
         .with_css(
             format!(
-                "display: flex; flex-direction: column; flex-shrink: 0; \
-                 background: linear-gradient(to bottom, {}, {});",
+                "display: flex; flex-direction: column; flex-shrink: 0; background: \
+                 linear-gradient(to bottom, {}, {});",
                 Palette::rgba(palette::widgets::header_bg(sys)),
                 Palette::hex(pal.chrome),
             )

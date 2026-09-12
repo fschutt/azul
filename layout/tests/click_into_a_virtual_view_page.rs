@@ -10,15 +10,14 @@
 //! Three things have to hold for a click to become a caret, and each one was
 //! broken:
 //!
-//! 1. the hit test must find the nested dom's nodes — it clipped the child to
-//!    a viewport that MOVED with the scrolled content, so past the first
-//!    screenful nothing in the page was hittable at all;
-//! 2. an EMPTY editable line must accept a caret — `hittest_cursor` answers
-//!    `None` for a layout with no clusters, which is exactly the editing-host
-//!    strut a blank document is made of, so a new document could not be
-//!    clicked into;
-//! 3. focusing an empty editing host must anchor the caret on a line that can
-//!    be painted, not on the host block itself.
+//! 1. the hit test must find the nested dom's nodes — it clipped the child to a viewport that MOVED
+//!    with the scrolled content, so past the first screenful nothing in the page was hittable at
+//!    all;
+//! 2. an EMPTY editable line must accept a caret — `hittest_cursor` answers `None` for a layout
+//!    with no clusters, which is exactly the editing-host strut a blank document is made of, so a
+//!    new document could not be clicked into;
+//! 3. focusing an empty editing host must anchor the caret on a line that can be painted, not on
+//!    the host block itself.
 //!
 //! (3) is also the STARTUP caret, which never involves a click at all: AzWriter
 //! calls `set_focus_to_path(ROOT, ".mw-doc")` once the first layout exists, and
@@ -29,23 +28,24 @@
 //! shell uses — `create(dom, Css::empty())` skips the per-subtree inline-CSS
 //! scoping and the page canvas never resolves its flex size.
 
-use azul_core::callbacks::{
-    EdgeType, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewCallbackReason,
-    VirtualViewReturn,
+use std::sync::{Arc, Mutex};
+
+use azul_core::{
+    callbacks::{
+        EdgeType, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewCallbackReason,
+        VirtualViewReturn,
+    },
+    dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    refany::RefAny,
+    resources::RendererResources,
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::refany::RefAny;
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::headless::CpuHitTester;
-use azul_layout::managers::hover::InputPointId;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
-    window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, headless::CpuHitTester, managers::hover::InputPointId,
+    solver3::display_list::DisplayListItem, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
-use std::sync::{Arc, Mutex};
 
 /// A4 at 96 dpi with 1 inch margins — `document::a4_page_setup()`.
 const PAGE_W: f32 = 794.0;
@@ -88,9 +88,9 @@ type Shared = Arc<Mutex<Probe>>;
 /// content root inside its margin box.
 fn page_dom(doc: Doc, page_idx: usize) -> Dom {
     let sheet_css = format!(
-        "width: {}px; height: {}px; background: white; flex-grow: 0; flex-shrink: 0; \
-         border: 1px solid #a6a6a6; margin-bottom: 16px; box-sizing: border-box; \
-         padding: {}px; overflow: hidden;",
+        "width: {}px; height: {}px; background: white; flex-grow: 0; flex-shrink: 0; border: 1px \
+         solid #a6a6a6; margin-bottom: 16px; box-sizing: border-box; padding: {}px; overflow: \
+         hidden;",
         PAGE_W as isize, PAGE_H as isize, PAGE_PAD as isize,
     );
     // The `contenteditable` flag lives on the content ROOT, and the blocks are
@@ -176,8 +176,7 @@ impl Harness {
         let canvas = Dom::create_div()
             .with_css(
                 "flex-grow: 1; min-height: 0px; background: #e3e3e3; display: flex; \
-                 flex-direction: column; align-items: center; padding-top: 18px; \
-                 overflow: hidden;",
+                 flex-direction: column; align-items: center; padding-top: 18px; overflow: hidden;",
             )
             .with_child(
                 Dom::create_virtual_view(
@@ -412,8 +411,8 @@ fn clicking_a_paragraph_on_a_materialised_page_places_the_caret_in_it() {
             .map(|mc| mc.node_id);
     assert!(
         session.is_some(),
-        "clicking the text of a page sheet placed no caret at all \
-         (click {target:?}, paragraph {origin:?} {size:?})"
+        "clicking the text of a page sheet placed no caret at all (click {target:?}, paragraph \
+         {origin:?} {size:?})"
     );
     assert_eq!(
         session.unwrap().dom,
@@ -446,8 +445,8 @@ fn clicking_the_empty_line_of_a_blank_document_places_a_caret() {
 
     assert!(
         h.lw.text_edit_manager.has_active_editing(),
-        "clicking the blank page's empty line placed no caret, so typing goes \
-         nowhere (click {target:?}, line {origin:?} {size:?})"
+        "clicking the blank page's empty line placed no caret, so typing goes nowhere (click \
+         {target:?}, line {origin:?} {size:?})"
     );
 }
 
@@ -469,8 +468,7 @@ fn clicking_a_page_after_scrolling_past_the_first_screenful_still_places_a_caret
     let content_offset = h.lw.virtual_view_content_offset(DomId::ROOT_ID, vv);
     assert!(
         content_offset.y < -1.0,
-        "the scenario needs a non-zero content offset to prove anything, got \
-         {content_offset:?}"
+        "the scenario needs a non-zero content offset to prove anything, got {content_offset:?}"
     );
 
     let (nested, _) = h.virtual_view();
@@ -494,8 +492,8 @@ fn clicking_a_page_after_scrolling_past_the_first_screenful_still_places_a_caret
 
     assert!(
         h.lw.text_edit_manager.has_active_editing(),
-        "after scrolling, a click on a visible page paragraph placed no caret \
-         (click {target:?}, paragraph {origin:?} {size:?}, content_offset {content_offset:?})"
+        "after scrolling, a click on a visible page paragraph placed no caret (click {target:?}, \
+         paragraph {origin:?} {size:?}, content_offset {content_offset:?})"
     );
 }
 /// AzWriter's STARTUP caret on a brand-new document, with no click involved:
@@ -543,9 +541,9 @@ fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line()
     );
     assert_eq!(
         pending.text_node_id, line,
-        "the caret must be anchored on the empty editable LINE ({line:?}); \
-         anchoring it on the host block ({host:?}) is an editing session whose \
-         caret has no inline layout to be painted in"
+        "the caret must be anchored on the empty editable LINE ({line:?}); anchoring it on the \
+         host block ({host:?}) is an editing session whose caret has no inline layout to be \
+         painted in"
     );
 
     assert!(
@@ -561,9 +559,9 @@ fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line()
     assert_eq!(
         h.caret_rects(nested),
         1,
-        "the blank page must paint exactly one caret — with the session \
-         anchored on the host block instead, `paint_cursor` finds no inline \
-         layout and the new document shows no caret at all"
+        "the blank page must paint exactly one caret — with the session anchored on the host \
+         block instead, `paint_cursor` finds no inline layout and the new document shows no caret \
+         at all"
     );
 }
 
@@ -631,9 +629,9 @@ fn typed_text_follows_its_paragraph_across_a_rematerialisation() {
 
     assert!(
         h.edited_text(nested_after, p0_after).contains("ZZZ"),
-        "the edit must FOLLOW paragraph 0 across the re-materialisation — \
-         without reconcile+remap it stays keyed to the old NodeId and lands \
-         on whatever block bears that id in the new arena"
+        "the edit must FOLLOW paragraph 0 across the re-materialisation — without reconcile+remap \
+         it stays keyed to the old NodeId and lands on whatever block bears that id in the new \
+         arena"
     );
     let banner = paragraph_containing(&h, nested_after, "banner");
     assert!(
@@ -651,11 +649,11 @@ fn typed_text_follows_its_paragraph_across_a_rematerialisation() {
 /// (AzWriter showed a page running past the viewport with no bar at all).
 ///
 /// Two mechanisms are pinned, one per frame:
-/// - frame 1: the host list is built BEFORE the callback publishes, so the
-///   funnel must detect the changed scroll-geometry fingerprint and rebuild
-///   (`regenerate_display_list_for_dom`) within the same pass;
-/// - frame 2: the DL cache key includes the scroll-geometry fingerprint, so
-///   an identical tree can no longer serve the pre-publication list back.
+/// - frame 1: the host list is built BEFORE the callback publishes, so the funnel must detect the
+///   changed scroll-geometry fingerprint and rebuild (`regenerate_display_list_for_dom`) within the
+///   same pass;
+/// - frame 2: the DL cache key includes the scroll-geometry fingerprint, so an identical tree can
+///   no longer serve the pre-publication list back.
 #[test]
 fn the_virtualized_documents_scrollbar_is_painted_once_its_size_is_published() {
     let mut h = Harness::new(Doc::Paragraphs);
@@ -664,14 +662,14 @@ fn the_virtualized_documents_scrollbar_is_painted_once_its_size_is_published() {
     let frame2 = h.scrollbar_count(DomId::ROOT_ID);
     assert!(
         frame1 >= 1,
-        "the FIRST frame flashed bar-less: the publish-after-consume rebuild \
-         did not fire (frame1={frame1})"
+        "the FIRST frame flashed bar-less: the publish-after-consume rebuild did not fire \
+         (frame1={frame1})"
     );
     assert!(
         frame2 >= 1,
-        "a 13,600px virtual document in a 900px window paints NO scrollbar on \
-         the second full pass (frame1={frame1}, frame2={frame2}) — the \
-         published virtual size is not reaching the display-list build"
+        "a 13,600px virtual document in a 900px window paints NO scrollbar on the second full \
+         pass (frame1={frame1}, frame2={frame2}) — the published virtual size is not reaching the \
+         display-list build"
     );
 }
 
@@ -686,23 +684,22 @@ fn the_window_space_lift_agrees_with_what_the_renderer_composites() {
     let h = Harness::new(Doc::Paragraphs);
     let (nested, _host) = h.virtual_view();
 
-    let item = h
-        .lw
-        .get_layout_result(&DomId::ROOT_ID)
-        .expect("root layout")
-        .display_list
-        .items
-        .iter()
-        .find_map(|item| match item {
-            DisplayListItem::VirtualView {
-                child_dom_id,
-                bounds,
-                content_offset,
-                ..
-            } if *child_dom_id == nested => Some((*bounds.inner(), *content_offset)),
-            _ => None,
-        })
-        .expect("the host display list mounts the nested dom");
+    let item =
+        h.lw.get_layout_result(&DomId::ROOT_ID)
+            .expect("root layout")
+            .display_list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                DisplayListItem::VirtualView {
+                    child_dom_id,
+                    bounds,
+                    content_offset,
+                    ..
+                } if *child_dom_id == nested => Some((*bounds.inner(), *content_offset)),
+                _ => None,
+            })
+            .expect("the host display list mounts the nested dom");
     let (bounds, content_offset) = item;
 
     let lifted = h.lw.window_space_offset_of_dom(nested);
@@ -712,8 +709,8 @@ fn the_window_space_lift_agrees_with_what_the_renderer_composites() {
     );
     assert!(
         (lifted.x - composited.x).abs() < 0.01 && (lifted.y - composited.y).abs() < 0.01,
-        "window_space_offset_of_dom answers {lifted:?} but the renderer \
-         composites the child at {composited:?} — the two derivations drifted"
+        "window_space_offset_of_dom answers {lifted:?} but the renderer composites the child at \
+         {composited:?} — the two derivations drifted"
     );
     assert!(
         composited.y > 0.0,
@@ -754,9 +751,8 @@ fn the_blank_pages_first_line_respects_the_sheet_padding() {
 
     assert!(
         line_origin.y >= sheet_origin.y + PAGE_PAD - 1.0,
-        "the first line sits {}px below the sheet top; the sheet declares \
-         {PAGE_PAD}px padding — the padding is being lost inside the \
-         VirtualView child layout",
+        "the first line sits {}px below the sheet top; the sheet declares {PAGE_PAD}px padding — \
+         the padding is being lost inside the VirtualView child layout",
         line_origin.y - sheet_origin.y,
     );
 }
@@ -765,18 +761,15 @@ fn the_blank_pages_first_line_respects_the_sheet_padding() {
 /// Wayland wheel notch), through the same steps the shells run per committed
 /// offset. Three laws, all of which were broken on device:
 ///
-/// 1. The callback runs ONCE per window advance — nine times down (the
-///    3-page window walks page 0 → page 9) and nine times back up — never
-///    once per tick. The physics timer used to force a `DomRecreated`
-///    re-materialization on EVERY tick (60/s), which is the "VV scroll lag".
-/// 2. Each of those runs carries the documented reason, `EdgeScrolled(Bottom)`
-///    going down and `EdgeScrolled(Top)` coming back — and it fires again on
-///    the next approach, which the old per-edge latch (never released by
-///    scrolling) made impossible after the first page.
-/// 3. After every tick the host item composites the materialized window at
-///    `materialized_origin - scroll_offset`, and that window covers the whole
-///    viewport: no frame shows a page a stride too far, none shows bare
-///    background.
+/// 1. The callback runs ONCE per window advance — nine times down (the 3-page window walks page 0 →
+///    page 9) and nine times back up — never once per tick. The physics timer used to force a
+///    `DomRecreated` re-materialization on EVERY tick (60/s), which is the "VV scroll lag".
+/// 2. Each of those runs carries the documented reason, `EdgeScrolled(Bottom)` going down and
+///    `EdgeScrolled(Top)` coming back — and it fires again on the next approach, which the old
+///    per-edge latch (never released by scrolling) made impossible after the first page.
+/// 3. After every tick the host item composites the materialized window at `materialized_origin -
+///    scroll_offset`, and that window covers the whole viewport: no frame shows a page a stride too
+///    far, none shows bare background.
 #[test]
 fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
     let mut h = Harness::new(Doc::Paragraphs);
@@ -791,16 +784,15 @@ fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
 
     let check_frame = |h: &Harness, y: f32| {
         let (bounds, content_offset) = h.host_item();
-        let materialized = h
-            .lw
-            .virtual_view_manager
-            .materialized_window_origin(DomId::ROOT_ID, host)
-            .expect("materialized");
+        let materialized =
+            h.lw.virtual_view_manager
+                .materialized_window_origin(DomId::ROOT_ID, host)
+                .expect("materialized");
         assert!(
             (content_offset.y - (materialized.y - y)).abs() < 0.01,
             "at offset {y}: the host item composites the window at content_offset \
-             {content_offset:?}, but the window starts at {materialized:?} — the \
-             page would show {}px off for this frame",
+             {content_offset:?}, but the window starts at {materialized:?} — the page would show \
+             {}px off for this frame",
             content_offset.y - (materialized.y - y)
         );
         let (first, count) = {
@@ -811,8 +803,8 @@ fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
         let win_bottom = (first + count) as f32 * STRIDE;
         assert!(
             win_top <= y && win_bottom >= y + viewport_h,
-            "at offset {y}: viewport {y}..{} is not covered by the materialized \
-             pages {first}..{} ({win_top}..{win_bottom}) — bare background",
+            "at offset {y}: viewport {y}..{} is not covered by the materialized pages {first}..{} \
+             ({win_top}..{win_bottom}) — bare background",
             y + viewport_h,
             first + count
         );
@@ -841,7 +833,11 @@ fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
         "one re-materialization per page advance, none per tick: {down:?}"
     );
     for w in down.windows(2) {
-        assert_eq!(w[1].1, w[0].1 + 1, "the window advances one page per fire: {down:?}");
+        assert_eq!(
+            w[1].1,
+            w[0].1 + 1,
+            "the window advances one page per fire: {down:?}"
+        );
     }
     assert_eq!(h.probe.lock().unwrap().first, TOTAL_PAGES - 3);
     {
@@ -870,7 +866,11 @@ fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
         "one re-materialization per page retreat: {up:?}"
     );
     for w in up.windows(2) {
-        assert_eq!(w[1].1 + 1, w[0].1, "the window retreats one page per fire: {up:?}");
+        assert_eq!(
+            w[1].1 + 1,
+            w[0].1,
+            "the window retreats one page per fire: {up:?}"
+        );
     }
     assert_eq!(h.probe.lock().unwrap().first, 0);
     {
@@ -890,7 +890,10 @@ fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
 
     // Parked at the top again, the view is quiet: ten more ticks of nothing.
     for _ in 0..10 {
-        assert!(!h.scroll_tick(0.0), "a stationary offset must not re-materialize");
+        assert!(
+            !h.scroll_tick(0.0),
+            "a stationary offset must not re-materialize"
+        );
     }
 }
 
@@ -916,11 +919,10 @@ fn a_jump_past_the_materialized_pages_rematerializes_around_the_new_offset() {
         assert_eq!(p.first, 9, "the window is rebuilt around page 10");
     }
     let (_bounds, content_offset) = h.host_item();
-    let materialized = h
-        .lw
-        .virtual_view_manager
-        .materialized_window_origin(DomId::ROOT_ID, host)
-        .expect("materialized");
+    let materialized =
+        h.lw.virtual_view_manager
+            .materialized_window_origin(DomId::ROOT_ID, host)
+            .expect("materialized");
     assert!(
         (content_offset.y - (materialized.y - target)).abs() < 0.01,
         "the host item composites the new window at the new offset in the same frame"

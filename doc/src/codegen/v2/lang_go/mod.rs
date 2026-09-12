@@ -42,21 +42,17 @@
 //!
 //! We emit four Go source files plus `go.mod`:
 //!
-//! 1. `azul.go`  — package preamble, cgo `// #cgo` and `// #include`
-//!                 directives, `import "C"`, and shared documentation.
-//! 2. `types.go` — Go-side mirror types for the public surface (drops
-//!                 the `Az` prefix), plus tagged-union sealed interfaces
-//!                 and per-variant types. Skipped categories live here
-//!                 as `// SKIPPED:` comments.
-//! 3. `functions.go` — top-level constants (enum values) and helper
-//!                 conversion functions. Most C functions get exposed as
-//!                 methods on wrapper types in `wrappers.go` instead.
-//! 4. `wrappers.go` — `type App struct { ptr *C.AzApp }` plus
-//!                 constructors, instance methods, and `Close() error`
-//!                 implementations of `io.Closer` for every type that
-//!                 has an `_delete` C function. `runtime.SetFinalizer`
-//!                 is registered as a safety net so leaks become eventual
-//!                 cleanups instead of permanent ones.
+//! 1. `azul.go`  — package preamble, cgo `// #cgo` and `// #include` directives, `import "C"`, and
+//!    shared documentation.
+//! 2. `types.go` — Go-side mirror types for the public surface (drops the `Az` prefix), plus
+//!    tagged-union sealed interfaces and per-variant types. Skipped categories live here as `//
+//!    SKIPPED:` comments.
+//! 3. `functions.go` — top-level constants (enum values) and helper conversion functions. Most C
+//!    functions get exposed as methods on wrapper types in `wrappers.go` instead.
+//! 4. `wrappers.go` — `type App struct { ptr *C.AzApp }` plus constructors, instance methods, and
+//!    `Close() error` implementations of `io.Closer` for every type that has an `_delete` C
+//!    function. `runtime.SetFinalizer` is registered as a safety net so leaks become eventual
+//!    cleanups instead of permanent ones.
 //! 5. `go.mod`   — `module github.com/azul/azul-go` + Go 1.21 directive.
 //!
 //! # Output protocol
@@ -70,13 +66,12 @@
 //!
 //! # User responsibilities (consumer-side)
 //!
-//! 1. Place `azul.h` somewhere `cgo` can find it (current dir works,
-//!    or set `CGO_CFLAGS=-I/path/to/headers`).
-//! 2. Place `libazul.{so,dylib}` (or `azul.dll`) on the linker path
-//!    (current dir works with `-L.`, or set `CGO_LDFLAGS=-L/path/to/lib`).
-//! 3. Ensure the same library is reachable at runtime
-//!    (`LD_LIBRARY_PATH` on Linux, `DYLD_LIBRARY_PATH` on macOS,
-//!    `PATH` on Windows). On Linux, `-Wl,-rpath,$ORIGIN` works too.
+//! 1. Place `azul.h` somewhere `cgo` can find it (current dir works, or set
+//!    `CGO_CFLAGS=-I/path/to/headers`).
+//! 2. Place `libazul.{so,dylib}` (or `azul.dll`) on the linker path (current dir works with `-L.`,
+//!    or set `CGO_LDFLAGS=-L/path/to/lib`).
+//! 3. Ensure the same library is reachable at runtime (`LD_LIBRARY_PATH` on Linux,
+//!    `DYLD_LIBRARY_PATH` on macOS, `PATH` on Windows). On Linux, `-Wl,-rpath,$ORIGIN` works too.
 
 pub mod functions;
 pub mod gomod;
@@ -86,9 +81,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// File-marker header that introduces each per-file section in the
 /// concatenated output. The orchestrator splits on lines that start

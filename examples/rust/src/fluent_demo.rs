@@ -15,10 +15,14 @@
 // types (`FmtArg`/`FmtValue`, used to fill `{ $name }`-style placeholders) in
 // `azul::fmt`. The syntax checker and ZIP packaging helpers are free functions
 // in the `azul::desktop::fluent` / `azul::desktop::zip` modules.
-use azul::desktop::fluent::{check_fluent_syntax, create_fluent_zip, FluentSyntaxCheckResult};
-use azul::desktop::zip::ZipFileEntry;
-use azul::fluent::FluentLocalizerHandle;
-use azul::fmt::{FmtArg, FmtValue};
+use azul::{
+    desktop::{
+        fluent::{check_fluent_syntax, create_fluent_zip, FluentSyntaxCheckResult},
+        zip::ZipFileEntry,
+    },
+    fluent::FluentLocalizerHandle,
+    fmt::{FmtArg, FmtValue},
+};
 
 fn main() {
     println!("=== Fluent Localization Demo ===\n");

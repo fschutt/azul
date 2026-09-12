@@ -14,19 +14,20 @@
 //!
 //! What it shows:
 //!
-//! * a tray icon whose image is an **icon-registry spec** - the same string an
-//!   `<icon>` node takes, resolved through the same pass, so any registered
-//!   icon works (Material Icons is the default pack) with no tray-specific
-//!   icon path;
+//! * a tray icon whose image is an **icon-registry spec** - the same string an `<icon>` node takes,
+//!   resolved through the same pass, so any registered icon works (Material Icons is the default
+//!   pack) with no tray-specific icon path;
 //! * a tray **menu**, built from the ordinary `Menu` type the menu bar uses.
 //!
 //! Note the menu is *state*: it is set once as part of `TrayIconData`, not
 //! shown on demand. That shape is forced by Linux, where the panel draws the
 //! menu itself and calls back asking for the layout.
 
-use azul::menu::{Menu, MenuItem, StringMenuItem};
-use azul::prelude::*;
-use azul::tray::TrayIconData;
+use azul::{
+    menu::{Menu, MenuItem, StringMenuItem},
+    prelude::*,
+    tray::TrayIconData,
+};
 
 struct TrayDemo {
     available: bool,
@@ -53,8 +54,8 @@ extern "C" fn on_quit(_data: RefAny, _info: CallbackInfo) -> Update {
     std::process::exit(0);
 }
 
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
-    padding: 24px; background: #fafafa; font-family: sans-serif;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; padding: 24px; \
+                    background: #fafafa; font-family: sans-serif;";
 const TITLE: &str = "font-size: 20px; color: #111; margin-bottom: 8px;";
 const OK: &str = "font-size: 13px; color: #228822; margin-bottom: 14px;";
 const WARN: &str = "font-size: 13px; color: #bb0000; margin-bottom: 14px;";

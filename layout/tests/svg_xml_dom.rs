@@ -1,8 +1,10 @@
 //! Tests that SVG elements parsed from XML end up with the correct DOM structure:
 //! correct NodeTypes, correct clip paths, correct tree hierarchy.
 
-use azul_core::dom::{Dom, NodeType, SvgNodeData};
-use azul_core::svg::SvgPathElement;
+use azul_core::{
+    dom::{Dom, NodeType, SvgNodeData},
+    svg::SvgPathElement,
+};
 use azul_layout::xml::DomXmlExt;
 
 /// Helper: parse XML string → StyledDom, then collect (depth, NodeType) pairs
@@ -316,9 +318,9 @@ fn declared_px(
     node: usize,
     want_width: bool,
 ) -> Option<f32> {
-    use azul_css::{
-        props::layout::{LayoutHeight, LayoutWidth},
-        props::property::CssProperty,
+    use azul_css::props::{
+        layout::{LayoutHeight, LayoutWidth},
+        property::CssProperty,
     };
     let container = styled.node_data.as_container();
     let nd = container.get(azul_core::id::NodeId::new(node))?;
@@ -403,9 +405,8 @@ fn an_svg_with_no_size_and_no_view_box_declares_neither() {
 /// that nothing ever produced.
 #[test]
 fn the_view_box_is_recorded_on_the_node() {
-    let styled = Dom::from_xml_string(
-        r#"<html><body><svg viewBox="-1 -2 24 18"></svg></body></html>"#,
-    );
+    let styled =
+        Dom::from_xml_string(r#"<html><body><svg viewBox="-1 -2 24 18"></svg></body></html>"#);
     let container = styled.node_data.as_container();
     let n = svg_node(&styled);
     let data = container

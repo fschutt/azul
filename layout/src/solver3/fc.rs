@@ -1,6 +1,5 @@
 //! Formatting context layout (block, inline, table, and flex/grid via Taffy)
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -40,7 +39,6 @@ use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
-use crate::solver3::geometry::ContainingBlock as CBTY;
 use crate::{
     debug_ifc_layout, debug_info, debug_log, debug_table_layout, debug_warning,
     font_traits::{
@@ -50,7 +48,7 @@ use crate::{
         UnifiedConstraints,
     },
     solver3::{
-        geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
+        geometry::{BoxProps, ContainingBlock as CBTY, EdgeSizes, IntrinsicSizes},
         getters::{
             get_clear, get_css_border_bottom_width, get_css_border_top_width, get_css_box_sizing,
             get_css_height, get_css_padding_bottom, get_css_padding_top, get_css_width,
@@ -63,7 +61,7 @@ use crate::{
         },
         layout_tree::{
             AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutNodeCold, LayoutNodeHot,
-            LayoutNodeWarm, LayoutTree, PseudoElement,
+            LayoutNodeId, LayoutNodeWarm, LayoutTree, PseudoElement,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -260,8 +258,9 @@ struct FloatBox {
 }
 
 /// Manages the state of all floated elements within a Block Formatting Context.
-// +spec:block-formatting-context:a4e6f9 - float rules reference only elements in the same BFC (scoped via BfcState)
-// +spec:floats:2fa329 - Float positioning (left/right shift), content flow along sides, and clear property
+// +spec:block-formatting-context:a4e6f9 - float rules reference only elements in the same BFC
+// (scoped via BfcState) +spec:floats:2fa329 - Float positioning (left/right shift), content flow
+// along sides, and clear property
 /// +spec:floats:970b4c - Implements CSS2§9.5 float positioning and flow interaction
 #[derive(Debug, Default, Clone)]
 pub struct FloatingContext {
@@ -276,18 +275,21 @@ impl FloatingContext {
     }
 
     // +spec:box-model:0c9b13 - line boxes next to floats are shortened to make room
-    // +spec:floats:148fcd - floating boxes reduce available line box width between containing block edges
-    // +spec:floats:49a491 - Line boxes stacked with no separation except float clearance, never overlap
-    // +spec:floats:8974e6 - text flows into vacated space by narrowing line boxes around floats
-    // +spec:floats:af94f2 - content displaced by float: line boxes shrink to avoid float margin boxes
-    // +spec:floats:e5961b - remaining text flows into vacated space via available_line_box_space
-    // +spec:inline-formatting-context:7cbe58 - shortened line boxes due to floats; shift down if too small
+    // +spec:floats:148fcd - floating boxes reduce available line box width between containing block
+    // edges +spec:floats:49a491 - Line boxes stacked with no separation except float clearance,
+    // never overlap +spec:floats:8974e6 - text flows into vacated space by narrowing line boxes
+    // around floats +spec:floats:af94f2 - content displaced by float: line boxes shrink to
+    // avoid float margin boxes +spec:floats:e5961b - remaining text flows into vacated space
+    // via available_line_box_space +spec:inline-formatting-context:7cbe58 - shortened line
+    // boxes due to floats; shift down if too small
     /// Finds the available space on the cross-axis for a line box at a given main-axis range.
-    // +spec:containing-block:4b0c44 - line boxes shortened by floats resume containing block width after float
+    // +spec:containing-block:4b0c44 - line boxes shortened by floats resume containing block width
+    // after float
     ///
     /// Returns a tuple of (`cross_start_offset`, `cross_end_offset`) relative to the
     /// BFC content box, defining the available space for an in-flow element.
-    // +spec:inline-formatting-context:e70328 - line box width reduced by floats between containing block edges
+    // +spec:inline-formatting-context:e70328 - line box width reduced by floats between containing
+    // block edges
     #[must_use]
     pub fn available_line_box_space(
         &self,
@@ -317,8 +319,9 @@ impl FloatingContext {
                     + float.margin.cross_start(wm)
                     + float.margin.cross_end(wm);
 
-                // +spec:floats:17a63f - float left/right map to line-left/line-right via logical coords
-                // +spec:writing-modes:e55820 - line-relative mappings: left/right interpreted as line-left/line-right per writing mode
+                // +spec:floats:17a63f - float left/right map to line-left/line-right via logical
+                // coords +spec:writing-modes:e55820 - line-relative mappings:
+                // left/right interpreted as line-left/line-right per writing mode
                 if float.kind == LayoutFloat::Left {
                     // "line-left", i.e., cross-start
                     available_cross_start = available_cross_start.max(float_cross_end);
@@ -331,25 +334,30 @@ impl FloatingContext {
         (available_cross_start, available_cross_end)
     }
 
-    // +spec:block-formatting-context:d06e6e - clearance computation for clear property on blocks and floats (CSS 2.2 § 9.5.2)
-    // +spec:floats:31a3d5 - Clearance computation: places border edge even with bottom outer edge of lowest float to be cleared
-    // +spec:floats:f9bef1 - clear property moves element below preceding floats
+    // +spec:block-formatting-context:d06e6e - clearance computation for clear property on blocks
+    // and floats (CSS 2.2 § 9.5.2) +spec:floats:31a3d5 - Clearance computation: places border
+    // edge even with bottom outer edge of lowest float to be cleared +spec:floats:f9bef1 -
+    // clear property moves element below preceding floats
     /// Returns the main-axis offset needed to be clear of floats of the given type.
-    // +spec:block-formatting-context:7f6bde - CSS 2.2 § 9.5.2 clear property: clearance places border edge below bottom outer edge of cleared floats
-    // +spec:block-formatting-context:ef493f - clearance computation: places border edge even with bottom outer edge of lowest float to be cleared; inhibits margin collapsing
-    // +spec:box-model:b118fe - top border edge must be below bottom outer edge of earlier floats
-    // +spec:floats:415066 - Clear property: top border edge below bottom outer edge of cleared floats
-    // +spec:floats:7e4ad6 - clear property: element box may not be adjacent to earlier floats; only considers floats in same BFC
-    // +spec:floats:32e45d - clear:right causes sibling to flow below right floats
+    // +spec:block-formatting-context:7f6bde - CSS 2.2 § 9.5.2 clear property: clearance places
+    // border edge below bottom outer edge of cleared floats +spec:block-formatting-context:
+    // ef493f - clearance computation: places border edge even with bottom outer edge of lowest
+    // float to be cleared; inhibits margin collapsing +spec:box-model:b118fe - top border edge
+    // must be below bottom outer edge of earlier floats +spec:floats:415066 - Clear property:
+    // top border edge below bottom outer edge of cleared floats +spec:floats:7e4ad6 - clear
+    // property: element box may not be adjacent to earlier floats; only considers floats in same
+    // BFC +spec:floats:32e45d - clear:right causes sibling to flow below right floats
     // +spec:floats:7f417a - clear property prevents content from flowing next to floats
     // +spec:floats:d06304 - clear property moves element below floats, leaving blank space
-    // +spec:overflow:1a7aff - clearance calculation (incl. negative clearance) and clear on floats (constraint #10)
-    // +spec:positioning:1c2508 - clearance calculation: places border edge even with bottom outer edge of lowest cleared float (CSS 2.2 § 9.5.2)
-    // +spec:positioning:fe0912 - clearance computation: places border edge below bottom outer edge of cleared floats
+    // +spec:overflow:1a7aff - clearance calculation (incl. negative clearance) and clear on floats
+    // (constraint #10) +spec:positioning:1c2508 - clearance calculation: places border edge
+    // even with bottom outer edge of lowest cleared float (CSS 2.2 § 9.5.2) +spec:positioning:
+    // fe0912 - clearance computation: places border edge below bottom outer edge of cleared floats
     // (clearance = amount to place border edge even with bottom outer edge of lowest
     // float to be cleared); clearance can be negative per spec example 2
-    // +spec:floats:054a1e - Clearance computation: positions border edge below bottom outer edge of cleared floats
-    // +spec:floats:cb984c - Clearance can be negative per spec example 2; inhibits margin collapsing
+    // +spec:floats:054a1e - Clearance computation: positions border edge below bottom outer edge of
+    // cleared floats +spec:floats:cb984c - Clearance can be negative per spec example 2;
+    // inhibits margin collapsing
     #[must_use]
     pub fn clearance_offset(
         &self,
@@ -405,8 +413,9 @@ struct BfcLayoutState {
 /// - CSS 2.2 § 9.4: Formatting contexts
 /// - CSS Flexbox § 3: Flex formatting contexts
 /// - CSS Grid § 5: Grid formatting contexts
-// +spec:block-formatting-context:b04653 - dispatches layout by formatting context type (BFC, IFC, Table, Flex, Grid)
-// +spec:block-formatting-context:e46499 - inner display type determines formatting context (BFC, IFC, table, flex, grid)
+// +spec:block-formatting-context:b04653 - dispatches layout by formatting context type (BFC, IFC,
+// Table, Flex, Grid) +spec:block-formatting-context:e46499 - inner display type determines
+// formatting context (BFC, IFC, table, flex, grid)
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 /// # Errors
 ///
@@ -419,8 +428,9 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
-    // [g147e az-web-lift DIAG] PURE-CONSTANT entry marker (0x609E0+slot) — fires before any node read,
-    // so it reliably shows whether layout_formatting_context is ENTERED for the nested div nodes 1,2.
+    // [g147e az-web-lift DIAG] PURE-CONSTANT entry marker (0x609E0+slot) — fires before any node
+    // read, so it reliably shows whether layout_formatting_context is ENTERED for the nested
+    // div nodes 1,2.
     #[cfg(feature = "web_lift")]
     unsafe {
         crate::az_mark((0x609E0 + (node_index & 7) * 4) as u32, (0xC0DE0042) as u32);
@@ -428,9 +438,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
-    // [g147i az-web-lift DIAG] node REFERENCE address (0x60B80+slot) — NOT a field deref, so reliable.
-    // If nodes 0,1,2 aren't spaced by sizeof(LayoutNodeHot) → tree.get(index>0) mis-lifts the Vec stride,
-    // making nodes 1,2 garbage references (which would explain FC reading garbage + reads destabilizing).
+    // [g147i az-web-lift DIAG] node REFERENCE address (0x60B80+slot) — NOT a field deref, so
+    // reliable. If nodes 0,1,2 aren't spaced by sizeof(LayoutNodeHot) → tree.get(index>0)
+    // mis-lifts the Vec stride, making nodes 1,2 garbage references (which would explain FC
+    // reading garbage + reads destabilizing).
     #[cfg(feature = "web_lift")]
     unsafe {
         crate::az_mark(
@@ -463,10 +474,11 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     }
 
     // [g147b az-web-lift DIAG] per-node FormattingContext discriminant at layout_formatting_context
-    // entry (0x609A0+slot). Pairs with the dispatch-arm marker (0x609C0+slot) inside each match arm:
-    // if a text-div's FC reads Inline(2) but the arm marker shows Block(1) → match dispatch mis-lifts;
-    // if FC reads Block(1) → tree-construction FC assignment is wrong; if 0x609A0 stays unset for the
-    // div node → layout_formatting_context is never called for it (cache-hit short-circuit upstream).
+    // entry (0x609A0+slot). Pairs with the dispatch-arm marker (0x609C0+slot) inside each match
+    // arm: if a text-div's FC reads Inline(2) but the arm marker shows Block(1) → match
+    // dispatch mis-lifts; if FC reads Block(1) → tree-construction FC assignment is wrong; if
+    // 0x609A0 stays unset for the div node → layout_formatting_context is never called for it
+    // (cache-hit short-circuit upstream).
     #[cfg(feature = "web_lift")]
     unsafe {
         let fc_disc = match node.formatting_context {
@@ -494,9 +506,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         constraints.available_size
     );
 
-    // +spec:block-formatting-context:06a24f - CSS 2.2 § 9.4: block-level boxes → BFC, inline-level → IFC
-    // +spec:block-formatting-context:9428cf - block container can establish both BFC and IFC simultaneously
-    // +spec:inline-formatting-context:8bfe73 - display:flow generates inline box (Inline) or block container (Block) based on outer display type
+    // +spec:block-formatting-context:06a24f - CSS 2.2 § 9.4: block-level boxes → BFC, inline-level
+    // → IFC +spec:block-formatting-context:9428cf - block container can establish both BFC and
+    // IFC simultaneously +spec:inline-formatting-context:8bfe73 - display:flow generates inline
+    // box (Inline) or block container (Block) based on outer display type
     match node.formatting_context {
         FormattingContext::Block { .. } => {
             #[cfg(feature = "web_lift")]
@@ -506,7 +519,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             let _p = crate::probe::Probe::span("fc_block");
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
-        // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented into line boxes with baseline alignment
+        // +spec:inline-formatting-context:a180ed - IFC establishment: inline-level boxes fragmented
+        // into line boxes with baseline alignment
         FormattingContext::Inline => {
             #[cfg(feature = "web_lift")]
             unsafe {
@@ -521,13 +535,14 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             unsafe {
                 crate::az_mark((0x609C0 + (node_index & 7) * 4) as u32, (0xC0DE0003) as u32);
             }
-            // +spec:display-property:1f5ddf - inline-level boxes with non-flow inner display establish new formatting context
-            // +spec:inline-formatting-context:1ad004 - atomic inline (inline-block) establishes new formatting context
-            // CSS 2.2 § 9.4.1: "inline-blocks... establish new block formatting contexts"
-            // +spec:inline-block:8d21f6 - inline-block generates inline-level block container (BFC inside, atomic inline outside)
-            // InlineBlock ALWAYS establishes a BFC for its contents.
-            // The element itself participates as an atomic inline in its parent's IFC,
-            // but its children are laid out in a BFC, not an IFC.
+            // +spec:display-property:1f5ddf - inline-level boxes with non-flow inner display
+            // establish new formatting context +spec:inline-formatting-context:1ad004 -
+            // atomic inline (inline-block) establishes new formatting context CSS 2.2 §
+            // 9.4.1: "inline-blocks... establish new block formatting contexts"
+            // +spec:inline-block:8d21f6 - inline-block generates inline-level block container (BFC
+            // inside, atomic inline outside) InlineBlock ALWAYS establishes a BFC for
+            // its contents. The element itself participates as an atomic inline in its
+            // parent's IFC, but its children are laid out in a BFC, not an IFC.
             let _p = crate::probe::Probe::span("fc_inline_block");
             let mut temp_float_cache = HashMap::new();
             layout_bfc(
@@ -539,7 +554,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
                 &mut temp_float_cache,
             )
         }
-        // +spec:table-layout:753687 - CSS 2.2 §17.2 table model: display values map to FormattingContext variants and dispatch table layout
+        // +spec:table-layout:753687 - CSS 2.2 §17.2 table model: display values map to
+        // FormattingContext variants and dispatch table layout
         FormattingContext::Table => {
             #[cfg(feature = "web_lift")]
             unsafe {
@@ -576,10 +592,11 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             )
         }
         _ => {
-            // [g147g az-web-lift DIAG] read the RAW discriminant byte (offset 0 under repr(C,u8)) of the
-            // node that fell through to `_`. node 0 won't hit `_`; nodes 1,2 (divs) write their disc to
-            // 0x60B40+slot. disc=1 ⇒ value IS Inline but the dispatch match mis-branched (match/jump-table
-            // lift bug); disc≠1 ⇒ tree-construction stored the wrong/garbage FC for the nested div.
+            // [g147g az-web-lift DIAG] read the RAW discriminant byte (offset 0 under repr(C,u8))
+            // of the node that fell through to `_`. node 0 won't hit `_`; nodes 1,2
+            // (divs) write their disc to 0x60B40+slot. disc=1 ⇒ value IS Inline but the
+            // dispatch match mis-branched (match/jump-table lift bug); disc≠1 ⇒
+            // tree-construction stored the wrong/garbage FC for the nested div.
             #[cfg(feature = "web_lift")]
             unsafe {
                 crate::az_mark((0x609C0 + (node_index & 7) * 4) as u32, (0xC0DE0009) as u32);
@@ -624,7 +641,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
 /// - Resolves explicit CSS dimensions to pixel values for `known_dimensions`
 /// - Uses `InherentSize` mode when explicit dimensions are set
 /// - Uses `ContentSize` mode for auto-sizing (shrink-to-fit)
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn layout_flex_grid<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1047,19 +1065,23 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
     })
 }
 
-// +spec:floats:167a2c - Float positioning rules (CSS 2.2 § 9.5.1): left/right/none, precise placement constraints
-// +spec:floats:6a1769 - Float shortens line boxes, margins never collapse, stacking order
-// +spec:floats:15bfd9 - float:right positions element at line-right edge within BFC
-// +spec:floats:afc8e2 - Float positioning rules (CSS 2.2 § 9.5 rules 1-8): left/right edge containment, earlier-float stacking, outer-top constraints, and "move down" when insufficient space
+// +spec:floats:167a2c - Float positioning rules (CSS 2.2 § 9.5.1): left/right/none, precise
+// placement constraints +spec:floats:6a1769 - Float shortens line boxes, margins never collapse,
+// stacking order +spec:floats:15bfd9 - float:right positions element at line-right edge within BFC
+// +spec:floats:afc8e2 - Float positioning rules (CSS 2.2 § 9.5 rules 1-8): left/right edge
+// containment, earlier-float stacking, outer-top constraints, and "move down" when insufficient
+// space
 /// Position a float within a BFC, considering existing floats.
 /// Returns the `LogicalRect` (margin box) for the float.
-// +spec:box-model:db0f02 - Float positioning: line boxes shortened by floats, floats shift down if no space, BFC elements must not overlap float margin boxes
-// +spec:containing-block:136e45 - Float shifted left/right until outer edge touches containing block edge or another float
+// +spec:box-model:db0f02 - Float positioning: line boxes shortened by floats, floats shift down if
+// no space, BFC elements must not overlap float margin boxes +spec:containing-block:136e45 - Float
+// shifted left/right until outer edge touches containing block edge or another float
 // +spec:containing-block:3ebb4e - Content moves below floats when containing block too narrow
 // +spec:floats:45fce7 - Float positioning: pulled out of flow, line boxes shortened around float
 // +spec:floats:f6c218 - float pulled out of flow, line boxes shorten around it
-// +spec:height-calculation:86142a - CSS 2.2 §9.5 float positioning, clearance, and margin non-collapsing
-// +spec:width-calculation:761677 - float positioning: content flows around floats, line boxes shortened by float presence
+// +spec:height-calculation:86142a - CSS 2.2 §9.5 float positioning, clearance, and margin
+// non-collapsing +spec:width-calculation:761677 - float positioning: content flows around floats,
+// line boxes shortened by float presence
 fn position_float(
     float_ctx: &FloatingContext,
     float_type: LayoutFloat,
@@ -1101,7 +1123,8 @@ fn position_float(
         }
 
         // top is moved lower than earlier float's bottom (outer edge / margin box bottom)
-        // Not enough space at this Y, move down past the lowest overlapping float's margin box bottom
+        // Not enough space at this Y, move down past the lowest overlapping float's margin box
+        // bottom
         let next_main = float_ctx
             .floats
             .iter()
@@ -1183,8 +1206,11 @@ fn position_float(
 ///
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
-// +spec:display-property:f38f52 - BFC handles normal flow, relative positioning offsets, and float extraction (CSS 2.2 § 9.8)
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+// +spec:display-property:f38f52 - BFC handles normal flow, relative positioning offsets, and float
+// extraction (CSS 2.2 § 9.8)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1197,7 +1223,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?
         .clone();
-    // +spec:block-formatting-context:4f4ff6 - writing-mode determines block flow direction (main axis) for ordering block-level boxes in BFC
+    // +spec:block-formatting-context:4f4ff6 - writing-mode determines block flow direction (main
+    // axis) for ordering block-level boxes in BFC
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
 
@@ -1215,8 +1242,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
 
-    // +spec:containing-block:42b75f - Block element establishes containing block for inline content (IFC)
-    // Calculate this node's content-box size for use as containing block for children
+    // +spec:containing-block:42b75f - Block element establishes containing block for inline content
+    // (IFC) Calculate this node's content-box size for use as containing block for children
     // CSS 2.2 § 10.1: The containing block for in-flow children is formed by the
     // content edge of the parent's content box.
     //
@@ -1230,8 +1257,9 @@ fn layout_bfc<T: ParsedFontTrait>(
     // the containing block. The main_pen variable below tracks block progression
     // using logical main-axis coordinates; the WritingModeContext in constraints
     // determines how main/cross map to physical x/y via from_main_cross().
-    // +spec:inline-block:17944a - orthogonal flow roots get infinite available inline space here (not yet detected)
-    // +spec:inline-block:a60e22 - other layout models pass through infinite inline space to contained block containers
+    // +spec:inline-block:17944a - orthogonal flow roots get infinite available inline space here
+    // (not yet detected) +spec:inline-block:a60e22 - other layout models pass through infinite
+    // inline space to contained block containers
     let mut children_containing_block_size = node.used_size.map_or_else(
         // No used_size yet - use available_size directly (this is already content-box
         // when coming from parent's layout constraints)
@@ -1260,13 +1288,11 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Reserve space for vertical scrollbar when appropriate.
     //
     // - overflow: scroll  → ALWAYS reserve (CSS spec: scrollbar always shown)
-    // - overflow: auto    → Reserve ONLY when a previous pass already determined
-    //   a scrollbar is needed.
-    //   On the very first pass the node has no scrollbar_info yet, so no space
-    //   is reserved.  After `compute_scrollbar_info` detects overflow it sets
-    //   `reflow_needed_for_scrollbars = true`, triggering a second pass where
-    //   `node.scrollbar_info.needs_vertical == true` and space IS reserved.
-    //   Each pass replaces `scrollbar_info` with the current state; the outer
+    // - overflow: auto    → Reserve ONLY when a previous pass already determined a scrollbar is
+    //   needed. On the very first pass the node has no scrollbar_info yet, so no space is reserved.
+    //   After `compute_scrollbar_info` detects overflow it sets `reflow_needed_for_scrollbars =
+    //   true`, triggering a second pass where `node.scrollbar_info.needs_vertical == true` and
+    //   space IS reserved. Each pass replaces `scrollbar_info` with the current state; the outer
     //   layout loop's iteration cap handles oscillation safety.
     let scrollbar_reservation = node.dom_node_id.map_or(0.0, |dom_id| {
         let styled_node_state = ctx
@@ -1320,8 +1346,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // With the per-node cache (§9.1-§9.2), the re-added Pass 1 is efficient:
     // - Each child subtree is computed once and stored in NodeCache
     // - Pass 2 positioning reads sizes from tree nodes (used_size set by Pass 1)
-    // - When calculate_layout_for_subtree recurses into children after layout_bfc
-    //   returns, it hits the per-node cache (same available_size) — O(1) per child.
+    // - When calculate_layout_for_subtree recurses into children after layout_bfc returns, it hits
+    //   the per-node cache (same available_size) — O(1) per child.
     //
     // Performance: O(n) for the tree. No double-computation thanks to caching.
     {
@@ -1329,10 +1355,11 @@ fn layout_bfc<T: ParsedFontTrait>(
         let mut temp_scrollbar_reflow = false;
 
         let bfc_children = tree.children(node_index).to_vec();
-        // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per parent
-        // node (0x60A00+slot). If body shows len=2 but the divs never get the per-child "sized" marker
-        // (0x60A40+childslot) below → the loop skips them; if they DO get it but layout_formatting_context
-        // (0x609A0) stays unset → calculate(child,ComputeSize) cache-hit (vs 0x60A60 miss-flag in cache.rs).
+        // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
+        // parent node (0x60A00+slot). If body shows len=2 but the divs never get the
+        // per-child "sized" marker (0x60A40+childslot) below → the loop skips them; if they
+        // DO get it but layout_formatting_context (0x609A0) stays unset →
+        // calculate(child,ComputeSize) cache-hit (vs 0x60A60 miss-flag in cache.rs).
         #[cfg(feature = "web_lift")]
         unsafe {
             crate::az_mark(
@@ -1346,12 +1373,14 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
 
-            // +spec:positioning:447b06 - Absolute positioning pulls element out of flow, skip from normal layout
-            // +spec:positioning:77a2d2 - Absolutely positioned children are ignored for auto height
-            // +spec:positioning:b47ac2 - Only normal flow children taken into account for auto height
-            // Skip absolutely/fixed positioned children — they're laid out separately
-            // +spec:positioning:c7e5c5 - out-of-flow elements ignored for word boundary / hyphenation
-            // +spec:positioning:7dd6d1 - Absolutely positioned boxes are taken out of the normal flow (no impact on later siblings, no margin collapsing)
+            // +spec:positioning:447b06 - Absolute positioning pulls element out of flow, skip from
+            // normal layout +spec:positioning:77a2d2 - Absolutely positioned children
+            // are ignored for auto height +spec:positioning:b47ac2 - Only normal flow
+            // children taken into account for auto height Skip absolutely/fixed
+            // positioned children — they're laid out separately +spec:positioning:
+            // c7e5c5 - out-of-flow elements ignored for word boundary / hyphenation
+            // +spec:positioning:7dd6d1 - Absolutely positioned boxes are taken out of the normal
+            // flow (no impact on later siblings, no margin collapsing)
             let position_type = get_position_type(ctx.styled_dom, child_dom_id);
             if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
                 continue;
@@ -1386,8 +1415,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:block-formatting-context:98b633 - CSS 2.2 § 9.4.1: boxes laid out vertically, margins collapse
-    // === Pass 2: Position children using known sizes ===
+    // +spec:block-formatting-context:98b633 - CSS 2.2 § 9.4.1: boxes laid out vertically, margins
+    // collapse === Pass 2: Position children using known sizes ===
     //
     // All children now have used_size set from Pass 1. This pass handles:
     // - Margin collapsing (parent-child + sibling-sibling)
@@ -1441,7 +1470,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Track if we have any actual content (non-empty blocks)
     let mut has_content = false;
 
-    // +spec:display-property:9f6e18 - BFC dispatches normal flow, floats, and relative positioning (CSS 2.2 §9.8)
+    // +spec:display-property:9f6e18 - BFC dispatches normal flow, floats, and relative positioning
+    // (CSS 2.2 §9.8)
     let pos_children = tree.children(node_index).to_vec();
 
     // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
@@ -1704,8 +1734,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
 
         // +spec:floats:2cec1b - float property determines positioning algorithm (float path)
-        // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid) inhibit floating
-        // Check if this child is a float - if so, position it at current main_pen
+        // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid)
+        // inhibit floating Check if this child is a float - if so, position it at current
+        // main_pen
         if let Some(node_id) = child_dom_id {
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
@@ -1742,8 +1773,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                 let child_bp2 = child_node.box_props.unpack();
                 let float_margin = &child_bp2.margin;
 
-                // +spec:floats:d0d163 - clear on floats adds constraint #10: float top below cleared floats' bottom
-                // +spec:floats:7adb9d - Clear on floats: constraint #10, top outer edge must be below earlier cleared floats
+                // +spec:floats:d0d163 - clear on floats adds constraint #10: float top below
+                // cleared floats' bottom +spec:floats:7adb9d - Clear on floats:
+                // constraint #10, top outer edge must be below earlier cleared floats
                 let float_clear = get_clear_property(ctx.styled_dom, Some(node_id));
                 let float_y = if float_clear == LayoutClear::None {
                     // +spec:floats:ef96cb - Float margins never collapse with adjacent margins
@@ -1858,7 +1890,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         last_child_index = Some(child_index);
 
         // Calculate child's used_size just-in-time if not already computed
-        // This replaces the old "Pass 1" that recursively laid out grandchildren with wrong positions
+        // This replaces the old "Pass 1" that recursively laid out grandchildren with wrong
+        // positions
         let child_size = if let Some(size) = child_node.used_size {
             size
         } else {
@@ -1901,7 +1934,8 @@ fn layout_bfc<T: ParsedFontTrait>(
             child_margin.left
         );
 
-        // +spec:block-formatting-context:0f802c - margins use containing block's writing mode for collapsing/auto expansion in orthogonal flows
+        // +spec:block-formatting-context:0f802c - margins use containing block's writing mode for
+        // collapsing/auto expansion in orthogonal flows
         let child_own_margin_top = child_margin.main_start(writing_mode);
         let child_own_margin_bottom = child_margin.main_end(writing_mode);
 
@@ -1943,9 +1977,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         let child_has_top_blocker = has_margin_collapse_blocker(&child_bp, writing_mode, true);
         let child_has_bottom_blocker = has_margin_collapse_blocker(&child_bp, writing_mode, false);
 
-        // +spec:floats:dc195a - Clear property only applies to block-level elements (CSS 2.2 § 9.5.2)
-        // Check for clear property FIRST - clearance affects whether element is considered empty
-        // CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
+        // +spec:floats:dc195a - Clear property only applies to block-level elements (CSS 2.2 §
+        // 9.5.2) Check for clear property FIRST - clearance affects whether element is
+        // considered empty CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
         // An element with clearance is NOT empty even if it has no content
         let child_clear = if let Some(node_id) = child_dom_id {
             get_clear_property(ctx.styled_dom, Some(node_id))
@@ -2031,14 +2065,14 @@ fn layout_bfc<T: ParsedFontTrait>(
         // From here on: non-empty blocks only (or empty blocks with clear property)
 
         // Apply clearance if needed
-        // +spec:floats:148ee6 - clear:left pushes element below float; clearance added above top margin
-        // CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing.
+        // +spec:floats:148ee6 - clear:left pushes element below float; clearance added above top
+        // margin CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing.
         //
         // Per CSS 2.2 § 9.5.2, the clearance computation works as follows:
-        // 1. Compute the "hypothetical position" — where the border edge would be
-        //    with normal margin collapsing (as if clear:none).
-        // 2. If the hypothetical position is NOT past the relevant floats,
-        //    clearance is introduced and the border edge is placed at float bottom.
+        // 1. Compute the "hypothetical position" — where the border edge would be with normal
+        //    margin collapsing (as if clear:none).
+        // 2. If the hypothetical position is NOT past the relevant floats, clearance is introduced
+        //    and the border edge is placed at float bottom.
         // 3. The final border edge = max(float_bottom, hypothetical_position).
         //
         // This means child_margin_top is already accounted for in the hypothetical
@@ -2051,7 +2085,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                 float_context.clearance_offset(child_clear, hypothetical, writing_mode);
             debug_info!(
                 ctx,
-                "[layout_bfc] Child {} clearance check: cleared_position={}, hypothetical={} (main_pen={} + collapse({}, {}))",
+                "[layout_bfc] Child {} clearance check: cleared_position={}, hypothetical={} \
+                 (main_pen={} + collapse({}, {}))",
                 child_index,
                 cleared_position,
                 hypothetical,
@@ -2547,23 +2582,26 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // Position child (non-empty blocks only reach here)
         //
-        // +spec:block-formatting-context:1dada5 - Normal flow boxes in BFC touch containing block edge
-        // +spec:block-formatting-context:9f56cb - each box's left outer edge touches containing block left edge; new BFC may shrink due to floats
-        // CSS 2.2 § 9.4.1: "In a block formatting context, each box's left outer edge touches
-        // the left edge of the containing block (for right-to-left formatting, right edges touch).
+        // +spec:block-formatting-context:1dada5 - Normal flow boxes in BFC touch containing block
+        // edge +spec:block-formatting-context:9f56cb - each box's left outer edge touches
+        // containing block left edge; new BFC may shrink due to floats CSS 2.2 § 9.4.1: "In
+        // a block formatting context, each box's left outer edge touches the left edge of
+        // the containing block (for right-to-left formatting, right edges touch).
         // This is true even in the presence of floats (although a box's line boxes may shrink
         // due to the floats), unless the box establishes a new block formatting context
         // (in which case the box itself may become narrower due to the floats)."
         //
         // +spec:block-formatting-context:3d2811 - Float overlap with normal flow element borders
-        // +spec:display-property:796059 - BFC/replaced/table border box must not overlap float margin boxes; line boxes shorten around floats
-        // +spec:floats:5214a6 - BFC/replaced/table border box must not overlap float margin boxes; shrink or clear below
+        // +spec:display-property:796059 - BFC/replaced/table border box must not overlap float
+        // margin boxes; line boxes shorten around floats +spec:floats:5214a6 -
+        // BFC/replaced/table border box must not overlap float margin boxes; shrink or clear below
         // CSS 2.2 § 9.5: "The border box of a table, a block-level replaced element, or an element
         // in the normal flow that establishes a new block formatting context (such as an element
         // with 'overflow' other than 'visible') must not overlap any floats in the same block
         // formatting context as the element itself."
 
-        // +spec:floats:a29f70 - BFC roots, tables, and block-level replaced elements must not overlap float margin boxes
+        // +spec:floats:a29f70 - BFC roots, tables, and block-level replaced elements must not
+        // overlap float margin boxes
         let child_node = tree
             .get(LayoutNodeId::new(child_index))
             .ok_or(LayoutError::InvalidTree)?;
@@ -2706,8 +2744,12 @@ fn layout_bfc<T: ParsedFontTrait>(
                 let remaining = (available_cross - child_used_size.cross(writing_mode)).max(0.0);
                 debug_info!(
                     ctx,
-                    "[layout_bfc] Child {} BFC + margin:auto centering: available={}, size={}, offset={}",
-                    child_index, available_cross, child_used_size.cross(writing_mode), remaining / 2.0
+                    "[layout_bfc] Child {} BFC + margin:auto centering: available={}, size={}, \
+                     offset={}",
+                    child_index,
+                    available_cross,
+                    child_used_size.cross(writing_mode),
+                    remaining / 2.0
                 );
                 cross_start + remaining / 2.0
             } else if child_margin_auto.left {
@@ -2726,7 +2768,8 @@ fn layout_bfc<T: ParsedFontTrait>(
 
             debug_info!(
                 ctx,
-                "[layout_bfc] Child {} centering check: available_cross={}, child_cross_size={}, margin_auto.left={}, margin_auto.right={}",
+                "[layout_bfc] Child {} centering check: available_cross={}, child_cross_size={}, \
+                 margin_auto.left={}, margin_auto.right={}",
                 child_index,
                 available_cross,
                 child_cross_size,
@@ -2734,13 +2777,16 @@ fn layout_bfc<T: ParsedFontTrait>(
                 child_margin_auto.right
             );
 
-            // +spec:block-formatting-context:d52ce5 - auto margins resolved per containing block's writing mode for centering
-            // +spec:width-calculation:0c5044 - auto margins center element on cross axis (respects writing mode)
-            // +spec:width-calculation:25c2fc - §10.3.3: block-level margin auto centering and over-constrained resolution
-            // +spec:width-calculation:ba691f - auto margins treated as zero when element overflows containing block (via .max(0.0) on remaining_space)
-            // +spec:width-calculation:324e7e - both margin-left and margin-right auto => equal used values (centering)
-            // CSS 2.2 § 10.3.3: If both margin-left and margin-right are auto,
-            // center the element within the available space
+            // +spec:block-formatting-context:d52ce5 - auto margins resolved per containing block's
+            // writing mode for centering +spec:width-calculation:0c5044 - auto margins
+            // center element on cross axis (respects writing mode)
+            // +spec:width-calculation:25c2fc - §10.3.3: block-level margin auto centering and
+            // over-constrained resolution +spec:width-calculation:ba691f - auto margins
+            // treated as zero when element overflows containing block (via .max(0.0) on
+            // remaining_space) +spec:width-calculation:324e7e - both margin-left and
+            // margin-right auto => equal used values (centering) CSS 2.2 § 10.3.3: If
+            // both margin-left and margin-right are auto, center the element within the
+            // available space
             let cross_pos = if child_margin_auto.left && child_margin_auto.right {
                 // Center: (available - child_width) / 2
                 let remaining_space = (available_cross - child_cross_size).max(0.0);
@@ -2758,7 +2804,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                     (available_cross - child_cross_size - child_margin.right).max(0.0);
                 debug_info!(
                     ctx,
-                    "[layout_bfc] Child {} margin-left:auto only, pushing right: remaining_space={}",
+                    "[layout_bfc] Child {} margin-left:auto only, pushing right: \
+                     remaining_space={}",
                     child_index,
                     remaining_space
                 );
@@ -2773,8 +2820,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                 );
                 child_margin.cross_start(writing_mode)
             } else {
-                // +spec:box-model:218643 - over-constrained: drop end margin per containing block writing mode
-                // +spec:width-calculation:d172a4 - over-constrained: LTR ignores margin-right, RTL ignores margin-left
+                // +spec:box-model:218643 - over-constrained: drop end margin per containing block
+                // writing mode +spec:width-calculation:d172a4 - over-constrained:
+                // LTR ignores margin-right, RTL ignores margin-left
                 // in LTR, margin-right is ignored (element positioned at margin-left);
                 // in RTL, margin-left is ignored (element positioned from right edge)
                 let is_rtl = tree
@@ -2802,7 +2850,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                 };
                 debug_info!(
                     ctx,
-                    "[layout_bfc] Child {} NO auto margins (over-constrained), is_rtl={}, cross_pos={}",
+                    "[layout_bfc] Child {} NO auto margins (over-constrained), is_rtl={}, \
+                     cross_pos={}",
                     child_index,
                     is_rtl,
                     cross_pos
@@ -2932,10 +2981,11 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
 
-            // +spec:containing-block:a8ada9 - line box width determined by containing block and floats
-            // For inline elements (display: inline), use containing block width as available
-            // width. Inline elements flow within the containing block and wrap at its width.
-            // CSS 2.2 § 10.3.1: For inline elements, available width = containing block width.
+            // +spec:containing-block:a8ada9 - line box width determined by containing block and
+            // floats For inline elements (display: inline), use containing block width
+            // as available width. Inline elements flow within the containing block and
+            // wrap at its width. CSS 2.2 § 10.3.1: For inline elements, available width
+            // = containing block width.
             let display = get_display_property(ctx.styled_dom, child_dom_id).unwrap_or_default();
             let child_content_size = if display == LayoutDisplay::Inline {
                 // Inline elements use the containing block's content-box width
@@ -3192,8 +3242,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // This matches Chrome/Firefox behavior where float margins escape through
     // the container's padding when there's existing in-flow content.
 
-    // +spec:block-formatting-context:7954a2 - 10.6.3: auto height for block-level non-replaced elements in normal flow
-    // Content-box Height Calculation
+    // +spec:block-formatting-context:7954a2 - 10.6.3: auto height for block-level non-replaced
+    // elements in normal flow Content-box Height Calculation
     //
     // CSS 2.2 § 8.3.1: "The top border edge of the box is defined to coincide with
     // the top border edge of the [first] child" when margins collapse/escape.
@@ -3245,19 +3295,21 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Sibling margins are *between* boxes (part of layout), not *outside* boxes
     // (like escaped margins).
 
-    // +spec:box-model:4eebed - auto height for BFC = top margin-edge of topmost child to bottom margin-edge of bottommost child
-    // +spec:box-model:4eebed - auto height = top margin-edge of topmost child to bottom margin-edge of bottommost child
-    // +spec:height-calculation:d65226 - §10.6.7 auto heights for BFC roots: block children use
-    // margin-edge of topmost/bottommost, floats extend height if below content edge
-    // +spec:positioning:1a05bb - 10.6.7 auto height for BFC roots: block children use margin edges,
-    // abspos ignored (skipped in Pass 1/2), relative considered without offset (applied after layout),
-    // floats whose bottom margin edge exceeds content edge expand height (below)
-    // +spec:positioning:e6712c - Auto height for BFC: distance between top/bottom margin-edges of
-    // block children (minus escaped margins), ignoring absolutely positioned children (skipped at
-    // line ~966), considering relatively positioned boxes without offset (applied after layout),
-    // and extending to include floats whose bottom margin edge exceeds content edge
-    // +spec:positioning:f94d22 - 10.6.3: block-level non-replaced auto height = distance from top content edge to last in-flow child bottom margin edge (or zero)
-    // CSS 2.2 §8.3.1: escaped margins (both top and bottom) don't contribute to parent height
+    // +spec:box-model:4eebed - auto height for BFC = top margin-edge of topmost child to bottom
+    // margin-edge of bottommost child +spec:box-model:4eebed - auto height = top margin-edge of
+    // topmost child to bottom margin-edge of bottommost child +spec:height-calculation:d65226 -
+    // §10.6.7 auto heights for BFC roots: block children use margin-edge of topmost/bottommost,
+    // floats extend height if below content edge +spec:positioning:1a05bb - 10.6.7 auto height
+    // for BFC roots: block children use margin edges, abspos ignored (skipped in Pass 1/2),
+    // relative considered without offset (applied after layout), floats whose bottom margin
+    // edge exceeds content edge expand height (below) +spec:positioning:e6712c - Auto height
+    // for BFC: distance between top/bottom margin-edges of block children (minus escaped
+    // margins), ignoring absolutely positioned children (skipped at line ~966), considering
+    // relatively positioned boxes without offset (applied after layout), and extending to
+    // include floats whose bottom margin edge exceeds content edge +spec:positioning:f94d22 -
+    // 10.6.3: block-level non-replaced auto height = distance from top content edge to last in-flow
+    // child bottom margin edge (or zero) CSS 2.2 §8.3.1: escaped margins (both top and bottom)
+    // don't contribute to parent height
     let mut content_box_height = if is_root_node {
         // Root: the escaped margins were re-added to `main_pen` just above (there is no
         // grandparent to receive them); subtract them back out so the root's content box
@@ -3275,11 +3327,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         main_pen
     };
 
-    // +spec:block-formatting-context:f73d3e - BFC root grows to fully contain its floats; floats from outside cannot protrude in
-    // whose bottom margin edge exceeds bottom content edge; only floats participating
-    // in this BFC are counted (not floats inside abspos descendants or nested BFCs)
-    // +spec:box-model:1d4798 - auto height includes floats whose bottom margin edge exceeds content edge
-    // only floats participating in this BFC are counted (not floats inside abspos descendants or nested BFCs)
+    // +spec:block-formatting-context:f73d3e - BFC root grows to fully contain its floats; floats
+    // from outside cannot protrude in whose bottom margin edge exceeds bottom content edge;
+    // only floats participating in this BFC are counted (not floats inside abspos descendants
+    // or nested BFCs) +spec:box-model:1d4798 - auto height includes floats whose bottom margin
+    // edge exceeds content edge only floats participating in this BFC are counted (not floats
+    // inside abspos descendants or nested BFCs)
     if is_bfc_root {
         for float_box in &float_context.floats {
             let float_bottom_margin_edge = float_box.rect.origin.main(writing_mode)
@@ -3351,7 +3404,8 @@ fn layout_bfc<T: ParsedFontTrait>(
 ///
 /// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
 ///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
-///    +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into lines
+///    +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into
+///    lines
 ///
 /// 4. **Integrate Results**: Process the `UnifiedLayout` returned by `text3`:
 ///
@@ -3365,9 +3419,10 @@ fn layout_bfc<T: ParsedFontTrait>(
 // stack horizontally and inline content would flow vertically. The writing mode
 // is now available via constraints.writing_mode_ctx for agents to use when
 // implementing vertical text layout in the text3 engine.
-// +spec:display-property:574e7b - text-box-trim for inline boxes trims block-end to content edge (TODO: implement trimming per text-box-edge metric)
-// +spec:display-property:da284a - IFC: flow inline-level boxes into line boxes, size/position each fragment
-// +spec:inline-formatting-context:275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
+// +spec:display-property:574e7b - text-box-trim for inline boxes trims block-end to content edge
+// (TODO: implement trimming per text-box-edge metric) +spec:display-property:da284a - IFC: flow
+// inline-level boxes into line boxes, size/position each fragment +spec:inline-formatting-context:
+// 275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
 #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// CSS Inline 3 §6.2 text-box-trim for the IFC's block container, applied to
@@ -3382,7 +3437,8 @@ fn apply_text_box_trim(
     output: &mut LayoutOutput,
 ) {
     // +spec:box-model:929f42 - text-box-trim: trim half-leading from first/last formatted line
-    // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero padding/border
+    // +spec:box-model:02e0f9 - text-box-trim: trim-end and trim-both, no effect with non-zero
+    // padding/border
     //
     // CSS Inline 3 § 6.2: For block containers, trim the block-start/block-end side
     // of the first/last formatted line. If there is intervening non-zero padding or
@@ -3415,8 +3471,8 @@ fn apply_text_box_trim(
         let half_leading = half_leading.max(0.0);
 
         // +spec:display-property:db5125 - text-box-edge selects the metric the trim cuts to
-        // +spec:font-metrics:d3b654 - cap/alphabetic edges use the cap-height and alphabetic baseline
-        // The over edge trims PAST the half-leading down to the chosen
+        // +spec:font-metrics:d3b654 - cap/alphabetic edges use the cap-height and alphabetic
+        // baseline The over edge trims PAST the half-leading down to the chosen
         // metric: `cap` cuts ascent - cap-height further, `ex` cuts
         // ascent - x-height; the under edge's `alphabetic` cuts the whole
         // descent (down to the baseline). `text` (and `auto`, and the
@@ -3547,10 +3603,11 @@ fn layout_ifc<T: ParsedFontTrait>(
     );
     debug_ifc_layout!(ctx, "CALLED for node_index={}", node_index);
 
-    // +spec:display-property:7f3c1d - Anonymous inline boxes: text directly in block containers treated as anonymous inline elements in IFC
-    // +spec:display-property:5a795c - root inline box: block container generates anonymous inline box holding all inline-level contents, inheriting from parent
-    // For anonymous boxes, we need to find the DOM ID from a parent or child
-    // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
+    // +spec:display-property:7f3c1d - Anonymous inline boxes: text directly in block containers
+    // treated as anonymous inline elements in IFC +spec:display-property:5a795c - root inline
+    // box: block container generates anonymous inline box holding all inline-level contents,
+    // inheriting from parent For anonymous boxes, we need to find the DOM ID from a parent or
+    // child CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
@@ -3578,8 +3635,8 @@ fn layout_ifc<T: ParsedFontTrait>(
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
     // +spec:display-property:a469a6 - line boxes created as needed for inline-level content in IFC
-    // +spec:display-property:f3c875 - calculate layout bounds (size contributions) of each inline-level box
-    // Phase 1: Collect and measure all inline-level children.
+    // +spec:display-property:f3c875 - calculate layout bounds (size contributions) of each
+    // inline-level box Phase 1: Collect and measure all inline-level children.
     // Fold the IFC subtree's per-node fingerprints into one key. The
     // reconcile pass already computes and stores these (they are what marks
     // a node clean/dirty), so this is a handful of hashes over data already
@@ -3680,8 +3737,8 @@ fn layout_ifc<T: ParsedFontTrait>(
         Some(_) => {
             debug_info!(
                 ctx,
-                "[layout_ifc] node {}: cached collection REJECTED — an atomic inline child is \
-                 not laid out in this tree; re-collecting",
+                "[layout_ifc] node {}: cached collection REJECTED — an atomic inline child is not \
+                 laid out in this tree; re-collecting",
                 node_index
             );
             None
@@ -4218,8 +4275,9 @@ fn layout_ifc<T: ParsedFontTrait>(
         }
 
         // Extract the overall size and baseline for the IFC root.
-        // +spec:display-property:a0d0ab - IFC height = top of topmost line box to bottom of bottommost line box
-        // +spec:display-property:a63b8f - baseline-source defaults to auto (last baseline for inline-block/IFC)
+        // +spec:display-property:a0d0ab - IFC height = top of topmost line box to bottom of
+        // bottommost line box +spec:display-property:a63b8f - baseline-source defaults to
+        // auto (last baseline for inline-block/IFC)
         //
         // Use the UNCLIPPED content bounds, not `bounds()`. `bounds()` maxes over
         // `layout.items`, which under dense-text retention is an empty sentinel
@@ -4255,7 +4313,8 @@ fn layout_ifc<T: ParsedFontTrait>(
             } = &positioned_item.item
             {
                 if let Some(&child_node_index) = child_map.get(source) {
-                    // new_relative_pos is [CoordinateSpace::Parent] - relative to this IFC's content-box
+                    // new_relative_pos is [CoordinateSpace::Parent] - relative to this IFC's
+                    // content-box
                     let new_relative_pos = LogicalPosition {
                         x: positioned_item.position.x,
                         y: positioned_item.position.y,
@@ -4368,7 +4427,8 @@ pub const fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosi
     }
 }
 
-// +spec:block-formatting-context:40e03e - BFC root: block container establishing new BFC (contains floats, excludes external floats, suppresses margin collapsing)
+// +spec:block-formatting-context:40e03e - BFC root: block container establishing new BFC (contains
+// floats, excludes external floats, suppresses margin collapsing)
 /// Checks if a node establishes a new Block Formatting Context (BFC).
 ///
 /// Per CSS 2.2 § 9.4.1, a BFC is established by:
@@ -4383,10 +4443,12 @@ pub const fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosi
 ///
 /// This is critical for correct float interaction: normal blocks should overlap floats
 /// (not shrink around them), while their inline content wraps around floats.
-// +spec:block-formatting-context:241d22 - block container establishes new BFC or continues parent's, based on overflow/position/float/display
-// +spec:block-formatting-context:9fe441 - BFC establishment based on position, float, overflow, and display properties
-// +spec:display-property:3c7369 - block boxes establishing independent FC create new BFC; flex containers already do; non-replaced inlines cannot
-// +spec:positioning:1e94f6 - floats, abspos, inline-blocks/table-cells/table-captions, overflow!=visible establish new BFC
+// +spec:block-formatting-context:241d22 - block container establishes new BFC or continues
+// parent's, based on overflow/position/float/display +spec:block-formatting-context:9fe441 - BFC
+// establishment based on position, float, overflow, and display properties +spec:display-property:
+// 3c7369 - block boxes establishing independent FC create new BFC; flex containers already do;
+// non-replaced inlines cannot +spec:positioning:1e94f6 - floats, abspos,
+// inline-blocks/table-cells/table-captions, overflow!=visible establish new BFC
 fn establishes_new_bfc<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -4432,7 +4494,8 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     }
 
     // 4. display: flow-root establishes BFC
-    // +spec:display-property:14bae6 - flow-root establishes a formatting context that contains/excludes floats
+    // +spec:display-property:14bae6 - flow-root establishes a formatting context that
+    // contains/excludes floats
     if matches!(display, MultiValue::Exact(LayoutDisplay::FlowRoot)) {
         return true;
     }
@@ -4441,10 +4504,11 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     // +spec:overflow:631a4c - scroll containers establish independent formatting context (BFC)
     // +spec:overflow:f6a186 - overflow:clip does NOT establish BFC; use display:flow-root for that
     // +spec:overflow:717de1 - overflow != visible/clip establishes BFC per CSS 2.2 §9.4.1
-    // +spec:positioning:6feb32 - overflow:clip does NOT establish new formatting context; hidden/scroll/auto do
+    // +spec:positioning:6feb32 - overflow:clip does NOT establish new formatting context;
+    // hidden/scroll/auto do
     // 5. Block boxes with overflow other than 'visible' or 'clip' establish BFC
-    // +spec:overflow:b34aef - Block boxes with overflow other than 'visible' or 'clip' establish BFC
-    // Note: 'clip' does NOT establish BFC per CSS Overflow Module Level 3
+    // +spec:overflow:b34aef - Block boxes with overflow other than 'visible' or 'clip' establish
+    // BFC Note: 'clip' does NOT establish BFC per CSS Overflow Module Level 3
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, node_state);
 
@@ -4494,9 +4558,10 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:block-formatting-context:33e6cd - block container with different writing-mode than parent establishes independent BFC
-    // CSS Writing Modes 4 § 3.2: if a block container has a different writing-mode
-    // than its parent, its inner display type computes to flow-root (i.e., it establishes BFC).
+    // +spec:block-formatting-context:33e6cd - block container with different writing-mode than
+    // parent establishes independent BFC CSS Writing Modes 4 § 3.2: if a block container has a
+    // different writing-mode than its parent, its inner display type computes to flow-root
+    // (i.e., it establishes BFC).
     {
         let hierarchy = ctx.styled_dom.node_hierarchy.as_container();
         if let Some(parent_dom_id) = hierarchy[dom_id].parent_id() {
@@ -4512,11 +4577,13 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     }
 
     // Normal flow block boxes do NOT establish BFC
-    // NOTE: align-content != normal should also establish BFC per CSS-DISPLAY-3, but align-content is not yet implemented for block containers
+    // NOTE: align-content != normal should also establish BFC per CSS-DISPLAY-3, but align-content
+    // is not yet implemented for block containers
     false
 }
 
-// +spec:display-property:5e5420 - replaced element identification (glossary: replaced elements have natural dimensions, establish independent formatting context)
+// +spec:display-property:5e5420 - replaced element identification (glossary: replaced elements have
+// natural dimensions, establish independent formatting context)
 /// CSS 2.2 § 9.5: "The border box of a table, a block-level replaced element, or an element
 /// in the normal flow that establishes a new block formatting context [...] must not overlap
 /// the margin box of any floats in the same block formatting context as the element itself."
@@ -4550,7 +4617,9 @@ fn is_block_level_replaced<T: ParsedFontTrait>(
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     constraints: &'a LayoutConstraints<'a>,
@@ -4844,23 +4913,30 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();
 
     // +spec:display-property:21f728 - vertical-align shorthand resolves inline-level box alignment
-    // +spec:display-property:98fa8e - alignment-baseline values for inline-level boxes in IFC (implemented via vertical-align shorthand)
-    // +spec:display-property:1f71ad - baseline-shift + alignment-baseline longhands mapped through vertical-align
-    // +spec:display-property:89dd7b - line-relative shift values (top/center/bottom) and aligned subtree alignment
-    // +spec:inline-formatting-context:21da06 - vertical-align uses line-over/line-under sides via writing_mode logical mapping
-    // +spec:inline-formatting-context:295603 - baseline alignment: vertical-align determines how inline boxes align (baseline, super, sub, etc.)
-    // +spec:inline-formatting-context:7351bf - default alignment baseline is alphabetic in horizontal typographic mode
-    // +spec:inline-formatting-context:85de3d - vertical-align shorthand: alignment within line box
-    // +spec:inline-formatting-context:aa8af0 - alignment baseline chosen by vertical-align, defaults to parent's dominant baseline
-    // +spec:inline-formatting-context:e475d2 - baseline and vertical-align control transverse alignment of inline content on line boxes
-    // +spec:overflow:d44eac - vertical-align inline box alignment (CSS 2.2 model covers baseline/top/middle/bottom/sub/super/text-top/text-bottom)
-    // +spec:writing-modes:313575 - alignment-baseline: inline-level boxes align baselines within parent inline box's alignment context along inline axis
-    // +spec:writing-modes:60ad67 - inline layout aligns boxes in block axis via baselines
-    // +spec:writing-modes:0127e5 - line-relative directions: line-over/under map to vertical-align top/bottom
-    // Get vertical-align from CSS property cache (defaults to Baseline per CSS spec)
-    // +spec:inline-formatting-context:686f8b - vertical-align shorthand: alignment-baseline + baseline-shift for inline boxes
-    // +spec:inline-formatting-context:e579b6 - vertical-align / baseline alignment in inline context
-    // +spec:inline-formatting-context:a01a75 - dominant baseline alignment for atomic inlines
+    // +spec:display-property:98fa8e - alignment-baseline values for inline-level boxes in IFC
+    // (implemented via vertical-align shorthand) +spec:display-property:1f71ad - baseline-shift
+    // + alignment-baseline longhands mapped through vertical-align +spec:display-property:
+    // 89dd7b - line-relative shift values (top/center/bottom) and aligned subtree alignment
+    // +spec:inline-formatting-context:21da06 - vertical-align uses line-over/line-under sides via
+    // writing_mode logical mapping +spec:inline-formatting-context:295603 - baseline alignment:
+    // vertical-align determines how inline boxes align (baseline, super, sub, etc.)
+    // +spec:inline-formatting-context:7351bf - default alignment baseline is alphabetic in
+    // horizontal typographic mode +spec:inline-formatting-context:85de3d - vertical-align
+    // shorthand: alignment within line box +spec:inline-formatting-context:aa8af0 - alignment
+    // baseline chosen by vertical-align, defaults to parent's dominant baseline
+    // +spec:inline-formatting-context:e475d2 - baseline and vertical-align control transverse
+    // alignment of inline content on line boxes +spec:overflow:d44eac - vertical-align inline
+    // box alignment (CSS 2.2 model covers
+    // baseline/top/middle/bottom/sub/super/text-top/text-bottom) +spec:writing-modes:313575 -
+    // alignment-baseline: inline-level boxes align baselines within parent inline box's alignment
+    // context along inline axis +spec:writing-modes:60ad67 - inline layout aligns boxes in
+    // block axis via baselines +spec:writing-modes:0127e5 - line-relative directions:
+    // line-over/under map to vertical-align top/bottom Get vertical-align from CSS property
+    // cache (defaults to Baseline per CSS spec) +spec:inline-formatting-context:686f8b -
+    // vertical-align shorthand: alignment-baseline + baseline-shift for inline boxes
+    // +spec:inline-formatting-context:e579b6 - vertical-align / baseline alignment in inline
+    // context +spec:inline-formatting-context:a01a75 - dominant baseline alignment for atomic
+    // inlines
     //
     // CSS 2.2 section 10.8.1: vertical-align applies to INLINE-LEVEL boxes
     // and TABLE CELLS only. `id` here is the IFC ROOT (a block container:
@@ -4874,15 +4950,17 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // table-basic-001 ~9px below the padding box.
     let vertical_align = StyleVerticalAlign::Baseline;
 
-    // +spec:display-property:c03a6b - baseline-shift (sub/super/length/percentage) and line-relative (top/center/bottom) shifts handled via vertical-align
+    // +spec:display-property:c03a6b - baseline-shift (sub/super/length/percentage) and
+    // line-relative (top/center/bottom) shifts handled via vertical-align
     let vertical_align = match vertical_align {
         StyleVerticalAlign::Baseline => text3::cache::VerticalAlign::Baseline,
         StyleVerticalAlign::Top => text3::cache::VerticalAlign::Top,
         StyleVerticalAlign::Middle => text3::cache::VerticalAlign::Middle,
         StyleVerticalAlign::Bottom => text3::cache::VerticalAlign::Bottom,
         StyleVerticalAlign::Sub => text3::cache::VerticalAlign::Sub,
-        // +spec:inline-formatting-context:fe563c - vertical-align: super shifts inline to superscript position
-        // +spec:inline-formatting-context:fe563c - vertical-align:super shifts child to superscript position
+        // +spec:inline-formatting-context:fe563c - vertical-align: super shifts inline to
+        // superscript position +spec:inline-formatting-context:fe563c -
+        // vertical-align:super shifts child to superscript position
         StyleVerticalAlign::Superscript => text3::cache::VerticalAlign::Super,
         StyleVerticalAlign::TextTop => text3::cache::VerticalAlign::TextTop,
         StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
@@ -4908,29 +4986,34 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             text3::cache::VerticalAlign::Offset(offset)
         }
     };
-    // +spec:block-formatting-context:987746 - text-orientation property (mixed/upright/sideways) for vertical writing modes
-    // +spec:inline-formatting-context:cbe738 - text-orientation (mixed/upright/sideways) bi-orientational transform for vertical text
-    // +spec:writing-modes:09a1bb - vertical typesetting orientation (upright/sideways) for vertical-rl/vertical-lr
-    // +spec:writing-modes:2eb1b2 - text-orientation (mixed/upright/sideways) applied to vertical text layout
+    // +spec:block-formatting-context:987746 - text-orientation property (mixed/upright/sideways)
+    // for vertical writing modes +spec:inline-formatting-context:cbe738 - text-orientation
+    // (mixed/upright/sideways) bi-orientational transform for vertical text
+    // +spec:writing-modes:09a1bb - vertical typesetting orientation (upright/sideways) for
+    // vertical-rl/vertical-lr +spec:writing-modes:2eb1b2 - text-orientation
+    // (mixed/upright/sideways) applied to vertical text layout
     let text_orientation = match get_text_orientation_property(styled_dom, id, node_state) {
         MultiValue::Exact(o) => match o {
             StyleTextOrientation::Mixed => text3::cache::TextOrientation::Mixed,
             StyleTextOrientation::Upright => text3::cache::TextOrientation::Upright,
-            // +spec:block-formatting-context:a606e6 - sideways text typeset rotated 90° CW in vertical modes
+            // +spec:block-formatting-context:a606e6 - sideways text typeset rotated 90° CW in
+            // vertical modes
             StyleTextOrientation::Sideways => text3::cache::TextOrientation::Sideways,
         },
         _ => text3::cache::TextOrientation::default(),
     };
 
-    // +spec:display-property:8364c0 - direction property (ltr/rtl) sets paragraph embedding level for bidi algorithm
-    // +spec:text-alignment-spacing:97b93a - direction property affects text-align:justify last-line alignment
-    // +spec:writing-modes:73aaff - block elements inherit base direction from parent via CSS direction property
-    // +spec:writing-modes:8a888b - line box inline base direction from containing block's direction
-    // Get the direction property from the CSS cache (defaults to LTR if not set)
-    // +spec:display-property:da3b59 - direction property specifies inline base direction for ordering inline-level content
-    // +spec:inline-formatting-context:97af40 - direction property sets inline base direction for bidi, text alignment, overflow
-    // +spec:writing-modes:2deb38 - bidirectional reordering via CSS direction property
-    // +spec:writing-modes:fbb332 - in vertical writing modes, text-orientation:upright forces used direction to ltr
+    // +spec:display-property:8364c0 - direction property (ltr/rtl) sets paragraph embedding level
+    // for bidi algorithm +spec:text-alignment-spacing:97b93a - direction property affects
+    // text-align:justify last-line alignment +spec:writing-modes:73aaff - block elements
+    // inherit base direction from parent via CSS direction property +spec:writing-modes:8a888b
+    // - line box inline base direction from containing block's direction Get the direction
+    // property from the CSS cache (defaults to LTR if not set) +spec:display-property:da3b59 -
+    // direction property specifies inline base direction for ordering inline-level content
+    // +spec:inline-formatting-context:97af40 - direction property sets inline base direction for
+    // bidi, text alignment, overflow +spec:writing-modes:2deb38 - bidirectional reordering via
+    // CSS direction property +spec:writing-modes:fbb332 - in vertical writing modes,
+    // text-orientation:upright forces used direction to ltr
     let direction = match constraints.writing_mode {
         LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr
             if matches!(text_orientation, text3::cache::TextOrientation::Upright) =>
@@ -4947,7 +5030,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     };
 
     // Get unicode-bidi property for bidi algorithm configuration
-    // +spec:containing-block:0d4914 - unicode-bidi: plaintext causes P2/P3 heuristics instead of HL1 override
+    // +spec:containing-block:0d4914 - unicode-bidi: plaintext causes P2/P3 heuristics instead of
+    // HL1 override
     let unicode_bidi_val = if dom_declared & DOM_HAS_UNICODE_BIDI != 0 {
         match get_unicode_bidi_property(styled_dom, id, node_state) {
             MultiValue::Exact(u) => match u {
@@ -4974,9 +5058,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     );
 
     // +spec:box-model:8113d7 - text-indent treated as margin on start edge of line box
-    // +spec:display-contents:5f95ac - text-indent: percentage=0 for intrinsic sizing, each-line and hanging keywords
-    // +spec:floats:17c74a - text-indent applied to first line (5em indentation with no floats)
-    // +spec:positioning:1e32b1 - text-indent with hanging/each-line keywords resolved and passed to text layout
+    // +spec:display-contents:5f95ac - text-indent: percentage=0 for intrinsic sizing, each-line and
+    // hanging keywords +spec:floats:17c74a - text-indent applied to first line (5em indentation
+    // with no floats) +spec:positioning:1e32b1 - text-indent with hanging/each-line keywords
+    // resolved and passed to text layout
     let text_indent_prop = if dom_declared & DOM_HAS_TEXT_INDENT != 0 {
         styled_dom
             .css_property_cache
@@ -4990,7 +5075,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         constraints.available_width_type,
         Text3AvailableSpace::MinContent | Text3AvailableSpace::MaxContent
     );
-    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size contributions
+    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size
+    // contributions
     let text_indent = text_indent_prop.map_or(0.0, |ti| {
         // CSS Text 3 §8.1: "Percentages must be treated as 0 for the purpose
         // of calculating intrinsic size contributions"
@@ -5093,23 +5179,25 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         StyleWhiteSpace::BreakSpaces => text3::cache::WhiteSpaceMode::BreakSpaces,
     };
 
-    // +spec:block-formatting-context:fd60a8 - initial letter box is in-flow in its BFC, originating line box
-    // +spec:block-formatting-context:c5ba02 - initial letter inline flow layout (alignment, white space collapsing)
-    // +spec:block-formatting-context:83f8a7 - initial letter wrapping modes (none, all, first)
-    // +spec:block-formatting-context:fef28d - initial letter box is in-flow in its BFC, part of originating line box
-    // +spec:box-model:c3ce58 - initial letter block-start margin edge must be below containing block content edge
+    // +spec:block-formatting-context:fd60a8 - initial letter box is in-flow in its BFC, originating
+    // line box +spec:block-formatting-context:c5ba02 - initial letter inline flow layout
+    // (alignment, white space collapsing) +spec:block-formatting-context:83f8a7 - initial
+    // letter wrapping modes (none, all, first) +spec:block-formatting-context:fef28d - initial
+    // letter box is in-flow in its BFC, part of originating line box +spec:box-model:c3ce58 -
+    // initial letter block-start margin edge must be below containing block content edge
     // +spec:display-contents:568fe2 - initial letter participates in same IFC as its line
-    // +spec:display-property:a89adb - initial letter boxes from non-replaced inline boxes and atomic inlines
-    // +spec:display-property:4b59ce - initial-letter applies to inline-level boxes at start of first line
-    // +spec:display-property:756cad - initial-letter sizing: drop/raise/sunken initial computation
-    // +spec:display-property:8b08f4 - initial-letter applied to first inline-level child of block container
-    // +spec:display-property:8c1dce - initial-letter property: size/sink for drop caps on inline-level boxes
+    // +spec:display-property:a89adb - initial letter boxes from non-replaced inline boxes and
+    // atomic inlines +spec:display-property:4b59ce - initial-letter applies to inline-level
+    // boxes at start of first line +spec:display-property:756cad - initial-letter sizing:
+    // drop/raise/sunken initial computation +spec:display-property:8b08f4 - initial-letter
+    // applied to first inline-level child of block container +spec:display-property:8c1dce -
+    // initial-letter property: size/sink for drop caps on inline-level boxes
     // +spec:display-property:b453a3 - initial-letter applies to inline-level boxes in IFC
     // +spec:display-property:b5e149 - initial letters are in-flow inline-level content, not floats
     // +spec:display-property:fa044e - initial-letter applies to first-child inline-level boxes
-    // +spec:line-height:306d87 - initial-letter sizing must use containing block's line-height, not spanned lines' heights
-    // +spec:writing-modes:903310 - atomic initial letters use normal sizing; only positioning is special
-    // Get initial-letter for drop caps
+    // +spec:line-height:306d87 - initial-letter sizing must use containing block's line-height, not
+    // spanned lines' heights +spec:writing-modes:903310 - atomic initial letters use normal
+    // sizing; only positioning is special Get initial-letter for drop caps
     // +spec:display-property:4c69bf - read initial-letter-align for alignment points
     let initial_letter_align = if dom_declared & DOM_HAS_INITIAL_LETTER_ALIGN != 0 {
         styled_dom
@@ -5134,14 +5222,16 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     } else {
         text3::cache::InitialLetterAlign::Auto
     };
-    // +spec:display-property:5af252 - initial-letter on inline-level box not at line start uses normal
-    // +spec:text-alignment-spacing:a17609 - sunken initial letters suppress letter-spacing and justification (not word-spacing) with adjacent content
+    // +spec:display-property:5af252 - initial-letter on inline-level box not at line start uses
+    // normal +spec:text-alignment-spacing:a17609 - sunken initial letters suppress
+    // letter-spacing and justification (not word-spacing) with adjacent content
     // +spec:display-property:68ab22 - initial-letter only applies in IFC (inline-level);
     // float!=none or position!=static causes display to compute to block (BFC), so
     // initial-letter naturally does not apply to those elements
-    // +spec:writing-modes:c89d19 - initial-letter block-axis positioning: sink determines block offset
-    // +spec:display-property:b67500 - initial-letter size/sink: values other than normal make box an initial letter box (inline-level, in-flow)
-    // +spec:display-property:416f27 - initial-letter sink defaults to "drop" (sink = size floored) when omitted
+    // +spec:writing-modes:c89d19 - initial-letter block-axis positioning: sink determines block
+    // offset +spec:display-property:b67500 - initial-letter size/sink: values other than normal
+    // make box an initial letter box (inline-level, in-flow) +spec:display-property:416f27 -
+    // initial-letter sink defaults to "drop" (sink = size floored) when omitted
     let initial_letter = if dom_declared & DOM_HAS_INITIAL_LETTER != 0 {
         styled_dom
             .css_property_cache
@@ -5168,7 +5258,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // If initial-letter is set, compute the drop cap exclusion area and add it
     // to the shape exclusions so that text wraps around the enlarged letter.
     // +spec:box-model:d4adf6 - ancestor inline boundaries excluded via geometric exclusion
-    // +spec:floats:c5e23f - floats in subsequent lines adjacent to a sunk initial letter must clear it
+    // +spec:floats:c5e23f - floats in subsequent lines adjacent to a sunk initial letter must clear
+    // it
     if let Some(ref il) = initial_letter {
         let lh_n = line_height_value.inner.normalized();
         let computed_line_height = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
@@ -5215,10 +5306,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     };
 
     // Get text-combine-upright for vertical text combination
-    // +spec:line-breaking:9f150a - text-combine-upright:all composes glyphs horizontally, ignoring letter-spacing and forced line breaks
-    // +spec:line-breaking:1b88cd - text-combine-upright:all layout: inline-block with 1em square, ignoring forced line breaks
-    // +spec:inline-formatting-context:c8d8d9 - text-combine-upright compression passed to text shaping engine
-    // +spec:inline-formatting-context:f4ef7d - text-combine-upright layout rules (1em square composition)
+    // +spec:line-breaking:9f150a - text-combine-upright:all composes glyphs horizontally, ignoring
+    // letter-spacing and forced line breaks +spec:line-breaking:1b88cd -
+    // text-combine-upright:all layout: inline-block with 1em square, ignoring forced line breaks
+    // +spec:inline-formatting-context:c8d8d9 - text-combine-upright compression passed to text
+    // shaping engine +spec:inline-formatting-context:f4ef7d - text-combine-upright layout rules
+    // (1em square composition)
     let text_combine_upright = if dom_declared & DOM_HAS_TEXT_COMBINE_UPRIGHT != 0 {
         styled_dom
             .css_property_cache
@@ -5357,10 +5450,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleHyphens::Auto => text3::cache::Hyphens::Auto,
         },
         text_orientation,
-        // +spec:text-alignment-spacing:6cb965 - text-align shorthand sets text-align-all (mapped here from computed value)
-        // +spec:text-alignment-spacing:838967 - map text-align values (start/end/left/right/center/justify) to inline alignment
-        // +spec:text-alignment-spacing:d9ea45 - property index: text-align, text-justify, letter-spacing mapped to layout
-        // +spec:text-alignment-spacing:600fda - text-align values (left/right/center/justify) mapped per CSS Text §6.1
+        // +spec:text-alignment-spacing:6cb965 - text-align shorthand sets text-align-all (mapped
+        // here from computed value) +spec:text-alignment-spacing:838967 - map text-align
+        // values (start/end/left/right/center/justify) to inline alignment
+        // +spec:text-alignment-spacing:d9ea45 - property index: text-align, text-justify,
+        // letter-spacing mapped to layout +spec:text-alignment-spacing:600fda - text-align
+        // values (left/right/center/justify) mapped per CSS Text §6.1
         text_align: match text_align {
             StyleTextAlign::Start => text3::cache::TextAlign::Start,
             StyleTextAlign::End => text3::cache::TextAlign::End,
@@ -5369,8 +5464,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleTextAlign::Center => text3::cache::TextAlign::Center,
             StyleTextAlign::Justify => text3::cache::TextAlign::Justify,
         },
-        // +spec:text-alignment-spacing:0ea31d - text-justify inter-word/inter-character/distribute mapped per §6.4
-        // +spec:text-alignment-spacing:01244f - text-justify: none disables justification, auto uses inter-word as universal default
+        // +spec:text-alignment-spacing:0ea31d - text-justify inter-word/inter-character/distribute
+        // mapped per §6.4 +spec:text-alignment-spacing:01244f - text-justify: none disables
+        // justification, auto uses inter-word as universal default
         text_justify: match text_justify {
             LayoutTextJustify::None => text3::cache::JustifyContent::None,
             LayoutTextJustify::Auto | LayoutTextJustify::InterWord => {
@@ -5419,8 +5515,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         strut_cap_height: font_size * 0.7,
         ch_width: font_size * 0.5,
         vertical_align,
-        // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise disallowed points to prevent overflow
-        // +spec:line-breaking:bbb5f7 - overflow-wrap: anywhere vs break-word distinction for min-content
+        // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise
+        // disallowed points to prevent overflow +spec:line-breaking:bbb5f7 - overflow-wrap:
+        // anywhere vs break-word distinction for min-content
         overflow_wrap: if word_break_css == StyleWordBreak::BreakWord {
             // +spec:line-breaking:815882 - break-word forces overflow-wrap: anywhere
             text3::cache::OverflowWrap::Anywhere
@@ -5446,8 +5543,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleWordBreak::BreakAll => text3::cache::WordBreak::BreakAll,
             StyleWordBreak::KeepAll => text3::cache::WordBreak::KeepAll,
         },
-        // +spec:white-space-processing:bc5f7b - line-break with break-spaces allows breaking before first space
-        // CSS Text Level 3 §5.3: The line-break property affects preserved white space behavior:
+        // +spec:white-space-processing:bc5f7b - line-break with break-spaces allows breaking before
+        // first space CSS Text Level 3 §5.3: The line-break property affects preserved
+        // white space behavior:
         // - normal/pre-line: preserved white space at end/start of line is discarded
         // - nowrap/pre: wrapping is forbidden altogether
         // - pre-wrap: preserved white space hangs
@@ -5466,10 +5564,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 }
 
 // Table Formatting Context (CSS 2.2 § 17)
-// +spec:display-property:d887c0 - Table wrapper box BFC, caption-side, table grid layout (§17.4-17.5)
-// +spec:positioning:930891 - Table formatting context implementation (CSS 2.2 § 17 introduction)
+// +spec:display-property:d887c0 - Table wrapper box BFC, caption-side, table grid layout
+// (§17.4-17.5) +spec:positioning:930891 - Table formatting context implementation (CSS 2.2 § 17
+// introduction)
 
-// +spec:inline-formatting-context:9c272d - CSS table model: row-primary structure, display-to-table-element mapping, visual formatting as rectangular grid
+// +spec:inline-formatting-context:9c272d - CSS table model: row-primary structure,
+// display-to-table-element mapping, visual formatting as rectangular grid
 /// Lays out a Table Formatting Context.
 /// Table column information for layout calculations
 #[derive(Copy, Debug, Clone)]
@@ -5512,7 +5612,8 @@ struct TableLayoutContext {
     row_heights: Vec<f32>,
     /// Computed baseline offset for each row (distance from row top to row baseline)
     row_baselines: Vec<f32>,
-    // +spec:inline-formatting-context:440ca9 - border-collapse/border-spacing/visibility:collapse table properties (CSS 2.2 §17.5-17.6)
+    // +spec:inline-formatting-context:440ca9 - border-collapse/border-spacing/visibility:collapse
+    // table properties (CSS 2.2 §17.5-17.6)
     /// Border collapse mode
     border_collapse: StyleBorderCollapse,
     /// Border spacing (only used when `border_collapse` is Separate)
@@ -5558,8 +5659,9 @@ impl TableLayoutContext {
     }
 }
 
-// +spec:table-layout:485791 - Six superimposed table layers: table, column-group, column, row-group, row, cell (bottom to top)
-// +spec:table-layout:dcdf1b - Collapsing border model: border conflict resolution uses layer priority (cell > row > row-group > column > column-group > table)
+// +spec:table-layout:485791 - Six superimposed table layers: table, column-group, column,
+// row-group, row, cell (bottom to top) +spec:table-layout:dcdf1b - Collapsing border model: border
+// conflict resolution uses layer priority (cell > row > row-group > column > column-group > table)
 /// Source of a border in the border conflict resolution algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BorderSource {
@@ -5591,7 +5693,8 @@ impl BorderInfo {
         }
     }
 
-    // +spec:block-formatting-context:f772ae - border style priority for table border conflict resolution
+    // +spec:block-formatting-context:f772ae - border style priority for table border conflict
+    // resolution
     /// Get the priority of a border style for conflict resolution
     /// Higher number = higher priority
     #[must_use]
@@ -5610,16 +5713,20 @@ impl BorderInfo {
         }
     }
 
-    // +spec:box-model:2255c2 - Collapsing border conflict resolution (hidden wins, then none loses, then wider wins, then style priority)
-    // +spec:box-model:b42c79 - border conflict resolution: hidden wins, then wider, then style priority, then source
-    // +spec:box-model:503e9e - border conflict resolution: hidden wins, then wider, then style priority, then source priority
-    // +spec:box-model:7eb217 - Border conflict resolution: hidden > none < wider > style priority > source priority > left/top
-    // +spec:overflow:1fb482 - Border conflict resolution per CSS 2.2 §17.6.2.1 (hidden wins, then wider, then style priority, then source priority)
-    // +spec:table-layout:882560 - Border conflict resolution (17.6.2.1): hidden wins, none loses, wider wins, style priority, source priority
+    // +spec:box-model:2255c2 - Collapsing border conflict resolution (hidden wins, then none loses,
+    // then wider wins, then style priority) +spec:box-model:b42c79 - border conflict
+    // resolution: hidden wins, then wider, then style priority, then source +spec:box-model:
+    // 503e9e - border conflict resolution: hidden wins, then wider, then style priority, then
+    // source priority +spec:box-model:7eb217 - Border conflict resolution: hidden > none <
+    // wider > style priority > source priority > left/top +spec:overflow:1fb482 - Border
+    // conflict resolution per CSS 2.2 §17.6.2.1 (hidden wins, then wider, then style priority, then
+    // source priority) +spec:table-layout:882560 - Border conflict resolution (17.6.2.1):
+    // hidden wins, none loses, wider wins, style priority, source priority
     /// Compare two borders for conflict resolution per CSS 2.2 Section 17.6.2.1
     /// Returns the winning border
-    // +spec:table-layout:21053b - border conflict resolution: hidden suppresses all, style priorities
-    // +spec:table-layout:076617 - border conflict resolution algorithm and border style semantics in collapsing model
+    // +spec:table-layout:21053b - border conflict resolution: hidden suppresses all, style
+    // priorities +spec:table-layout:076617 - border conflict resolution algorithm and border
+    // style semantics in collapsing model
     #[must_use]
     pub fn resolve_conflict(a: &Self, b: &Self) -> Option<Self> {
         // 1. 'hidden' wins and suppresses all borders
@@ -5676,7 +5783,8 @@ impl BorderInfo {
 
 /// Get border information for a node
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 pub(crate) fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -5933,7 +6041,8 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
     (top, right, bottom, left)
 }
 
-// +spec:table-layout:c5e446 - table-layout property (auto|fixed) controls layout algorithm selection
+// +spec:table-layout:c5e446 - table-layout property (auto|fixed) controls layout algorithm
+// selection
 /// Get the table-layout property for a table node
 fn get_table_layout_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
@@ -6073,9 +6182,9 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 
 //   removes entire row or column from display; space made available for other content;
 //   spanned content clipped; does not otherwise affect table layout
-// +spec:inline-formatting-context:9f5f31 - visibility:collapse for table rows/columns, border-collapse and border-spacing
+// +spec:inline-formatting-context:9f5f31 - visibility:collapse for table rows/columns,
+// border-collapse and border-spacing
 /// CSS 2.2 Section 17.6 - Dynamic row and column effects:
-///
 // +spec:box-model:547563 - visibility:collapse removes table rows/columns; elsewhere same as hidden
 /// "The 'visibility' value 'collapse' removes a row or column from display,
 /// but it has a different effect than 'visibility: hidden' on other elements.
@@ -6085,7 +6194,8 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 /// Check if a node has visibility:collapse set.
 ///
 /// This is used for table rows and columns to optimize dynamic hiding.
-/// // +spec:overflow:ebb1f9 - For non-table elements, collapse == hidden (no special handling needed)
+/// // +spec:overflow:ebb1f9 - For non-table elements, collapse == hidden (no special handling
+/// needed)
 fn is_visibility_collapsed<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -6102,7 +6212,8 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 }
 
 // +spec:overflow:af97a8 - empty-cells in separated borders model; collapsing border overflow
-// +spec:table-layout:dcdf1b - empty-cells property controls rendering of borders/backgrounds around empty cells in separated borders model
+// +spec:table-layout:dcdf1b - empty-cells property controls rendering of borders/backgrounds around
+// empty cells in separated borders model
 /// CSS 2.2 Section 17.6.1.1 - Borders and Backgrounds around empty cells
 ///
 /// In the separated borders model, the 'empty-cells' property controls the rendering of
@@ -6113,7 +6224,6 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 ///
 /// This is used by the rendering pipeline to decide whether to paint borders/backgrounds
 /// when empty-cells: hide is set in separated border model.
-///
 //   in-flow content (including empty elements) other than collapsed whitespace
 /// A cell is considered empty if:
 ///
@@ -6158,8 +6268,9 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 }
 
 /// Main function to layout a table formatting context
-// +spec:table-layout:235e8e - CSS 2.2 §17.1-17.2 table model: fixed/auto algorithms, row/column/cell/caption structure
-// +spec:table-layout:a6422d - CSS table model: table structure analysis, row/column/cell layout, caption, border-collapse
+// +spec:table-layout:235e8e - CSS 2.2 §17.1-17.2 table model: fixed/auto algorithms,
+// row/column/cell/caption structure +spec:table-layout:a6422d - CSS table model: table structure
+// analysis, row/column/cell layout, caption, border-collapse
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
@@ -6269,14 +6380,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
 
-    // +spec:table-layout:ff5671 - table-layout property (fixed vs auto) controls column width algorithm
-    // +spec:width-calculation:7a5b23 - table-layout property determines fixed vs auto algorithm (CSS 2.2 §17.5.2)
-    // Phase 2: Read CSS properties and determine layout algorithm
+    // +spec:table-layout:ff5671 - table-layout property (fixed vs auto) controls column width
+    // algorithm +spec:width-calculation:7a5b23 - table-layout property determines fixed vs auto
+    // algorithm (CSS 2.2 §17.5.2) Phase 2: Read CSS properties and determine layout algorithm
     let table_layout = get_table_layout_property(ctx, &table_node);
     table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
 
-    // +spec:containing-block:cc1453 - collapsing border model: border-collapse property drives table border handling
-    // Read border properties
+    // +spec:containing-block:cc1453 - collapsing border model: border-collapse property drives
+    // table border handling Read border properties
     table_ctx.border_collapse = get_border_collapse_property(ctx, &table_node);
     table_ctx.border_spacing = get_border_spacing_property(ctx, &table_node);
 
@@ -6288,8 +6399,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         table_ctx.border_spacing
     );
 
-    // +spec:width-calculation:431d60 - fixed vs auto table layout column width algorithms (CSS 2.2 §17.5.2.1, §17.5.2.2)
-    // Phase 3: Calculate column widths
+    // +spec:width-calculation:431d60 - fixed vs auto table layout column width algorithms (CSS 2.2
+    // §17.5.2.1, §17.5.2.2) Phase 3: Calculate column widths
     if table_ctx.use_fixed_layout {
         // DEBUG: Log available width passed into fixed column calculation
         debug_table_layout!(
@@ -6348,12 +6459,13 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         table_ctx.row_heights
     );
 
-    // +spec:box-model:494f6b - collapsing border model: row-width formula and table border width computation
-    // +spec:box-model:e7d0a3 - Separated borders model: border-spacing, empty-cells, collapsing border width calculation
-    // +spec:box-sizing:ee702c - separated borders model: border-spacing between adjoining cells
-    // Add border-spacing to table size if border-collapse is separate
-    // +spec:box-model:acb81f - separated borders model: border-spacing between adjoining cell borders
-    // +spec:box-model:e480b1 - table width = left inner padding edge to right inner padding edge (including border-spacing)
+    // +spec:box-model:494f6b - collapsing border model: row-width formula and table border width
+    // computation +spec:box-model:e7d0a3 - Separated borders model: border-spacing,
+    // empty-cells, collapsing border width calculation +spec:box-sizing:ee702c - separated
+    // borders model: border-spacing between adjoining cells Add border-spacing to table size if
+    // border-collapse is separate +spec:box-model:acb81f - separated borders model:
+    // border-spacing between adjoining cell borders +spec:box-model:e480b1 - table width = left
+    // inner padding edge to right inner padding edge (including border-spacing)
     if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         use get_element_font_size;
         use get_parent_font_size;
@@ -6409,9 +6521,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         }
     }
 
-    // +spec:table-layout:24dbf9 - §17.4 table wrapper box model: caption positioning, BFC establishment
-    // +spec:width-calculation:600f98 - caption-side positions caption above/below table box (CSS 2.2 §17.4)
-    // CSS 2.2 Section 17.4: Layout and position the caption if present
+    // +spec:table-layout:24dbf9 - §17.4 table wrapper box model: caption positioning, BFC
+    // establishment +spec:width-calculation:600f98 - caption-side positions caption above/below
+    // table box (CSS 2.2 §17.4) CSS 2.2 Section 17.4: Layout and position the caption if
+    // present
     //
     // "The caption box is a block box that retains its own content,
     // padding, border, and margin areas."
@@ -6527,7 +6640,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         });
 
     // Create output with the table's final size and cell positions
-    // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in collapsing border model
+    // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in
+    // collapsing border model
     let output = LayoutOutput {
         overflow_size: LogicalSize {
             width: table_width,
@@ -6542,7 +6656,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     Ok(output)
 }
 
-// +spec:display-property:f47f8a - Table structure analysis: caption positioning, row/column/row-group traversal per CSS 2.2 §17.4-17.5
+// +spec:display-property:f47f8a - Table structure analysis: caption positioning,
+// row/column/row-group traversal per CSS 2.2 §17.4-17.5
 /// Analyze the table structure to identify rows, cells, and columns
 fn analyze_table_structure<T: ParsedFontTrait>(
     tree: &LayoutTree,
@@ -6555,9 +6670,9 @@ fn analyze_table_structure<T: ParsedFontTrait>(
         .get(LayoutNodeId::new(table_index))
         .ok_or(LayoutError::InvalidTree)?;
 
-    // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of rows/columns (CSS 2.2 §17.5)
-    // CSS 2.2 Section 17.4: A table may have one table-caption child.
-    // Traverse children to find caption, columns/colgroups, rows, and row groups
+    // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
+    // rows/columns (CSS 2.2 §17.5) CSS 2.2 Section 17.4: A table may have one table-caption
+    // child. Traverse children to find caption, columns/colgroups, rows, and row groups
     for &child_idx in tree.children(table_index) {
         if let Some(child) = tree.get(LayoutNodeId::new(child_idx)) {
             // Check if this is a table caption
@@ -6676,7 +6791,8 @@ fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     (colspan, rowspan)
 }
 
-// +spec:display-property:7f167c - Table grid cell placement: rows fill table top-to-bottom, cells placed left-to-right with colspan/rowspan
+// +spec:display-property:7f167c - Table grid cell placement: rows fill table top-to-bottom, cells
+// placed left-to-right with colspan/rowspan
 /// Analyze a table row to identify cells and update column count
 fn analyze_table_row<T: ParsedFontTrait>(
     tree: &LayoutTree,
@@ -6684,7 +6800,8 @@ fn analyze_table_row<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
-    // +spec:inline-formatting-context:3f8091 - table visual layout: cells occupy grid cells, row/column spanning
+    // +spec:inline-formatting-context:3f8091 - table visual layout: cells occupy grid cells,
+    // row/column spanning
     let row_node = tree
         .get(LayoutNodeId::new(row_index))
         .ok_or(LayoutError::InvalidTree)?;
@@ -6768,12 +6885,15 @@ fn analyze_table_row<T: ParsedFontTrait>(
     Ok(())
 }
 
-// +spec:overflow:66f584 - Fixed table layout: cells use overflow property to clip overflowing content
-// +spec:positioning:46070a - Fixed table layout (17.5.2.1) and auto table layout (17.5.2.2) column width algorithms
-// +spec:table-layout:875401 - Fixed table layout algorithm (17.5.2.1): column widths from first-row cells, remaining columns divide space equally, table width = max(width property, sum of columns)
+// +spec:overflow:66f584 - Fixed table layout: cells use overflow property to clip overflowing
+// content +spec:positioning:46070a - Fixed table layout (17.5.2.1) and auto table layout (17.5.2.2)
+// column width algorithms +spec:table-layout:875401 - Fixed table layout algorithm (17.5.2.1):
+// column widths from first-row cells, remaining columns divide space equally, table width =
+// max(width property, sum of columns)
 /// Calculate column widths using the fixed table layout algorithm
 /// // +spec:overflow:de613c - Fixed table layout algorithm (CSS 2.2 Section 17.5.2.1)
-// +spec:table-layout:8b72b3 - fixed table layout: column width from column elements/first-row cells, remaining columns equal division
+// +spec:table-layout:8b72b3 - fixed table layout: column width from column elements/first-row
+// cells, remaining columns equal division
 ///
 /// CSS 2.2 Section 17.5.2.1: In fixed table layout, the horizontal layout
 /// does not depend on cell contents. Column widths are determined by:
@@ -6783,10 +6903,13 @@ fn analyze_table_row<T: ParsedFontTrait>(
 ///
 /// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded
 /// from width calculations
-// +spec:table-layout:c5e446 - Fixed table layout algorithm: column widths from col elements or first-row cells, remaining columns divide equally
-/// +spec:width-calculation:8c958a - Fixed table layout: column widths from col elements, first-row cells, then equal distribution (CSS 2.2 §17.5.2.1)
+// +spec:table-layout:c5e446 - Fixed table layout algorithm: column widths from col elements or
+// first-row cells, remaining columns divide equally
+/// +spec:width-calculation:8c958a - Fixed table layout: column widths from col elements, first-row
+/// cells, then equal distribution (CSS 2.2 §17.5.2.1)
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -7097,15 +7220,21 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
 }
 
 /// Calculate column widths using the auto table layout algorithm with explicit table width
-// +spec:display-property:05c8e8 - CSS 2.2 §17.5.2.2 automatic table layout: column min/max widths, table width = max(W or CB, CAPMIN, MIN), extra width distributed over columns
-/// +spec:overflow:29edde - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell, column min/max, colspan distribution, final width determination
-// +spec:table-layout:23a215 - automatic table layout: MCW/max cell widths, column min/max, colspan distribution, table width from MAX/MIN/CAPMIN
-// +spec:table-layout:5e1145 - Automatic table layout: MCW/max-content per cell, column min/max, colspan distribution, final width from MIN/MAX
-// +spec:width-calculation:42dfca - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell, column min/max, multi-span distribution, final table width
-/// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and borders (CSS 2.2 §17.5.2.2)
+// +spec:display-property:05c8e8 - CSS 2.2 §17.5.2.2 automatic table layout: column min/max widths,
+// table width = max(W or CB, CAPMIN, MIN), extra width distributed over columns
+/// +spec:overflow:29edde - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell,
+/// column min/max, colspan distribution, final width determination
+// +spec:table-layout:23a215 - automatic table layout: MCW/max cell widths, column min/max, colspan
+// distribution, table width from MAX/MIN/CAPMIN +spec:table-layout:5e1145 - Automatic table layout:
+// MCW/max-content per cell, column min/max, colspan distribution, final width from MIN/MAX
+// +spec:width-calculation:42dfca - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per
+// cell, column min/max, multi-span distribution, final table width
+/// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and
+/// borders (CSS 2.2 §17.5.2.2)
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -7359,7 +7488,8 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn layout_cell_for_height<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -7531,9 +7661,10 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
 // or bottom of content edge if no such line box exists
 // +spec:box-model:b64fa0 - Cell baseline is first in-flow line box or bottom of content edge
-// +spec:overflow:3fa86f - Table cell baseline: first in-flow line box or bottom of content edge; scrolling boxes treated as at origin
-// +spec:inline-formatting-context:c4a20d - cell baseline: first in-flow line box or bottom of content edge
-// +spec:inline-formatting-context:17a9c1 - vertical-align baseline/top/bottom/middle for table cells
+// +spec:overflow:3fa86f - Table cell baseline: first in-flow line box or bottom of content edge;
+// scrolling boxes treated as at origin +spec:inline-formatting-context:c4a20d - cell baseline:
+// first in-flow line box or bottom of content edge +spec:inline-formatting-context:17a9c1 -
+// vertical-align baseline/top/bottom/middle for table cells
 fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     let Some(cell_node) = tree.get(LayoutNodeId::new(cell_index)) else {
         return 0.0;
@@ -7541,8 +7672,8 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 
     let cell_bp = cell_node.box_props.unpack();
 
-    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of content edge
-    // Check if the cell has inline layout (first in-flow line box)
+    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
+    // content edge Check if the cell has inline layout (first in-flow line box)
     if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_index)) {
         if let Some(ref cached_layout) = warm_node.inline_layout_result {
             // (d6h) Materialized: sentinel-safe first-line baseline.
@@ -7580,14 +7711,22 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     used_size.height - padding_bottom - border_bottom
 }
 
-/// +spec:box-model:72b495 - Table row height = max of computed height and MIN required by cells; baseline alignment
-// +spec:display-property:728144 - Table height algorithm: row heights from cell content, rowspan distribution, vertical-align in cells (top/middle/bottom/baseline, sub/super/text-top/text-bottom/length/percentage fall back to baseline), cell baseline computation, and horizontal alignment via text-align
-// +spec:positioning:3eaadd - Table height algorithms (§17.5.3): row height = max of cell heights/MIN,
-//   rowspan distribution, vertical-align in table cells, cell baseline definition
+/// +spec:box-model:72b495 - Table row height = max of computed height and MIN required by cells;
+/// baseline alignment
+// +spec:display-property:728144 - Table height algorithm: row heights from cell content, rowspan
+// distribution, vertical-align in cells (top/middle/bottom/baseline,
+// sub/super/text-top/text-bottom/length/percentage fall back to baseline), cell baseline
+// computation, and horizontal alignment via text-align +spec:positioning:3eaadd - Table height
+// algorithms (§17.5.3): row height = max of cell heights/MIN,   rowspan distribution,
+// vertical-align in table cells, cell baseline definition
 /// Calculate row heights based on cell content after column widths are determined
-// +spec:inline-formatting-context:87b90d - Table height algorithms: row height = max(computed height, cell heights, MIN); vertical-align in cells (baseline/top/middle/bottom, sub/super/etc. fall back to baseline)
+// +spec:inline-formatting-context:87b90d - Table height algorithms: row height = max(computed
+// height, cell heights, MIN); vertical-align in cells (baseline/top/middle/bottom, sub/super/etc.
+// fall back to baseline)
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
@@ -7602,8 +7741,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         constraints.available_size
     );
 
-    // +spec:inline-formatting-context:a7c7a0 - row height = max of computed height, cell heights, and MIN; vertical-align per cell
-    // Initialize row heights and baselines
+    // +spec:inline-formatting-context:a7c7a0 - row height = max of computed height, cell heights,
+    // and MIN; vertical-align per cell Initialize row heights and baselines
     table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
     table_ctx.row_baselines = vec![0.0; table_ctx.num_rows];
 
@@ -7665,9 +7804,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             table_ctx.row_heights[cell_info.row] = current_height.max(cell_height);
         }
 
-        // +spec:box-model:073652 - Table height: baseline-aligned cells establish row baseline, then top/bottom/middle cells positioned
-        // The baseline of a cell is the baseline of its first line box (from inline layout)
-        // or the bottom of the content box if no inline content.
+        // +spec:box-model:073652 - Table height: baseline-aligned cells establish row baseline,
+        // then top/bottom/middle cells positioned The baseline of a cell is the baseline of
+        // its first line box (from inline layout) or the bottom of the content box if no
+        // inline content.
         if cell_info.rowspan == 1 {
             let cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
             let current_baseline = table_ctx.row_baselines[cell_info.row];
@@ -7748,9 +7888,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 
     //   visible content, the row has zero height and v-spacing on only one side
     // +spec:table-layout:7370dc - empty-cells:hide in separated borders model
-    // +spec:box-model:1e9cf1 - empty-cells:hide rows get zero height with v-spacing on only one side
-    // +spec:overflow:a44925 - CSS 2.2 §17.6.1.1: empty-cells:hide suppresses borders/backgrounds; all-hidden rows get zero height
-    // +spec:table-layout:dc8bc3 - separated borders model: border-spacing, empty-cells, row zero-height
+    // +spec:box-model:1e9cf1 - empty-cells:hide rows get zero height with v-spacing on only one
+    // side +spec:overflow:a44925 - CSS 2.2 §17.6.1.1: empty-cells:hide suppresses
+    // borders/backgrounds; all-hidden rows get zero height +spec:table-layout:dc8bc3 -
+    // separated borders model: border-spacing, empty-cells, row zero-height
     if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         for row_idx in 0..table_ctx.num_rows {
             if table_ctx.collapsed_rows.contains(&row_idx) {
@@ -7766,8 +7907,9 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             if row_cells.is_empty() {
                 continue;
             }
-            // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets zero height if all cells hidden+empty
-            // Check if ALL cells in this row have empty-cells:hide and are empty
+            // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets
+            // zero height if all cells hidden+empty Check if ALL cells in this row have
+            // empty-cells:hide and are empty
             let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
                 tree.get(LayoutNodeId::new(cell_idx))
                     .is_none_or(|cell_node| {
@@ -7788,7 +7930,9 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 /// Position all cells in the table grid with calculated widths and heights
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn position_table_cells<T: ParsedFontTrait>(
     table_ctx: &TableLayoutContext,
     tree: &mut LayoutTree,
@@ -7800,12 +7944,13 @@ fn position_table_cells<T: ParsedFontTrait>(
 
     let mut positions = BTreeMap::new();
 
-    // +spec:box-model:54e86a - Separated borders model: individual cell borders, border-spacing between cells, empty-cells handling
-    //   rows, columns, row groups, column groups cannot have borders (UA must ignore border props);
-    //   row/column/rowgroup/colgroup backgrounds are invisible in border-spacing area (table bg shows through);
-    //   distance from table edge to edge-cell border = table padding + border-spacing
-    //   (table padding is already accounted for by the containing block; h_spacing is the border-spacing)
-    // Get border spacing values if border-collapse is separate
+    // +spec:box-model:54e86a - Separated borders model: individual cell borders, border-spacing
+    // between cells, empty-cells handling   rows, columns, row groups, column groups cannot
+    // have borders (UA must ignore border props);   row/column/rowgroup/colgroup backgrounds
+    // are invisible in border-spacing area (table bg shows through);   distance from table edge
+    // to edge-cell border = table padding + border-spacing   (table padding is already
+    // accounted for by the containing block; h_spacing is the border-spacing) Get border
+    // spacing values if border-collapse is separate
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         let styled_dom = ctx.styled_dom;
         // Anonymous table wrapper boxes have no dom_node_id; without a styled
@@ -8009,73 +8154,76 @@ fn position_table_cells<T: ParsedFontTrait>(
         let cell_box_props = cell_node.box_props.unpack();
         drop(cell_node);
 
-        // +spec:inline-formatting-context:20e8e8 - table cell vertical-align alignment order (baseline first, then top, then bottom/middle)
-        // receive extra top or bottom padding; vertical-align determines alignment
-        // +spec:inline-formatting-context:4545e8 - vertical-align on table cells maps to align-content: top→start, bottom→end, middle→center
-        // +spec:inline-formatting-context:e216be - vertical-align on table cells (baseline, middle, top, bottom)
-        // +spec:positioning:156e49 - table cell vertical-align ordering and extra padding per CSS 2.2 §17.5.3
+        // +spec:inline-formatting-context:20e8e8 - table cell vertical-align alignment order
+        // (baseline first, then top, then bottom/middle) receive extra top or bottom
+        // padding; vertical-align determines alignment +spec:inline-formatting-context:
+        // 4545e8 - vertical-align on table cells maps to align-content: top→start, bottom→end,
+        // middle→center +spec:inline-formatting-context:e216be - vertical-align on table
+        // cells (baseline, middle, top, bottom) +spec:positioning:156e49 - table cell
+        // vertical-align ordering and extra padding per CSS 2.2 §17.5.3
         // Apply vertical-align to cell content if it has inline layout
         // We need to compute the y_offset using immutable borrows first, then apply it mutably.
-        let vertical_align_adjustment =
-            if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_info.node_index)) {
-                if let Some(ref cached_layout) = warm_node.inline_layout_result {
-                    // (d6h) Materialized: sentinel-safe content measurement.
-                    let inline_result = cached_layout.materialized();
+        let vertical_align_adjustment = if let Some(warm_node) =
+            tree.warm(LayoutNodeId::new(cell_info.node_index))
+        {
+            if let Some(ref cached_layout) = warm_node.inline_layout_result {
+                // (d6h) Materialized: sentinel-safe content measurement.
+                let inline_result = cached_layout.materialized();
 
-                    // Get vertical-align property from styled_dom
-                    let vertical_align = if let Some(dom_id) = cell_dom_node_id {
-                        let node_state =
-                            ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+                // Get vertical-align property from styled_dom
+                let vertical_align = if let Some(dom_id) = cell_dom_node_id {
+                    let node_state =
+                        ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
-                        match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
-                            MultiValue::Exact(v) => v,
-                            _ => StyleVerticalAlign::Baseline,
-                        }
-                    } else {
-                        StyleVerticalAlign::Baseline
-                    };
+                    match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
+                        MultiValue::Exact(v) => v,
+                        _ => StyleVerticalAlign::Baseline,
+                    }
+                } else {
+                    StyleVerticalAlign::Baseline
+                };
 
-                    // Calculate content height from inline layout bounds
-                    let content_bounds = inline_result.bounds();
-                    let content_height = content_bounds.height;
+                // Calculate content height from inline layout bounds
+                let content_bounds = inline_result.bounds();
+                let content_height = content_bounds.height;
 
-                    // Get padding and border to calculate content-box height
-                    // height is border-box, but vertical alignment should be within content-box
-                    let padding = &cell_box_props.padding;
-                    let border = &cell_box_props.border;
-                    let content_box_height = height
-                        - padding.main_start(writing_mode)
-                        - padding.main_end(writing_mode)
-                        - border.main_start(writing_mode)
-                        - border.main_end(writing_mode);
+                // Get padding and border to calculate content-box height
+                // height is border-box, but vertical alignment should be within content-box
+                let padding = &cell_box_props.padding;
+                let border = &cell_box_props.border;
+                let content_box_height = height
+                    - padding.main_start(writing_mode)
+                    - padding.main_end(writing_mode)
+                    - border.main_start(writing_mode)
+                    - border.main_end(writing_mode);
 
-                    // top: top of cell box aligned with top of first row it spans
-                    // bottom: bottom of cell box aligned with bottom of last row it spans
-                    // middle: center of cell aligned with center of rows it spans
-                    //   the cell is aligned at the baseline instead
-                    let y_offset = match vertical_align {
-                        StyleVerticalAlign::Top => 0.0,
-                        StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
-                        StyleVerticalAlign::Bottom => content_box_height - content_height,
-                        // align with the row baseline. cell_baseline = distance from top of cell box
-                        // to cell's baseline; row_baseline = distance from top of row to row's baseline
-                        StyleVerticalAlign::Baseline
-                        | StyleVerticalAlign::Sub
-                        | StyleVerticalAlign::Superscript
-                        | StyleVerticalAlign::TextTop
-                        | StyleVerticalAlign::TextBottom
-                        | StyleVerticalAlign::Percentage(_)
-                        | StyleVerticalAlign::Length(_) => {
-                            let row_baseline = table_ctx
-                                .row_baselines
-                                .get(cell_info.row)
-                                .copied()
-                                .unwrap_or(0.0);
-                            (row_baseline - precomputed_cell_baseline).max(0.0)
-                        }
-                    };
+                // top: top of cell box aligned with top of first row it spans
+                // bottom: bottom of cell box aligned with bottom of last row it spans
+                // middle: center of cell aligned with center of rows it spans
+                //   the cell is aligned at the baseline instead
+                let y_offset = match vertical_align {
+                    StyleVerticalAlign::Top => 0.0,
+                    StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
+                    StyleVerticalAlign::Bottom => content_box_height - content_height,
+                    // align with the row baseline. cell_baseline = distance from top of cell box
+                    // to cell's baseline; row_baseline = distance from top of row to row's baseline
+                    StyleVerticalAlign::Baseline
+                    | StyleVerticalAlign::Sub
+                    | StyleVerticalAlign::Superscript
+                    | StyleVerticalAlign::TextTop
+                    | StyleVerticalAlign::TextBottom
+                    | StyleVerticalAlign::Percentage(_)
+                    | StyleVerticalAlign::Length(_) => {
+                        let row_baseline = table_ctx
+                            .row_baselines
+                            .get(cell_info.row)
+                            .copied()
+                            .unwrap_or(0.0);
+                        (row_baseline - precomputed_cell_baseline).max(0.0)
+                    }
+                };
 
-                    debug_info!(
+                debug_info!(
                     ctx,
                     "[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, \
                      content_box_height={}, content_height={}, y_offset={}",
@@ -8087,28 +8235,29 @@ fn position_table_cells<T: ParsedFontTrait>(
                     y_offset
                 );
 
-                    if y_offset.abs() > 0.01 {
-                        Some((
-                            y_offset,
-                            cached_layout.available_width,
-                            cached_layout.has_floats,
-                        ))
-                    } else {
-                        None
-                    }
+                if y_offset.abs() > 0.01 {
+                    Some((
+                        y_offset,
+                        cached_layout.available_width,
+                        cached_layout.has_floats,
+                    ))
                 } else {
                     None
                 }
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         // Apply the vertical alignment adjustment (requires mutable borrow)
         if let Some((y_offset, available_width, has_floats)) = vertical_align_adjustment {
             if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(cell_info.node_index)) {
                 if let Some(ref cached_layout) = warm_mut.inline_layout_result {
-                    use crate::text3::cache::{PositionedItem, UnifiedLayout};
                     use std::sync::Arc;
+
+                    use crate::text3::cache::{PositionedItem, UnifiedLayout};
 
                     // (d6h) Materialize the retirement sentinel before
                     // adjusting: reading the stored items raw fed EMPTY
@@ -8264,7 +8413,8 @@ fn position_table_cells<T: ParsedFontTrait>(
 ///
 /// This mapping enables efficient cursor hit-testing: when a text node is clicked,
 /// we can find its parent IFC's `inline_layout_result` via `ifc_membership.ifc_root_layout_index`.
-// +spec:display-property:63a38b - inline box boundaries and out-of-flow elements are ignored for text adjacency (white space, line-breaking, text-transform)
+// +spec:display-property:63a38b - inline box boundaries and out-of-flow elements are ignored for
+// text adjacency (white space, line-breaking, text-transform)
 /// Does every atomic inline-level child in a cached collection have a size in
 /// THIS tree?
 ///
@@ -8321,8 +8471,8 @@ fn atomic_inline_children_are_laid_out(
 ///
 /// * `baseline_from_content_top` — [`LayoutOutput::baseline`] of the box.
 /// * `border_box_height` — its used border-box height.
-/// * `content_box_top` — padding + border on the box's top edge, i.e. the
-///   offset from its border box to its content box.
+/// * `content_box_top` — padding + border on the box's top edge, i.e. the offset from its border
+///   box to its content box.
 /// * `margin_bottom` — the bottom margin, since text3 aligns the MARGIN box.
 /// The used BORDER-BOX block size of an atomic inline whose height is `auto`.
 ///
@@ -8396,8 +8546,10 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ifc_root_index: usize,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
-    use crate::solver3::layout_tree::{IfcId, IfcMembership};
-    use crate::text3::cache::InlineContent;
+    use crate::{
+        solver3::layout_tree::{IfcId, IfcMembership},
+        text3::cache::InlineContent,
+    };
 
     let mut content = Vec::new();
     let mut child_map = HashMap::new();
@@ -8470,7 +8622,9 @@ fn slice_inline_content_by_bytes(
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -8503,9 +8657,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // Track the current run index for IFC membership assignment
     let mut current_run_index: u32 = 0;
 
-    // [g134/g135 az-web-lift DIAG] out-param pointer + tree validity at _impl entry. The early Err is
-    // the `tree.get(ifc_root_index).ok_or(InvalidTree)?` at 6449/6706 (no other `?` before the first
-    // content push) — capture whether `tree` is valid (nodes.len) and tree.get(idx) actually works.
+    // [g134/g135 az-web-lift DIAG] out-param pointer + tree validity at _impl entry. The early Err
+    // is the `tree.get(ifc_root_index).ok_or(InvalidTree)?` at 6449/6706 (no other `?` before
+    // the first content push) — capture whether `tree` is valid (nodes.len) and tree.get(idx)
+    // actually works.
     #[cfg(feature = "web_lift")]
     unsafe {
         crate::az_mark(
@@ -8613,7 +8768,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             if let NodeType::Text(ref text_content) = node_data.get_node_type() {
                 debug_info!(
                     ctx,
-                    "[collect_and_measure_inline_content] OK: Found text node (DOM {:?}) in anonymous wrapper: '{}'",
+                    "[collect_and_measure_inline_content] OK: Found text node (DOM {:?}) in \
+                     anonymous wrapper: '{}'",
                     dom_id,
                     text_content.as_str()
                 );
@@ -8691,9 +8847,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     constraints,
                 )?;
             } else {
-                // +spec:display-property:a37a9a - atomic inline-level boxes treated as neutral characters in bidi reordering
-                // This is an atomic inline-level box (e.g., inline-block, image).
-                // We must determine its size and baseline before passing it to text3.
+                // +spec:display-property:a37a9a - atomic inline-level boxes treated as neutral
+                // characters in bidi reordering This is an atomic inline-level box
+                // (e.g., inline-block, image). We must determine its size and
+                // baseline before passing it to text3.
 
                 // The intrinsic sizing pass has already calculated its preferred size.
                 let intrinsic_size = tree
@@ -8789,7 +8946,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 let final_size = LogicalSize::new(tentative_size.width, final_height);
 
-
                 // Update the node in the tree with its now-known used size.
                 tree.get_mut(LayoutNodeId::new(child_index))
                     .unwrap()
@@ -8812,14 +8968,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     overflow_is_visible,
                 );
 
-                // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for inline-level boxes (no collapsing)
-                // The margin-box size is used so text3 positions inline-blocks with proper spacing
+                // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for
+                // inline-level boxes (no collapsing) The margin-box size is used so
+                // text3 positions inline-blocks with proper spacing
                 let margin = &box_props.margin;
                 let margin_box_width = final_size.width + margin.left + margin.right;
                 let margin_box_height = final_size.height + margin.top + margin.bottom;
 
                 // For inline-block shapes, text3 uses the content array index as run_index
-                // and always item_index=0 for objects. We must match this when inserting into child_map.
+                // and always item_index=0 for objects. We must match this when inserting into
+                // child_map.
                 let shape_content_index = ContentIndex {
                     run_index: content.len() as u32,
                     item_index: 0,
@@ -9050,22 +9208,25 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
     // [g138 az-web-lift] Collect `dom_children` HERE — immediately before the loop, AFTER the
     // get_node_type() calls above. Those calls were corrupting the `dom_children` Vec's stack-slot
-    // header (g137 PROVED: `dom_children.len()` reads 1 right after `.collect()` but 0 in the loop's
-    // `0..len` range a few calls later — the recurring SP-leak / stack-address mis-lift). With NO call
-    // between this `.collect()` and the loop, the header survives the range evaluation + first index.
+    // header (g137 PROVED: `dom_children.len()` reads 1 right after `.collect()` but 0 in the
+    // loop's `0..len` range a few calls later — the recurring SP-leak / stack-address
+    // mis-lift). With NO call between this `.collect()` and the loop, the header survives the
+    // range evaluation + first index.
     let dom_children: Vec<NodeId> = ifc_root_dom_id
         .az_children(&ctx.styled_dom.node_hierarchy.as_container())
         .collect();
-    // [g139 az-web-lift] The loop's `dom_children.len()` read MIS-LIFTS to 0 even though the in-memory
-    // value is 1 (g138: the volatile marker reads 1 but the loop's `0..len` range reads 0 with NOTHING
-    // between — the optimizer's SROA'd len read is mis-tracked by the lift; only a FORCED/volatile read is
-    // correct; same Vec-len mis-lift class as the original sret bug, here on std `collect()` which can't be
-    // out-param'd). Read len via a volatile round-trip (guaranteed-correct, like the marker) and index via
-    // get_unchecked (the index's bounds-check len read mis-lifts the same way; len is valid → sound).
-    // [g195 — collect_and_measure_inline_content_impl is DEAD on the web lift (NOT lifted for hello-world
-    // OR web-nested-text; both lay out via measure_intrinsic_widths + layout_flow instead). So this g139
-    // Vec-len workaround never executes on the web lift → it's irrelevant/deletable (kept: harmless, and
-    // unverified-dead for other layouts). The cron's "collect_and_measure Vec-len" target is a DEAD PATH.]
+    // [g139 az-web-lift] The loop's `dom_children.len()` read MIS-LIFTS to 0 even though the
+    // in-memory value is 1 (g138: the volatile marker reads 1 but the loop's `0..len` range
+    // reads 0 with NOTHING between — the optimizer's SROA'd len read is mis-tracked by the
+    // lift; only a FORCED/volatile read is correct; same Vec-len mis-lift class as the original
+    // sret bug, here on std `collect()` which can't be out-param'd). Read len via a volatile
+    // round-trip (guaranteed-correct, like the marker) and index via get_unchecked (the index's
+    // bounds-check len read mis-lifts the same way; len is valid → sound).
+    // [g195 — collect_and_measure_inline_content_impl is DEAD on the web lift (NOT lifted for
+    // hello-world OR web-nested-text; both lay out via measure_intrinsic_widths + layout_flow
+    // instead). So this g139 Vec-len workaround never executes on the web lift → it's
+    // irrelevant/deletable (kept: harmless, and unverified-dead for other layouts). The cron's
+    // "collect_and_measure Vec-len" target is a DEAD PATH.]
     #[cfg(feature = "web_lift")]
     let dom_children_len = unsafe {
         crate::az_mark((0x606B4) as u32, (dom_children.len() as u32) as u32);
@@ -9184,7 +9345,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             continue;
         };
 
-        // [g136] NON-TEXT branch taken (text child mis-classified?) — reached tree.get(child_index).
+        // [g136] NON-TEXT branch taken (text child mis-classified?) — reached
+        // tree.get(child_index).
         #[cfg(feature = "web_lift")]
         unsafe {
             crate::az_mark((0x606A4) as u32, (0x0000_6942u32) as u32);
@@ -9332,7 +9494,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 final_height
             );
 
-
             let final_size = LogicalSize::new(tentative_size.width, final_height);
 
             // Update the node in the tree with its now-known used size.
@@ -9376,7 +9537,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let margin_box_height = final_size.height + margin.top + margin.bottom;
 
             // For inline-block shapes, text3 uses the content array index as run_index
-            // and always item_index=0 for objects. We must match this when inserting into child_map.
+            // and always item_index=0 for objects. We must match this when inserting into
+            // child_map.
             let shape_content_index = ContentIndex {
                 run_index: content.len() as u32,
                 item_index: 0,
@@ -9406,9 +9568,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
             NodeType::Image(_)
         ) {
-            // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS box concepts
-            // Images are replaced elements - they have intrinsic dimensions
-            // and CSS width/height can constrain them
+            // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
+            // box concepts Images are replaced elements - they have intrinsic
+            // dimensions and CSS width/height can constrain them
 
             // Re-get child_node since we dropped it earlier for the inline-block case
             let child_node = tree
@@ -9537,9 +9699,9 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     Ok(())
 }
 
-// +spec:display-property:c05c53 - inlinifying boxes can't contain block-level boxes; children are recursively inlinified
-// it recursively inlinifies all of its in-flow children, so that no block-level descendants
-// break up the inline formatting context in which it participates.
+// +spec:display-property:c05c53 - inlinifying boxes can't contain block-level boxes; children are
+// recursively inlinified it recursively inlinifies all of its in-flow children, so that no
+// block-level descendants break up the inline formatting context in which it participates.
 // +spec:display-property:aee879 - recursively inlinifies in-flow children of inline boxes
 /// Recursively collects inline content from an inline span (display: inline) element.
 ///
@@ -9553,7 +9715,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 /// - Text nodes: collected with the span's inherited style
 /// - Nested inline spans: recursively descended
 /// - Inline-blocks, images: measured and added as shapes
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn collect_inline_span_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -9581,7 +9744,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
     );
 
     // +spec:box-model:b7428d - empty inline boxes still have margins, padding, borders, line-height
-    // +spec:box-model:cc79a4 - empty inline elements still have margins, padding, borders and line height
+    // +spec:box-model:cc79a4 - empty inline elements still have margins, padding, borders and line
+    // height
     if span_dom_children.is_empty() {
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
         let font_size = get_element_font_size(ctx.styled_dom, span_dom_id, node_state);
@@ -9882,14 +10046,15 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
             }
             _ => {
-                // +spec:display-property:0684c4 - block box inlinified: inner display becomes flow-root (treated as atomic inline)
-                // in-flow children of an inline box are recursively inlinified so they
-                // don't break the IFC. Treat them as inline spans and recurse into their
+                // +spec:display-property:0684c4 - block box inlinified: inner display becomes
+                // flow-root (treated as atomic inline) in-flow children of an
+                // inline box are recursively inlinified so they don't break the
+                // IFC. Treat them as inline spans and recurse into their
                 // children to collect text and inline content.
                 debug_info!(
                     ctx,
-                    "[collect_inline_span_recursive] Inlinifying block-level child {:?} \
-                     (display: {:?}) inside inline span per css-display-3 §2.7",
+                    "[collect_inline_span_recursive] Inlinifying block-level child {:?} (display: \
+                     {:?}) inside inline span per css-display-3 §2.7",
                     child_dom_id,
                     child_display
                 );
@@ -9951,7 +10116,8 @@ fn position_floated_child(
             // +spec:floats:5cfc93 - float:right positions box at cross-end, content flows on left
             let final_cross_pos = match float_type {
                 LayoutFloat::Left => available_cross_start,
-                // +spec:floats:5cfc93 - float:right positions box at cross-end, content flows on left
+                // +spec:floats:5cfc93 - float:right positions box at cross-end, content flows on
+                // left
                 LayoutFloat::Right => available_cross_end - child_cross_size,
                 LayoutFloat::None => {
                     return Err(LayoutError::PositioningFailed);
@@ -10016,14 +10182,16 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
 ///
 /// # CSS Spec Reference
 /// CSS Overflow Module Level 3 § 3: Scrollable overflow
-// +spec:block-formatting-context:50d915 - overflow-x handles horizontal, overflow-y handles vertical
-// +spec:box-model:63d6f2 - scrollable overflow extends beyond padding edge, needs scroll mechanism
-// +spec:box-model:45b5fb - scrollbar space subtracted from content area, inserted between inner border edge and outer padding edge
-// +spec:box-model:70a0a4 - UAs must start assuming no scrollbars needed, recalculate if they are
-// +spec:box-model:c1b0b2 - scrollbar gutter is space between inner border edge and outer padding edge
-// +spec:overflow:4f5b99 - scrollable overflow rectangle: content_size is the minimal axis-aligned rect containing scrollable overflow
-// +spec:overflow:e983f4 - overflow:auto/scroll boxes must allow user to access overflowed content via scrollbars
-// +spec:overflow:97c257 - relative positioning causing overflow in auto/scroll boxes must trigger scrollbar creation
+// +spec:block-formatting-context:50d915 - overflow-x handles horizontal, overflow-y handles
+// vertical +spec:box-model:63d6f2 - scrollable overflow extends beyond padding edge, needs scroll
+// mechanism +spec:box-model:45b5fb - scrollbar space subtracted from content area, inserted between
+// inner border edge and outer padding edge +spec:box-model:70a0a4 - UAs must start assuming no
+// scrollbars needed, recalculate if they are +spec:box-model:c1b0b2 - scrollbar gutter is space
+// between inner border edge and outer padding edge +spec:overflow:4f5b99 - scrollable overflow
+// rectangle: content_size is the minimal axis-aligned rect containing scrollable overflow
+// +spec:overflow:e983f4 - overflow:auto/scroll boxes must allow user to access overflowed content
+// via scrollbars +spec:overflow:97c257 - relative positioning causing overflow in auto/scroll boxes
+// must trigger scrollbar creation
 #[must_use]
 pub fn check_scrollbar_necessity(
     content_size: LogicalSize,
@@ -10037,8 +10205,8 @@ pub fn check_scrollbar_necessity(
     // may show scrollbars due to sub-pixel differences (e.g., 299.9999 vs 300.0).
     const EPSILON: f32 = 1.0;
 
-    // +spec:height-calculation:c5af64 - assume no scrollbars initially; only add if content overflows
-    // Determine if scrolling is needed based on overflow properties.
+    // +spec:height-calculation:c5af64 - assume no scrollbars initially; only add if content
+    // overflows Determine if scrolling is needed based on overflow properties.
     // +spec:overflow:30a49c - start assuming no scrollbars, recalculate if needed
     // Note: scrollbar_width_px can be 0 for overlay scrollbars (e.g. macOS),
     // but we still need to register scroll nodes so that scrolling works —
@@ -10055,11 +10223,11 @@ pub fn check_scrollbar_necessity(
         OverflowBehavior::Auto => content_size.height > container_size.height + EPSILON,
     };
 
-    // +spec:box-model:c3d73f - scrollbar presence affects available content area; padding preserved at scroll end
-    // +spec:overflow:d79159 - scrollbar sizing: adding a scrollbar reduces available space,
-    // which may cause content to overflow, confirming the scrollbar is needed (two-pass check)
-    // A classic layout problem: a vertical scrollbar can reduce horizontal space,
-    // causing a horizontal scrollbar to appear, which can reduce vertical space...
+    // +spec:box-model:c3d73f - scrollbar presence affects available content area; padding preserved
+    // at scroll end +spec:overflow:d79159 - scrollbar sizing: adding a scrollbar reduces
+    // available space, which may cause content to overflow, confirming the scrollbar is needed
+    // (two-pass check) A classic layout problem: a vertical scrollbar can reduce horizontal
+    // space, causing a horizontal scrollbar to appear, which can reduce vertical space...
     // A full solution involves a loop, but this two-pass check handles most cases.
     // Only relevant when scrollbars reserve layout space (non-overlay).
     if scrollbar_width_px > 0.0 {
@@ -10268,8 +10436,9 @@ fn generate_list_marker_text(
     if marker_pseudo != Some(PseudoElement::Marker) {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::warning(format!(
-                "[generate_list_marker_text] WARNING: Node {marker_index} is not a ::marker pseudo-element \
-                 (pseudo={marker_pseudo:?}, anonymous_type={marker_anonymous_type:?})"
+                "[generate_list_marker_text] WARNING: Node {marker_index} is not a ::marker \
+                 pseudo-element (pseudo={marker_pseudo:?}, \
+                 anonymous_type={marker_anonymous_type:?})"
             )));
         }
         // Fallback for old-style anonymous markers during transition
@@ -10303,8 +10472,8 @@ fn generate_list_marker_text(
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_text] marker_index={marker_index}, list_item_index={list_item_index}, \
-             list_item_dom_id={list_item_dom_id:?}"
+            "[generate_list_marker_text] marker_index={marker_index}, \
+             list_item_index={list_item_index}, list_item_dom_id={list_item_dom_id:?}"
         )));
     }
 
@@ -10346,7 +10515,8 @@ fn generate_list_marker_text(
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_text] counter_value={counter_value} for list_item_index={list_item_index}"
+            "[generate_list_marker_text] counter_value={counter_value} for \
+             list_item_index={list_item_index}"
         )));
     }
 
@@ -10400,7 +10570,8 @@ fn generate_list_marker_segments(
             text3::cache::FontStack::Ref(_) => vec!["<embedded-font>"],
         };
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_segments] Marker text: '{marker_text}' with font stack: {font_families:?}"
+            "[generate_list_marker_segments] Marker text: '{marker_text}' with font stack: \
+             {font_families:?}"
         )));
     }
 
@@ -10427,7 +10598,8 @@ const fn is_bk_or_nl_class(c: char) -> bool {
 
 /// Splits text at all forced break points: newlines (\n, \r\n, \r) and BK/NL class chars.
 /// Used for white-space modes that preserve segment breaks (pre, pre-wrap, pre-line, break-spaces).
-// +spec:white-space-processing:af4e3f - each newline/segment break in text is treated as a segment break, interpreted per white-space property
+// +spec:white-space-processing:af4e3f - each newline/segment break in text is treated as a segment
+// break, interpreted per white-space property
 fn split_at_forced_breaks(text: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = String::new();
@@ -10498,7 +10670,8 @@ fn is_east_asian_wide(c: char) -> bool {
     || (0xFFE0..=0xFFE6).contains(&cp)
 }
 
-// +spec:block-formatting-context:b78223 - fullwidth/wide chars treated as vertical script, halfwidth as horizontal per UAX#11
+// +spec:block-formatting-context:b78223 - fullwidth/wide chars treated as vertical script,
+// halfwidth as horizontal per UAX#11
 fn is_east_asian_fullwidth_or_wide(ch: char) -> bool {
     let cp = ch as u32;
     // Exclude Hangul
@@ -10518,7 +10691,8 @@ fn is_east_asian_fullwidth_or_wide(ch: char) -> bool {
 
 /// +spec:white-space-processing:159dbf - segment breaks converted to spaces (default transform)
 /// +spec:white-space-processing:79891b - segment break transform: convert to space or remove
-// +spec:white-space-processing:7e9529 - Segment break transformation rules (§4.1.3): collapse consecutive breaks, remove around ZWSP/CJK, else convert to space
+// +spec:white-space-processing:7e9529 - Segment break transformation rules (§4.1.3): collapse
+// consecutive breaks, remove around ZWSP/CJK, else convert to space
 /// Transforms segment breaks (newlines) in text according to CSS Text Level 3 §4.1.3.
 /// - If adjacent to a zero-width space (U+200B), the segment break is removed.
 /// - If both adjacent chars are East Asian F/W/H (not Hangul), removed entirely.
@@ -10538,8 +10712,8 @@ fn apply_segment_break_transform(text: &str) -> String {
                 i + 1
             };
 
-            // +spec:white-space-processing:3c3680 - remove tabs/spaces around segment break before transform
-            // §4.1.1: remove collapsible whitespace around segment breaks
+            // +spec:white-space-processing:3c3680 - remove tabs/spaces around segment break before
+            // transform §4.1.1: remove collapsible whitespace around segment breaks
             while result.ends_with(' ') || result.ends_with('\t') {
                 result.pop();
             }
@@ -10583,11 +10757,13 @@ fn apply_segment_break_transform(text: &str) -> String {
 }
 
 // ============================================================================
-// +spec:white-space-processing:b64e38 - parser may normalize/collapse whitespace before CSS; CSS cannot restore
+// +spec:white-space-processing:b64e38 - parser may normalize/collapse whitespace before CSS; CSS
+// cannot restore
 
-// +spec:display-property:1389e3 - bidi control characters per UAX #9 for Unicode bidirectional algorithm
-// +spec:display-property:aad99b - inline boxes can be split into fragments due to bidi text processing
-// Bidi_Control property (UAX #9). These characters are ignored during white-space processing.
+// +spec:display-property:1389e3 - bidi control characters per UAX #9 for Unicode bidirectional
+// algorithm +spec:display-property:aad99b - inline boxes can be split into fragments due to bidi
+// text processing Bidi_Control property (UAX #9). These characters are ignored during white-space
+// processing.
 const fn is_bidi_control(c: char) -> bool {
     matches!(
         c,
@@ -10606,8 +10782,8 @@ const fn is_bidi_control(c: char) -> bool {
     )
 }
 
-/// +spec:white-space-processing:1188f6 - only spaces, tabs, and segment breaks are document white space
-/// Returns true if `c` is a CSS "document white space character" per CSS Text Level 3 §4.1.
+/// +spec:white-space-processing:1188f6 - only spaces, tabs, and segment breaks are document white
+/// space Returns true if `c` is a CSS "document white space character" per CSS Text Level 3 §4.1.
 /// Only spaces (U+0020), tabs (U+0009), and segment breaks (LF, CR, FF) qualify.
 /// Other Unicode whitespace (e.g. U+00A0 non-breaking space) is NOT document white space.
 #[inline]
@@ -10615,12 +10791,13 @@ const fn is_css_document_whitespace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')
 }
 
-// +spec:white-space-processing:efbece - white-space property controls collapsing/preserving of formatting characters for rendering
-// +spec:writing-modes:b87688 - inlines laid out with bidi reordering and white-space wrapping
-// +spec:writing-modes:cdd4f1 - white space trimming before bidi reordering preserves end-of-line spaces per UAX9 L1
-// white space characters are processed prior to line breaking and bidi reordering
-// +spec:inline-block:381c0c - white-space property: collapsing, wrapping, and forced breaks per mode
-// +spec:display-property:8acfaa - Phase I white-space collapsing for each inline in an IFC, ignoring bidi controls
+// +spec:white-space-processing:efbece - white-space property controls collapsing/preserving of
+// formatting characters for rendering +spec:writing-modes:b87688 - inlines laid out with bidi
+// reordering and white-space wrapping +spec:writing-modes:cdd4f1 - white space trimming before bidi
+// reordering preserves end-of-line spaces per UAX9 L1 white space characters are processed prior to
+// line breaking and bidi reordering +spec:inline-block:381c0c - white-space property: collapsing,
+// wrapping, and forced breaks per mode +spec:display-property:8acfaa - Phase I white-space
+// collapsing for each inline in an IFC, ignoring bidi controls
 /// Splits text content into `InlineContent` items based on white-space CSS property.
 ///
 /// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
@@ -10632,12 +10809,14 @@ const fn is_css_document_whitespace(c: char) -> bool {
 ///
 /// This function:
 /// 1. Checks the white-space property of the node (or its parent for text nodes)
-/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
+/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts
+///    `InlineContent::LineBreak`
 /// 3. Otherwise: returns the text as a single `InlineContent::Text`
 /// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
 ///
 /// Returns a Vec of `InlineContent` items that correctly represent line breaks.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -10679,11 +10858,11 @@ pub fn split_text_for_whitespace(
 
     let mut result = Vec::new();
 
-    // +spec:white-space-processing:3a0f58 - HTML newlines normalized to U+000A, each treated as segment break
-    // +spec:white-space-processing:6eb1a2 - CR (U+000D) not treated as segment break by HTML; handle if inserted via DOM
-    // HTML parsers convert \r to \n during preprocessing, but \r can survive
-    // via escape sequences (e.g. &#x0d;). Any remaining U+000D must be
-    // treated identically to U+000A (line feed).
+    // +spec:white-space-processing:3a0f58 - HTML newlines normalized to U+000A, each treated as
+    // segment break +spec:white-space-processing:6eb1a2 - CR (U+000D) not treated as segment
+    // break by HTML; handle if inserted via DOM HTML parsers convert \r to \n during
+    // preprocessing, but \r can survive via escape sequences (e.g. &#x0d;). Any remaining
+    // U+000D must be treated identically to U+000A (line feed).
     let text_cr;
     let text: &str = if text.contains('\r') {
         text_cr = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -10692,10 +10871,11 @@ pub fn split_text_for_whitespace(
         text
     };
 
-    // +spec:white-space-processing:bd11da - white-space property: new lines, spaces/tabs, wrapping per value table
-    // +spec:white-space-processing:b166c5 - segment breaks preserved as forced line feeds for pre/pre-wrap/break-spaces/pre-line
-    // For `pre`, `pre-wrap`, `pre-line`, and `break-spaces`, newlines must be preserved as forced breaks
-    // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
+    // +spec:white-space-processing:bd11da - white-space property: new lines, spaces/tabs, wrapping
+    // per value table +spec:white-space-processing:b166c5 - segment breaks preserved as forced
+    // line feeds for pre/pre-wrap/break-spaces/pre-line For `pre`, `pre-wrap`, `pre-line`, and
+    // `break-spaces`, newlines must be preserved as forced breaks CSS Text Level 3: "Newlines
+    // in the source will be honored as forced line breaks."
     match white_space {
         StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
             // Pre, pre-wrap, break-spaces: preserve whitespace and honor newlines
@@ -10742,7 +10922,8 @@ pub fn split_text_for_whitespace(
             let mut content_index = 0;
 
             for (seg_idx, segment) in segments.into_iter().enumerate() {
-                // Collapse only CSS document white space within the line (not all Unicode whitespace)
+                // Collapse only CSS document white space within the line (not all Unicode
+                // whitespace)
                 let collapsed: String = segment
                     .split(|c: char| is_css_document_whitespace(c))
                     .filter(|s| !s.is_empty())
@@ -10854,9 +11035,10 @@ pub fn split_text_for_whitespace(
         }
     }
 
-    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before Phase II trimming
-    // This means full-width only transforms spaces (U+0020) to U+3000 IDEOGRAPHIC SPACE
-    // within preserved white space, because non-preserved spaces were already collapsed in Phase I above.
+    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before
+    // Phase II trimming This means full-width only transforms spaces (U+0020) to U+3000
+    // IDEOGRAPHIC SPACE within preserved white space, because non-preserved spaces were already
+    // collapsed in Phase I above.
     let text_transform = style.text_transform;
     if text_transform != text3::cache::TextTransform::None {
         for item in &mut result {
@@ -10919,19 +11101,19 @@ fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> S
 /// The `initial-letter` property specifies styling for dropped, raised, and sunken
 /// initial letters. When set, the first glyph(s) of the first line are enlarged to
 /// span multiple lines, with the remaining text wrapping around them.
-///
-// +spec:box-model:c93797 - initial-letter alignment points determined from contents (not border-box)
+// +spec:box-model:c93797 - initial-letter alignment points determined from contents (not
+// border-box)
 ///
 /// # Algorithm
 ///
 /// 1. The letter box height spans `size` lines: `height = size * line_height`.
 /// 2. The letter box width is estimated using a typical capital letter aspect ratio
-///    (cap-height-to-advance-width ~0.7 for Latin text). A proper implementation
-///    would measure the actual glyph, but this gives a reasonable default.
+///    (cap-height-to-advance-width ~0.7 for Latin text). A proper implementation would measure the
+///    actual glyph, but this gives a reasonable default.
 /// 3. The letter is positioned at the inline-start of the first line.
-/// 4. The `sink` value determines how many lines the letter drops below the
-///    first baseline. When `sink == size`, this is a classic drop cap.
-///    When `sink < size`, the letter rises above the first line (raised cap).
+/// 4. The `sink` value determines how many lines the letter drops below the first baseline. When
+///    `sink == size`, this is a classic drop cap. When `sink < size`, the letter rises above the
+///    first line (raised cap).
 /// 5. A small gap (4px default) is added between the letter box and adjacent text.
 ///
 /// # Parameters
@@ -10946,7 +11128,8 @@ fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> S
 ///
 /// The caller should use these dimensions to create a float-like exclusion at the
 /// start of the block container, causing subsequent lines to wrap around the letter.
-// +spec:width-calculation:7f4f68 - initial-letter-wrap exclusion area (none behavior; first/grid require glyph outlines)
+// +spec:width-calculation:7f4f68 - initial-letter-wrap exclusion area (none behavior; first/grid
+// require glyph outlines)
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[must_use]
 pub fn layout_initial_letter(
@@ -10969,18 +11152,19 @@ pub fn layout_initial_letter(
         return (0.0, 0.0);
     }
 
-    // +spec:overflow:dd0679 - auto-sized initial letter content box fits exactly to content; alignment props do not apply
-    // +spec:width-calculation:170742 - atomic initial letters with auto block size use inline initial letter sizing
-    // CSS Inline Level 3 section 3.3: The initial letter box height spans `size` lines.
+    // +spec:overflow:dd0679 - auto-sized initial letter content box fits exactly to content;
+    // alignment props do not apply +spec:width-calculation:170742 - atomic initial letters with
+    // auto block size use inline initial letter sizing CSS Inline Level 3 section 3.3: The
+    // initial letter box height spans `size` lines.
     let letter_height = initial_letter_size * line_height;
 
     let letter_width_raw = letter_height * CAP_WIDTH_RATIO;
 
     let letter_width = (letter_width_raw + LETTER_GAP).min(content_box_width);
 
-    // +spec:containing-block:67fd99 - block-axis positioning: size >= sink shifts by (sink-1)*line_height toward block-end
-    // The actual exclusion height accounts for the sink value.
-    // sink == size means the letter is fully dropped (classic drop cap).
+    // +spec:containing-block:67fd99 - block-axis positioning: size >= sink shifts by
+    // (sink-1)*line_height toward block-end The actual exclusion height accounts for the sink
+    // value. sink == size means the letter is fully dropped (classic drop cap).
     // sink < size means part of the letter rises above the first line (raised cap).
     // The exclusion area height is always `sink * line_height` since that's how
     // many lines of subsequent text need to wrap around the letter.

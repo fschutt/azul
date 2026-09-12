@@ -14,11 +14,11 @@
 //! `USE_BIOMETRIC` permission. Until it ships, `find_class` fails and ops
 //! resolve to `Unavailable`.
 
-use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
-
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use azul_core::keyring::{KeyringRequest, KeyringResult};
+use azul_layout::managers::keyring::push_keyring_result;
 
 // One op in flight at a time; a nonzero handle drops a late result from a
 // superseded op (the user could re-tap before the first prompt resolves).
@@ -104,8 +104,7 @@ pub fn request(req: &KeyringRequest) {
 /// backend attach sequence.
 #[cfg(target_os = "android")]
 fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    use jni::{objects::JObject, JavaVM};
 
     let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
     let activity_ptr = crate::desktop::shell2::android::activity_ptr();

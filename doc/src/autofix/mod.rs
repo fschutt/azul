@@ -115,7 +115,7 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect_rs_files(&path, out);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             out.push(path);
         }
     }
@@ -808,7 +808,8 @@ pub fn autofix_api(
     // This happens AFTER patches are written, so they can still be applied
     if critical_error_count > 0 {
         return Err(anyhow::anyhow!(
-            "Found {} critical FFI safety issues in API types. Patches were generated but fix the errors before proceeding with codegen.",
+            "Found {} critical FFI safety issues in API types. Patches were generated but fix the \
+             errors before proceeding with codegen.",
             critical_error_count
         ));
     }
@@ -969,7 +970,7 @@ fn generate_combined_patch(
                         .iter()
                         .map(|arg| patch_format::CallbackArgDef {
                             arg_type: arg.ty.clone(),
-                            ref_kind: arg.ref_kind.clone(),
+                            ref_kind: arg.ref_kind,
                             name: arg.name.clone(),
                         })
                         .collect(),
@@ -987,8 +988,8 @@ fn generate_combined_patch(
                     arg_index: *arg_index,
                     old_type: old_type.clone(),
                     new_type: new_type.clone(),
-                    old_ref: old_ref_kind.clone(),
-                    new_ref: new_ref_kind.clone(),
+                    old_ref: *old_ref_kind,
+                    new_ref: *new_ref_kind,
                 });
             }
             diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {
@@ -1231,7 +1232,7 @@ fn generate_removal_patch(removal: &str) -> String {
     use patch_format::*;
 
     let parts: Vec<&str> = removal.splitn(2, ':').collect();
-    let type_name = parts.get(0).unwrap_or(&removal);
+    let type_name = parts.first().unwrap_or(&removal);
     let path = parts.get(1);
 
     let mut patch = AutofixPatch::new(format!("Remove unused type {}", type_name));
@@ -2209,7 +2210,7 @@ pub fn check_ffi_safety(
     }
 
     // Check for () unit type in api.json function signatures
-    for (_version_name, version) in &api_data.0 {
+    for version in api_data.0.values() {
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
                 let file_path = format!("api.json - {}.{}", module_name, class_name);
@@ -2271,7 +2272,7 @@ pub fn check_ffi_safety(
     }
 
     // Check api.json types for repr mismatches AND struct issues
-    for (_version_name, version) in &api_data.0 {
+    for version in api_data.0.values() {
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
                 let file_path = format!("api.json - {}.{}", module_name, class_name);
@@ -2378,7 +2379,7 @@ pub fn check_ffi_safety(
                                     },
                                 });
                             }
-                            if ty.contains('<') {
+                            if ty.contains('<') && !ty.starts_with("ManuallyDrop<Box<") {
                                 warnings.push(FfiSafetyWarning {
                                     type_name: class_name.clone(),
                                     file_path: file_path.clone(),
@@ -2416,7 +2417,7 @@ pub fn check_ffi_safety(
                                 },
                             });
                         }
-                        if ty.contains('<') {
+                        if ty.contains('<') && !ty.starts_with("ManuallyDrop<Box<") {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
                                 file_path: file_path.clone(),
@@ -2430,7 +2431,7 @@ pub fn check_ffi_safety(
                     // Check callback arg types for angle brackets
                     for arg in &cb.fn_args {
                         let aty = &arg.r#type;
-                        if aty.contains('<') {
+                        if aty.contains('<') && !aty.starts_with("ManuallyDrop<Box<") {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
                                 file_path: file_path.clone(),
@@ -2483,7 +2484,7 @@ pub fn check_ffi_safety(
                         });
                     }
                     // Check target type for angle brackets
-                    if ta.target.contains('<') {
+                    if ta.target.contains('<') && !ta.target.starts_with("ManuallyDrop<Box<") {
                         warnings.push(FfiSafetyWarning {
                             type_name: class_name.clone(),
                             file_path: file_path.clone(),
@@ -2665,8 +2666,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             println!("      api.json order: [{}]", api_order.join(", "));
             println!("      Rust order:     [{}]", rust_order.join(", "));
             println!(
-                "      FIX: reorder the api.json struct_fields to match the Rust \
-                declaration (the transmute size guard cannot catch same-size swaps)."
+                "      FIX: reorder the api.json struct_fields to match the Rust declaration (the \
+                 transmute size guard cannot catch same-size swaps)."
             );
             println!("      FILE: {}", warning.file_path);
         }
@@ -2697,7 +2698,7 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Use #[repr(C)] for enums without data, remove explicit discriminant \
-                     values.",
+                 values.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2772,8 +2773,7 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             println!("    {} Location: {}", "AT:".magenta(), location.yellow());
             println!("    {} \"{}\"", "CONTEXT:".dimmed(), context.dimmed());
             println!(
-                "    {} Use ASCII-only characters in documentation. Replace with text \
-                     equivalent.",
+                "    {} Use ASCII-only characters in documentation. Replace with text equivalent.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2838,7 +2838,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 "REASON:".magenta()
             );
             println!(
-                "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), Error>`.",
+                "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), \
+                 Error>`.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2915,7 +2916,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 raw_type.yellow()
             );
             println!(
-                "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put generic args in the 'generic_args' field.",
+                "    {} Types with '<' are not FFI-safe. Use impl_vec!/impl_option! and put \
+                 generic args in the 'generic_args' field.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -2962,14 +2964,16 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 );
                 if !target_in_api {
                     println!(
-                        "    {} Target type '{}' is not defined in api.json. Use impl_vec!/impl_option! to generate a concrete type.",
+                        "    {} Target type '{}' is not defined in api.json. Use \
+                         impl_vec!/impl_option! to generate a concrete type.",
                         "FIX:".cyan(),
                         target
                     );
                 }
                 if !all_args_in_api {
                     println!(
-                        "    {} Some generic args are not defined in api.json. Ensure all arg types are in api.json or use concrete types.",
+                        "    {} Some generic args are not defined in api.json. Ensure all arg \
+                         types are in api.json or use concrete types.",
                         "FIX:".cyan()
                     );
                 }
@@ -3006,7 +3010,8 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 println!("    {} from: {}", "ORIGIN:".cyan(), orig.cyan());
             }
             println!(
-                "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref counting).",
+                "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref \
+                 counting).",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -3025,11 +3030,13 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
                 variant_name.cyan()
             );
             println!(
-                "    {} PHP refuses the duplicate method (case-insensitive); other languages produce ambiguous dispatch.",
+                "    {} PHP refuses the duplicate method (case-insensitive); other languages \
+                 produce ambiguous dispatch.",
                 "NOTE:".magenta()
             );
             println!(
-                "    {} Either remove the explicit api.json `functions:` entry (the auto-emitted predicate already does the same job) or rename the function.",
+                "    {} Either remove the explicit api.json `functions:` entry (the auto-emitted \
+                 predicate already does the same job) or rename the function.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -3094,7 +3101,7 @@ pub fn check_doc_characters(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
         None
     }
 
-    for (_version_key, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             // Check module documentation
             if let Some(doc_lines) = &module_data.doc {
@@ -4817,7 +4824,7 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
 
     let mut warnings = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Check type name
@@ -4867,14 +4874,21 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                 // Check constructor names
                 if let Some(constructors) = &class_data.constructors {
                     for (ctor_name, _ctor_data) in constructors {
-                        // Special case: "default" constructor should use custom_impls: ["Default"] instead
+                        // Special case: "default" constructor should use custom_impls: ["Default"]
+                        // instead
                         if ctor_name == "default" {
                             warnings.push(FfiSafetyWarning {
                                 type_name: class_name.clone(),
-                                file_path: format!("api.json - {}.{}::{}", module_name, class_name, ctor_name),
+                                file_path: format!(
+                                    "api.json - {}.{}::{}",
+                                    module_name, class_name, ctor_name
+                                ),
                                 kind: FfiSafetyWarningKind::BadConstructorName {
                                     name: ctor_name.clone(),
-                                    suggestion: "Use custom_impls: [\"Default\"] or derive: [\"Default\"] instead. The codegen will automatically generate a _default() function.".to_string(),
+                                    suggestion: "Use custom_impls: [\"Default\"] or derive: \
+                                                 [\"Default\"] instead. The codegen will \
+                                                 automatically generate a _default() function."
+                                        .to_string(),
                                 },
                             });
                             continue;
@@ -4946,7 +4960,7 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
 pub fn check_enum_variant_method_collisions(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
     let mut warnings = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 let Some(enum_fields_groups) = &class_data.enum_fields else {

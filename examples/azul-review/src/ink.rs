@@ -2,13 +2,11 @@
 //!
 //! Two differences from the paint app it borrows from:
 //!
-//! 1. **Translucent, not opaque.** A highlighter must let the glyphs show
-//!    through, so the field is composited at a fixed low alpha rather than
-//!    replacing the pixel.
-//! 2. **Alpha does not accumulate along a stroke.** Real marker ink is
-//!    absorbed by the paper: dragging back over the same spot does not get
-//!    darker. Summing per-dab alpha (which is what a naive metaball sum does)
-//!    made slow strokes blotchy and fast ones translucent, so coverage is
+//! 1. **Translucent, not opaque.** A highlighter must let the glyphs show through, so the field is
+//!    composited at a fixed low alpha rather than replacing the pixel.
+//! 2. **Alpha does not accumulate along a stroke.** Real marker ink is absorbed by the paper:
+//!    dragging back over the same spot does not get darker. Summing per-dab alpha (which is what a
+//!    naive metaball sum does) made slow strokes blotchy and fast ones translucent, so coverage is
 //!    computed as a MAX over the field rather than a sum.
 
 use crate::model::{InkPoint, Semantic, Stroke};

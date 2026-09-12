@@ -4,18 +4,15 @@
 //! matched by bare arena index, or through an a11y-only copy of a path the
 //! keyboard already had:
 //!
-//! - `find_scrollable_ancestor` walked `layout_cache.tree` (root dom only), so
-//!   a node inside a virtualized view got the scroll container of whatever
-//!   unrelated root node shared its index.
-//! - `get_focused_cursor_rect_viewport` — the accessor all four native shells
-//!   use to place the IME candidate window — did the same, anchored on the
-//!   FOCUSED node rather than the editing session.
-//! - The same editable opened by click, by focus and by a screen reader
-//!   carried three different session keys (two of them a literal `0`).
-//! - An assistive-technology focus revealed the caret through a private,
-//!   glide-blind, zero-padded copy that called a caret clipped at the bottom
-//!   edge "visible"; a node reveal went through a copy that adjusted exactly
-//!   one scroll container.
+//! - `find_scrollable_ancestor` walked `layout_cache.tree` (root dom only), so a node inside a
+//!   virtualized view got the scroll container of whatever unrelated root node shared its index.
+//! - `get_focused_cursor_rect_viewport` — the accessor all four native shells use to place the IME
+//!   candidate window — did the same, anchored on the FOCUSED node rather than the editing session.
+//! - The same editable opened by click, by focus and by a screen reader carried three different
+//!   session keys (two of them a literal `0`).
+//! - An assistive-technology focus revealed the caret through a private, glide-blind, zero-padded
+//!   copy that called a caret clipped at the bottom edge "visible"; a node reveal went through a
+//!   copy that adjusted exactly one scroll container.
 
 use azul_core::{
     callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
@@ -171,10 +168,9 @@ const NESTED_TEXT: usize = 5;
 
 /// The root arena is a plain chain deep enough to have a node at every nested
 /// index the walk could reach: body(0) > w(1) > w(2) > w(3) > vvhost(4).
-const ROOT_CSS: &str = "* { margin: 0; padding: 0; } \
-                        body { font-size: 14px; } \
-                        .w { display: block; } \
-                        .vv { display: block; width: 600px; height: 500px; overflow: hidden; }";
+const ROOT_CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; } .w { display: \
+                        block; } .vv { display: block; width: 600px; height: 500px; overflow: \
+                        hidden; }";
 
 extern "C" fn nested_view(_data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let mut editor = Dom::create_div().with_css("display: block; width: 280px;");
@@ -229,8 +225,8 @@ fn nested_fixture() -> (LayoutWindow, DomId) {
             .layout_tree
             .dom_to_layout
             .contains_key(&NodeId::new(NESTED_EDITOR)),
-        "premise: the ROOT arena has a node at the editor's nested index — the \
-         index collision the old walk resolved against"
+        "premise: the ROOT arena has a node at the editor's nested index — the index collision \
+         the old walk resolved against"
     );
     (lw, nested)
 }
@@ -246,10 +242,9 @@ fn a_scrollable_ancestor_is_searched_in_the_nodes_own_dom() {
     assert_eq!(
         ancestor,
         Some(dom_node(nested, NESTED_SCROLLER)),
-        "the editor's scroll container is the node above it in ITS OWN dom, not \
-         whichever registered scroll node the ROOT arena's ancestor chain \
-         happened to name first — that answer is the sidebar, which is not an \
-         ancestor of the editor at all"
+        "the editor's scroll container is the node above it in ITS OWN dom, not whichever \
+         registered scroll node the ROOT arena's ancestor chain happened to name first — that \
+         answer is the sidebar, which is not an ancestor of the editor at all"
     );
 }
 
@@ -296,10 +291,9 @@ fn the_ime_caret_rect_is_corrected_by_the_nested_doms_own_scroll() {
 
     assert!(
         (viewport.origin.y - (absolute.origin.y - SCROLLER_OFFSET)).abs() < 0.01,
-        "the IME rect must be the absolute caret minus the scroll of the \
-         caret's OWN scroll ancestry ({SCROLLER_OFFSET}px), not minus every \
-         registered scroll node the root arena's chain collided with \
-         (got {:?}, absolute {:?})",
+        "the IME rect must be the absolute caret minus the scroll of the caret's OWN scroll \
+         ancestry ({SCROLLER_OFFSET}px), not minus every registered scroll node the root arena's \
+         chain collided with (got {:?}, absolute {:?})",
         viewport.origin,
         absolute.origin,
     );
@@ -362,9 +356,9 @@ fn a_caret_reveal_inside_a_virtual_view_moves_the_nested_container() {
     assert!(
         caret.origin.y >= visible_top - TOL
             && caret.origin.y + caret.size.height <= visible_bottom + TOL,
-        "after the reveal the caret (y {}..{}) must sit inside the NESTED \
-         container's visible box (y {visible_top}..{visible_bottom}, from its \
-         own dom's geometry at y {container_y} height {container_h})",
+        "after the reveal the caret (y {}..{}) must sit inside the NESTED container's visible box \
+         (y {visible_top}..{visible_bottom}, from its own dom's geometry at y {container_y} \
+         height {container_h})",
         caret.origin.y,
         caret.origin.y + caret.size.height,
     );
@@ -374,9 +368,8 @@ fn a_caret_reveal_inside_a_virtual_view_moves_the_nested_container() {
 // Fixture B: session identity across the three ways a session opens
 // ---------------------------------------------------------------------------
 
-const EDITABLE_CSS: &str = "* { margin: 0; padding: 0; } \
-                            body { font-size: 14px; width: 600px; } \
-                            .p { display: block; }";
+const EDITABLE_CSS: &str =
+    "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .p { display: block; }";
 
 /// `body(0) > host(1)[contenteditable] > text(2)`
 fn flat_editable() -> LayoutWindow {
@@ -447,13 +440,13 @@ fn click_focus_and_assistive_tech_open_the_same_session_identity() {
     );
     assert_eq!(
         by_focus, expected,
-        "the same editable opened by FOCUS must carry the same session identity \
-         as one opened by click — it used to carry a literal 0"
+        "the same editable opened by FOCUS must carry the same session identity as one opened by \
+         click — it used to carry a literal 0"
     );
     assert_eq!(
         by_a11y, expected,
-        "the same editable opened by a SCREEN READER must carry the same \
-         session identity — it used to carry a literal 0"
+        "the same editable opened by a SCREEN READER must carry the same session identity — it \
+         used to carry a literal 0"
     );
 }
 
@@ -486,9 +479,8 @@ fn a_p_wrapped_editable_keys_its_session_on_the_host_not_the_ifc_root() {
 
     assert_eq!(
         by_click, expected,
-        "only the HOST's key is the one `find_host_by_contenteditable_key` can \
-         resolve — the IFC root is not contenteditable, so a session keyed on \
-         it can never be found again"
+        "only the HOST's key is the one `find_host_by_contenteditable_key` can resolve — the IFC \
+         root is not contenteditable, so a session keyed on it can never be found again"
     );
     assert_eq!(
         by_focus, by_click,
@@ -500,10 +492,9 @@ fn a_p_wrapped_editable_keys_its_session_on_the_host_not_the_ifc_root() {
 // Fixture C: the a11y reveals go through the canonical paths
 // ---------------------------------------------------------------------------
 
-const CLIP_CSS: &str = "* { margin: 0; padding: 0; } \
-                        body { font-size: 16px; } \
-                        .clip { display: block; width: 300px; height: 100px; overflow: auto; } \
-                        .editor { display: block; width: 280px; }";
+const CLIP_CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 16px; } .clip { display: \
+                        block; width: 300px; height: 100px; overflow: auto; } .editor { display: \
+                        block; width: 280px; }";
 
 /// `body(0) > div.clip(1) > div.editor(2)[contenteditable] > text(3)`
 fn clipped_editor() -> LayoutWindow {
@@ -548,8 +539,8 @@ fn an_assistive_technology_focus_reveals_a_bottom_clipped_caret() {
     );
     assert!(
         caret.size.height > 5.0,
-        "premise: the caret is taller than the reveal's 5px padding, so a caret \
-         whose top is 96px into a 100px box really is clipped (got {:?})",
+        "premise: the caret is taller than the reveal's 5px padding, so a caret whose top is 96px \
+         into a 100px box really is clipped (got {:?})",
         caret.size
     );
 
@@ -571,10 +562,9 @@ fn an_assistive_technology_focus_reveals_a_bottom_clipped_caret() {
         .is_some_and(|s| (s.current_offset.y - (caret.origin.y - 96.0)).abs() > 0.5);
     assert!(
         lw.scroll_manager.scroll_input_queue.has_pending() || moved,
-        "an assistive-technology focus must reveal the caret exactly the way a \
-         keyboard one does: through the canonical session-anchored path, which \
-         pads by 5px and measures the caret's WHOLE box rather than testing its \
-         top-left corner"
+        "an assistive-technology focus must reveal the caret exactly the way a keyboard one does: \
+         through the canonical session-anchored path, which pads by 5px and measures the caret's \
+         WHOLE box rather than testing its top-left corner"
     );
 }
 
@@ -617,8 +607,8 @@ fn a_small_caret_reveal_follows_immediately_instead_of_gliding() {
 
     assert!(
         !lw.scroll_manager.scroll_input_queue.has_pending(),
-        "a few-pixel follow must NOT be handed to the AnimateTo spring — that is \
-         the 400ms lag between the caret and the view"
+        "a few-pixel follow must NOT be handed to the AnimateTo spring — that is the 400ms lag \
+         between the caret and the view"
     );
     let landed = lw
         .scroll_manager
@@ -638,12 +628,10 @@ fn an_assistive_technology_scroll_into_view_adjusts_the_whole_ancestry() {
     const INNER: usize = 2;
     const TARGET: usize = 4;
 
-    let css = "* { margin: 0; padding: 0; } \
-               body { font-size: 14px; } \
-               .outer { display: block; width: 600px; height: 120px; overflow-y: scroll; } \
-               .inner { display: block; width: 600px; height: 600px; overflow-y: scroll; } \
-               .spacer { display: block; height: 900px; } \
-               .target { display: block; height: 20px; }";
+    let css = "* { margin: 0; padding: 0; } body { font-size: 14px; } .outer { display: block; \
+               width: 600px; height: 120px; overflow-y: scroll; } .inner { display: block; width: \
+               600px; height: 600px; overflow-y: scroll; } .spacer { display: block; height: \
+               900px; } .target { display: block; height: 20px; }";
     let mut lw = laid_out(
         Dom::create_body().with_child(
             with_class(Dom::create_div(), "outer").with_child(
@@ -682,8 +670,7 @@ fn an_assistive_technology_scroll_into_view_adjusts_the_whole_ancestry() {
     );
     assert!(
         outer_offset > 0.0,
-        "revealing a node nested in TWO scroll containers has to adjust BOTH — \
-         moving only the inner one leaves the target as invisible as it was \
-         (outer stayed at {outer_offset})"
+        "revealing a node nested in TWO scroll containers has to adjust BOTH — moving only the \
+         inner one leaves the target as invisible as it was (outer stayed at {outer_offset})"
     );
 }

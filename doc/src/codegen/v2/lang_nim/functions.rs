@@ -14,13 +14,16 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef, TypeCategory};
-use super::map_type_to_nim;
-use super::sanitize_identifier;
-use super::types::nim_arg_type;
-use super::ProcDedup;
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_nim, sanitize_identifier,
+    types::nim_arg_type,
+    ProcDedup,
+};
 
 pub fn generate_externals(
     builder: &mut CodeBuilder,

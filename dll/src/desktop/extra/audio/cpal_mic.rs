@@ -5,11 +5,15 @@
 //! instead (cpal's ALSA backend would build-time-link `libasound`, breaking the
 //! cross-compile); Android uses AAudio.
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::SampleFormat;
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    SampleFormat,
+};
 
 /// Live capture state behind the seam's `u64` handle. The cpal `Stream` is
 /// `!Send`, but the mic worker calls `open`/`read`/`close` all on one thread,

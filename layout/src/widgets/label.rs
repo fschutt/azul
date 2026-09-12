@@ -1,7 +1,9 @@
 //! Label widget for displaying static text with platform-specific default styling.
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -19,7 +21,13 @@ use azul_css::{
 #[repr(C)]
 pub struct Label {
     pub string: AzString,
-    pub label_style: CssPropertyWithConditionsVec,
+    /// The label's CSS, or `None` for "no opinion" — in which case the
+    /// platform default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub label_style: OptionCssPropertyWithConditionsVec,
 }
 
 const SANS_SERIF_STR: &str = "system:ui";
@@ -80,24 +88,37 @@ impl Label {
     /// Creates a new label with the given text and platform-specific default styling.
     #[inline]
     #[must_use]
-    pub fn create(string: AzString) -> Self {
+    pub const fn create(string: AzString) -> Self {
         Self {
             string,
-            #[cfg(target_os = "windows")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_DEFAULT),
-            #[cfg(target_os = "linux")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_DEFAULT),
-            #[cfg(target_os = "macos")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
+            label_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The label CSS this widget renders with.
+    ///
+    /// `None` means no opinion, so the platform default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift. The
+    /// `cfg` fan-out that used to sit in the constructor lives here instead,
+    /// which is why a hand-built `Label` no longer has to know which platform
+    /// it was compiled for to look right.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style.clone().into_option().unwrap_or_else(|| {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let default = LABEL_STYLE_DEFAULT;
+            #[cfg(target_os = "macos")]
+            let default = LABEL_STYLE_MAC;
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+            let default = LABEL_STYLE_OTHER;
+            CssPropertyWithConditionsVec::from_const_slice(default)
+        })
     }
 
     /// Replaces `self` with an empty default label, returning the original.
     #[inline]
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -115,9 +136,12 @@ impl Label {
         static LABEL_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-label"))];
 
+        // Resolved before `self.string` is moved out below.
+        let label_style = self.resolved_label_style();
+
         crate::widgets::widget_p_with_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-            .with_css_props(self.label_style)
+            .with_css_props(label_style)
     }
 }
 
@@ -261,7 +285,11 @@ mod autotest_generated {
     /// `Label` derives neither `PartialEq` nor `Default`, so compare field-wise.
     fn assert_same_label(a: &Label, b: &Label, ctx: &str) {
         assert_eq!(a.string, b.string, "{ctx}: the string differs");
-        assert_eq!(a.label_style, b.label_style, "{ctx}: the style differs");
+        assert_eq!(
+            a.resolved_label_style(),
+            b.resolved_label_style(),
+            "{ctx}: the style differs"
+        );
     }
 
     /// Inputs a label must survive verbatim. Empty, whitespace-only, embedded
@@ -347,14 +375,17 @@ mod autotest_generated {
     fn create_uses_the_platform_table_for_this_target() {
         let label = Label::create(AzString::from_const_str("hello"));
         assert_eq!(
-            properties(&label.label_style),
+            properties(&label.resolved_label_style()),
             expected_table()
                 .iter()
                 .map(|p| p.property.clone())
                 .collect::<Vec<_>>(),
             "the constructor picked the wrong platform style table"
         );
-        assert_eq!(font_size_px(&label.label_style), expected_font_size());
+        assert_eq!(
+            font_size_px(&label.resolved_label_style()),
+            expected_font_size()
+        );
     }
 
     #[test]
@@ -364,7 +395,8 @@ mod autotest_generated {
         let a = Label::create(AzString::from_const_str(""));
         let b = Label::create(AzString::from("x".repeat(100_000)));
         assert_eq!(
-            a.label_style, b.label_style,
+            a.resolved_label_style(),
+            b.resolved_label_style(),
             "the style varies with the label text"
         );
         assert_same_label(
@@ -376,7 +408,7 @@ mod autotest_generated {
 
     #[test]
     fn constructed_style_vec_has_consistent_length_and_capacity() {
-        let v = Label::create(AzString::from_const_str("hi")).label_style;
+        let v = Label::create(AzString::from_const_str("hi")).resolved_label_style();
         assert_eq!(
             v.len(),
             v.as_ref().len(),
@@ -405,7 +437,7 @@ mod autotest_generated {
         // the static, or a `Drop` that frees it, would corrupt every future
         // label — so churn hard and re-check both the original and a fresh build.
         let base = Label::create(AzString::from("churn \u{1F600}".to_string()));
-        let expected_props = properties(&base.label_style);
+        let expected_props = properties(&base.resolved_label_style());
         for round in 0..1000 {
             let c = base.clone();
             assert_eq!(
@@ -414,7 +446,7 @@ mod autotest_generated {
                 "clone {round}: the string diverged"
             );
             assert_eq!(
-                properties(&c.label_style),
+                properties(&c.resolved_label_style()),
                 expected_props,
                 "clone {round}: the style diverged"
             );
@@ -426,12 +458,12 @@ mod autotest_generated {
             "the original string was damaged"
         );
         assert_eq!(
-            properties(&base.label_style),
+            properties(&base.resolved_label_style()),
             expected_props,
             "the original style was damaged"
         );
         assert_eq!(
-            properties(&Label::create(AzString::from_const_str("x")).label_style),
+            properties(&Label::create(AzString::from_const_str("x")).resolved_label_style()),
             expected_props,
             "a freshly built label disagrees after 1000 clone/drop cycles"
         );
@@ -708,7 +740,7 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_returns_the_original_and_leaves_an_empty_label() {
         let mut label = Label::create(AzString::from("original \u{1F600}".to_string()));
-        let expected_style = label.label_style.clone();
+        let expected_style = label.resolved_label_style();
         let taken = label.swap_with_default();
 
         // The returned value is the *original*, intact.
@@ -718,7 +750,8 @@ mod autotest_generated {
             "the wrong value was returned"
         );
         assert_eq!(
-            taken.label_style, expected_style,
+            taken.resolved_label_style(),
+            expected_style,
             "the returned label lost its style"
         );
 
@@ -772,8 +805,8 @@ mod autotest_generated {
                 );
             }
             assert_eq!(
-                properties(&taken.label_style),
-                properties(&label.label_style),
+                properties(&taken.resolved_label_style()),
+                properties(&label.resolved_label_style()),
                 "round {round}"
             );
             assert_eq!(
@@ -800,19 +833,19 @@ mod autotest_generated {
             )]);
         let mut label = Label {
             string: AzString::from_const_str("custom"),
-            label_style: custom,
+            label_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         let taken = label.swap_with_default();
         assert_eq!(taken.string.as_str(), "custom");
         assert_eq!(
-            taken.label_style.len(),
+            taken.resolved_label_style().len(),
             1,
             "the custom style was rewritten on the way out"
         );
-        assert_eq!(font_size_px(&taken.label_style), Some(42.0));
+        assert_eq!(font_size_px(&taken.resolved_label_style()), Some(42.0));
         // ...and the slot is refilled with the platform default, not the custom one.
         assert_eq!(
-            font_size_px(&label.label_style),
+            font_size_px(&label.resolved_label_style()),
             expected_font_size(),
             "the 42px override survived"
         );
@@ -839,7 +872,7 @@ mod autotest_generated {
     #[test]
     fn dom_is_a_single_classed_text_node_carrying_the_computed_style() {
         let label = Label::create(AzString::from_const_str("Hello"));
-        let expected = properties(&label.label_style);
+        let expected = properties(&label.resolved_label_style());
         let dom = label.dom();
 
         assert_eq!(
@@ -934,7 +967,7 @@ mod autotest_generated {
         ]);
         let dom = Label {
             string: AzString::from_const_str("hand built"),
-            label_style: custom.clone(),
+            label_style: OptionCssPropertyWithConditionsVec::Some(custom.clone()),
         }
         .dom();
         assert_eq!(
@@ -955,7 +988,9 @@ mod autotest_generated {
         // empty inline style, not a phantom rule block.
         let dom = Label {
             string: AzString::from_const_str("bare"),
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
+            label_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
+            ),
         }
         .dom();
         assert!(

@@ -51,11 +51,10 @@
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use objc2::rc::Retained;
-use objc2_core_motion::CMMotionManager;
-
 use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
+use objc2::rc::Retained;
+use objc2_core_motion::CMMotionManager;
 
 use super::units::G_TO_MS2;
 /// Target sample interval (s). CoreMotion clamps to the hardware max rate.
@@ -137,10 +136,8 @@ fn start_push_only_sensors() {
                     });
                 },
             );
-            altimeter.startRelativeAltitudeUpdatesToQueue_withHandler(
-                &queue,
-                RcBlock::as_ptr(&handler),
-            );
+            altimeter
+                .startRelativeAltitudeUpdatesToQueue_withHandler(&queue, RcBlock::as_ptr(&handler));
             // The altimeter, the queue and the block must all OUTLIVE this
             // scope - CoreMotion holds the block and calls it later - so all
             // three are leaked deliberately, once, for the process lifetime.
@@ -173,8 +170,7 @@ fn start_push_only_sensors() {
                     });
                 },
             );
-            pedometer
-                .startPedometerUpdatesFromDate_withHandler(&from, RcBlock::as_ptr(&handler));
+            pedometer.startPedometerUpdatesFromDate_withHandler(&from, RcBlock::as_ptr(&handler));
             core::mem::forget(handler);
             core::mem::forget(pedometer);
         }
@@ -227,7 +223,11 @@ fn poll_proximity() {
         let near: bool = objc2::msg_send![device, proximityState];
         let now = u8::from(near);
         if LAST.swap(now, Ordering::Relaxed) != now {
-            push_proximity(if near { Proximity::Near } else { Proximity::Far });
+            push_proximity(if near {
+                Proximity::Near
+            } else {
+                Proximity::Far
+            });
         }
     }
 }

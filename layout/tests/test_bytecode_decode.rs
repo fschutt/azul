@@ -5,8 +5,9 @@
 //!
 //! Run: cargo test -p azul-layout --test all -- test_bytecode_decode:: --nocapture
 
-use azul_layout::font::parsed::ParsedFont;
 use std::fs;
+
+use azul_layout::font::parsed::ParsedFont;
 
 /// Decoded instruction: opcode byte, instruction pointer, description.
 #[derive(Debug, Clone)]
@@ -31,13 +32,13 @@ struct DecodedInstr {
 fn missing_macos_font() {
     assert!(
         !(cfg!(target_os = "macos") && std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_some()),
-        "AZ_REQUIRE_TEST_FONTS=1 on macOS but neither \
-         /System/Library/Fonts/Supplemental/Times New Roman.ttf nor \
-         /System/Library/Fonts/Times.ttc could be read. Silently skipping is NOT a pass."
+        "AZ_REQUIRE_TEST_FONTS=1 on macOS but neither /System/Library/Fonts/Supplemental/Times \
+         New Roman.ttf nor /System/Library/Fonts/Times.ttc could be read. Silently skipping is \
+         NOT a pass."
     );
     eprintln!(
-        "SKIP: no macOS Times font on this host ({}) — this test asserts nothing here. \
-         On macOS, set AZ_REQUIRE_TEST_FONTS=1 to make it a failure instead.",
+        "SKIP: no macOS Times font on this host ({}) — this test asserts nothing here. On macOS, \
+         set AZ_REQUIRE_TEST_FONTS=1 to make it a failure instead.",
         std::env::consts::OS
     );
 }

@@ -15,22 +15,28 @@
 //! successive frames. A shared `Arc<AtomicU32>` smuggled through `RefAny`
 //! lets us count callback invocations.
 
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, Update};
-use azul_core::dom::{Dom, NodeData};
-use azul_core::events::{ComponentEventFilter, EventFilter};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_layout::callbacks::{Callback, CallbackInfo};
-use azul_layout::window_state::WindowCreateOptions;
+use azul::desktop::shell2::{common::PlatformWindow, headless::HeadlessWindow};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
+    dom::{Dom, NodeData},
+    events::{ComponentEventFilter, EventFilter},
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+};
+use azul_layout::{
+    callbacks::{Callback, CallbackInfo},
+    window_state::WindowCreateOptions,
+};
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
 
 #[derive(Clone)]
 struct Counters {
@@ -249,8 +255,8 @@ fn lifecycle_callbacks_fire_through_headless_event_loop() {
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         1,
-        "frame 0→1: child A's AfterMount callback must fire exactly once \
-         (mount={}, unmount={}, update={})",
+        "frame 0→1: child A's AfterMount callback must fire exactly once (mount={}, unmount={}, \
+         update={})",
         counters.mounts.load(Ordering::SeqCst),
         counters.unmounts.load(Ordering::SeqCst),
         counters.updates.load(Ordering::SeqCst),
@@ -271,8 +277,8 @@ fn lifecycle_callbacks_fire_through_headless_event_loop() {
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         2,
-        "frame 1→2: C's AfterMount must fire (running mount total = 2). \
-         (mount={}, unmount={}, update={})",
+        "frame 1→2: C's AfterMount must fire (running mount total = 2). (mount={}, unmount={}, \
+         update={})",
         counters.mounts.load(Ordering::SeqCst),
         counters.unmounts.load(Ordering::SeqCst),
         counters.updates.load(Ordering::SeqCst),
@@ -291,8 +297,8 @@ fn lifecycle_callbacks_fire_through_headless_event_loop() {
     assert_eq!(
         counters.updates.load(Ordering::SeqCst),
         1,
-        "frame 2→3: keyed text change on C must fire Updated exactly once. \
-         (mount={}, unmount={}, update={})",
+        "frame 2→3: keyed text change on C must fire Updated exactly once. (mount={}, unmount={}, \
+         update={})",
         counters.mounts.load(Ordering::SeqCst),
         counters.unmounts.load(Ordering::SeqCst),
         counters.updates.load(Ordering::SeqCst),
@@ -324,8 +330,8 @@ fn after_mount_fires_on_initial_render_with_widget_in_first_dom() {
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         1,
-        "initial render: the widget's AfterMount must fire on the very first \
-         frame (was 0 before the initial-reconcile fix). mount={}, unmount={}",
+        "initial render: the widget's AfterMount must fire on the very first frame (was 0 before \
+         the initial-reconcile fix). mount={}, unmount={}",
         counters.mounts.load(Ordering::SeqCst),
         counters.unmounts.load(Ordering::SeqCst),
     );
@@ -347,8 +353,7 @@ fn initial_render_mounts_all_widgets_in_first_dom() {
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         3,
-        "initial render: all 3 widgets' AfterMount must fire on the first frame. \
-         mount={}",
+        "initial render: all 3 widgets' AfterMount must fire on the first frame. mount={}",
         counters.mounts.load(Ordering::SeqCst),
     );
 }
@@ -378,8 +383,7 @@ fn initial_mount_does_not_refire_on_identical_relayout() {
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         1,
-        "frame 1 (identical DOM): AfterMount must NOT fire a second time \
-         (mount={})",
+        "frame 1 (identical DOM): AfterMount must NOT fire a second time (mount={})",
         counters.mounts.load(Ordering::SeqCst),
     );
 }
@@ -528,5 +532,47 @@ fn re_asserting_the_current_theme_costs_nothing() {
         !window.common.regeneration_pending(),
         "a no-op theme switch requested a regeneration — a backend that re-asserts the current \
          theme each frame would relayout forever",
+    );
+}
+
+/// `WindowCreateOptions::theme` had no reader anywhere: an app that asked for
+/// a dark window got the `LightMode` default. It now seeds the window's theme
+/// at creation, in the one constructor every backend goes through.
+#[test]
+fn window_create_options_theme_seeds_the_initial_window_theme() {
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+
+    if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
+        return; // AZ_THEME outranks the request; nothing to compare
+    }
+
+    let counters = Counters::new();
+    let fc_cache = Arc::new(FcFontCache::default());
+    let app_data = Arc::new(RefCell::new(RefAny::new(counters)));
+    let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+
+    let mut options = WindowCreateOptions::default();
+    options.window_state.layout_callback = LayoutCallback {
+        cb: layout_cb,
+        ctx: azul_core::refany::OptionRefAny::None,
+    };
+    // The window state still says LightMode (its default) — the REQUEST wins.
+    options.theme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+
+    let window = HeadlessWindow::new(
+        options,
+        app_data,
+        azul::desktop::shell2::common::event::SharedUndoManager::new(),
+        AppConfig::default(),
+        icon_provider,
+        fc_cache,
+        None,
+    )
+    .expect("HeadlessWindow construction must succeed");
+
+    assert_eq!(
+        window.common.current_window_state().theme,
+        WindowTheme::DarkMode,
+        "the requested theme must seed the window at creation"
     );
 }

@@ -12,9 +12,7 @@
 //! structure parallel to the Odin backend (`mod` / `types` / `functions`)
 //! while making the "types come from C" decision explicit in the output.
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
+use super::super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub fn generate_types(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     let n_structs = ir

@@ -2,18 +2,15 @@
 //!
 //! Two layers of host machinery the wrappers depend on:
 //!
-//! 1. **Host-invoker registration** (the design Python uses, ported to a
-//!    C-ABI plug-in point). At module load we register one libffi closure
-//!    per callback kind (`AzCallbackInvoker`, `AzLayoutCallbackInvoker`,
-//!    every widget callback, …) plus a single shared releaser. Each
-//!    invoker has a *pointer-arg* signature, which LuaJIT FFI can cast
-//!    to without trouble — by-value plumbing happens inside libazul's
-//!    static thunks (see `azul_core::host_invoker`).
+//! 1. **Host-invoker registration** (the design Python uses, ported to a C-ABI plug-in point). At
+//!    module load we register one libffi closure per callback kind (`AzCallbackInvoker`,
+//!    `AzLayoutCallbackInvoker`, every widget callback, …) plus a single shared releaser. Each
+//!    invoker has a *pointer-arg* signature, which LuaJIT FFI can cast to without trouble —
+//!    by-value plumbing happens inside libazul's static thunks (see `azul_core::host_invoker`).
 //!
-//! 2. **`azul.refany_create` / `azul.refany_get`** — keep the user's data
-//!    table alive for as long as a `RefAny` clone exists, mirroring
-//!    Python's `PyDataWrapper` story. RefAny destructor clears the entry
-//!    via the same shared releaser used for callback handles.
+//! 2. **`azul.refany_create` / `azul.refany_get`** — keep the user's data table alive for as long
+//!    as a `RefAny` clone exists, mirroring Python's `PyDataWrapper` story. RefAny destructor
+//!    clears the entry via the same shared releaser used for callback handles.
 //!
 //! Wrapper-emitted methods (e.g. `Button:setOnClick`, `WindowCreateOptions
 //! .create`, etc.) call `azul._register_callback(<kind>, fn)` for each
@@ -32,9 +29,9 @@
 //! framework's RefAny / releaser plumbing, which is the same regardless
 //! of which kinds are registered.
 
-use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{
-    c_typename, emit_cdef_block, host_invoker_kinds, wrapper_name,
+use super::super::{
+    ir::{CallbackTypedefDef, CodegenIR},
+    managed_host_invoker::{c_typename, emit_cdef_block, host_invoker_kinds, wrapper_name},
 };
 
 /// Emit the LuaJIT prelude that registers all callback invokers + RefAny

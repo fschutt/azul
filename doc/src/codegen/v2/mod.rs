@@ -108,6 +108,9 @@ pub mod managed_lang_helpers;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
+use std::path::Path;
+
+use anyhow::Result;
 pub use config::*;
 pub use generator::*;
 pub use ir::*;
@@ -116,8 +119,6 @@ pub use lang_reexports::generate_reexports;
 pub use rust::{RustDynamicGenerator, RustStaticGenerator};
 
 use crate::api::ApiData;
-use anyhow::Result;
-use std::path::Path;
 
 // ============================================================================
 // Helper: Build IR from ApiData
@@ -128,7 +129,7 @@ fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
         .get_latest_version_str()
         .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
     let version_data = api_data
-        .get_version(&version_str)
+        .get_version(version_str)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
     let ir_builder = IRBuilder::new(version_data);
@@ -503,7 +504,7 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 ///
 /// This generates all standard code generation targets:
 /// - DLL static API
-/// - DLL dynamic API  
+/// - DLL dynamic API
 /// - C header
 /// - C++ header
 /// - Public Rust API
@@ -638,7 +639,10 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
         code.len()
     );
     println!("     To use this, update dll/src/lib.rs include!() path to:");
-    println!("     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/python_api.rs\"));");
+    println!(
+        "     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \
+         \"/../target/codegen/python_api.rs\"));"
+    );
 
     Ok(())
 }

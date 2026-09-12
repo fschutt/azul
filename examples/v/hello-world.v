@@ -73,10 +73,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	counter_str := az_str(counter_val.str())
 	mut label := C.AzDom_createPWithText(counter_str)
 
-	font_size := C.AzStyleFontSize_px(32.0)
-	css_prop := C.AzCssProperty_fontSize(font_size)
-	cond := C.AzCssPropertyWithConditions_simple(css_prop)
-	C.AzDom_addCssProperty(&label, cond)
+	C.AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"))
 
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)

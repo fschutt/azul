@@ -20,9 +20,9 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_layout::solver3::LayoutNodeId;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::LayoutNodeId, window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -119,14 +119,13 @@ fn absolute_inset_child_grows_on_viewport_resize() {
     // grow to the new viewport, not stay stuck at the old 640x480.
     assert!(
         gc_large.size.height > 1000.0,
-        "#9 regression: absolute child did not grow on resize — height {} \
-         (expected ~1080; stuck near 480 means the cached tree was reused)",
+        "#9 regression: absolute child did not grow on resize — height {} (expected ~1080; stuck \
+         near 480 means the cached tree was reused)",
         gc_large.size.height
     );
     assert!(
         gc_large.size.width > 1800.0,
-        "#9 regression: absolute child did not grow on resize — width {} \
-         (expected ~1920)",
+        "#9 regression: absolute child did not grow on resize — width {} (expected ~1920)",
         gc_large.size.width
     );
 }
@@ -219,8 +218,8 @@ fn viewport_resize_reuses_every_reconciled_node() {
 
     assert_eq!(
         fresh, 0,
-        "a same-DOM viewport resize built {fresh} nodes FRESH — warm shaped-text \
-         and intrinsic caches were thrown away (the old_tree=None-on-resize bug)"
+        "a same-DOM viewport resize built {fresh} nodes FRESH — warm shaped-text and intrinsic \
+         caches were thrown away (the old_tree=None-on-resize bug)"
     );
     assert_eq!(
         reused, cold_fresh,
@@ -238,9 +237,9 @@ fn viewport_resize_reuses_every_reconciled_node() {
     // re-measured.
     assert_eq!(
         layout_window.layout_cache.last_intrinsic_dirty, 0,
-        "a same-DOM resize must not re-measure any intrinsics — a non-zero \
-         count means anonymous wrappers failed to ordinal-match their old \
-         selves (children_are_different flipped unconditionally again)"
+        "a same-DOM resize must not re-measure any intrinsics — a non-zero count means anonymous \
+         wrappers failed to ordinal-match their old selves (children_are_different flipped \
+         unconditionally again)"
     );
 }
 
@@ -383,8 +382,8 @@ fn scrollbar_toggle_does_not_remeasure_all_intrinsics() {
     );
     assert!(
         dirty < node_count / 2,
-        "scrollbar toggle re-measured {dirty} of {node_count} intrinsics — the \
-         blanket `(0..len).collect()` is back"
+        "scrollbar toggle re-measured {dirty} of {node_count} intrinsics — the blanket \
+         `(0..len).collect()` is back"
     );
 }
 
@@ -469,8 +468,8 @@ fn resize_only_hint_skips_reconcile_but_still_resizes() {
     };
     assert!(
         (root_width - 900.0).abs() < 1.0,
-        "skip must NOT skip the layout itself: root width {root_width} != 900 — \
-         the top-down pass did not run at the new viewport"
+        "skip must NOT skip the layout itself: root width {root_width} != 900 — the top-down pass \
+         did not run at the new viewport"
     );
 
     // The hint is one-shot: an un-hinted follow-up reconciles normally.
@@ -552,7 +551,7 @@ fn dom_diff_clean_hint_skips_fingerprint_recompute() {
     let skips = lw.layout_cache.last_fingerprint_skips;
     assert!(
         skips >= n.saturating_sub(1),
-        "with an all-clean hint on an identical DOM, (nearly) every node \
-         must skip fingerprint recompute — got {skips} of {n}"
+        "with an all-clean hint on an identical DOM, (nearly) every node must skip fingerprint \
+         recompute — got {skips} of {n}"
     );
 }

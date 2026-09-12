@@ -11,24 +11,25 @@
 // resulting hierarchy into `reconcile_dom` so every branch has coverage:
 //
 //   - Nested parent/child mount/unmount (the obvious baseline)
-//   - nth-of-type disambiguation (two sibling divs under one parent — the
-//     inner loop of Priority 3)
-//   - parent-key recursion (identical leaves under different parents must
-//     not match — tests the recursive `calculate_reconciliation_key` call)
-//   - Layout change detection (Resize event firing requires a callback AND
-//     a hierarchy-aware match so the same node on both sides is found)
+//   - nth-of-type disambiguation (two sibling divs under one parent — the inner loop of Priority 3)
+//   - parent-key recursion (identical leaves under different parents must not match — tests the
+//     recursive `calculate_reconciliation_key` call)
+//   - Layout change detection (Resize event firing requires a callback AND a hierarchy-aware match
+//     so the same node on both sides is found)
 //   - Keyed-component Update firing (the `matched_by_rec_key` path)
 
-use azul_core::callbacks::CoreCallback;
-use azul_core::diff::reconcile_dom;
-use azul_core::dom::{Dom, DomId, NodeData};
-use azul_core::events::{ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::id::NodeId;
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::styled_dom::{convert_dom_into_compact_dom, NodeHierarchyItem};
-use azul_core::task::Instant;
-use azul_core::OrderedMap;
+use azul_core::{
+    callbacks::CoreCallback,
+    diff::reconcile_dom,
+    dom::{Dom, DomId, NodeData},
+    events::{ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    id::NodeId,
+    refany::{OptionRefAny, RefAny},
+    styled_dom::{convert_dom_into_compact_dom, NodeHierarchyItem},
+    task::Instant,
+    OrderedMap,
+};
 
 // The function pointer identity doesn't matter for `reconcile_dom` — only the
 // presence of a callback with `EventFilter::Component(...)` on the node is

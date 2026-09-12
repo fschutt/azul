@@ -29,9 +29,9 @@ fn escape_include_path(path: &Path) -> String {
     let full_path = canonicalize(path).unwrap();
     let full_name = full_path.as_os_str().to_str().unwrap();
     let full_name = full_name.replace("\\\\?\\", "");
-    let full_name = full_name.replace("\\", "/");
+    
 
-    full_name
+    full_name.replace("\\", "/")
 }
 
 fn write_unoptimized_shaders(
@@ -63,7 +63,7 @@ fn write_unoptimized_shaders(
         assert!(base.is_dir());
         ShaderSourceParser::new().parse(
             Cow::Owned(shader_source_from_file(&glsl)),
-            &|f| Cow::Owned(shader_source_from_file(&base.join(&format!("{}.glsl", f)))),
+            &|f| Cow::Owned(shader_source_from_file(&base.join(format!("{}.glsl", f)))),
             &mut |s| hasher.write(s.as_bytes()),
         );
         let digest: ProgramSourceDigest = hasher.into();
@@ -88,10 +88,8 @@ fn write_unoptimized_shaders(
 
         writeln!(
             shader_file,
-            "    shaders.insert(\"{shader_name}\", SourceWithDigest {{ \
-                compressed_source: include_bytes!(\"{br_include_path}\"), \
-                digest: \"{digest}\"\
-            }});",
+            "    shaders.insert(\"{shader_name}\", SourceWithDigest {{ compressed_source: \
+             include_bytes!(\"{br_include_path}\"), digest: \"{digest}\"}});",
         )?;
     }
     writeln!(shader_file, "    shaders")?;
@@ -132,18 +130,18 @@ fn main() -> Result<(), std::io::Error> {
     )?;
     writeln!(shader_file, "use std::collections::HashMap;")?;
     writeln!(shader_file, "use webrender_build::shader::ShaderVersion;")?;
-    writeln!(shader_file, "")?;
+    writeln!(shader_file)?;
     writeln!(shader_file, "pub struct SourceWithDigest {{")?;
     writeln!(shader_file, "    pub compressed_source: &'static [u8],")?;
     writeln!(shader_file, "    pub digest: &'static str,")?;
     writeln!(shader_file, "}}")?;
-    writeln!(shader_file, "")?;
+    writeln!(shader_file)?;
     writeln!(shader_file, "pub struct OptimizedSourceWithDigest {{")?;
     writeln!(shader_file, "    pub vert_source: &'static str,")?;
     writeln!(shader_file, "    pub frag_source: &'static str,")?;
     writeln!(shader_file, "    pub digest: &'static str,")?;
     writeln!(shader_file, "}}")?;
-    writeln!(shader_file, "")?;
+    writeln!(shader_file)?;
     writeln!(
         shader_file,
         "/// Decompress a brotli-compressed shader source."
@@ -166,7 +164,7 @@ fn main() -> Result<(), std::io::Error> {
         "        .expect(\"Decompressed shader source is not valid UTF-8\")"
     )?;
     writeln!(shader_file, "}}")?;
-    writeln!(shader_file, "")?;
+    writeln!(shader_file)?;
     writeln!(shader_file, "lazy_static! {{")?;
 
     // Generate compressed unoptimized shaders
@@ -174,7 +172,7 @@ fn main() -> Result<(), std::io::Error> {
 
     // For optimized shaders, just create empty map for now
     // TODO: Integrate pure-Rust SWGL shaders for sw_compositor
-    writeln!(shader_file, "")?;
+    writeln!(shader_file)?;
     writeln!(
         shader_file,
         "  pub static ref OPTIMIZED_SHADERS: HashMap<(ShaderVersion, &'static str), \

@@ -2,32 +2,32 @@
 //! records — everything that lands inside `package Azul is`.
 //!
 //! Strategy:
-//! - **Forward declarations**: For every IR struct/enum we emit
-//!   `type Az_Foo;` plus `pragma Convention (C, Az_Foo);` so that access
-//!   types (`type Az_Foo_Access is access all Az_Foo;`) and mutually
-//!   recursive records work.
-//! - **Unit enums** (`is_union == false`) become Ada enumerated types with
-//!   an explicit representation clause that pins the underlying numeric
-//!   value. We use `pragma Convention (C, ...)` so they round-trip with
-//!   the C ABI.
-//! - **Tagged-union enums** (`is_union == true`) become a tag enum plus a
-//!   variant record with a discriminant on the tag. Variants carrying
-//!   payloads expand as `when <Variant> => <field> : <type>;`. Empty
-//!   variants render as `when <Variant> => null;`.
-//! - **POD structs** become plain `record` types with
-//!   `pragma Convention (C, ...)`.
-//! - **Recursive / VecRef / DestructorOrClone / GenericTemplate** types
-//!   are skipped, leaving an `-- SKIPPED:` comment for traceability.
+//! - **Forward declarations**: For every IR struct/enum we emit `type Az_Foo;` plus `pragma
+//!   Convention (C, Az_Foo);` so that access types (`type Az_Foo_Access is access all Az_Foo;`) and
+//!   mutually recursive records work.
+//! - **Unit enums** (`is_union == false`) become Ada enumerated types with an explicit
+//!   representation clause that pins the underlying numeric value. We use `pragma Convention (C,
+//!   ...)` so they round-trip with the C ABI.
+//! - **Tagged-union enums** (`is_union == true`) become a tag enum plus a variant record with a
+//!   discriminant on the tag. Variants carrying payloads expand as `when <Variant> => <field> :
+//!   <type>;`. Empty variants render as `when <Variant> => null;`.
+//! - **POD structs** become plain `record` types with `pragma Convention (C, ...)`.
+//! - **Recursive / VecRef / DestructorOrClone / GenericTemplate** types are skipped, leaving an `--
+//!   SKIPPED:` comment for traceability.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
-    MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
+            MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+        },
+    },
+    ada_ffi_type_name, map_type_to_ada, sanitize_identifier,
 };
-use super::{ada_ffi_type_name, map_type_to_ada, sanitize_identifier};
 
 // ============================================================================
 // Top-level entry
@@ -116,7 +116,8 @@ pub fn emit_types(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCon
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
                 builder.line(&format!(
-                    "-- SKIPPED: generic enum {} cannot be emitted (Ada has no generics over C ABI here)",
+                    "-- SKIPPED: generic enum {} cannot be emitted (Ada has no generics over C \
+                     ABI here)",
                     e.name
                 ));
             } else {
@@ -148,7 +149,8 @@ pub fn emit_types(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCon
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
                 builder.line(&format!(
-                    "-- SKIPPED: generic struct {} cannot be emitted (no Ada equivalent over C ABI)",
+                    "-- SKIPPED: generic struct {} cannot be emitted (no Ada equivalent over C \
+                     ABI)",
                     s.name
                 ));
             } else {
@@ -575,7 +577,7 @@ fn pascalize_field_name(name: &str) -> String {
     let mut chars = name.chars().peekable();
     let mut upper_next = true;
     let mut prev_lower = false;
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '_' {
             out.push('_');
             upper_next = true;
@@ -590,7 +592,7 @@ fn pascalize_field_name(name: &str) -> String {
             out.extend(c.to_uppercase());
             upper_next = false;
         } else {
-            out.extend(c.to_ascii_lowercase().to_string().chars());
+            out.push_str(&c.to_ascii_lowercase().to_string());
         }
         prev_lower = c.is_ascii_lowercase();
     }

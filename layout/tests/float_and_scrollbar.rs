@@ -12,8 +12,7 @@
 /// - CSS 2.2 §9.5.2 Controlling flow next to floats (clear)
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_css::props::layout::{LayoutClear, LayoutFloat, LayoutWritingMode};
-use azul_layout::solver3::fc::FloatingContext;
-use azul_layout::solver3::geometry::EdgeSizes;
+use azul_layout::solver3::{fc::FloatingContext, geometry::EdgeSizes};
 
 fn zero_edges() -> EdgeSizes {
     EdgeSizes {

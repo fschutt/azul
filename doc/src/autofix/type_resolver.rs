@@ -89,6 +89,12 @@ pub struct ResolutionContext {
     pub origin: Option<String>,
 }
 
+impl Default for ResolutionContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResolutionContext {
     pub fn new() -> Self {
         Self {
@@ -218,7 +224,7 @@ impl<'a> TypeResolver<'a> {
         // For function signatures (args AND return types), we trace through pointers
         // because the type must be defined in the API even if accessed via pointer.
         // For struct fields, we DON'T trace through pointers (they become *const c_void)
-        let is_function_signature = parent_context.map_or(false, |ctx| {
+        let is_function_signature = parent_context.is_some_and(|ctx| {
             // Match patterns like:
             // - "ClassName::fn_name arg 'param_name'" (function arg)
             // - "CallbackName callback arg[0]" (callback arg)
@@ -582,7 +588,7 @@ fn extract_functions_from_dir(dir: &Path, crate_name: &str, functions: &mut Vec<
 
         if path.is_dir() {
             extract_functions_from_dir(&path, crate_name, functions);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(syntax) = syn::parse_file(&content) {
                     extract_functions_from_items(&syntax.items, crate_name, "", functions);

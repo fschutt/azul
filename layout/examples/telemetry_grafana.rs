@@ -47,9 +47,8 @@ use std::time::Instant;
 use azul_layout::telemetry::{self, AppMeta, Severity};
 
 /// One paragraph of the synthetic document.
-const PARAGRAPH: &str = "<p class=\"body\">The quick brown fox jumps over the lazy dog, \
-                         then pauses to consider the kerning of the ligature it just \
-                         stepped on.</p>";
+const PARAGRAPH: &str = "<p class=\"body\">The quick brown fox jumps over the lazy dog, then \
+                         pauses to consider the kerning of the ligature it just stepped on.</p>";
 
 const STYLESHEET: &str = "
     .body { font-size: 12px; line-height: 1.4; color: #222; margin: 0 0 8px 0; }
@@ -146,10 +145,9 @@ impl Args {
                 // not)
                 "--help" | "-h" => {
                     println!(
-                        "usage: telemetry_grafana [--version V] [--channel C] \
-                         [--iterations N] [--flush-every N] [--pace-ms N] [--panic-at N] \
-                         [--remember] [--doc-size PARAGRAPHS] [--crash-bug] [--fleet N] \
-                         [--mail-to ADDR] [--mail-port P]"
+                        "usage: telemetry_grafana [--version V] [--channel C] [--iterations N] \
+                         [--flush-every N] [--pace-ms N] [--panic-at N] [--remember] [--doc-size \
+                         PARAGRAPHS] [--crash-bug] [--fleet N] [--mail-to ADDR] [--mail-port P]"
                     );
                     std::process::exit(0);
                 }
@@ -191,18 +189,22 @@ fn current_rss() -> Option<u64> {
 mod engine_frame {
     use std::collections::BTreeMap;
 
-    use azul_core::dom::{Dom, DomId};
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-    use azul_core::resources::{IdNamespace, ImageCache, RendererResources};
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{IdNamespace, ImageCache, RendererResources},
+        styled_dom::StyledDom,
+    };
     use azul_css::props::basic::FontRef;
-    use azul_layout::cpurender::{render_with_font_manager, RenderOptions};
-    use azul_layout::font::loading::build_font_cache;
-    use azul_layout::font_traits::{FontManager, TextLayoutCache};
-    use azul_layout::glyph_cache::GlyphCache;
-    use azul_layout::solver3::layout_document;
-    use azul_layout::xml::DomXmlExt;
-    use azul_layout::Solver3LayoutCache;
+    use azul_layout::{
+        cpurender::{render_with_font_manager, RenderOptions},
+        font::loading::build_font_cache,
+        font_traits::{FontManager, TextLayoutCache},
+        glyph_cache::GlyphCache,
+        solver3::layout_document,
+        xml::DomXmlExt,
+        Solver3LayoutCache,
+    };
 
     /// Everything a real window retains between frames.
     pub struct EngineState {
@@ -461,15 +463,15 @@ fn main() {
         feature = "font_loading"
     )))]
     println!(
-        "  NOTE: built without text_layout+cpurender+xml+font_loading — no real \
-         layout/paint per frame, so the layout/repaint sub-span panels stay empty."
+        "  NOTE: built without text_layout+cpurender+xml+font_loading — no real layout/paint per \
+         frame, so the layout/repaint sub-span panels stay empty."
     );
     telemetry::record_document_opened(doc_open, paragraphs as f64);
     let startup_secs = process_start.elapsed().as_secs_f64();
     telemetry::record_startup(startup_secs, current_rss().unwrap_or(0));
     println!(
-        "startup {:.1} ms, opened a {paragraphs}-paragraph document \
-         ({first_nodes} nodes), rss {:.1} MiB",
+        "startup {:.1} ms, opened a {paragraphs}-paragraph document ({first_nodes} nodes), rss \
+         {:.1} MiB",
         startup_secs * 1_000.0,
         current_rss().unwrap_or(0) as f64 / (1024.0 * 1024.0)
     );
@@ -595,15 +597,14 @@ fn main() {
             telemetry::log(
                 Severity::Info,
                 format!(
-                    "iteration {iteration}: {nodes} nodes in {:.1} ms \
-                     ({paragraphs} paragraphs)",
+                    "iteration {iteration}: {nodes} nodes in {:.1} ms ({paragraphs} paragraphs)",
                     elapsed * 1_000.0
                 ),
             );
             let outcome = telemetry::flush();
             println!(
-                "iter {iteration:>4}  {:>7.1} ms  {nodes:>6} nodes  \
-                 flush: queued_metrics={} queued_logs={} uploaded={} dropped={} retained={}{}",
+                "iter {iteration:>4}  {:>7.1} ms  {nodes:>6} nodes  flush: queued_metrics={} \
+                 queued_logs={} uploaded={} dropped={} retained={}{}",
                 elapsed * 1_000.0,
                 outcome.queued_metrics,
                 outcome.queued_logs,
@@ -661,8 +662,8 @@ fn main() {
         let left = queue.len();
         if left > 0 {
             println!(
-                "{left} ping(s) still queued at {} — they will be uploaded on the next run \
-                 (this is the offline path working, not an error)",
+                "{left} ping(s) still queued at {} — they will be uploaded on the next run (this \
+                 is the offline path working, not an error)",
                 queue.dir().display()
             );
         }
@@ -1000,8 +1001,8 @@ fn run_update_drill(
     if let Some(root) = root_key {
         match up::download_and_verify(&release, &staging, root, &mut state) {
             Ok(o) => println!(
-                "update: staged AND VERIFIED {} ({} bytes, cached={}) — signature chain OK, \
-                 key generation now {}",
+                "update: staged AND VERIFIED {} ({} bytes, cached={}) — signature chain OK, key \
+                 generation now {}",
                 o.path.display(),
                 o.bytes_written,
                 o.used_cached,
@@ -1016,8 +1017,12 @@ fn run_update_drill(
         // AUTO: stage in the background; consent still gates the swap.
         match up::download_update(&release, &staging) {
             Ok(o) => println!(
-                "update: auto-staged {} ({} bytes this call, resumed_from={}, cached={}, range-resume-honored={})",
-                o.path.display(), o.bytes_written, o.resumed_from_bytes, o.used_cached,
+                "update: auto-staged {} ({} bytes this call, resumed_from={}, cached={}, \
+                 range-resume-honored={})",
+                o.path.display(),
+                o.bytes_written,
+                o.resumed_from_bytes,
+                o.used_cached,
                 o.server_supports_resume
             ),
             Err(e) => println!("update: staging failed: {e}"),

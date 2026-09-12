@@ -136,7 +136,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
     }
 
     for (platform, env_vars, target_path, output_path) in all_configs.iter() {
-        let file = build_dll(version, platform, env_vars, &target_path)?;
+        let file = build_dll(version, platform, env_vars, target_path)?;
         std::fs::write(output_dir.join(output_path), file)?;
     }
 
@@ -176,8 +176,8 @@ pub fn build_dll(
     // Build the binary
     let status = Command::new("cargo")
         .current_dir(build_dir)
-        .args(&["build", "--release", "--target", target])
-        .args(env.iter().map(|v| OsStr::new(v)))
+        .args(["build", "--release", "--target", target])
+        .args(env.iter().map(OsStr::new))
         .status()
         .context("Failed to run cargo build")?;
 

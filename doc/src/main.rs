@@ -333,8 +333,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            use autofix::type_index::TypeDefKind;
-            use autofix::types::RefKind;
+            use autofix::{type_index::TypeDefKind, types::RefKind};
 
             // Lint 2: DOUBLE-DROP invariant (field-glue delegation; fixed
             // 2026-07-07 — replaces the old `run_destructor` drop-guard scheme).
@@ -412,8 +411,8 @@ fn main() -> anyhow::Result<()> {
             }
             match &gen_impl_drop {
                 None => println!(
-                    "[skip] double-drop invariant — target/codegen/dll_api_internal.rs \
-                     absent (run `codegen all` first)"
+                    "[skip] double-drop invariant — target/codegen/dll_api_internal.rs absent \
+                     (run `codegen all` first)"
                 ),
                 Some(_) if dd_violations.is_empty() => {
                     println!(
@@ -533,8 +532,7 @@ fn main() -> anyhow::Result<()> {
             {
                 let (referenced, chains) =
                     api::collect_all_referenced_types_from_api_with_chains(&api_data);
-                let mut defined: std::collections::HashSet<&str> =
-                    std::collections::HashSet::new();
+                let mut defined: std::collections::HashSet<&str> = std::collections::HashSet::new();
                 // `classes` is the whole namespace - callback typedefs live
                 // there too, as classes carrying a `callback_typedef`.
                 for (_ver, vd) in &api_data.0 {
@@ -829,7 +827,10 @@ fn main() -> anyhow::Result<()> {
                     patch_count,
                     patches_dir.display()
                 );
-                println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+                println!(
+                    "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become \
+                     stale:"
+                );
                 println!(
                     "  cargo run --bin azul-doc -- autofix apply {}",
                     patches_dir.display()
@@ -1079,7 +1080,10 @@ fn main() -> anyhow::Result<()> {
                             patches.len() + 1,
                             patches_dir.display()
                         );
-                        println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+                        println!(
+                            "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may \
+                             become stale:"
+                        );
                         println!(
                             "  cargo run --bin azul-doc -- autofix apply {}",
                             patches_dir.display()
@@ -1714,7 +1718,10 @@ fn main() -> anyhow::Result<()> {
             println!(
                 "  azul-doc debug-regression statistics         - Generate diff report (stdout)"
             );
-            println!("  azul-doc debug-regression statistics prompt  - Generate Gemini prompt with source");
+            println!(
+                "  azul-doc debug-regression statistics prompt  - Generate Gemini prompt with \
+                 source"
+            );
             println!("  azul-doc debug-regression statistics send    - Send prompt to Gemini API");
             println!(
                 "  azul-doc debug-regression statistics send -o <file>  - Save response to file"
@@ -1729,8 +1736,14 @@ fn main() -> anyhow::Result<()> {
             println!(
                 "  4. View text diffs:       cargo run --release -- debug-regression statistics"
             );
-            println!("  5. Generate prompt:       cargo run --release -- debug-regression statistics prompt > prompt.md");
-            println!("  6. Send to Gemini:        cargo run --release -- debug-regression statistics send -o response.md");
+            println!(
+                "  5. Generate prompt:       cargo run --release -- debug-regression statistics \
+                 prompt > prompt.md"
+            );
+            println!(
+                "  6. Send to Gemini:        cargo run --release -- debug-regression statistics \
+                 send -o response.md"
+            );
             return Ok(());
         }
         ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
@@ -1959,7 +1972,8 @@ fn main() -> anyhow::Result<()> {
         | ["fast-deploy-with-reftests"]
         | ["fast-deploy-with-reftests", ..] => {
             // Modes: "deploy" (production), "deploy debug" (fast, external CSS),
-            // "deploy with-reftests" (debug + run reftests), "fast-deploy-with-reftests" (legacy alias)
+            // "deploy with-reftests" (debug + run reftests), "fast-deploy-with-reftests" (legacy
+            // alias)
             let is_debug = args.len() > 2 && (args[2] == "debug" || args[2] == "with-reftests");
             let run_reftests = (args.len() > 2 && args[2] == "with-reftests")
                 || args[1] == "fast-deploy-with-reftests";
@@ -2221,7 +2235,10 @@ fn main() -> anyhow::Result<()> {
             // Browsers ask for /favicon.ico whenever a page carries no icon
             // link (the marketing landing, /os, /ws, every 404 page); the
             // docs under /ui link their own copy.
-            fs::copy(templates_dir.join("favicon.ico"), root_dir.join("favicon.ico"))?;
+            fs::copy(
+                templates_dir.join("favicon.ico"),
+                root_dir.join("favicon.ico"),
+            )?;
             // Animated foam decoration for the landing hero (copied from the
             // erp-site design; that repo ships no hero video, so only the SVG).
             fs::copy(templates_dir.join("foam.svg"), root_dir.join("foam.svg"))?;
@@ -2325,10 +2342,10 @@ fn generate_release_pages(
         // Linked from the release page next to the macOS downloads.
         fs::write(
             version_dir.join("unquarantine.sh"),
-            "#!/bin/sh\n# Remove the macOS quarantine flag from downloaded azul files so\n\
-             # Gatekeeper stops blocking them. Usage: sh unquarantine.sh <file>...\n\
-             if [ $# -eq 0 ]; then echo \"usage: sh unquarantine.sh <file>...\"; exit 1; fi\n\
-             for f in \"$@\"; do xattr -dr com.apple.quarantine \"$f\" && echo \"un-quarantined: $f\"; done\n",
+            "#!/bin/sh\n# Remove the macOS quarantine flag from downloaded azul files so\n# \
+             Gatekeeper stops blocking them. Usage: sh unquarantine.sh <file>...\nif [ $# -eq 0 \
+             ]; then echo \"usage: sh unquarantine.sh <file>...\"; exit 1; fi\nfor f in \"$@\"; \
+             do xattr -dr com.apple.quarantine \"$f\" && echo \"un-quarantined: $f\"; done\n",
         )?;
 
         // Generate C header for this version
@@ -2438,7 +2455,12 @@ fn generate_release_pages(
         // api.json, not from what happens to be in the directory.
         let bundle_keys: Vec<String> = api_data
             .get_version(version)
-            .map(|v| dllgen::bundles::bundle_maps(&v.installation).keys().cloned().collect())
+            .map(|v| {
+                dllgen::bundles::bundle_maps(&v.installation)
+                    .keys()
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
 
         // Pre-rendered binding bundles + the self-contained Rust crate
@@ -2461,20 +2483,26 @@ fn generate_release_pages(
                     if !report.missing.is_empty() {
                         if deploy_mode == DeployMode::Strict {
                             anyhow::bail!(
-                                "Deploy failed: binding bundles for version {} are incomplete:\n  {}",
+                                "Deploy failed: binding bundles for version {} are incomplete:\n  \
+                                 {}",
                                 version,
                                 report.missing.join("\n  ")
                             );
                         }
                         eprintln!(
-                            "  [WARN] binding bundles incomplete (run `azul-doc codegen all`):\n  {}",
+                            "  [WARN] binding bundles incomplete (run `azul-doc codegen all`):\n  \
+                             {}",
                             report.missing.join("\n  ")
                         );
                     }
                 }
                 Err(e) => {
                     if deploy_mode == DeployMode::Strict {
-                        anyhow::bail!("Deploy failed: binding bundles for version {}: {}", version, e);
+                        anyhow::bail!(
+                            "Deploy failed: binding bundles for version {}: {}",
+                            version,
+                            e
+                        );
                     }
                     eprintln!("  [WARN] Failed to create binding bundles: {}", e);
                 }
@@ -2598,10 +2626,9 @@ fn find_patches_dir(project_root: &PathBuf) -> anyhow::Result<PathBuf> {
         Ok(default)
     } else {
         anyhow::bail!(
-            "No patches directory found. Generate patches first with:\n  \
-             azul-doc autofix difficult remove <items...>\n  \
-             azul-doc autofix remove <Type.method>\n\n\
-             Expected location: {}",
+            "No patches directory found. Generate patches first with:\n  azul-doc autofix \
+             difficult remove <items...>\n  azul-doc autofix remove <Type.method>\n\nExpected \
+             location: {}",
             default.display()
         )
     }
@@ -2667,7 +2694,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --dry-run          - Generate prompts without running agents");
     println!("    autoreview --status           - Show review progress");
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
-    println!("    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor bugs)");
+    println!(
+        "    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor \
+         bugs)"
+    );
     println!(
         "    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)"
     );
@@ -2678,7 +2708,10 @@ fn print_cli_help() -> anyhow::Result<()> {
         "                                    agent whether its HIGH-LEVEL / architectural finding"
     );
     println!("                                    still applies, and append one bullet to");
-    println!("                                    scripts/HIGHLEVEL_SUPERPLAN.md (sequential, resumable,");
+    println!(
+        "                                    scripts/HIGHLEVEL_SUPERPLAN.md (sequential, \
+         resumable,"
+    );
     println!(
         "                                    NO commits). [--reference=<branch>] [--model=<name>]"
     );
@@ -2689,13 +2722,22 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!(
         "    autoreview apply-midlevel     - Interactively replay commits from a reference branch"
     );
-    println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
-    println!("                                    [--no-telegram] [--triage] [--pending-only] [--auto-apply]");
+    println!(
+        "                                    --reference=<branch/tag> [--base=<ref>] \
+         [--model=<name>]"
+    );
+    println!(
+        "                                    [--no-telegram] [--triage] [--pending-only] \
+         [--auto-apply]"
+    );
     println!("                                    [--limit=N] [--last=N] [--retries=N]");
     println!(
         "                                    --last=N windows to the most recent N commits of the"
     );
-    println!("                                    range (resume the un-applied tail after lost progress).");
+    println!(
+        "                                    range (resume the un-applied tail after lost \
+         progress)."
+    );
     println!(
         "                                    Pending pre-decisions (from `triage`) auto-apply"
     );
@@ -2728,15 +2770,24 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                    Pair with --limit=N to triage 5–10 commits at a");
     println!("                                    time, then break and resume later.");
     println!("    autoreview apply-midlevel auto");
-    println!("                                  - Sugar for --auto-apply. FULLY UNATTENDED: the analyzer");
-    println!("                                    classifies every un-processed commit and acts on its tag");
+    println!(
+        "                                  - Sugar for --auto-apply. FULLY UNATTENDED: the \
+         analyzer"
+    );
+    println!(
+        "                                    classifies every un-processed commit and acts on its \
+         tag"
+    );
     println!(
         "                                    with no human in the loop and no prior triage needed:"
     );
     println!(
         "                                      [KEEP]/[WIRE]/[REFACTOR] → apply (retries up to N)"
     );
-    println!("                                      [DONE]    → skip (already fixed in the drifted tree)");
+    println!(
+        "                                      [DONE]    → skip (already fixed in the drifted \
+         tree)"
+    );
     println!("                                      [REJECT]  → reject");
     println!("                                      [UNCLEAR] → skip for human review");
     println!(
@@ -2745,7 +2796,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!(
         "                                    Walks all commits in order; pair with --limit=N for"
     );
-    println!("                                    batches. Skips/rejects are recorded so re-runs resume.");
+    println!(
+        "                                    batches. Skips/rejects are recorded so re-runs \
+         resume."
+    );
     println!("    autoreview apply-midlevel pending");
     println!("                                  - Sugar for --pending-only. Applies ONLY commits");
     println!(
@@ -2780,18 +2834,15 @@ fn print_cli_help() -> anyhow::Result<()> {
         "                                    the source at HEAD and append verbatim `## Sources`"
     );
     println!(
-        "                                    excerpts, so a tool-less writing model can rewrite the"
+        "                                    excerpts, so a tool-less writing model can rewrite \
+         the"
     );
-    println!(
-        "                                    page from the bundle alone. Output lands in"
-    );
+    println!("                                    page from the bundle alone. Output lands in");
     println!("                                    doc/target/assemble-context/.");
     println!(
         "                                    [--page=SLUG] [--agents=N] [--model=M] [--timeout=S]"
     );
-    println!(
-        "                                    [--no-agent] (machine checks only) [--dry-run]"
-    );
+    println!("                                    [--no-agent] (machine checks only) [--dry-run]");
     println!(
         "    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml"
     );
@@ -2842,12 +2893,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    discover <pattern>            - Scan for types matching pattern");
     println!();
     println!("  CODE GENERATION:");
-    println!("    codegen                       - Generate Rust library code");
-    println!("    codegen rust                  - Generate Rust library code");
-    println!("    codegen c                     - Generate C header (azul.h)");
-    println!("    codegen cpp                   - Generate C++ header (azul.hpp)");
-    println!("    codegen python                - Generate Python bindings");
-    println!("    codegen all                   - Generate all bindings + DLL API + memtest");
+    println!("    codegen                       - Generate every binding + DLL API + memtest");
+    println!("                                    into target/codegen (alias: codegen all)");
+    println!("                                    Per-language forms (codegen c, codegen rust, ..)");
+    println!("                                    were removed; there is only the full run.");
     println!();
     println!("  PACKAGING:");
     println!("    nfpm                          - Generate NFPM config (latest version)");

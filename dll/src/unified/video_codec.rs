@@ -91,15 +91,14 @@ pub mod pipeline {
         ANNOUNCE.call_once(|| {
             if cfg!(target_arch = "wasm32") {
                 eprintln!(
-                    "[azul][video] decode_mp4_h264: H.264 decode has no wasm backend — \
-                     this build can NEVER return frames (always None)"
+                    "[azul][video] decode_mp4_h264: H.264 decode has no wasm backend — this build \
+                     can NEVER return frames (always None)"
                 );
             } else {
                 eprintln!(
-                    "[azul][video] decode_mp4_h264: this build has no `video-native` \
-                     feature — H.264 decode is compiled out and can NEVER return frames \
-                     (always None). Rebuild with: cargo build -p azul-dll --features \
-                     build-dll,video-native"
+                    "[azul][video] decode_mp4_h264: this build has no `video-native` feature — \
+                     H.264 decode is compiled out and can NEVER return frames (always None). \
+                     Rebuild with: cargo build -p azul-dll --features build-dll,video-native"
                 );
             }
         });

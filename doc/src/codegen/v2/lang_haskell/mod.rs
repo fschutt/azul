@@ -3,23 +3,20 @@
 //! Produces a small library of `.hs` modules, a C shim file and a Cabal
 //! manifest:
 //!
-//! 1. `src/Azul.hs` — the umbrella module user code imports: one managed
-//!    wrapper type per resource-owning class, one function per api.json
-//!    method (receiver last, so builder chains are `>>=` pipelines), the
-//!    host-handle `RefAny` (`refAnyCreate` / `refAnyGet` / `refAnyModify`),
-//!    callbacks as plain closures, and re-exports of the `Azul.Types`
-//!    enums and plain structs. See `wrappers.rs`.
-//! 2. `src/Azul/Internal/FFI.hs` — raw `foreign import ccall` declarations
-//!    that link to the C ABI symbols (through the `_via` shims wherever a
-//!    struct travels by value). Every import is `safe`: a host-handle
-//!    `RefAny` destructor re-enters Haskell through the releaser, so any
+//! 1. `src/Azul.hs` — the umbrella module user code imports: one managed wrapper type per
+//!    resource-owning class, one function per api.json method (receiver last, so builder chains are
+//!    `>>=` pipelines), the host-handle `RefAny` (`refAnyCreate` / `refAnyGet` / `refAnyModify`),
+//!    callbacks as plain closures, and re-exports of the `Azul.Types` enums and plain structs. See
+//!    `wrappers.rs`.
+//! 2. `src/Azul/Internal/FFI.hs` — raw `foreign import ccall` declarations that link to the C ABI
+//!    symbols (through the `_via` shims wherever a struct travels by value). Every import is
+//!    `safe`: a host-handle `RefAny` destructor re-enters Haskell through the releaser, so any
 //!    function that may drop one can call back.
-//! 3. `src/Azul/Types.hs` — Haskell data declarations that mirror the C
-//!    structs, enums and tagged unions, with `Storable` instances whose
-//!    sizes, alignments and member offsets are imports of the cbits layout
-//!    oracle (the C compiler's `sizeof` / `_Alignof` / `offsetof`).
-//! 4. `cbits/azul_shims.c` — the `_via` shims, the inbound trampolines,
-//!    the host-invoker prototypes and the layout oracle.
+//! 3. `src/Azul/Types.hs` — Haskell data declarations that mirror the C structs, enums and tagged
+//!    unions, with `Storable` instances whose sizes, alignments and member offsets are imports of
+//!    the cbits layout oracle (the C compiler's `sizeof` / `_Alignof` / `offsetof`).
+//! 4. `cbits/azul_shims.c` — the `_via` shims, the inbound trampolines, the host-invoker prototypes
+//!    and the layout oracle.
 //! 5. `azul.cabal` — Cabal manifest declaring the library + deps.
 //!
 //! ## Output protocol
@@ -54,9 +51,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod cshim;
 
@@ -110,9 +105,8 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 ///
 /// Recognised shapes (all of which GHC rejects if repeated in one module):
 /// - `data <Name>` / `newtype <Name>` / `type <Name>` at column 0
-/// - a type signature `<name> :: <ty>` — at column 0 for a plain binding,
-///   or indented directly under a `foreign import ...` header, which is
-///   how this backend emits its FFI bindings.
+/// - a type signature `<name> :: <ty>` — at column 0 for a plain binding, or indented directly
+///   under a `foreign import ...` header, which is how this backend emits its FFI bindings.
 ///
 /// Deliberately *not* matched, because they are not module-scope
 /// declarations: record fields (`{ foo :: !T` / `, bar :: !T` — the line
@@ -198,8 +192,8 @@ fn check_no_duplicate_declarations(path: &str, src: &str) -> Result<()> {
     }
     if !dupes.is_empty() {
         anyhow::bail!(
-            "Haskell codegen emitted {} duplicate module-scope declaration(s) in {} \
-             (GHC rejects these with GHC-29916 \"Multiple declarations of ...\"):\n{}",
+            "Haskell codegen emitted {} duplicate module-scope declaration(s) in {} (GHC rejects \
+             these with GHC-29916 \"Multiple declarations of ...\"):\n{}",
             dupes.len(),
             path,
             dupes.join("\n")
@@ -305,8 +299,13 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.indent();
     builder.line("| n < 0x80 = [fromIntegral n]");
     builder.line("| n < 0x800 = [fromIntegral (0xC0 .|. (n `shiftR` 6)), cont n]");
-    builder.line("| n < 0x10000 = [fromIntegral (0xE0 .|. (n `shiftR` 12)), cont (n `shiftR` 6), cont n]");
-    builder.line("| otherwise = [fromIntegral (0xF0 .|. (n `shiftR` 18)), cont (n `shiftR` 12), cont (n `shiftR` 6), cont n]");
+    builder.line(
+        "| n < 0x10000 = [fromIntegral (0xE0 .|. (n `shiftR` 12)), cont (n `shiftR` 6), cont n]",
+    );
+    builder.line(
+        "| otherwise = [fromIntegral (0xF0 .|. (n `shiftR` 18)), cont (n `shiftR` 12), cont (n \
+         `shiftR` 6), cont n]",
+    );
     builder.indent();
     builder.line("where n = ord c");
     builder.dedent();
@@ -315,7 +314,8 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.dedent();
     builder.dedent();
     builder.blank();
-    builder.line("-- | Decode UTF-8 bytes into a Haskell String (malformed sequences become U+FFFD).");
+    builder
+        .line("-- | Decode UTF-8 bytes into a Haskell String (malformed sequences become U+FFFD).");
     builder.line("decodeUtf8 :: [Word8] -> String");
     builder.line("decodeUtf8 [] = []");
     builder.line("decodeUtf8 (b0 : rest)");
@@ -330,7 +330,10 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.indent();
     builder.line("multi :: Int -> Int -> [Word8] -> String");
     builder.line("multi 0 acc bs = chr acc : decodeUtf8 bs");
-    builder.line("multi k acc (b : bs) | b .&. 0xC0 == 0x80 = multi (k - 1) ((acc `shiftL` 6) .|. fromIntegral (b .&. 0x3F)) bs");
+    builder.line(
+        "multi k acc (b : bs) | b .&. 0xC0 == 0x80 = multi (k - 1) ((acc `shiftL` 6) .|. \
+         fromIntegral (b .&. 0x3F)) bs",
+    );
     builder.line("multi _ _ bs = '\\xFFFD' : decodeUtf8 bs");
     builder.dedent();
     builder.dedent();

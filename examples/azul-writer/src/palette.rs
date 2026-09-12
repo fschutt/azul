@@ -19,8 +19,10 @@
 //! partially-detected desktop degrades one colour at a time instead of
 //! cascading into a palette nobody designed.
 
-use azul::css::{ColorU, SystemStyle};
-use azul::window::WindowTheme;
+use azul::{
+    css::{ColorU, SystemStyle},
+    window::WindowTheme,
+};
 
 /// A colour the desktop may or may not report.
 type Opt = azul::option::OptionColorU;
@@ -423,9 +425,12 @@ impl Default for Palette {
 /// re-asserts the brand, in ONE place, so no call site has to remember which
 /// of a dozen fields is brand and which is chrome.
 pub mod widgets {
-    use azul::css::{ColorU, SystemStyle};
-    use azul::widgets::{
-        BackstageStyle, BackstageTheme, RibbonStyle, RibbonTheme, StatusBarStyle, StatusBarTheme,
+    use azul::{
+        css::{ColorU, SystemStyle},
+        widgets::{
+            BackstageStyle, BackstageTheme, RibbonStyle, RibbonTheme, StatusBarStyle,
+            StatusBarTheme,
+        },
     };
 
     use super::Palette;
@@ -713,4 +718,3 @@ mod tests {
         );
     }
 }
-

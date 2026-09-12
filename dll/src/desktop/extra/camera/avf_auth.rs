@@ -13,8 +13,7 @@
 //! unsigned demo binaries get a working prompt as long as somebody actually
 //! asks.
 
-use std::sync::mpsc;
-use std::time::Duration;
+use std::{sync::mpsc, time::Duration};
 
 use block2::RcBlock;
 use objc2::runtime::Bool;
@@ -41,14 +40,13 @@ fn media_label(media: &AVMediaType) -> &'static str {
 /// proceed.
 ///
 /// - `Authorized` → `true`.
-/// - `Denied` / `Restricted` → logs how to fix it and returns `false` (a
-///   session started anyway would only vend black frames / silence).
-/// - `NotDetermined` → calls `requestAccessForMediaType:completionHandler:`
-///   and **blocks up to 60 s** for the user's answer. That's fine — the only
-///   callers are the dedicated capture worker threads (camera / mic), never
-///   the frame loop. A timeout (or an unresolvable request path) returns
-///   `true` and lets the session try anyway, so this gate can never make
-///   things worse than the old "just call `startRunning`" behavior.
+/// - `Denied` / `Restricted` → logs how to fix it and returns `false` (a session started anyway
+///   would only vend black frames / silence).
+/// - `NotDetermined` → calls `requestAccessForMediaType:completionHandler:` and **blocks up to 60
+///   s** for the user's answer. That's fine — the only callers are the dedicated capture worker
+///   threads (camera / mic), never the frame loop. A timeout (or an unresolvable request path)
+///   returns `true` and lets the session try anyway, so this gate can never make things worse than
+///   the old "just call `startRunning`" behavior.
 pub fn ensure_av_access(media: &AVMediaType) -> bool {
     let label = media_label(media);
     let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) };
@@ -61,10 +59,9 @@ pub fn ensure_av_access(media: &AVMediaType) -> bool {
                 "restricted (MDM / parental controls)"
             };
             crate::plog_warn!(
-                "[avf_auth] {} access is {} — capture would only produce black/silent \
-                 samples. On macOS the grant is per responsible process (the terminal \
-                 app when launched from a terminal); enable it under System Settings → \
-                 Privacy & Security → {}.",
+                "[avf_auth] {} access is {} — capture would only produce black/silent samples. On \
+                 macOS the grant is per responsible process (the terminal app when launched from \
+                 a terminal); enable it under System Settings → Privacy & Security → {}.",
                 label,
                 state,
                 if label == "camera" {
@@ -95,8 +92,8 @@ pub fn ensure_av_access(media: &AVMediaType) -> bool {
                 }
                 Ok(false) => {
                     crate::plog_warn!(
-                        "[avf_auth] {} access denied by user — capture backend will \
-                         report failure (widget keeps its test pattern)",
+                        "[avf_auth] {} access denied by user — capture backend will report \
+                         failure (widget keeps its test pattern)",
                         label
                     );
                     false
@@ -106,8 +103,8 @@ pub fn ensure_av_access(media: &AVMediaType) -> bool {
                     // path didn't fire at all). Let the session try anyway —
                     // never make things worse.
                     crate::plog_warn!(
-                        "[avf_auth] {} access request unanswered after 60s — \
-                         proceeding optimistically",
+                        "[avf_auth] {} access request unanswered after 60s — proceeding \
+                         optimistically",
                         label
                     );
                     true
@@ -176,10 +173,9 @@ pub fn request_av_access_nonblocking(video: bool) {
         }
         STATUS_DENIED | STATUS_RESTRICTED => {
             crate::plog_warn!(
-                "[avf_auth] {} access denied/restricted — re-prompting is not \
-                 possible; grant it under System Settings → Privacy & Security \
-                 (the grant is keyed to the responsible process, e.g. the \
-                 terminal app when launched from a terminal)",
+                "[avf_auth] {} access denied/restricted — re-prompting is not possible; grant it \
+                 under System Settings → Privacy & Security (the grant is keyed to the \
+                 responsible process, e.g. the terminal app when launched from a terminal)",
                 label
             );
             push_async_result(

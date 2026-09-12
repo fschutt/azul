@@ -2,38 +2,38 @@
 //!
 //! Strategy:
 //!
-//! - **Forward declarations** for *every* surviving struct + enum
-//!   (`PAzFoo = ^TAzFoo;`) emitted at the top of the `type` block. Pascal
-//!   requires types to exist before they are referenced; a single block of
-//!   forward pointer aliases means the rest of the file can refer to any
-//!   type's pointer in any order.
-//! - **POD structs** (`!fields.is_empty()`, non-recursive,
-//!   non-generic-template) -> `TAzFoo = record ... end;` with field types
-//!   resolved via `map_type_to_pascal`. The unit-level
-//!   `{$PACKRECORDS C}` directive at the top of `azul.pas` ensures the
-//!   layout matches the Rust C ABI exactly.
-//! - **Unit-only enums** -> `TAzBar = (TAzBar_Foo, TAzBar_Bar);` Pascal
-//!   sequences enum constants from 0 by default which matches Rust's
-//!   default `repr(C)` enum layout.
-//! - **Tagged-union enums** -> emitted as `record case Tag of ... end;`
-//!   (a Pascal *variant record*). The tag enum is emitted first; each
-//!   variant maps to a payload field (or empty section for unit variants).
-//! - **Callback typedefs** -> `type TAzFooCallbackType = function(...): ...;
-//!   cdecl;` declarations. Pascal's procedural-type support is exactly
-//!   what we need here.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with `{ SKIPPED: <reason> }` block comments.
+//! - **Forward declarations** for *every* surviving struct + enum (`PAzFoo = ^TAzFoo;`) emitted at
+//!   the top of the `type` block. Pascal requires types to exist before they are referenced; a
+//!   single block of forward pointer aliases means the rest of the file can refer to any type's
+//!   pointer in any order.
+//! - **POD structs** (`!fields.is_empty()`, non-recursive, non-generic-template) -> `TAzFoo =
+//!   record ... end;` with field types resolved via `map_type_to_pascal`. The unit-level
+//!   `{$PACKRECORDS C}` directive at the top of `azul.pas` ensures the layout matches the Rust C
+//!   ABI exactly.
+//! - **Unit-only enums** -> `TAzBar = (TAzBar_Foo, TAzBar_Bar);` Pascal sequences enum constants
+//!   from 0 by default which matches Rust's default `repr(C)` enum layout.
+//! - **Tagged-union enums** -> emitted as `record case Tag of ... end;` (a Pascal *variant
+//!   record*). The tag enum is emitted first; each variant maps to a payload field (or empty
+//!   section for unit variants).
+//! - **Callback typedefs** -> `type TAzFooCallbackType = function(...): ...; cdecl;` declarations.
+//!   Pascal's procedural-type support is exactly what we need here.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `{ SKIPPED:
+//!   <reason> }` block comments.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
-    TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
+            TypeAliasDef, TypeCategory,
+        },
+    },
+    map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier,
 };
-use super::{map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier};
 
 // ============================================================================
 // Top-level type-block emission
@@ -52,8 +52,8 @@ pub fn generate_types(
     builder.line("type");
     builder.indent();
 
-    // 1. Forward declare every pointer alias up front so later
-    //    `record` / function bodies can refer to them in any order.
+    // 1. Forward declare every pointer alias up front so later `record` / function bodies can refer
+    //    to them in any order.
     emit_forward_pointer_decls(builder, ir, config);
     builder.blank();
 
@@ -570,6 +570,5 @@ fn sanitize_comment(s: &str) -> String {
     // Replace both braces with parens so the comment text is harmless.
     s.replace('{', "(")
         .replace('}', ")")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
 }

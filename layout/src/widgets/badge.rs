@@ -7,8 +7,10 @@
 //! Key types: [`Badge`], [`BadgeKind`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -47,7 +49,9 @@ pub enum BadgeKind {
 
 impl BadgeKind {
     /// Returns the `(background, text)` colours for this badge kind.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU {
             r: 255,
@@ -142,8 +146,13 @@ pub struct Badge {
     pub string: AzString,
     /// The colour variant.
     pub kind: BadgeKind,
-    /// The computed inline style for the pill.
-    pub badge_style: CssPropertyWithConditionsVec,
+    /// The pill's CSS, or `None` for "no opinion" — in which case the style is
+    /// derived from `kind` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub badge_style: OptionCssPropertyWithConditionsVec,
 }
 
 /// Builds the pill style for a given [`BadgeKind`]. The colours are the only
@@ -208,32 +217,47 @@ impl Badge {
     /// Creates a new badge with the given text and the default (grey) kind.
     #[inline]
     #[must_use]
-    pub fn create(string: AzString) -> Self {
+    pub const fn create(string: AzString) -> Self {
         Self::with_kind(string, BadgeKind::Default)
     }
 
     /// Creates a new badge with the given text and colour variant.
     #[inline]
     #[must_use]
-    pub fn with_kind(string: AzString, kind: BadgeKind) -> Self {
+    pub const fn with_kind(string: AzString, kind: BadgeKind) -> Self {
         Self {
             string,
             kind,
-            badge_style: build_badge_style(kind),
+            badge_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the colour variant, recomputing the style.
+    /// The pill CSS this badge renders with.
+    ///
+    /// `None` means no opinion, so the kind's default applies — the same answer
+    /// both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_badge_style(&self) -> CssPropertyWithConditionsVec {
+        self.badge_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_badge_style(self.kind))
+    }
+
+    /// Sets the colour variant.
+    ///
+    /// Does not touch `badge_style`: the style is resolved from `kind` when the
+    /// DOM is built, so changing the kind is enough. Writing it here would also
+    /// overwrite a caller's explicit style.
     #[inline]
-    pub fn set_kind(&mut self, kind: BadgeKind) {
+    pub const fn set_kind(&mut self, kind: BadgeKind) {
         self.kind = kind;
-        self.badge_style = build_badge_style(kind);
     }
 
     /// Builder-style setter for the colour variant.
     #[inline]
     #[must_use]
-    pub fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
+    pub const fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -241,7 +265,7 @@ impl Badge {
     /// Replaces `self` with an empty default badge and returns the original.
     #[inline]
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -259,9 +283,12 @@ impl Badge {
         static BADGE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-badge"))];
 
+        // Resolved before `self.string` is moved out below.
+        let badge_style = self.resolved_badge_style();
+
         crate::widgets::widget_p_with_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(BADGE_CLASS))
-            .with_css_props(self.badge_style)
+            .with_css_props(badge_style)
     }
 }
 
@@ -616,7 +643,8 @@ mod autotest_generated {
             let rejected = (luma(bg) - luma(other)).abs();
             assert!(
                 chosen > rejected,
-                "{kind:?}: text {text:?} (Δluma {chosen:.1}) is less readable on {bg:?} than {other:?} (Δluma {rejected:.1})"
+                "{kind:?}: text {text:?} (Δluma {chosen:.1}) is less readable on {bg:?} than \
+                 {other:?} (Δluma {rejected:.1})"
             );
             assert!(
                 chosen >= 60.0,
@@ -912,7 +940,7 @@ mod autotest_generated {
                 "create() must use the grey default kind"
             );
             assert_eq!(
-                properties(&b.badge_style),
+                properties(&b.resolved_badge_style()),
                 properties(&build_badge_style(BadgeKind::Default))
             );
         }
@@ -933,12 +961,15 @@ mod autotest_generated {
                     b.kind, kind,
                     "{kind:?}: kind field does not match the argument"
                 );
-                // The invariant that makes `badge_style` a cache and not a lie.
+                // The resolver has to answer from `kind`, not from a stored vec.
                 assert_eq!(
-                    properties(&b.badge_style),
+                    properties(&b.resolved_badge_style()),
                     properties(&build_badge_style(kind))
                 );
-                assert_eq!(background_color(&b.badge_style), Some(kind.colors().0));
+                assert_eq!(
+                    background_color(&b.resolved_badge_style()),
+                    Some(kind.colors().0)
+                );
             }
         }
     }
@@ -991,17 +1022,17 @@ mod autotest_generated {
 
             assert_eq!(b.kind, kind, "round {round}: kind field not updated");
             assert_eq!(
-                b.badge_style.as_ref().len(),
+                b.resolved_badge_style().as_slice().len(),
                 expected_len,
                 "round {round}: style vec changed length — stale declarations?"
             );
             assert_eq!(
-                properties(&b.badge_style),
+                properties(&b.resolved_badge_style()),
                 properties(&build_badge_style(kind)),
                 "round {round}: style does not match a freshly built one"
             );
             assert_eq!(
-                background_color(&b.badge_style),
+                background_color(&b.resolved_badge_style()),
                 Some(kind.colors().0),
                 "round {round}: stale background"
             );
@@ -1029,12 +1060,12 @@ mod autotest_generated {
         assert_eq!(chained.kind, BadgeKind::Info);
         assert_eq!(chained.string.as_str(), "9");
         assert_eq!(
-            properties(&chained.badge_style),
+            properties(&chained.resolved_badge_style()),
             properties(&build_badge_style(BadgeKind::Info))
         );
         // In particular the Danger red must be completely gone.
         assert_eq!(
-            background_color(&chained.badge_style),
+            background_color(&chained.resolved_badge_style()),
             Some(BadgeKind::Info.colors().0)
         );
     }
@@ -1064,7 +1095,7 @@ mod autotest_generated {
         assert_eq!(taken.string.as_str(), "99+");
         assert_eq!(taken.kind, BadgeKind::Danger);
         assert_eq!(
-            properties(&taken.badge_style),
+            properties(&taken.resolved_badge_style()),
             properties(&build_badge_style(BadgeKind::Danger))
         );
 
@@ -1074,7 +1105,7 @@ mod autotest_generated {
         assert_eq!(b.string.as_str(), "");
         assert_eq!(b.kind, BadgeKind::Default);
         assert_eq!(
-            background_color(&b.badge_style),
+            background_color(&b.resolved_badge_style()),
             Some(BadgeKind::Default.colors().0),
             "the red survived the swap"
         );
@@ -1126,7 +1157,7 @@ mod autotest_generated {
     fn dom_is_a_single_classed_pill_carrying_the_computed_style() {
         for kind in ALL_KINDS {
             let badge = Badge::with_kind(AzString::from_const_str("99+"), kind);
-            let expected = properties(&badge.badge_style);
+            let expected = properties(&badge.resolved_badge_style());
             let dom = badge.dom();
 
             assert!(

@@ -4,23 +4,32 @@
 //! Uses typed getters on CssPropertyCache (which cascade through all sources)
 //! to resolve each property for the "normal" state (all pseudo-states = false).
 
-use crate::dom::{NodeData, NodeId};
-use crate::prop_cache::CssPropertyCache;
+use alloc::vec::Vec;
+use core::hash::{Hash, Hasher};
 
-use crate::styled_dom::StyledNodeState;
+#[allow(clippy::wildcard_imports)]
+use azul_css::compact_cache::*;
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        basic::length::SizeMetric,
+        layout::{
+            dimensions::{LayoutHeight, LayoutWidth},
+            flex::LayoutFlexBasis,
+            position::LayoutZIndex,
+        },
+        property::CssProperty,
+    },
+};
+
 // wildcard import: this module is the consumer of the whole compact_cache codec
 // (encode/decode helpers + sentinel consts); enumerating them is unmaintainable.
 use crate::hash::DefaultHasher;
-use alloc::vec::Vec;
-#[allow(clippy::wildcard_imports)]
-use azul_css::compact_cache::*;
-use azul_css::css::CssPropertyValue;
-use azul_css::props::basic::length::SizeMetric;
-use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-use azul_css::props::layout::flex::LayoutFlexBasis;
-use azul_css::props::layout::position::LayoutZIndex;
-use azul_css::props::property::CssProperty;
-use core::hash::{Hash, Hasher};
+use crate::{
+    dom::{NodeData, NodeId},
+    prop_cache::CssPropertyCache,
+    styled_dom::StyledNodeState,
+};
 
 impl CssPropertyCache {
     /// Build a `CompactLayoutCache` from the current property cache state.
@@ -41,7 +50,10 @@ impl CssPropertyCache {
     // against the i16 sentinel threshold before the deliberate narrowing cast.
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
@@ -484,7 +496,10 @@ impl CssPropertyCache {
     }
 
     /// Same as `build_compact_cache_with_inheritance` but with optional debug logging.
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn build_compact_cache_with_inheritance_debug(
         &self,
         node_data: &[NodeData],
@@ -731,8 +746,8 @@ impl CssPropertyCache {
                 // node as a root) for any malformed reference in release builds.
                 debug_assert!(
                     pi < i,
-                    "compact cascade: non-pre-order arena — node {i}'s parent {pi} \
-                     is not stored before it; inheritance would read default values",
+                    "compact cascade: non-pre-order arena — node {i}'s parent {pi} is not stored \
+                     before it; inheritance would read default values",
                 );
                 if pi < i {
                     // Copy only inheritable tier1 fields from parent
@@ -756,15 +771,35 @@ impl CssPropertyCache {
 
             {
                 let d = &result.tier2_dims[i];
-                cascade_debug!("node[{}] {:?} after-inherit: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={} w={} h={}",
-                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
-                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right, d.width, d.height);
+                cascade_debug!(
+                    "node[{}] {:?} after-inherit: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={} \
+                     w={} h={}",
+                    i,
+                    nd.node_type,
+                    d.padding_top,
+                    d.padding_bottom,
+                    d.padding_left,
+                    d.padding_right,
+                    d.margin_top,
+                    d.margin_bottom,
+                    d.margin_left,
+                    d.margin_right,
+                    d.width,
+                    d.height
+                );
             }
 
             // Step 2: Apply UA CSS defaults for this node type directly to compact values.
             // UA defaults have lowest cascade priority — overridden by author CSS below.
+            // THEMED, through the same table `apply_ua_css` reads: the `<hr>`
+            // rule, the native button border and (on the root) the inherited
+            // text colour follow the window's theme here exactly as they do
+            // on the slow path, so the normal-state fast path and the slow
+            // path agree (theme-chain analysis 2026-09-12, R1/I4).
             apply_ua_css_to_compact(
                 &nd.node_type,
+                i == 0,
+                self.dynamic_context.as_deref(),
                 &mut result.tier1_enums[i],
                 &mut result.tier2_dims[i],
                 &mut result.tier2_cold[i],
@@ -814,9 +849,20 @@ impl CssPropertyCache {
 
             {
                 let d = &result.tier2_dims[i];
-                cascade_debug!("node[{}] {:?} after-global-star: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={}",
-                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
-                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
+                cascade_debug!(
+                    "node[{}] {:?} after-global-star: pt={} pb={} pl={} pr={} mt={} mb={} ml={} \
+                     mr={}",
+                    i,
+                    nd.node_type,
+                    d.padding_top,
+                    d.padding_bottom,
+                    d.padding_left,
+                    d.padding_right,
+                    d.margin_top,
+                    d.margin_bottom,
+                    d.margin_left,
+                    d.margin_right
+                );
                 let n_props = self.css_props.get_slice(i).len();
                 let n_inline = nd.style.iter_inline_properties().count();
                 cascade_debug!(
@@ -858,9 +904,20 @@ impl CssPropertyCache {
 
             {
                 let d = &result.tier2_dims[i];
-                cascade_debug!("node[{}] {:?} after-css-props: pt={} pb={} pl={} pr={} mt={} mb={} ml={} mr={}",
-                    i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
-                    d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
+                cascade_debug!(
+                    "node[{}] {:?} after-css-props: pt={} pb={} pl={} pr={} mt={} mb={} ml={} \
+                     mr={}",
+                    i,
+                    nd.node_type,
+                    d.padding_top,
+                    d.padding_bottom,
+                    d.padding_left,
+                    d.padding_right,
+                    d.margin_top,
+                    d.margin_bottom,
+                    d.margin_left,
+                    d.margin_right
+                );
             }
 
             // Scan inline CSS (node_data.style — typically 0-3 properties).
@@ -910,10 +967,11 @@ impl CssPropertyCache {
                 }
                 result.uses_viewport_units |= css_property_uses_viewport_units(prop);
                 // Layout-critical props dispatched via single-variant `if let` (direct discriminant
-                // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match` lowers
-                // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
-                // CssProperty::clone bug. With the conversion-clone fix the prop discriminant is now
-                // correct, so these compares match and apply the value; everything else falls back.
+                // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match`
+                // lowers to a jump table that remill mis-lifts (never reaches the
+                // right arm) — same class as the CssProperty::clone bug. With the
+                // conversion-clone fix the prop discriminant is now correct, so
+                // these compares match and apply the value; everything else falls back.
                 // (CssProperty is imported at module top.)
                 if let CssProperty::Width(v) = prop {
                     result.tier2_dims[i].width = encode_layout_width(v);
@@ -1067,6 +1125,8 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
 
 fn apply_ua_css_to_compact(
     node_type: &crate::dom::NodeType,
+    is_root: bool,
+    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
     tier1: &mut u64,
     dims: &mut CompactNodeProps,
     cold: &mut CompactNodePropsCold,
@@ -1076,72 +1136,10 @@ fn apply_ua_css_to_compact(
         azul_css::props::basic::font::StyleFontFamilyVec,
     >,
 ) {
-    use azul_css::props::property::CssPropertyType as PT2;
-    const UA_PROPERTY_TYPES: &[PT2] = &[
-        // Tier1 enum properties
-        PT2::Display,
-        PT2::Position,
-        PT2::Float,
-        PT2::Clear,
-        PT2::OverflowX,
-        PT2::OverflowY,
-        PT2::BoxSizing,
-        PT2::FlexDirection,
-        PT2::FlexWrap,
-        PT2::JustifyContent,
-        PT2::AlignItems,
-        PT2::AlignContent,
-        PT2::WritingMode,
-        PT2::FontWeight,
-        PT2::FontStyle,
-        PT2::TextAlign,
-        PT2::Visibility,
-        PT2::WhiteSpace,
-        PT2::Direction,
-        PT2::VerticalAlign,
-        PT2::BorderCollapse,
-        // Tier2 dimension properties
-        PT2::Width,
-        PT2::Height,
-        PT2::FontSize,
-        PT2::MarginTop,
-        PT2::MarginBottom,
-        PT2::MarginLeft,
-        PT2::MarginRight,
-        PT2::PaddingTop,
-        PT2::PaddingBottom,
-        PT2::PaddingLeft,
-        PT2::PaddingRight,
-        PT2::BorderTopWidth,
-        PT2::BorderTopStyle,
-        PT2::BorderTopColor,
-        PT2::BorderRightWidth,
-        PT2::BorderRightStyle,
-        PT2::BorderRightColor,
-        PT2::BorderBottomWidth,
-        PT2::BorderBottomStyle,
-        PT2::BorderBottomColor,
-        PT2::BorderLeftWidth,
-        PT2::BorderLeftStyle,
-        PT2::BorderLeftColor,
-        // Text properties
-        PT2::TextColor,
-        PT2::LineHeight,
-        PT2::LetterSpacing,
-        PT2::WordSpacing,
-        PT2::TextDecoration,
-        PT2::Cursor,
-        PT2::ListStyleType,
-        // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
-        // restarts numbering. Without these here the has_counter fast-path bit
-        // stays unset for list containers, compute_counters skips the reset, and
-        // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
-        // 3,4 instead of restarting at 1).
-        PT2::CounterReset,
-        PT2::CounterIncrement,
-    ];
-    for pt in UA_PROPERTY_TYPES {
-        if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *pt) {
+    // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
+    // per-pass copies this replaced had drifted apart (see its doc).
+    for pt in crate::ua_css::UA_PROPERTY_TYPES {
+        if let Some(ua_prop) = crate::ua_css::get_ua_default(node_type, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
         }
     }
@@ -1173,8 +1171,8 @@ fn resolve_font_size_to_px(
         let pi = pid.index();
         debug_assert!(
             pi < node_idx,
-            "compact font-size resolve: non-pre-order arena — node {node_idx}'s \
-                 parent {pi} font-size is not yet resolved",
+            "compact font-size resolve: non-pre-order arena — node {node_idx}'s parent {pi} \
+             font-size is not yet resolved",
         );
         if pi < node_idx {
             tier2_dims
@@ -1228,8 +1226,7 @@ fn resolve_font_size_to_px(
 /// walking the AST — a false positive merely keeps the old always-invalidate
 /// behaviour.
 fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
-    use azul_css::props::basic::length::SizeMetric;
-    use azul_css::props::basic::pixel::PixelValue;
+    use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
     const fn pv(p: &PixelValue) -> bool {
         matches!(
             p.metric,
@@ -1239,8 +1236,10 @@ fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
     fn inner<T: HasInnerPixelValue>(v: &CssPropertyValue<T>) -> bool {
         matches!(v, CssPropertyValue::Exact(x) if pv(&x.get_inner_pixel()))
     }
-    use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-    use azul_css::props::layout::flex::LayoutFlexBasis;
+    use azul_css::props::layout::{
+        dimensions::{LayoutHeight, LayoutWidth},
+        flex::LayoutFlexBasis,
+    };
     match prop {
         CssProperty::Width(v) => matches!(v, CssPropertyValue::Exact(w) if match w {
             LayoutWidth::Px(p) | LayoutWidth::FitContent(p) => pv(p),
@@ -1300,7 +1299,9 @@ fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
 // fixed-point encoders: z-index / line-height are range-checked before the
 // narrowing cast, and opacity is clamped to [0,1] then scaled to [0,254] (u8).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // parser/builder/dispatch (one
+                                                               // branch per input variant)
 fn apply_css_property_to_compact(
     prop: &CssProperty,
     tier1: &mut u64,
@@ -2105,7 +2106,8 @@ fn encode_layout_height<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
 }
 
 /// Trait for types that can be encoded as compact u32 dimension values.
-/// Implemented for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc enums).
+/// Implemented for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc
+/// enums).
 trait LayoutWidthLike {
     fn encode_compact_u32(&self) -> u32;
 }

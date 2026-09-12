@@ -2,13 +2,18 @@
 //! the physics AnimateTo spring (Keyboard provenance) unless system
 //! animations are disabled (e2e determinism keeps the instant jump).
 
-use azul_core::dom::{Dom, DomId, NodeId, TabIndex};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::{RendererResources, SystemAnimations};
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::StyledDom;
-use azul_layout::window::{LayoutWindow, ScrollMode, SelectionScrollType};
-use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+use azul_core::{
+    dom::{Dom, DomId, NodeId, TabIndex},
+    geom::LogicalSize,
+    resources::{RendererResources, SystemAnimations},
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::StyledDom,
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks,
+    window::{LayoutWindow, ScrollMode, SelectionScrollType},
+    window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 const CSS: &str = r#"
@@ -84,8 +89,7 @@ fn cursor_reveal_glides_through_the_physics_queue_by_default() {
     assert!(scrolled, "the caret is off-screen: a scroll must happen");
     assert!(
         lw.scroll_manager.scroll_input_queue.has_pending(),
-        "glide mode queues an AnimateTo input for the physics spring \
-         instead of teleporting"
+        "glide mode queues an AnimateTo input for the physics spring instead of teleporting"
     );
 }
 

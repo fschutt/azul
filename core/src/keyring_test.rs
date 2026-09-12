@@ -2,8 +2,9 @@
 pub use super::*;
 #[cfg(test)]
 mod autotest_generated {
-    use super::*;
     use alloc::string::String;
+
+    use super::*;
 
     // Payloads chosen to break naive C-string / byte-length assumptions in the
     // FFI layer: interior NUL, C0/C1 controls, CRLF.

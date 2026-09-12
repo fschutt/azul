@@ -51,7 +51,8 @@ mod audit_tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)] // exact f32 compares are the point: these assert bit-exact round-trips / lossy-cast values
+#[allow(clippy::float_cmp)] // exact f32 compares are the point: these assert bit-exact round-trips
+                            // / lossy-cast values
 mod autotest_generated {
     use super::*;
 
@@ -328,9 +329,8 @@ mod autotest_generated {
 
     #[test]
     fn u8_vec_ref_ord_eq_hash_agree_with_the_underlying_slice() {
-        use core::hash::{BuildHasher, Hasher};
-
         use alloc::collections::BTreeSet;
+        use core::hash::{BuildHasher, Hasher};
 
         let a = [1u8, 2, 3];
         let b = [1u8, 2, 4];

@@ -3,15 +3,13 @@
 //!
 //! Poll + push-driven, like the sensors:
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/gamepad/<plat>.rs`)
-//!   polls `gilrs` / iOS `GCController` / Android `InputDevice` and calls
-//!   [`push_gamepad_state`] whenever a pad's state changes.
-//! - The dll **layout pass** drains the channel via
-//!   [`drain_gamepad_states`] and folds each into the manager through
-//!   [`GamepadManager::set_state`].
-//! - **Callbacks** read [`GamepadManager::state`] / [`GamepadManager::primary`]
-//!   synchronously (via `CallbackInfo::get_gamepad_state`) to drive
-//!   movement / menu UI.
+//! - The **platform backend** (`dll/src/desktop/extra/gamepad/<plat>.rs`) polls `gilrs` / iOS
+//!   `GCController` / Android `InputDevice` and calls [`push_gamepad_state`] whenever a pad's state
+//!   changes.
+//! - The dll **layout pass** drains the channel via [`drain_gamepad_states`] and folds each into
+//!   the manager through [`GamepadManager::set_state`].
+//! - **Callbacks** read [`GamepadManager::state`] / [`GamepadManager::primary`] synchronously (via
+//!   `CallbackInfo::get_gamepad_state`) to drive movement / menu UI.
 //!
 //! Unlike the sensors' fixed three slots, the set of pads is dynamic: one
 //! [`GamepadState`] slot per [`GamepadId`] seen this session, kept across
@@ -20,12 +18,12 @@
 
 use alloc::vec::Vec;
 
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
-};
 pub use azul_core::gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadState};
-use azul_core::task::Instant;
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
+};
 
 /// Cross-platform gamepad state. One per `App` — the OS exposes a single
 /// per-process controller subscription, not per-window.
@@ -350,7 +348,6 @@ mod tests {
         mgr.set_state(base);
         assert!(!mgr.set_state(base), "an unchanged pad reported a change");
     }
-
 
     fn st(id: u32, connected: bool, buttons: u32) -> GamepadState {
         let mut s = GamepadState::empty(GamepadId { id });
@@ -1372,7 +1369,11 @@ mod autotest_generated {
         // Still held over several polls -> no further edges.
         for _ in 0..5 {
             m.set_state(st);
-            assert_eq!(m.take_pending_pressed(), 0, "a held button must not re-fire");
+            assert_eq!(
+                m.take_pending_pressed(),
+                0,
+                "a held button must not re-fire"
+            );
         }
 
         // Release is not a press.

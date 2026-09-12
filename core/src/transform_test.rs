@@ -13,16 +13,17 @@ pub use super::*;
     unused_qualifications
 )] // adversarial numeric tests: exact FP comparisons and literal matrices are the point
 mod autotest_generated {
-    use azul_css::props::basic::{AngleValue, FloatValue, PercentageValue, PixelValue, SizeMetric};
-    use azul_css::props::style::{
-        StyleTransformMatrix2D, StyleTransformMatrix3D, StyleTransformRotate3D,
-        StyleTransformScale2D, StyleTransformScale3D, StyleTransformSkew2D,
-        StyleTransformTranslate2D, StyleTransformTranslate3D,
+    use azul_css::props::{
+        basic::{AngleValue, FloatValue, PercentageValue, PixelValue, SizeMetric},
+        style::{
+            StyleTransformMatrix2D, StyleTransformMatrix3D, StyleTransformRotate3D,
+            StyleTransformScale2D, StyleTransformScale3D, StyleTransformSkew2D,
+            StyleTransformTranslate2D, StyleTransformTranslate3D,
+        },
     };
+    use proptest::{prelude::*, proptest};
 
     use super::*;
-    use proptest::prelude::*;
-    use proptest::proptest;
 
     // ---------------------------------------------------------------- helpers
 

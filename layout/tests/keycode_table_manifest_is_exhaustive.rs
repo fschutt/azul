@@ -36,29 +36,26 @@
 //! These are real per-platform gaps, not artifacts of the manifest. They are
 //! recorded as `0` so they are visible in a diff the moment someone closes one:
 //!
-//! - **F13..F24 are macOS-and-X11 dead.** Only Win32 maps them. macOS has the
-//!   keycodes (`0x69` F13, `0x6B` F14, `0x71` F15, `0x6A` F16, `0x40` F17 ...)
-//!   and X11 has `XK_F13..XK_F24` (`0xFFCA..0xFFD5`); neither table lists them.
-//! - **Win32 has no `NumpadEnter` and no `NumpadEquals`.** Win32 delivers the
-//!   keypad Enter as `VK_RETURN` with the extended-key bit set in `lParam`, so
-//!   it arrives as plain `Return` and nothing can tell the two apart.
-//! - **`NumpadComma` exists only on X11.** Win32's `VK_SEPARATOR` (`0x6C`) is
-//!   unmapped, and so is the JIS keypad comma on macOS (`0x5F`).
-//! - **The media / browser / ACPI block is Win32-only** (`Mute`, `VolumeUp`,
-//!   `VolumeDown`, `NextTrack`, `PrevTrack`, `PlayPause`, `MediaStop`,
-//!   `MediaSelect`, `Mail`, `Sleep`, `Web*`, `Navigate*`). X11 exposes these as
-//!   `XF86*` keysyms, which `linux/x11/defines.rs` does not declare; macOS
-//!   delivers them as `NSSystemDefined` events rather than `keyDown`.
-//! - **The Japanese IME keys are Win32-only** (`Convert`, `NoConvert`, `Kana`,
-//!   `Kanji`). X11 has `XK_Henkan_Mode`, `XK_Muhenkan`, `XK_Kana_Shift` and
-//!   `XK_Kanji`.
-//! - **`OEM102` — the 102nd key on an ISO keyboard — is Win32-only, and X11
-//!   actively MISREPORTS it:** the key produces `XK_less` / `XK_greater`, which
-//!   the punctuation block folds onto `Comma` and `Period`. On X11 and Wayland
-//!   that key is therefore indistinguishable from `,` and `.`.
-//! - **macOS has no `Snapshot` / `Scroll` / `Pause` / `Insert`** — Apple
-//!   keyboards carry none of those keys; the Insert position is `Help`
-//!   (keycode `0x72`).
+//! - **F13..F24 are macOS-and-X11 dead.** Only Win32 maps them. macOS has the keycodes (`0x69` F13,
+//!   `0x6B` F14, `0x71` F15, `0x6A` F16, `0x40` F17 ...) and X11 has `XK_F13..XK_F24`
+//!   (`0xFFCA..0xFFD5`); neither table lists them.
+//! - **Win32 has no `NumpadEnter` and no `NumpadEquals`.** Win32 delivers the keypad Enter as
+//!   `VK_RETURN` with the extended-key bit set in `lParam`, so it arrives as plain `Return` and
+//!   nothing can tell the two apart.
+//! - **`NumpadComma` exists only on X11.** Win32's `VK_SEPARATOR` (`0x6C`) is unmapped, and so is
+//!   the JIS keypad comma on macOS (`0x5F`).
+//! - **The media / browser / ACPI block is Win32-only** (`Mute`, `VolumeUp`, `VolumeDown`,
+//!   `NextTrack`, `PrevTrack`, `PlayPause`, `MediaStop`, `MediaSelect`, `Mail`, `Sleep`, `Web*`,
+//!   `Navigate*`). X11 exposes these as `XF86*` keysyms, which `linux/x11/defines.rs` does not
+//!   declare; macOS delivers them as `NSSystemDefined` events rather than `keyDown`.
+//! - **The Japanese IME keys are Win32-only** (`Convert`, `NoConvert`, `Kana`, `Kanji`). X11 has
+//!   `XK_Henkan_Mode`, `XK_Muhenkan`, `XK_Kana_Shift` and `XK_Kanji`.
+//! - **`OEM102` — the 102nd key on an ISO keyboard — is Win32-only, and X11 actively MISREPORTS
+//!   it:** the key produces `XK_less` / `XK_greater`, which the punctuation block folds onto
+//!   `Comma` and `Period`. On X11 and Wayland that key is therefore indistinguishable from `,` and
+//!   `.`.
+//! - **macOS has no `Snapshot` / `Scroll` / `Pause` / `Insert`** — Apple keyboards carry none of
+//!   those keys; the Insert position is `Help` (keycode `0x72`).
 
 /// `dll/src/desktop/shell2/common/event.rs`, verbatim, at compile time. Holds
 /// BOTH the macOS and the Win32 table.
@@ -264,8 +261,8 @@ const MANIFEST: &[(&str, u8, u8, u8)] = &[
 const EXEMPT: &[(&str, &str)] = &[
     (
         "Compose",
-        "dead-key/compose sequences are resolved by xkb_compose and by the macOS input \
-         manager before a key event exists; no backend sees a 'Compose' key",
+        "dead-key/compose sequences are resolved by xkb_compose and by the macOS input manager \
+         before a key event exists; no backend sees a 'Compose' key",
     ),
     (
         "Caret",
@@ -274,8 +271,8 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "AbntC1",
-        "Brazilian ABNT2 extra key; Win32 has the undocumented VK_ABNT_C1 (0xC1), X11 \
-         reports it as XK_slash, macOS has no keycode",
+        "Brazilian ABNT2 extra key; Win32 has the undocumented VK_ABNT_C1 (0xC1), X11 reports it \
+         as XK_slash, macOS has no keycode",
     ),
     (
         "AbntC2",
@@ -283,8 +280,8 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "Asterisk",
-        "shifted form of Key8 on every layout; X11 deliberately folds XK_asterisk onto Key8 \
-         so a press and its release resolve to the same code",
+        "shifted form of Key8 on every layout; X11 deliberately folds XK_asterisk onto Key8 so a \
+         press and its release resolve to the same code",
     ),
     (
         "At",
@@ -297,8 +294,8 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "Plus",
-        "shifted form of Equals; folded onto Equals by the X11 punctuation block. The keypad \
-         '+' is NumpadAdd, which is mapped",
+        "shifted form of Equals; folded onto Equals by the X11 punctuation block. The keypad '+' \
+         is NumpadAdd, which is mapped",
     ),
     (
         "Underline",
@@ -310,18 +307,18 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "Yen",
-        "JIS yen key; macOS has keycode 0x5D and X11 has XK_yen, but neither table lists it \
-         and Win32 has no VK code at all",
+        "JIS yen key; macOS has keycode 0x5D and X11 has XK_yen, but neither table lists it and \
+         Win32 has no VK code at all",
     ),
     (
         "Calculator",
-        "ACPI/vendor hotkey: Win32 delivers it as VK_LAUNCH_APP2 (deliberately unmapped, see \
-         the commented block in the Win32 table), X11 as XF86Calculator, macOS not at all",
+        "ACPI/vendor hotkey: Win32 delivers it as VK_LAUNCH_APP2 (deliberately unmapped, see the \
+         commented block in the Win32 table), X11 as XF86Calculator, macOS not at all",
     ),
     (
         "Stop",
-        "the browser Stop key is WebStop (mapped on Win32); this variant is winit's duplicate \
-         and nothing produces it",
+        "the browser Stop key is WebStop (mapped on Win32); this variant is winit's duplicate and \
+         nothing produces it",
     ),
     (
         "Unlabeled",
@@ -339,8 +336,7 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     (
         "Cut",
-        "the dedicated Cut key exists only as XF86Cut; the engine's clipboard path is \
-         Ctrl/Cmd+X",
+        "the dedicated Cut key exists only as XF86Cut; the engine's clipboard path is Ctrl/Cmd+X",
     ),
 ];
 

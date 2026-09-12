@@ -9,28 +9,29 @@
 //! grapheme segmentation (a trailing cursor lands past the WHOLE cluster),
 //! and spans are normalized `start <= end` in logical order.
 
-use azul_core::dom::{Dom, DomId, DomNodeId, IdOrClass, NodeType};
-use azul_core::geom::LogicalSize;
-use azul_core::id::NodeId;
-use azul_core::selection::{
-    CursorAffinity, GraphemeClusterId, IdentifiedSelection, MultiCursorState, Selection,
-    SelectionId, SelectionOwner, SelectionRange, TextCursor,
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeType},
+    geom::LogicalSize,
+    id::NodeId,
+    resources::RendererResources,
+    selection::{
+        CursorAffinity, GraphemeClusterId, IdentifiedSelection, MultiCursorState, Selection,
+        SelectionId, SelectionOwner, SelectionRange, TextCursor,
+    },
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::window::LayoutWindow;
-use azul_layout::window_state::FullWindowState;
-use azul_core::resources::RendererResources;
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 fn editable_paragraph(text: &str) -> (LayoutWindow, DomId, NodeId, NodeId) {
-    let mut host = Dom::create_div().with_ids_and_classes(
-        vec![IdOrClass::Class("host".into())].into(),
-    );
+    let mut host =
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("host".into())].into());
     host.set_contenteditable(true);
-    let host = host.with_child(
-        Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
-    );
+    let host = host.with_child(Dom::create_p().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper(text),
+    ));
     let mut dom = Dom::create_body().with_child(host);
 
     let (css, _) = azul_css::parser2::new_from_str("body { font-size: 14px; }");

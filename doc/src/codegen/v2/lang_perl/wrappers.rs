@@ -3,14 +3,13 @@
 //! Every struct that has a matching `<TypeName>_delete` C function gets a
 //! lightweight Perl class that:
 //!
-//! 1. Stores the underlying opaque pointer in a blessed scalar reference
-//!    (`bless \$ptr, $class`). This is the canonical Perl idiom for opaque
-//!    handles — accessing `$$self` recovers the raw pointer.
-//! 2. Defines a `DESTROY` method (Perl's deterministic refcount-driven
-//!    finalizer) that calls the corresponding `Azul::FFI::Az<Type>_delete`
-//!    when the object is freed.
-//! 3. Exposes idiomatic class methods (constructors, static helpers) and
-//!    instance methods (anything that takes `&self` / `&mut self`).
+//! 1. Stores the underlying opaque pointer in a blessed scalar reference (`bless \$ptr, $class`).
+//!    This is the canonical Perl idiom for opaque handles — accessing `$$self` recovers the raw
+//!    pointer.
+//! 2. Defines a `DESTROY` method (Perl's deterministic refcount-driven finalizer) that calls the
+//!    corresponding `Azul::FFI::Az<Type>_delete` when the object is freed.
+//! 3. Exposes idiomatic class methods (constructors, static helpers) and instance methods (anything
+//!    that takes `&self` / `&mut self`).
 //!
 //! Method naming: drop the `Az` prefix and the `<TypeName>_` segment, then
 //! convert `camelCase` to `snake_case`. So:
@@ -25,10 +24,14 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef};
-use super::types::{should_emit_struct, snake_case};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef},
+    },
+    types::{should_emit_struct, snake_case},
+};
 
 // ============================================================================
 // Public entry point

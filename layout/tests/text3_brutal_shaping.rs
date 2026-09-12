@@ -3,12 +3,12 @@
 //! pipeline, driven by a synthetic fake font (`common/fakefont.rs`).
 //!
 //! Two entry points are exercised:
-//!   * `shape_text_for_parsed_font` — raw allsorts shaping (advances, kerning,
-//!     cmap, combining marks) straight off a `ParsedFont`.
-//!   * `create_logical_items` -> `reorder_logical_items` -> `shape_visual_items`
-//!     -> `BreakCursor` -> `perform_fragment_layout` — the exact stage-1..4
-//!     pipeline `window.rs::relayout_text_node_internal` runs, producing a
-//!     real `UnifiedLayout` with positioned clusters and line indices.
+//!   * `shape_text_for_parsed_font` — raw allsorts shaping (advances, kerning, cmap, combining
+//!     marks) straight off a `ParsedFont`.
+//!   * `create_logical_items` -> `reorder_logical_items` -> `shape_visual_items` -> `BreakCursor`
+//!     -> `perform_fragment_layout` — the exact stage-1..4 pipeline
+//!     `window.rs::relayout_text_node_internal` runs, producing a real `UnifiedLayout` with
+//!     positioned clusters and line indices.
 //!
 //! Every expected number is derived from the fake metrics (upem 1000, ascent
 //! 800, descent -200, gap 0). At font-size 20 the scale is 0.02, so:
@@ -16,20 +16,24 @@
 //!   '-' 300u => 6px · CJK 1000u => 20px · Hebrew 550u => 11px · U+0301 => 0px
 //!   kern (A,V)=(V,A)=-100u => -2px.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType, FontChainKey, FontStack,
-    Glyph, InlineBreak, InlineContent, LoadedFonts, ShapedItem, Spacing, StyleProperties,
-    StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::{
+        cache::{
+            create_logical_items, perform_fragment_layout, reorder_logical_items,
+            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType,
+            FontChainKey, FontStack, Glyph, InlineBreak, InlineContent, LoadedFonts, ShapedItem,
+            Spacing, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
+            WhiteSpaceMode,
+        },
+        default::shape_text_for_parsed_font,
+        script::{Language, Script},
+    },
 };
-use azul_layout::text3::default::shape_text_for_parsed_font;
-use azul_layout::text3::script::{Language, Script};
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
 use crate::fakefont::simple_test_font;
@@ -41,7 +45,8 @@ fn assert_px(actual: f32, expected: f32) {
     let delta = (actual - expected).abs();
     assert!(
         delta <= 0.05,
-        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > 0.05px)"
+        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > \
+         0.05px)"
     );
 }
 

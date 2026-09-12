@@ -6,12 +6,12 @@
 //!
 //! What that costs, and why it is deliberate:
 //!
-//! * On macOS the process switches to **Accessory** activation - the runtime
-//!   equivalent of `LSUIElement` in an Info.plist. No Dock tile, no application
-//!   menu bar. A `Regular` app with no windows is worse than having one: it owns
-//!   the menu bar and shows a Dock icon that does nothing.
-//! * Because there is no Dock tile, `set_app_icon` has nowhere to draw, so this
-//!   example does not call it.
+//! * On macOS the process switches to **Accessory** activation - the runtime equivalent of
+//!   `LSUIElement` in an Info.plist. No Dock tile, no application menu bar. A `Regular` app with no
+//!   windows is worse than having one: it owns the menu bar and shows a Dock icon that does
+//!   nothing.
+//! * Because there is no Dock tile, `set_app_icon` has nowhere to draw, so this example does not
+//!   call it.
 //!
 //! Tray menu callbacks still work exactly as they do in a windowed app - the
 //! same `RefAny`, the same `CallbackInfo` - because a headless stub window
@@ -19,9 +19,11 @@
 //!
 //! Run it and look in the menu bar; there is no window and no Dock icon.
 
-use azul::menu::{Menu, MenuItem, StringMenuItem};
-use azul::prelude::*;
-use azul::tray::TrayIconData;
+use azul::{
+    menu::{Menu, MenuItem, StringMenuItem},
+    prelude::*,
+    tray::TrayIconData,
+};
 
 struct TrayOnly {
     clicks: usize,

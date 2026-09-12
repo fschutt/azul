@@ -16,14 +16,13 @@
 
 use std::collections::HashMap;
 
+use azul_core::tray::{TrayEvent, TrayEventType, TrayIconData, TrayIconSource};
 use objc2::{rc::Retained, AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSBitmapFormat, NSBitmapImageRep, NSCellImagePosition, NSImage, NSStatusBar, NSStatusItem,
     NSVariableStatusItemLength,
 };
 use objc2_foundation::{NSPoint, NSSize, NSString};
-
-use azul_core::tray::{TrayEvent, TrayEventType, TrayIconData, TrayIconSource};
 
 use super::{queue_tray_event, TrayError};
 use crate::desktop::shell2::macos::menu::{take_pending_menu_actions_matching, MenuState};

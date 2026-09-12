@@ -4,19 +4,21 @@
 //! 1. Binary pass: threshold to black/white, compare which pixels are "ink" vs "paper"
 //! 2. Grayscale pass: compare the actual anti-aliasing coverage values
 //!
-//! Run: cargo test -p azul-layout --features coretext_tests --test all -- test_coretext_compare:: --nocapture
+//! Run: cargo test -p azul-layout --features coretext_tests --test all -- test_coretext_compare::
+//! --nocapture
 
 #![cfg(all(target_os = "macos", feature = "coretext_tests"))]
 
-use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::CGContext;
-use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-use core_text::font as ct_font;
 use std::fs;
-use tiny_skia::{Color, FillRule, Paint, Pixmap, Transform};
 
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::glyph_cache::GlyphCache;
+use azul_layout::{font::parsed::ParsedFont, glyph_cache::GlyphCache};
+use core_graphics::{
+    color_space::CGColorSpace,
+    context::CGContext,
+    geometry::{CGPoint, CGRect, CGSize},
+};
+use core_text::font as ct_font;
+use tiny_skia::{Color, FillRule, Paint, Pixmap, Transform};
 
 // ── Bitmap helpers ──────────────────────────────────────────────────
 

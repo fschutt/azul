@@ -67,7 +67,10 @@ fn the_first_keystroke_into_an_empty_field_carries_the_values_style_not_the_cont
     );
 
     let affected = lw.record_text_input("a");
-    assert!(!affected.is_empty(), "the keystroke reached the focused node");
+    assert!(
+        !affected.is_empty(),
+        "the keystroke reached the focused node"
+    );
     let _ = lw.apply_text_changeset();
 
     // The overlay now carries the seeded (then spliced-into) run, keyed on
@@ -76,7 +79,10 @@ fn the_first_keystroke_into_an_empty_field_carries_the_values_style_not_the_cont
     let dirty = lw
         .content_overlay
         .text_for_node(DomId::ROOT_ID, NodeId::new(CONTAINER))
-        .or_else(|| lw.content_overlay.text_for_node(DomId::ROOT_ID, NodeId::new(2)))
+        .or_else(|| {
+            lw.content_overlay
+                .text_for_node(DomId::ROOT_ID, NodeId::new(2))
+        })
         .expect("the edit landed in the content overlay");
     let run = dirty
         .content
@@ -191,7 +197,10 @@ fn typing_into_an_empty_field_stops_the_placeholder_from_being_painted() {
         0,
     );
     let affected = lw.record_text_input("a");
-    assert!(!affected.is_empty(), "the keystroke reached the focused node");
+    assert!(
+        !affected.is_empty(),
+        "the keystroke reached the focused node"
+    );
     let _ = lw.apply_text_changeset();
 
     // Re-emit: this is the path that replayed the cached run.
@@ -200,8 +209,8 @@ fn typing_into_an_empty_field_stops_the_placeholder_from_being_painted() {
     let typed_glyphs = total_glyphs(&lw);
     assert!(
         typed_glyphs < empty_glyphs,
-        "after typing, the field must paint its VALUE ({typed_glyphs} glyphs) \
-         and not the 17-glyph prompt on top of it (was {empty_glyphs} while empty)"
+        "after typing, the field must paint its VALUE ({typed_glyphs} glyphs) and not the \
+         17-glyph prompt on top of it (was {empty_glyphs} while empty)"
     );
 }
 
@@ -261,7 +270,7 @@ fn focusing_a_filled_field_seeds_the_caret_at_the_end_of_its_text() {
     assert_eq!(
         (cursor.cluster_id.start_byte_in_run, cursor.affinity),
         (1, CursorAffinity::Trailing),
-        "the caret must seat at the END of \"42\" (byte 1, trailing), not at \
-         byte 0 - which paints as \"4|2\" with Trailing and \"|42\" with Leading",
+        "the caret must seat at the END of \"42\" (byte 1, trailing), not at byte 0 - which \
+         paints as \"4|2\" with Trailing and \"|42\" with Leading",
     );
 }

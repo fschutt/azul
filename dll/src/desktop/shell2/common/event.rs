@@ -166,8 +166,10 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
-use crate::{log_debug, log_error, log_trace, log_warn};
+use crate::{
+    desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi},
+    log_debug, log_error, log_trace, log_warn,
+};
 
 /// `AZ_FOCUS_TRACE=1`: one line per focus / popup decision, on stderr.
 ///
@@ -306,7 +308,7 @@ use super::clipboard::{
 /// - Mouse button is released (no longer dragging)
 /// - Mouse returns to within container bounds (no scroll needed)
 extern "C" fn auto_scroll_timer_callback(
-    _data: azul_core::refany::RefAny,
+    _data: RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
@@ -410,7 +412,7 @@ extern "C" fn auto_scroll_timer_callback(
     // ancestor ABOVE it; its own offset does not move its box.
     // `find_scroll_parent` (STRICT ancestors) is the right walker here, unlike
     // the target lookup above.
-    let mut ancestor_scroll = azul_core::geom::LogicalPosition::zero();
+    let mut ancestor_scroll = LogicalPosition::zero();
     let mut walk = scroll_parent;
     for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {
         let Some(parent) = callback_info.find_scroll_parent(dom_id, walk) else {
@@ -425,7 +427,7 @@ extern "C" fn auto_scroll_timer_callback(
 
     // Calculate scroll delta based on mouse distance from container edges
     let container = azul_core::geom::LogicalRect {
-        origin: azul_core::geom::LogicalPosition::new(
+        origin: LogicalPosition::new(
             scroll_info.container_rect.origin.x - ancestor_scroll.x,
             scroll_info.container_rect.origin.y - ancestor_scroll.y,
         ),
@@ -465,7 +467,7 @@ extern "C" fn auto_scroll_timer_callback(
     }
 
     // Calculate new scroll position and push ScrollTo
-    let new_pos = azul_core::geom::LogicalPosition {
+    let new_pos = LogicalPosition {
         x: (scroll_info.current_offset.x + delta_x)
             .max(0.0)
             .min(scroll_info.max_scroll_x),
@@ -475,7 +477,7 @@ extern "C" fn auto_scroll_timer_callback(
     };
 
     let hierarchy_id =
-        azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
+        NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
     timer_info.scroll_to(dom_id, hierarchy_id, new_pos);
 
     // DoNothing, not RefreshDom: `scroll_to` already yields
@@ -550,7 +552,8 @@ fn record_multi_edit_undo(
             new_cursor: CursorPosition::Uninitialized,
         }),
         azul_layout::window::TextEditNotify::QueueInput,
-        azul_core::window::PRIMARY_POINTER_SEAT, // the smart paste is the primary's (9b-ii-a-i-d-ii-d)
+        azul_core::window::PRIMARY_POINTER_SEAT, /* the smart paste is the primary's
+                                                  * (9b-ii-a-i-d-ii-d) */
     );
 }
 
@@ -660,7 +663,13 @@ fn apply_seat_focus_restyle(
     use azul_core::diff::ChangeAccumulator;
 
     let lost = old_focus
-        .filter(|n| layout_window.focus_manager.seats_focusing(n).iter().all(|s| *s == 0))
+        .filter(|n| {
+            layout_window
+                .focus_manager
+                .seats_focusing(n)
+                .iter()
+                .all(|s| *s == 0)
+        })
         .and_then(|n| n.node.into_crate_internal());
     let gained = new_focus.and_then(|n| n.node.into_crate_internal());
     if lost.is_none() && gained.is_none() {
@@ -669,7 +678,9 @@ fn apply_seat_focus_restyle(
     let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
-    let restyle_result = layout_result.styled_dom.restyle_on_seat_focus_change(lost, gained);
+    let restyle_result = layout_result
+        .styled_dom
+        .restyle_on_seat_focus_change(lost, gained);
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     }
@@ -689,8 +700,7 @@ fn apply_focus_restyle(
     old_focus: Option<NodeId>,
     new_focus: Option<NodeId>,
 ) -> ProcessEventResult {
-    use azul_core::diff::ChangeAccumulator;
-    use azul_core::styled_dom::FocusChange;
+    use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
 
     // Get the first (primary) layout result
     let Some((dom_id_ref, layout_result)) = layout_window.layout_results.iter_mut().next() else {
@@ -710,7 +720,8 @@ fn apply_focus_restyle(
 
     log_debug!(
         super::debug_server::LogCategory::Input,
-        "[Event] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}, max_scope={:?}",
+        "[Event] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}, \
+         max_scope={:?}",
         restyle_result.needs_layout,
         restyle_result.needs_display_list,
         restyle_result.changed_nodes.len(),
@@ -742,7 +753,7 @@ fn apply_focus_restyle(
 
 fn stage_css_dirty(
     layout_window: &mut LayoutWindow,
-    dom_id: azul_core::dom::DomId,
+    dom_id: DomId,
     restyle_result: &azul_core::styled_dom::RestyleResult,
 ) {
     if restyle_result.changed_nodes.is_empty() {
@@ -762,10 +773,40 @@ fn stage_css_dirty(
     if dirty.is_empty() {
         return;
     }
-    let mut current = layout_window.pending_css_dirty.take().unwrap_or((dom_id, Vec::new()));
+    let current = layout_window
+        .pending_css_dirty
+        .take()
+        .unwrap_or((dom_id, Vec::new()));
     if current.0 == dom_id {
-        current.1.extend(dirty);
-        layout_window.pending_css_dirty = Some(current);
+        // MERGE PER NODE, never append. This list says WHICH nodes are dirty
+        // and how far each one has to be re-solved, so a node that changes
+        // twice is one entry with the wider scope — appending made it two.
+        //
+        // Nothing drains the list on a paint-only frame: the shells answer
+        // `ShouldUpdateDisplayListCurrentWindow` by invalidating and redrawing
+        // (macos/mod.rs, windows' `route_main_window_result`), and only a real
+        // layout pass consumes it. `apply_hover_restyle` runs on every
+        // MouseEnter/MouseLeave, so a toolbar whose `:hover` changes nothing
+        // but a colour grew this vector for as long as the pointer kept
+        // moving, and the next resize replayed all of it — stale dirt from
+        // hover states long since reverted — as one hitch proportional to how
+        // long the user had been hovering. Merged, the list cannot outgrow the
+        // DOM however long that goes on.
+        let mut merged: BTreeMap<
+            NodeId,
+            azul_css::props::property::RelayoutScope,
+        > = current.1.into_iter().collect();
+        for (node_id, scope) in dirty {
+            merged
+                .entry(node_id)
+                .and_modify(|existing| {
+                    if scope > *existing {
+                        *existing = scope;
+                    }
+                })
+                .or_insert(scope);
+        }
+        layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
     } else {
         layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
@@ -784,13 +825,13 @@ fn stage_css_dirty(
 /// node before the button came up, and the press state must not latch.
 fn apply_active_restyle(
     layout_window: &mut LayoutWindow,
-    pressed_per_dom: std::collections::BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>>,
+    pressed_per_dom: BTreeMap<DomId, Vec<NodeId>>,
     released: bool,
 ) -> ProcessEventResult {
     use azul_core::diff::ChangeAccumulator;
 
     let mut result = ProcessEventResult::DoNothing;
-    let dom_ids: Vec<azul_core::dom::DomId> = if released {
+    let dom_ids: Vec<DomId> = if released {
         layout_window.layout_results.keys().copied().collect()
     } else {
         pressed_per_dom.keys().copied().collect()
@@ -799,7 +840,7 @@ fn apply_active_restyle(
         let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
             continue;
         };
-        let deactivated: Vec<azul_core::dom::NodeId> = if released {
+        let deactivated: Vec<NodeId> = if released {
             layout_result
                 .styled_dom
                 .styled_nodes
@@ -808,7 +849,7 @@ fn apply_active_restyle(
                 .iter()
                 .enumerate()
                 .filter(|(_, n)| n.styled_node_state.active)
-                .map(|(i, _)| azul_core::dom::NodeId::new(i))
+                .map(|(i, _)| NodeId::new(i))
                 .collect()
         } else {
             Vec::new()
@@ -881,8 +922,8 @@ fn apply_active_restyle(
 /// something else rebuilt the DOM (`restyle_nodes_hover` was dead code).
 fn apply_hover_restyle(
     layout_window: &mut LayoutWindow,
-    changes_per_dom: std::collections::BTreeMap<
-        azul_core::dom::DomId,
+    changes_per_dom: BTreeMap<
+        DomId,
         azul_core::styled_dom::HoverChange,
     >,
 ) -> ProcessEventResult {
@@ -1007,8 +1048,9 @@ pub fn csd_resize_edge_for_press(
 
 #[cfg(test)]
 mod csd_resize_edge_tests {
-    use super::*;
     use azul_core::geom::{LogicalPosition, LogicalSize};
+
+    use super::*;
 
     fn size() -> LogicalSize {
         LogicalSize {
@@ -1123,7 +1165,6 @@ mod csd_resize_edge_tests {
             None
         );
     }
-
 }
 
 // Button state bitfield constants for `record_input_sample`.
@@ -1211,12 +1252,11 @@ pub struct LayoutPassBorrows<'a> {
 /// baseline = "what the OS already has") and `current_window_state` (what we
 /// want) to the OS via `XMoveWindow`/`XResizeWindow`/`SetWindowPos`/…. Tagging
 /// the source decides whether a change is echoed:
-///   * [`App`](WindowStateSource::App) — the application/API asked for it, so it
-///     must be applied to the OS (it isn't there yet).
-///   * [`Os`](WindowStateSource::Os) — the OS *reported* it (already applied
-///     outside), so it must NOT be echoed; doing so causes feedback loops — e.g.
-///     a reparenting WM reports frame-relative coords and the echo walks the
-///     window across the screen, spamming configure events (F4).
+///   * [`App`](WindowStateSource::App) — the application/API asked for it, so it must be applied to
+///     the OS (it isn't there yet).
+///   * [`Os`](WindowStateSource::Os) — the OS *reported* it (already applied outside), so it must
+///     NOT be echoed; doing so causes feedback loops — e.g. a reparenting WM reports frame-relative
+///     coords and the echo walks the window across the screen, spamming configure events (F4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowStateSource {
     /// Application/API requested the change → `sync_window_state()` applies it.
@@ -1242,7 +1282,6 @@ const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 /// once. A debug build validates unconditionally; a release build — which is
 /// what the battery and every shipped binary are — has to opt in with
 /// `AZ_VALIDATE=1`.
-#[must_use]
 /// Does this `AZ_VALIDATE` value turn the gate on?
 ///
 /// Split out of [`validation_enabled`] so it can be tested WITHOUT touching
@@ -1822,7 +1861,6 @@ pub mod win32_vk {
 /// Derived from winit's `platform_impl::windows::event`; the Apache-2.0 notice
 /// it is distributed under is reproduced in full at the head of
 /// `shell2/windows/win_event.rs`, where this table used to live.
-#[must_use]
 #[allow(clippy::too_many_lines)]
 // exhaustive keycode match table
 // The VK code is the documentation here: merging the arms that answer the same
@@ -2064,10 +2102,12 @@ pub fn apply_pointer_button_state(
     button: azul_core::events::MouseButton,
     is_down: bool,
 ) {
-    use azul_core::{events::MouseButton, window::CursorPosition};
-
-    use azul_core::events::{
-        MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD, MOUSE_OTHER_MASK_BACK, MOUSE_OTHER_MASK_FORWARD,
+    use azul_core::{
+        events::{
+            MouseButton, MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD, MOUSE_OTHER_MASK_BACK,
+            MOUSE_OTHER_MASK_FORWARD,
+        },
+        window::CursorPosition,
     };
 
     mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -2290,21 +2330,21 @@ pub fn ime_sync_key(window_focused: bool, layout_window: Option<&LayoutWindow>) 
 #[derive(Clone, Debug)]
 pub struct SharedUndoManager {
     #[cfg(feature = "json")]
-    inner: std::sync::Arc<std::sync::Mutex<azul_layout::json::RefAnyUndoManager>>,
+    inner: Arc<std::sync::Mutex<azul_layout::json::RefAnyUndoManager>>,
 }
 
 impl SharedUndoManager {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "json")]
-            inner: std::sync::Arc::new(std::sync::Mutex::new(
+            inner: Arc::new(std::sync::Mutex::new(
                 azul_layout::json::RefAnyUndoManager::new(0),
             )),
         }
     }
 
     /// Snapshot current app state into history. No-op (returns false) without json.
-    pub fn commit(&self, _state: &azul_core::refany::RefAny) -> bool {
+    pub fn commit(&self, _state: &RefAny) -> bool {
         #[cfg(feature = "json")]
         {
             self.inner
@@ -2319,7 +2359,7 @@ impl SharedUndoManager {
     }
 
     /// Undo the last committed app-state change. No-op (returns false) without json.
-    pub fn undo(&self, _state: &mut azul_core::refany::RefAny) -> bool {
+    pub fn undo(&self, _state: &mut RefAny) -> bool {
         #[cfg(feature = "json")]
         {
             self.inner
@@ -2334,7 +2374,7 @@ impl SharedUndoManager {
     }
 
     /// Redo a previously undone app-state change. No-op (returns false) without json.
-    pub fn redo(&self, _state: &mut azul_core::refany::RefAny) -> bool {
+    pub fn redo(&self, _state: &mut RefAny) -> bool {
         #[cfg(feature = "json")]
         {
             self.inner
@@ -2554,16 +2594,49 @@ pub enum IncrementalRelayout {
     Resize,
 }
 
+/// The theme a window starts in — the ONE place the three theme sources
+/// meet at creation (theme-chain analysis 2026-09-12, item 5 / I7):
+///
+/// 1. `AZ_THEME=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
+///    pins the cascade's context;
+/// 2. else the app's explicit request, `WindowCreateOptions::theme`;
+/// 3. else what the OS probe said (`SystemStyle::theme`, discovered at startup — on
+///    macOS/Windows/Linux this IS the appearance probe; iOS and Android never write it, so they
+///    start from the default and adopt the device appearance the way they always did).
+///
+/// The shells' later theme probes (`adopt_probed_theme`, WM_THEMECHANGED,
+/// the portal watcher) keep following the OS from there.
+#[must_use]
+pub fn initial_window_theme(
+    requested: azul_core::window::OptionWindowTheme,
+    probed: azul_css::system::Theme,
+) -> azul_core::window::WindowTheme {
+    use azul_core::window::WindowTheme;
+    if let Some(pinned) = azul_css::dynamic_selector::theme_pinned_by_env() {
+        return match pinned {
+            azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,
+            _ => WindowTheme::LightMode,
+        };
+    }
+    if let azul_core::window::OptionWindowTheme::Some(theme) = requested {
+        return theme;
+    }
+    match probed {
+        azul_css::system::Theme::Dark => WindowTheme::DarkMode,
+        azul_css::system::Theme::Light => WindowTheme::LightMode,
+    }
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
     /// The live window state. PRIVATE, and the reason is the pair of invariants
     /// nothing else can enforce:
     ///
-    ///   * every write has to decide whether `sync_window_state()` should push
-    ///     it at the window system, and
-    ///   * every write to a field `determine_all_events` diffs owes the
-    ///     snapshot → mutate → pass shape.
+    ///   * every write has to decide whether `sync_window_state()` should push it at the window
+    ///     system, and
+    ///   * every write to a field `determine_all_events` diffs owes the snapshot → mutate → pass
+    ///     shape.
     ///
     /// While it was `pub`, 166 sites wrote it directly (or through the
     /// `&mut FullWindowState` the `PlatformWindow` trait used to hand out)
@@ -2575,6 +2648,10 @@ pub struct CommonWindowState {
     /// it never looks at), or the three input accessors
     /// ([`Self::mouse_state_mut`] and friends).
     current_window_state: FullWindowState,
+    /// Explicitly defined background color for light theme from creation options
+    pub background_color_light: azul_css::props::basic::OptionColorU,
+    /// Explicitly defined background color for dark theme from creation options
+    pub background_color_dark: azul_css::props::basic::OptionColorU,
     /// The EVENT-DIFF baseline: the state the last completed
     /// [`PlatformWindow::process_window_events`] pass consumed.
     ///
@@ -2846,11 +2923,11 @@ impl CommonWindowState {
     /// the app's `layout()` — except when it could observably change what that
     /// callback returns, which is exactly:
     ///
-    ///   1. a recorded window-size query answer flips (`window_width_less_than` & co.)
-    ///      (the sanctioned imperative channel — see
-    ///      `LayoutCallbackInfo::window_width_less_than` & co.),
-    ///   2. a `CSS_BREAKPOINTS` threshold or the orientation is crossed
-    ///      (the declarative `@media` channel), or
+    ///   1. a recorded window-size query answer flips (`window_width_less_than` & co.) (the
+    ///      sanctioned imperative channel — see `LayoutCallbackInfo::window_width_less_than` &
+    ///      co.),
+    ///   2. a `CSS_BREAKPOINTS` threshold or the orientation is crossed (the declarative `@media`
+    ///      channel), or
     ///   3. there is nothing to reuse (no previous layout).
     ///
     /// Everything else takes `resize -> relayout (existing StyledDom, warm
@@ -2910,9 +2987,20 @@ impl CommonWindowState {
     /// pass has run, `os_synced` because nothing has been shown yet — which is
     /// what makes the first `sync_window_state()` a no-op instead of a burst of
     /// redundant geometry calls (see [`Self::mark_os_synced`]).
+    ///
+    /// `requested_theme` is `WindowCreateOptions::theme`: the app's explicit
+    /// light/dark request for this window, `None` = follow the system. The
+    /// window's theme is SEEDED here, once for every backend, from
+    /// [`initial_window_theme`] — until this existed each shell copied
+    /// `options.window_state.theme` (the `LightMode` default) and a window on
+    /// a dark desktop started light, was re-cascaded dark a poll later, and
+    /// `WindowCreateOptions::theme` had no reader at all.
     #[must_use]
     pub fn new(
         current_window_state: FullWindowState,
+        requested_theme: azul_core::window::OptionWindowTheme,
+        background_color_light: azul_css::props::basic::OptionColorU,
+        background_color_dark: azul_css::props::basic::OptionColorU,
         fc_cache: Arc<FcFontCache>,
         system_style: Arc<azul_css::system::SystemStyle>,
         app_data: Arc<RefCell<RefAny>>,
@@ -2929,14 +3017,18 @@ impl CommonWindowState {
         debug_assert!(
             !(system_style.platform == azul_css::system::Platform::Unknown
                 && azul_css::system::Platform::current() != azul_css::system::Platform::Unknown),
-            "CommonWindowState::new got SystemStyle::default() (Platform::Unknown) on a \
-             platform that knows what it is ({:?}). Pass `config.system_style` — the style \
-             AppConfig detected at startup — or every @os(...) UA rule silently misses.",
+            "CommonWindowState::new got SystemStyle::default() (Platform::Unknown) on a platform \
+             that knows what it is ({:?}). Pass `config.system_style` — the style AppConfig \
+             detected at startup — or every @os(...) UA rule silently misses.",
             azul_css::system::Platform::current(),
         );
+        let mut current_window_state = current_window_state;
+        current_window_state.theme = initial_window_theme(requested_theme, system_style.theme);
         Self {
             layout_window: None,
             current_window_state,
+            background_color_light,
+            background_color_dark,
             previous_window_state: None,
             os_synced_state: None,
             renderer_resources: RendererResources::default(),
@@ -3070,14 +3162,13 @@ impl CommonWindowState {
     ///
     /// This is the single entry point for changing `current_window_state` in a
     /// way `sync_window_state()` is aware of:
-    ///   * [`App`](WindowStateSource::App) — mutates `current` only, so the
-    ///     `current` vs `os_synced_state` diff makes `sync_window_state()` push
-    ///     it to the OS (`XMoveWindow`/`SetWindowPos`/…).
-    ///   * [`Os`](WindowStateSource::Os) — the change is *already applied* by the
-    ///     OS, so this mutates `current` AND advances the OS-sync baseline
-    ///     (`os_synced_state`) in lockstep, leaving a zero diff so it is never
-    ///     echoed. Echoing OS-reported geometry is what drifted the window on
-    ///     reparenting WMs (F4).
+    ///   * [`App`](WindowStateSource::App) — mutates `current` only, so the `current` vs
+    ///     `os_synced_state` diff makes `sync_window_state()` push it to the OS
+    ///     (`XMoveWindow`/`SetWindowPos`/…).
+    ///   * [`Os`](WindowStateSource::Os) — the change is *already applied* by the OS, so this
+    ///     mutates `current` AND advances the OS-sync baseline (`os_synced_state`) in lockstep,
+    ///     leaving a zero diff so it is never echoed. Echoing OS-reported geometry is what drifted
+    ///     the window on reparenting WMs (F4).
     ///
     /// It NEVER writes `previous_window_state`. It used to, back when one field
     /// was both baselines, and that is precisely what killed the events: the
@@ -3166,8 +3257,8 @@ impl CommonWindowState {
         if let Some(before) = before {
             assert!(
                 before == os_synced_fields(&self.current_window_state),
-                "update_unsynced_state changed an OS-SYNCED field (title/size/position/flags); \
-                 it has to go through update_window_state so the baseline decision is made"
+                "update_unsynced_state changed an OS-SYNCED field (title/size/position/flags); it \
+                 has to go through update_window_state so the baseline decision is made"
             );
         }
         out
@@ -3230,7 +3321,7 @@ impl CommonWindowState {
     /// Encapsulates the GPU vs CPU dispatch so callers don't need if/else chains.
     pub fn perform_hit_test(
         &mut self,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     ) -> azul_core::hit_test::FullHitTest {
         use azul_core::window::CursorPosition;
 
@@ -3240,7 +3331,7 @@ impl CommonWindowState {
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
         let layout_results_ptr = match self.layout_window.as_ref() {
-            Some(lw) => lw as *const azul_layout::window::LayoutWindow,
+            Some(lw) => lw as *const LayoutWindow,
             None => return azul_core::hit_test::FullHitTest::empty(focused_node),
         };
 
@@ -3262,11 +3353,11 @@ impl CommonWindowState {
             // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
-            let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve = |d: DomId, n: NodeId| {
                 lw.scroll_manager.get_current_offset(d, n)
             };
             // Same map the CPU raster paints reference frames from.
-            let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve_tf = |d: DomId, n: NodeId| {
                 lw.gpu_state_manager
                     .caches
                     .get(&d)
@@ -3671,8 +3762,10 @@ pub trait PlatformWindow {
         }
         let timer = self.get_layout_window().map(|lw| {
             use azul_core::refany::RefAny;
-            use azul_layout::scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState};
-            use azul_layout::timer::{Timer, TimerCallbackType};
+            use azul_layout::{
+                scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                timer::{Timer, TimerCallbackType},
+            };
             let physics = lw
                 .system_style
                 .as_ref()
@@ -3683,7 +3776,7 @@ pub trait PlatformWindow {
             Timer::create(
                 RefAny::new(state),
                 scroll_physics_timer_callback as TimerCallbackType,
-                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
             )
             .with_interval(azul_core::task::Duration::System(
                 azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
@@ -3720,15 +3813,13 @@ pub trait PlatformWindow {
     ///
     /// Two queues, both filled by the commit paths themselves:
     ///
-    /// - TEXT-EDIT notifications: edits committed OUTSIDE the text-input
-    ///   record pipeline (deletions, multi-cursor paste, the Enter line break)
-    ///   dispatch their `Input` event here, so widget mirrors observe every
-    ///   committed edit, not only insertions.
-    /// - TEXT-CHANGED notifications: every text node whose committed content
-    ///   changed (typed characters included — `Input` fires BEFORE a typed
-    ///   character lands) dispatches `TextChanged` here, after the commit, so
-    ///   a model that reads `get_unsynced_text_edits` from the callback sees
-    ///   the new text.
+    /// - TEXT-EDIT notifications: edits committed OUTSIDE the text-input record pipeline
+    ///   (deletions, multi-cursor paste, the Enter line break) dispatch their `Input` event here,
+    ///   so widget mirrors observe every committed edit, not only insertions.
+    /// - TEXT-CHANGED notifications: every text node whose committed content changed (typed
+    ///   characters included — `Input` fires BEFORE a typed character lands) dispatches
+    ///   `TextChanged` here, after the commit, so a model that reads `get_unsynced_text_edits` from
+    ///   the callback sees the new text.
     ///
     /// Why a pass-end law and not a tail of `process_window_events`: the
     /// commit paths run in more than one kind of pass. A `CreateTextInput`
@@ -3762,7 +3853,10 @@ pub trait PlatformWindow {
         }
 
         let now = azul_core::task::Instant::now();
-        for (event_type, targets) in [(EventType::Input, edited), (EventType::TextChanged, changed)] {
+        for (event_type, targets) in [
+            (EventType::Input, edited),
+            (EventType::TextChanged, changed),
+        ] {
             if targets.is_empty() {
                 continue;
             }
@@ -4129,7 +4223,7 @@ pub trait PlatformWindow {
     /// * `threads` - Threads to add to the pool
     fn add_threads(
         &mut self,
-        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+        threads: BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     );
 
     /// Remove threads from the thread pool.
@@ -4371,7 +4465,7 @@ pub trait PlatformWindow {
     fn show_menu_from_callback(
         &mut self,
         menu: &azul_core::menu::Menu,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     );
 
@@ -4396,7 +4490,7 @@ pub trait PlatformWindow {
     fn show_tooltip_from_callback(
         &mut self,
         text: &str,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     );
 
     /// Hide the currently displayed tooltip.
@@ -4455,16 +4549,14 @@ pub trait PlatformWindow {
     /// DIFFERENT reasons, which is why it routes through the same release path
     /// rather than each arm clearing the flag itself:
     ///
-    /// * Win32 releases the `ClipCursor` clip itself on deactivation, so the
-    ///   flag becomes a lie the moment focus goes. Worse, `ShowCursor` is a
-    ///   COUNTER: clearing the flag without running the release would leave the
-    ///   cursor hidden for the whole PROCESS, with no matching show left to
+    /// * Win32 releases the `ClipCursor` clip itself on deactivation, so the flag becomes a lie the
+    ///   moment focus goes. Worse, `ShowCursor` is a COUNTER: clearing the flag without running the
+    ///   release would leave the cursor hidden for the whole PROCESS, with no matching show left to
     ///   run.
-    /// * macOS keeps `CGAssociateMouseAndMouseCursorPosition(false)` in force,
-    ///   so the user would be left with a frozen, invisible cursor in another
-    ///   application.
-    /// * X11 holds the grab until it is explicitly released, so an unfocused
-    ///   window would keep the pointer confined.
+    /// * macOS keeps `CGAssociateMouseAndMouseCursorPosition(false)` in force, so the user would be
+    ///   left with a frozen, invisible cursor in another application.
+    /// * X11 holds the grab until it is explicitly released, so an unfocused window would keep the
+    ///   pointer confined.
     ///
     /// Wayland calls it too (9d-ii-c): a persistent constraint would otherwise
     /// re-activate by itself when focus returns, which is the one thing the
@@ -4478,11 +4570,7 @@ pub trait PlatformWindow {
     /// return) requests it again from `WindowFocusReceived`. A drawing app is
     /// never re-captured behind the user's back.
     fn release_pointer_lock_on_focus_loss(&mut self) {
-        if !self
-            .get_current_window_state()
-            .mouse_state
-            .is_cursor_locked
-        {
+        if !self.get_current_window_state().mouse_state.is_cursor_locked {
             return;
         }
         let _ = self.handle_set_pointer_lock(false);
@@ -4646,10 +4734,10 @@ pub trait PlatformWindow {
                 // behind `e2e-server`, so the message would vanish in exactly
                 // the builds most likely to hit this.
                 eprintln!(
-                    "[azul] execute_e2e_json: NOT IMPLEMENTED on the desktop shell \
-                     — the script was DROPPED. The E2eSession continuation slot is \
-                     not reachable from apply_user_change yet. Both Async (queue + \
-                     driver timer) and Sync (block the caller) are still to be wired."
+                    "[azul] execute_e2e_json: NOT IMPLEMENTED on the desktop shell — the script \
+                     was DROPPED. The E2eSession continuation slot is not reachable from \
+                     apply_user_change yet. Both Async (queue + driver timer) and Sync (block the \
+                     caller) are still to be wired."
                 );
                 ProcessEventResult::DoNothing
             }
@@ -4659,6 +4747,8 @@ pub trait PlatformWindow {
                 let old_state = self.get_current_window_state().clone();
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
+
+                let theme_changed = old_state.theme != state.theme;
                 // The other cursors (9b-ii): same treatment as the primary,
                 // or an app-pushed seat change would neither copy nor diff.
                 let seats_changed = old_state.pointer_seats != state.pointer_seats;
@@ -4740,8 +4830,8 @@ pub trait PlatformWindow {
                     );
                     crate::log_debug!(
                         crate::desktop::shell2::common::debug_server::LogCategory::Window,
-                        "[resize] APP-initiated {}x{} (size_changed={} dpi_changed={}) \
-                         — calling resize_platform_surface + regenerate",
+                        "[resize] APP-initiated {}x{} (size_changed={} dpi_changed={}) — calling \
+                         resize_platform_surface + regenerate",
                         w,
                         h,
                         size_changed,
@@ -4760,8 +4850,8 @@ pub trait PlatformWindow {
                         // resized" turns into an unexplained blank region.
                         crate::log_warn!(
                             crate::desktop::shell2::common::debug_server::LogCategory::Window,
-                            "[resize] REFUSED a {w}x{h} platform resize — the engine will \
-                             still relayout, so the surface and the layout are now out of step"
+                            "[resize] REFUSED a {w}x{h} platform resize — the engine will still \
+                             relayout, so the surface and the layout are now out of step"
                         );
                     }
                     if dpi_changed {
@@ -4792,6 +4882,15 @@ pub trait PlatformWindow {
                     }
                 }
 
+                // Theme changed by the APP. (An OS theme change arrives as a
+                // system-style change and is handled in `adopt_system_style`.)
+                // Every `@theme` rule, the UA text colour and the widgets' dark
+                // twins resolve against the WINDOW's theme, so this is the same
+                // full pass a system theme change takes; without it an in-app
+                // switch flipped the window chrome and nothing else.
+                if theme_changed {
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                }
                 // Mouse state changed → update hit test before the event pass
                 if mouse_state_changed {
                     let mouse_pos = self
@@ -4885,34 +4984,39 @@ pub trait PlatformWindow {
                 };
                 let current = lw.focus_manager.focused_node_for(*seat_id);
                 let out_of_scope = lw.focus_out_of_scope_doms();
-                let new_focus =
-                    match resolve_focus_target(target, &lw.layout_results, current, &out_of_scope) {
-                        Ok(FocusResolution::Resolved(n)) => Some(n),
-                        Ok(FocusResolution::ClearRequested) => None,
-                        // `resolve_focus_target` (not the `_or_defer` twin)
-                        // never yields this; a seat exists only once input
-                        // arrived, after the first layout.
-                        Ok(FocusResolution::Deferred) => return ProcessEventResult::DoNothing,
-                        Ok(FocusResolution::NotFound) => {
-                            crate::log_debug!(
-                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
-                                "[SetSeatFocusTarget] seat {} target matched nothing - keeping its focus: {:?}",
-                                seat_id,
-                                target
-                            );
-                            return ProcessEventResult::DoNothing;
-                        }
-                        Err(w) => {
-                            crate::log_warn!(
-                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
-                                "[SetSeatFocusTarget] seat {} resolution FAILED: {:?} (target {:?})",
-                                seat_id,
-                                w,
-                                target
-                            );
-                            return ProcessEventResult::DoNothing;
-                        }
-                    };
+                let new_focus = match resolve_focus_target(
+                    target,
+                    &lw.layout_results,
+                    current,
+                    &out_of_scope,
+                ) {
+                    Ok(FocusResolution::Resolved(n)) => Some(n),
+                    Ok(FocusResolution::ClearRequested) => None,
+                    // `resolve_focus_target` (not the `_or_defer` twin)
+                    // never yields this; a seat exists only once input
+                    // arrived, after the first layout.
+                    Ok(FocusResolution::Deferred) => return ProcessEventResult::DoNothing,
+                    Ok(FocusResolution::NotFound) => {
+                        crate::log_debug!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "[SetSeatFocusTarget] seat {} target matched nothing - keeping its \
+                             focus: {:?}",
+                            seat_id,
+                            target
+                        );
+                        return ProcessEventResult::DoNothing;
+                    }
+                    Err(w) => {
+                        crate::log_warn!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "[SetSeatFocusTarget] seat {} resolution FAILED: {:?} (target {:?})",
+                            seat_id,
+                            w,
+                            target
+                        );
+                        return ProcessEventResult::DoNothing;
+                    }
+                };
                 if new_focus == current {
                     return ProcessEventResult::DoNothing;
                 }
@@ -5438,7 +5542,7 @@ pub trait PlatformWindow {
                     position.y,
                     unclamped
                 );
-                let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                let external = ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
                 let mut needs_virtual_view_update = false;
@@ -5534,7 +5638,7 @@ pub trait PlatformWindow {
                         let eff_origin = new_mat
                             .map(|r| r.origin)
                             .or(kept_origin)
-                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+                            .unwrap_or_else(LogicalPosition::zero);
                         if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
                             let _ = lw.virtual_view_manager.update_virtual_view_info(
                                 *dom_id,
@@ -5648,7 +5752,7 @@ pub trait PlatformWindow {
                 let Some(node_id) = node.node.into_crate_internal() else {
                     return ProcessEventResult::DoNothing;
                 };
-                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                if node.dom != DomId::ROOT_ID {
                     log_warn!(
                         super::debug_server::LogCategory::Window,
                         "[transient] set_transient_window_open on a non-root dom {:?}: ignored",
@@ -5671,7 +5775,7 @@ pub trait PlatformWindow {
                 // handler applies the selection to the field).
                 let is_transient_node_here = self.get_layout_window().is_some_and(|lw| {
                     lw.layout_results
-                        .get(&azul_core::dom::DomId::ROOT_ID)
+                        .get(&DomId::ROOT_ID)
                         .and_then(|r| {
                             r.styled_dom.node_data.as_container().get(node_id).map(|n| {
                                 matches!(
@@ -5764,7 +5868,7 @@ pub trait PlatformWindow {
                 let Some(node_id) = node.node.into_crate_internal() else {
                     return ProcessEventResult::DoNothing;
                 };
-                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                if node.dom != DomId::ROOT_ID {
                     log_warn!(
                         super::debug_server::LogCategory::Window,
                         "[transient] set_transient_window_torn on a non-root dom {:?}: ignored",
@@ -6093,7 +6197,7 @@ pub trait PlatformWindow {
                         // Create new MultiCursorState with the cursor
                         let dom_node_id = azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                            node: NodeHierarchyItemId::from_crate_internal(
                                 Some(*node_id),
                             ),
                         };
@@ -6120,7 +6224,7 @@ pub trait PlatformWindow {
                     } else {
                         let dom_node_id = azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                            node: NodeHierarchyItemId::from_crate_internal(
                                 Some(*node_id),
                             ),
                         };
@@ -6260,8 +6364,10 @@ pub trait PlatformWindow {
                 // the hardware delta. It queues the input against the
                 // innermost scrollable node under the hover hit test and the
                 // physics timer (armed at the end of this pass) applies it.
-                use azul_layout::managers::hover::InputPointId;
-                use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+                use azul_layout::managers::{
+                    hover::InputPointId,
+                    scroll_state::{ScrollInputDevice, ScrollInputSource},
+                };
                 let now = azul_core::task::Instant::from(std::time::Instant::now());
                 let recorded = self
                     .get_layout_window_mut()
@@ -6500,11 +6606,11 @@ pub trait PlatformWindow {
                             // child of <html> (outside <body>, inheriting nothing,
                             // painting nothing). Append first, then RE-PARENT.
                             let sd = &mut layout_result.styled_dom;
-                            let new_id = azul_core::id::NodeId::new(sd.node_data.as_ref().len());
+                            let new_id = NodeId::new(sd.node_data.as_ref().len());
                             let root_id = sd
                                 .root
                                 .into_crate_internal()
-                                .unwrap_or(azul_core::id::NodeId::ZERO);
+                                .unwrap_or(NodeId::ZERO);
                             let root_last_before =
                                 sd.node_hierarchy.as_container()[root_id].last_child_id();
                             sd.append_child(styled);
@@ -6528,24 +6634,24 @@ pub trait PlatformWindow {
                                         {
                                             let h = &mut sd.node_hierarchy;
                                             h.as_container_mut()[root_id].last_child =
-                                                azul_core::id::NodeId::into_raw(&root_last_before);
+                                                NodeId::into_raw(&root_last_before);
                                             if let Some(rl) = root_last_before {
                                                 h.as_container_mut()[rl].next_sibling =
-                                                    azul_core::id::NodeId::into_raw(&None);
+                                                    NodeId::into_raw(&None);
                                             }
                                             // 2. link it as the parent's new last child
                                             h.as_container_mut()[parent_last].next_sibling =
-                                                azul_core::id::NodeId::into_raw(&Some(new_id));
+                                                NodeId::into_raw(&Some(new_id));
                                             h.as_container_mut()[new_id].previous_sibling =
-                                                azul_core::id::NodeId::into_raw(&Some(parent_last));
+                                                NodeId::into_raw(&Some(parent_last));
                                             h.as_container_mut()[new_id].next_sibling =
-                                                azul_core::id::NodeId::into_raw(&None);
+                                                NodeId::into_raw(&None);
                                             h.as_container_mut()[new_id].parent =
-                                                azul_core::id::NodeId::into_raw(&Some(
+                                                NodeId::into_raw(&Some(
                                                     *parent_node_id,
                                                 ));
                                             h.as_container_mut()[*parent_node_id].last_child =
-                                                azul_core::id::NodeId::into_raw(&Some(new_id));
+                                                NodeId::into_raw(&Some(new_id));
                                         }
                                         // 3. keep the cascade bookkeeping consistent
                                         let sibling_index = {
@@ -6627,7 +6733,7 @@ pub trait PlatformWindow {
                             // Connect prev → next
                             if let Some(prev) = prev_sib {
                                 hierarchy.as_container_mut()[prev].next_sibling =
-                                    azul_core::id::NodeId::into_raw(&next_sib);
+                                    NodeId::into_raw(&next_sib);
                             } else if let Some(p) = parent {
                                 // This node was the first child — update parent's first-child
                                 // (last_child field actually stores first_child pointer in
@@ -6636,11 +6742,11 @@ pub trait PlatformWindow {
                             }
                             if let Some(next) = next_sib {
                                 hierarchy.as_container_mut()[next].previous_sibling =
-                                    azul_core::id::NodeId::into_raw(&prev_sib);
+                                    NodeId::into_raw(&prev_sib);
                             } else if let Some(p) = parent {
                                 // This node was the last child — update parent's last_child
                                 hierarchy.as_container_mut()[p].last_child =
-                                    azul_core::id::NodeId::into_raw(&prev_sib);
+                                    NodeId::into_raw(&prev_sib);
                             }
 
                             // Zero out the deleted node's hierarchy pointers
@@ -6968,7 +7074,7 @@ pub trait PlatformWindow {
                     let dom_id = layout_window
                         .text_edit_manager
                         .get_editing_dom_id()
-                        .unwrap_or(azul_core::dom::DomId { inner: 0 });
+                        .unwrap_or(DomId { inner: 0 });
                     let clipboard_content =
                         layout_window.get_selected_content_for_clipboard(&dom_id);
                     log_debug!(
@@ -7003,7 +7109,7 @@ pub trait PlatformWindow {
                     let dom_id = layout_window
                         .text_edit_manager
                         .get_editing_dom_id()
-                        .unwrap_or(azul_core::dom::DomId { inner: 0 });
+                        .unwrap_or(DomId { inner: 0 });
                     if let Some(clipboard_content) =
                         layout_window.get_selected_content_for_clipboard(&dom_id)
                     {
@@ -7271,8 +7377,8 @@ pub trait PlatformWindow {
                 let Some((start_cursor, end_cursor)) = cursors else {
                     log_debug!(
                         super::debug_server::LogCategory::Layout,
-                        "[select-all] blocks {:?}..{:?} have no first/last cluster cursor — \
-                         the inline layout is empty",
+                        "[select-all] blocks {:?}..{:?} have no first/last cluster cursor — the \
+                         inline layout is empty",
                         first,
                         last
                     );
@@ -7451,22 +7557,24 @@ pub trait PlatformWindow {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         }
                     }
-                    KeyboardShortcut::Undo => match undo_text_edit_on(layout_window, *target, *seat_id) {
-                        Some(restore) => {
-                            let (cursor, anchor) = match (restore.range, restore.cursor) {
-                                (Some(range), _) => (range.end, Some(range.start)),
-                                (None, Some(cursor)) => (cursor, None),
-                                (None, None) => {
-                                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                                }
-                            };
-                            layout_window
-                                .text_edit_manager
-                                .set_seat_selection(*seat_id, *target, cursor, anchor);
-                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    KeyboardShortcut::Undo => {
+                        match undo_text_edit_on(layout_window, *target, *seat_id) {
+                            Some(restore) => {
+                                let (cursor, anchor) = match (restore.range, restore.cursor) {
+                                    (Some(range), _) => (range.end, Some(range.start)),
+                                    (None, Some(cursor)) => (cursor, None),
+                                    (None, None) => {
+                                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                                    }
+                                };
+                                layout_window
+                                    .text_edit_manager
+                                    .set_seat_selection(*seat_id, *target, cursor, anchor);
+                                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                            }
+                            None => ProcessEventResult::DoNothing,
                         }
-                        None => ProcessEventResult::DoNothing,
-                    },
+                    }
                     KeyboardShortcut::Redo => {
                         if redo_text_edit_on(layout_window, *target, *seat_id) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -7890,7 +7998,7 @@ pub trait PlatformWindow {
                 // host needs and nothing a desktop shell does.
                 let deferred_blink = self
                     .get_layout_window_mut()
-                    .and_then(azul_layout::window::LayoutWindow::drain_deferred_focus_target);
+                    .and_then(LayoutWindow::drain_deferred_focus_target);
                 if let Some(timer) = deferred_blink {
                     if let Some(lw) = self.get_layout_window_mut() {
                         lw.timers
@@ -7910,7 +8018,7 @@ pub trait PlatformWindow {
                 // (whose target resolved immediately) armed timer 1 at 1200 ms.
                 let unarmed = self
                     .get_layout_window_mut()
-                    .and_then(azul_layout::window::LayoutWindow::take_unarmed_blink_timer);
+                    .and_then(LayoutWindow::take_unarmed_blink_timer);
                 if let Some(timer) = unarmed {
                     self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                 }
@@ -8104,7 +8212,7 @@ pub trait PlatformWindow {
     ///
     /// ## Parameters
     /// * `position` - The logical position to hit test at
-    fn update_hit_test_at(&mut self, position: azul_core::geom::LogicalPosition) {
+    fn update_hit_test_at(&mut self, position: LogicalPosition) {
         use azul_layout::managers::hover::InputPointId;
 
         // Single dispatch via CommonWindowState — handles GPU vs CPU internally
@@ -8123,7 +8231,11 @@ pub trait PlatformWindow {
     /// `determine_all_events` can target that cursor's events at the node
     /// under that cursor. Folds `PRIMARY_POINTER_SEAT` back into the primary
     /// path, so a caller need not special-case it.
-    fn update_seat_hit_test_at(&mut self, seat_id: u64, position: azul_core::geom::LogicalPosition) {
+    fn update_seat_hit_test_at(
+        &mut self,
+        seat_id: u64,
+        position: LogicalPosition,
+    ) {
         use azul_layout::managers::hover::InputPointId;
         let input_id = InputPointId::for_seat(seat_id);
         if input_id == InputPointId::Mouse {
@@ -8131,7 +8243,9 @@ pub trait PlatformWindow {
         }
         let hit_test = self.get_common_mut().perform_hit_test(position);
         if let Some(layout_window) = self.get_layout_window_mut() {
-            layout_window.hover_manager.push_hit_test(input_id, hit_test);
+            layout_window
+                .hover_manager
+                .push_hit_test(input_id, hit_test);
         }
     }
 
@@ -8158,7 +8272,8 @@ pub trait PlatformWindow {
     /// * `events` - SyntheticEvents to dispatch (already filtered to user events)
     ///
     /// ## Returns
-    /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
+    /// * `ProcessEventResult` - The maximum framework-determined processing level from applied
+    ///   changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
     /// The deepest node under the point where the current drag gesture was
@@ -8176,15 +8291,17 @@ pub trait PlatformWindow {
                     .collect();
                 nodes.sort_by_key(|(_, d)| *d);
                 eprintln!(
-                    "[hit-debug] drag_source start={start:?} dom={dom_id:?} nodes(id,depth)={nodes:?}"
+                    "[hit-debug] drag_source start={start:?} dom={dom_id:?} \
+                     nodes(id,depth)={nodes:?}"
                 );
                 if let Some(tester) = self.get_common_mut().cpu_hit_tester.as_ref() {
                     for (n, _) in &nodes {
                         for (rect, chain, clips) in
-                            tester.debug_entries_for(*dom_id, azul_core::id::NodeId::new(*n))
+                            tester.debug_entries_for(*dom_id, NodeId::new(*n))
                         {
                             eprintln!(
-                                "[hit-debug]   node {n}: rect={rect:?} chain={chain} clips={clips:?}"
+                                "[hit-debug]   node {n}: rect={rect:?} chain={chain} \
+                                 clips={clips:?}"
                             );
                         }
                     }
@@ -8197,7 +8314,7 @@ pub trait PlatformWindow {
     }
 
     /// Where the current drag gesture was pressed (window-local).
-    fn drag_press_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+    fn drag_press_position(&self) -> Option<LogicalPosition> {
         Some(
             self.get_layout_window()?
                 .gesture_drag_manager
@@ -8327,7 +8444,7 @@ pub trait PlatformWindow {
                             .mouse_state
                             .cursor_position
                             .get_position()
-                            .unwrap_or(azul_core::geom::LogicalPosition::zero());
+                            .unwrap_or(LogicalPosition::zero());
                         // Stop driving the proxy, then let the engine decide
                         // what the drop meant (dock back inline, re-dock onto
                         // another zone, or stay floating where it was dropped).
@@ -8528,10 +8645,10 @@ pub trait PlatformWindow {
                             // Build callback map: NodeId → Vec<EventFilter>
                             let node_data_container =
                                 layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: std::collections::BTreeMap<
+                            let mut callback_map: BTreeMap<
                                 NodeId,
                                 Vec<EventFilter>,
-                            > = std::collections::BTreeMap::new();
+                            > = BTreeMap::new();
 
                             for node_idx in 0..node_data_container.len() {
                                 let node_id = NodeId::new(node_idx);
@@ -8570,7 +8687,10 @@ pub trait PlatformWindow {
                                                 dom_id,
                                                 node_id: *node_id,
                                                 callback_data: cb.clone(),
-                                                seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                                seat_id:
+                                                    azul_layout::managers::hover::seat_of_event(
+                                                        event,
+                                                    ),
                                             });
                                         }
                                     }
@@ -8582,11 +8702,12 @@ pub trait PlatformWindow {
                             // the SEAT that produced the event (9b-ii-a-i-d):
                             // a second seat's keys go to its own focus.
                             let event_seat = azul_layout::managers::hover::seat_of_event(event);
-                            let seat_focus = if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                focused_node
-                            } else {
-                                layout_window.focus_manager.focused_node_for(event_seat)
-                            };
+                            let seat_focus =
+                                if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                    focused_node
+                                } else {
+                                    layout_window.focus_manager.focused_node_for(event_seat)
+                                };
                             if let Some(ref focused) = seat_focus {
                                 let dom_id = focused.dom;
                                 if let Some(node_id) = focused.node.into_crate_internal() {
@@ -8621,7 +8742,10 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
-                                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                                    seat_id:
+                                                        azul_layout::managers::hover::seat_of_event(
+                                                            event,
+                                                        ),
                                                 });
                                             }
                                         }
@@ -8648,7 +8772,10 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
-                                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                                    seat_id:
+                                                        azul_layout::managers::hover::seat_of_event(
+                                                            event,
+                                                        ),
                                                 });
                                             }
                                         }
@@ -8703,8 +8830,8 @@ pub trait PlatformWindow {
         let mut any_prevent_default = false;
 
         // Track propagation control flags (W3C semantics):
-        //  - stop_propagation: remaining handlers on the *same* node still fire,
-        //    but handlers on different nodes are skipped.
+        //  - stop_propagation: remaining handlers on the *same* node still fire, but handlers on
+        //    different nodes are skipped.
         //  - stop_immediate_propagation: no further handlers fire at all.
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
@@ -8725,7 +8852,7 @@ pub trait PlatformWindow {
             // node the event was dispatched to (was a null node before).
             let hit_node = azul_core::dom::DomNodeId {
                 dom: planned.dom_id,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                node: NodeHierarchyItemId::from_crate_internal(Some(
                     planned.node_id,
                 )),
             };
@@ -8841,7 +8968,7 @@ pub trait PlatformWindow {
 
         let layout_window = self.get_layout_window_mut().ok_or("No layout window")?;
 
-        let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        let external = ExternalSystemCallbacks::rust_internal();
 
         // Apply scroll delta to ScrollManager
         layout_window.scroll_manager.scroll_by(
@@ -8902,9 +9029,9 @@ pub trait PlatformWindow {
             .unwrap_or_default();
         let current = self.get_current_window_state();
         let window_position = current.position;
-        let screen_of = |p: azul_core::geom::LogicalPosition| match window_position {
+        let screen_of = |p: LogicalPosition| match window_position {
             WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32 + p.x, pos.y as f32 + p.y)
+                LogicalPosition::new(pos.x as f32 + p.x, pos.y as f32 + p.y)
             }
             WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => p,
         };
@@ -8914,7 +9041,7 @@ pub trait PlatformWindow {
                 | (if m.middle_down { 4 } else { 0 })
         };
         // (seat, position, buttons now, buttons before, moved)
-        let mut edges: Vec<(u64, azul_core::geom::LogicalPosition, u8, u8, bool)> = Vec::new();
+        let mut edges: Vec<(u64, LogicalPosition, u8, u8, bool)> = Vec::new();
         let previous_seat = |id: u64| previous_seats.as_ref().iter().find(|s| s.seat_id == id);
         for seat in current.pointer_seats.as_ref() {
             let prev = previous_seat(seat.seat_id).map(|s| &s.state);
@@ -8935,7 +9062,7 @@ pub trait PlatformWindow {
                 .state
                 .cursor_position
                 .get_position()
-                .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+                .unwrap_or_else(LogicalPosition::zero);
             edges.push((gone.seat_id, pos, 0, buttons_of(&gone.state), false));
         }
         if edges.is_empty() {
@@ -8969,11 +9096,11 @@ pub trait PlatformWindow {
 
     fn record_input_sample(
         &mut self,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
         button_state: u8,
         is_button_down: bool,
         is_button_up: bool,
-        platform_screen_position: Option<azul_core::geom::LogicalPosition>,
+        platform_screen_position: Option<LogicalPosition>,
     ) {
         // Capture window position BEFORE borrowing layout_window mutably
         let window_position = self.get_current_window_state().position;
@@ -8998,7 +9125,7 @@ pub trait PlatformWindow {
             // On Wayland: window_position is Uninitialized → falls back to window-local.
             match window_position {
                 azul_core::window::WindowPosition::Initialized(pos) => {
-                    azul_core::geom::LogicalPosition::new(
+                    LogicalPosition::new(
                         pos.x as f32 + position.x,
                         pos.y as f32 + position.y,
                     )
@@ -9079,8 +9206,8 @@ pub trait PlatformWindow {
     #[cfg(feature = "a11y")]
     fn record_accessibility_action(
         &mut self,
-        dom_id: azul_core::dom::DomId,
-        node_id: azul_core::dom::NodeId,
+        dom_id: DomId,
+        node_id: NodeId,
         action: azul_core::dom::AccessibilityAction,
     ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<EventFilter>, bool)> {
         use std::collections::BTreeMap;
@@ -9125,11 +9252,11 @@ pub trait PlatformWindow {
             let centre = self
                 .get_layout_window()
                 .and_then(|lw| lw.get_node_layout_rect(*node))
-                .map(|r| azul_core::geom::LogicalPosition {
+                .map(|r| LogicalPosition {
                     x: r.origin.x + r.size.width / 2.0,
                     y: r.origin.y + r.size.height / 2.0,
                 })
-                .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
+                .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
             let mouse_data = || {
                 EventData::Mouse(MouseEventData {
                     position: centre,
@@ -9189,8 +9316,8 @@ pub trait PlatformWindow {
     fn dispatch_accessibility_actions(
         &mut self,
         actions: Vec<(
-            azul_core::dom::DomId,
-            azul_core::dom::NodeId,
+            DomId,
+            NodeId,
             azul_core::dom::AccessibilityAction,
         )>,
     ) -> bool {
@@ -9374,7 +9501,7 @@ pub trait PlatformWindow {
                 &raw_handle,
                 borrows.gl_context_ptr,
                 borrows.system_style.clone(),
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &ExternalSystemCallbacks::rust_internal(),
                 borrows.previous_window_state,
                 borrows.current_window_state,
                 borrows.renderer_resources,
@@ -9455,41 +9582,79 @@ pub trait PlatformWindow {
     /// says so: `LayoutCallbackInfo::depends_on_system_style`, drained into
     /// `LayoutWindow::recorded_style_dependencies`.
     ///
-    /// * The change touches a declared facet (or the callback declared
-    ///   nothing, which is every app written before that API existed) —
-    ///   `RelayoutReason::ThemeChange`, the full rebuild.
-    /// * It does not — RESTYLE: the existing `StyledDom` is re-solved against
-    ///   the new style, so `system-*` colours, `@theme` conditions and the
-    ///   scrollbar's OS geometry all re-resolve, while `layout()`, the
-    ///   cascade, icon resolution and CSD injection are all skipped. The
-    ///   incremental caches are dropped first: they hold a display list and a
-    ///   solved tree built against the OLD palette, and reusing those is
-    ///   exactly the "theme switched, half the window stayed light" bug.
+    /// * The change touches a declared facet (or the callback declared nothing, which is every app
+    ///   written before that API existed) — `RelayoutReason::ThemeChange`, the full rebuild.
+    /// * It does not — RESTYLE: the existing `StyledDom` is re-solved against the new style, so
+    ///   `system-*` colours, `@theme` conditions and the scrollbar's OS geometry all re-resolve,
+    ///   while `layout()`, the cascade, icon resolution and CSD injection are all skipped. The
+    ///   incremental caches are dropped first: they hold a display list and a solved tree built
+    ///   against the OLD palette, and reusing those is exactly the "theme switched, half the window
+    ///   stayed light" bug.
     ///
     /// Returns whether anything changed at all — `false` means the two styles
     /// are equal and the caller owes neither pass nor repaint.
     fn adopt_system_style(
         &mut self,
-        new_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        new_style: Arc<azul_css::system::SystemStyle>,
     ) -> bool {
-        let old_style = std::sync::Arc::clone(&self.get_common_mut().system_style);
-        if *old_style == *new_style {
+        let old_style = Arc::clone(&self.get_common_mut().system_style);
+        // The WINDOW theme is what the cascade follows, so the window-theme
+        // delta is the trigger — not `SystemStyle` equality. The two
+        // disagree exactly when it matters: a dark desktop at startup
+        // (`discover()` already dark, `ws.theme` written dark by the first
+        // poll, the rediscovered style equal to the held one) used to return
+        // here with nothing restyled. The shells write `ws.theme` and
+        // snapshot the baseline before calling this, so the delta is
+        // readable from the baseline.
+        let theme_delta = {
+            let common = self.get_common_mut();
+            common
+                .previous_window_state
+                .as_ref()
+                .is_some_and(|prev| prev.theme != common.current_window_state.theme)
+        };
+        if *old_style == *new_style && !theme_delta {
             return false;
         }
 
         // Decided BEFORE the new style is installed — the question is about
         // the transition, and both ends of it have to still be readable.
-        let needs_full = self
-            .get_layout_window()
-            .is_none_or(|lw| lw.system_style_change_needs_full_regeneration(&old_style, &new_style));
+        // A window-theme flip is always a full rebuild: the layout callback
+        // sees `theme` in its `LayoutCallbackInfo` and may branch on it.
+        let needs_full = theme_delta
+            || self.get_layout_window().is_none_or(|lw| {
+                lw.system_style_change_needs_full_regeneration(&old_style, &new_style)
+            });
 
-        self.get_common_mut().system_style = std::sync::Arc::clone(&new_style);
+        self.get_common_mut().system_style = Arc::clone(&new_style);
+
+        let custom_bg_light = self.get_common_mut().background_color_light;
+        let custom_bg_dark = self.get_common_mut().background_color_dark;
+
+        self.get_common_mut()
+            .update_window_state(WindowStateSource::App, |current| {
+                // The window's OWN theme picks the background, like it picks
+                // the cascade — not the system style's.
+                let use_dark = current.theme == azul_core::window::WindowTheme::DarkMode;
+                let custom_bg = if use_dark {
+                    custom_bg_dark
+                } else {
+                    custom_bg_light
+                };
+
+                if custom_bg.is_some() {
+                    current.background_color = custom_bg;
+                } else if current.background_color == old_style.colors.window_background {
+                    current.background_color = new_style.colors.window_background;
+                }
+            });
+
         if let Some(lw) = self.get_layout_window_mut() {
             // `regenerate_layout` pushes the style into the LayoutWindow on
             // its own; the restyle path below does not go through it, and a
             // LayoutWindow still holding the old style would re-solve into
             // the very palette we are leaving.
-            lw.set_system_style(std::sync::Arc::clone(&new_style));
+            lw.set_system_style(Arc::clone(&new_style));
         }
 
         if needs_full {
@@ -9568,7 +9733,7 @@ pub trait PlatformWindow {
                     &borrows.window_handle,
                     borrows.gl_context_ptr,
                     borrows.system_style.clone(),
-                    &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                    &ExternalSystemCallbacks::rust_internal(),
                     borrows.previous_window_state,
                     borrows.current_window_state,
                     borrows.renderer_resources,
@@ -9694,7 +9859,7 @@ pub trait PlatformWindow {
                     let explicit = lw.layout_results.iter().find_map(|(dom_id, lr)| {
                         let nd = lr.styled_dom.node_data.as_container();
                         (0..nd.len())
-                            .map(azul_core::dom::NodeId::new)
+                            .map(NodeId::new)
                             .find(|n| {
                                 nd.get(*n)
                                     .is_some_and(azul_core::dom::NodeData::has_autofocus)
@@ -9702,7 +9867,7 @@ pub trait PlatformWindow {
                             .map(|n| azul_core::dom::DomNodeId {
                                 dom: *dom_id,
                                 node:
-                                    azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                    NodeHierarchyItemId::from_crate_internal(
                                         Some(n),
                                     ),
                             })
@@ -9832,8 +9997,7 @@ pub trait PlatformWindow {
                 use azul_core::window::OptionVirtualKeyCode;
                 self.get_common_mut()
                     .update_window_state(WindowStateSource::App, |ws| {
-                        ws.keyboard_state.current_virtual_keycode =
-                            OptionVirtualKeyCode::Some(key);
+                        ws.keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::Some(key);
                     });
                 result = result.max(self.process_window_events_inner(depth + 1));
                 self.get_common_mut()
@@ -10100,10 +10264,11 @@ pub trait PlatformWindow {
         let wheel_delta = self
             .get_layout_window()
             .and_then(|w| w.scroll_manager.pending_wheel_event);
-        let wheel_seat = self.get_layout_window().map_or(
-            azul_core::window::PRIMARY_POINTER_SEAT,
-            |w| w.scroll_manager.pending_wheel_seat,
-        );
+        let wheel_seat = self
+            .get_layout_window()
+            .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |w| {
+                w.scroll_manager.pending_wheel_seat
+            });
 
         // Determine all events (returns Vec<SyntheticEvent>)
         let mut synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
@@ -10171,8 +10336,10 @@ pub trait PlatformWindow {
         // and only that seat's release ends the capture - the rule and its
         // test live in `hover::apply_pointer_capture`.
         if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
-            let released =
-                azul_layout::managers::hover::apply_pointer_capture(&mut synthetic_events, captured);
+            let released = azul_layout::managers::hover::apply_pointer_capture(
+                &mut synthetic_events,
+                captured,
+            );
             if released {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.pointer_capture = None;
@@ -10289,7 +10456,7 @@ pub trait PlatformWindow {
         // result at the bottom of this function.
         let hover_restyle_result: Option<ProcessEventResult> = {
             use std::collections::BTreeMap;
-            let mut per_dom: BTreeMap<azul_core::dom::DomId, azul_core::styled_dom::HoverChange> =
+            let mut per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange> =
                 BTreeMap::new();
             for ev in &synthetic_events {
                 let is_enter = ev.event_type == azul_core::events::EventType::MouseEnter;
@@ -10323,7 +10490,7 @@ pub trait PlatformWindow {
         // The `:active` twin of the block above — see `apply_active_restyle`.
         let active_restyle_result: Option<ProcessEventResult> = {
             use std::collections::BTreeMap;
-            let mut pressed: BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>> =
+            let mut pressed: BTreeMap<DomId, Vec<NodeId>> =
                 BTreeMap::new();
             let mut released = false;
             for ev in &synthetic_events {
@@ -10404,7 +10571,7 @@ pub trait PlatformWindow {
                             .keyboard_state
                             .current_virtual_keycode,
                         azul_core::window::OptionVirtualKeyCode::Some(
-                            azul_core::window::VirtualKeyCode::Escape,
+                            VirtualKeyCode::Escape,
                         )
                     ),
                     _ => false,
@@ -10494,8 +10661,9 @@ pub trait PlatformWindow {
         //
         // IMPLEMENTATION STATUS:
         // [ OK ] Scroll: Platform calls scroll_manager.record_sample() in handle_scroll_wheel()
-        // [ OK ] Text: Handled via CallbackChange::CreateTextInput / SystemChange::PasteFromClipboard
-        // [ OK ] A11y: Tree updated after layout (rebuild_accessibility_tree); actions via record_accessibility_action()
+        // [ OK ] Text: Handled via CallbackChange::CreateTextInput /
+        // SystemChange::PasteFromClipboard [ OK ] A11y: Tree updated after layout
+        // (rebuild_accessibility_tree); actions via record_accessibility_action()
 
         // NOTE: Text input is handled via:
         // - CallbackChange::CreateTextInput (debug server / user callbacks → apply_user_change)
@@ -10503,8 +10671,9 @@ pub trait PlatformWindow {
         // Platform IME text input (macOS NSTextInputClient, Windows WM_CHAR, etc.)
         // arrives as keyboard events and is processed through the above paths.
         //
-        // Accessibility tree updates happen after layout in LayoutWindow::rebuild_accessibility_tree().
-        // Screen reader actions are handled by PlatformWindow::record_accessibility_action().
+        // Accessibility tree updates happen after layout in
+        // LayoutWindow::rebuild_accessibility_tree(). Screen reader actions are handled by
+        // PlatformWindow::record_accessibility_action().
 
         // PRE-CALLBACK INTERNAL EVENT FILTERING
         // Analyze events BEFORE user callbacks to extract internal system events
@@ -10554,7 +10723,7 @@ pub trait PlatformWindow {
                             hit.regular_hit_test_nodes.keys().map(move |nid| {
                                 azul_core::dom::DomNodeId {
                                     dom: *dom_id,
-                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                    node: NodeHierarchyItemId::from_crate_internal(
                                         Some(*nid),
                                     ),
                                 }
@@ -10586,7 +10755,7 @@ pub trait PlatformWindow {
                         // own — so "is this text" has to look at the node AND
                         // its children.
                         let ndc = lr.styled_dom.node_data.as_container();
-                        let is_text = |n: azul_core::id::NodeId| {
+                        let is_text = |n: NodeId| {
                             ndc.get(n).is_some_and(|nd| {
                                 matches!(nd.get_node_type(), azul_core::dom::NodeType::Text(_))
                             })
@@ -10630,8 +10799,7 @@ pub trait PlatformWindow {
                     // the "press on editable" rule looks for, and without an
                     // anchor no `TextSelectionDrag` is ever built - the held
                     // handle would never receive a move.
-                    let press_on_handle =
-                        pos.is_some_and(|p| lw.selection_handle_at(p).is_some());
+                    let press_on_handle = pos.is_some_and(|p| lw.selection_handle_at(p).is_some());
                     lw.text_selection_drag_anchor = if press_on_editable || press_on_handle {
                         pos
                     } else {
@@ -10706,7 +10874,7 @@ pub trait PlatformWindow {
                 .ctx
                 .as_ref()
                 .map(|r| r.clone())
-                .unwrap_or_else(|| azul_core::refany::RefAny::new(EmptyRefAnyData(0)));
+                .unwrap_or_else(|| RefAny::new(EmptyRefAnyData(0)));
             // SAFETY / no-store invariant:
             // `InputInterpreterCallbackType` is an `extern "C" fn`, which cannot be
             // generic over a lifetime, so its info pointer is typed
@@ -10808,8 +10976,8 @@ pub trait PlatformWindow {
         if !deferred_clipboard.is_empty() {
             let clip_target = old_focus.unwrap_or(azul_core::dom::DomNodeId {
                 dom: DomId { inner: 0 },
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
-                    azul_core::id::NodeId::ZERO,
+                node: NodeHierarchyItemId::from_crate_internal(Some(
+                    NodeId::ZERO,
                 )),
             });
             let has_paste = deferred_clipboard
@@ -11039,17 +11207,17 @@ pub trait PlatformWindow {
             };
             let old_dn = old_focus.unwrap_or(azul_core::dom::DomNodeId {
                 dom: DomId { inner: 0 },
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
+                node: NodeHierarchyItemId::from_crate_internal(None),
             });
             let new_dn = new_focus.unwrap_or(azul_core::dom::DomNodeId {
                 dom: DomId { inner: 0 },
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
+                node: NodeHierarchyItemId::from_crate_internal(None),
             });
             let ctx = pf
                 .ctx
                 .as_ref()
                 .map(|r| r.clone())
-                .unwrap_or_else(|| azul_core::refany::RefAny::new(EmptyRefAnyData(0)));
+                .unwrap_or_else(|| RefAny::new(EmptyRefAnyData(0)));
             let result_vec: azul_core::events::SystemChangeVec =
                 (pf.cb)(ctx, prevent_default, slice, old_dn, new_dn);
             result_vec.into_library_owned_vec()
@@ -11132,8 +11300,7 @@ pub trait PlatformWindow {
                             .cloned()
                     })
                 };
-                let clicked_focusable_node = match (&hit_for_focus, self.get_layout_window())
-                {
+                let clicked_focusable_node = match (&hit_for_focus, self.get_layout_window()) {
                     (Some(hit_test), Some(layout_window)) => {
                         let results = &layout_window.layout_results;
                         azul_layout::managers::hover::focusable_under_pointer(
@@ -11243,415 +11410,424 @@ pub trait PlatformWindow {
                     }
                 }
                 for key_seat in key_seats {
-                let current_window_state = self.get_current_window_state();
-                let keyboard_state = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                    &current_window_state.keyboard_state
-                } else {
-                    current_window_state
-                        .keyboard_seat(key_seat)
-                        .unwrap_or(&current_window_state.keyboard_state)
-                };
-                let focused_node = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                    old_focus
-                } else {
-                    self.get_layout_window()
-                        .and_then(|lw| lw.focus_manager.focused_node_for(key_seat))
-                };
-                let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
+                    let current_window_state = self.get_current_window_state();
+                    let keyboard_state = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                        &current_window_state.keyboard_state
+                    } else {
+                        current_window_state
+                            .keyboard_seat(key_seat)
+                            .unwrap_or(&current_window_state.keyboard_state)
+                    };
+                    let focused_node = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                        old_focus
+                    } else {
+                        self.get_layout_window()
+                            .and_then(|lw| lw.focus_manager.focused_node_for(key_seat))
+                    };
+                    let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
 
-                if let Some(layout_results) = layout_results {
-                    // Contenteditable awareness: Enter/Backspace/Delete at
-                    // block boundaries become STRUCTURAL edit records instead
-                    // of activation / plain text ops.
-                    let editing_state = self
-                        .get_layout_window()
-                        .and_then(|lw| lw.build_editing_query_state_for_seat(key_seat, focused_node));
-                    let default_action_result = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
+                    if let Some(layout_results) = layout_results {
+                        // Contenteditable awareness: Enter/Backspace/Delete at
+                        // block boundaries become STRUCTURAL edit records instead
+                        // of activation / plain text ops.
+                        let editing_state = self.get_layout_window().and_then(|lw| {
+                            lw.build_editing_query_state_for_seat(key_seat, focused_node)
+                        });
+                        let default_action_result = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
                         keyboard_state, focused_node, layout_results, prevent_default,
                         editing_state.as_ref(),
                     );
 
-                    if default_action_result.has_action() {
-                        use azul_core::events::DefaultAction;
-                        use azul_layout::managers::focus_cursor::resolve_focus_target;
+                        if default_action_result.has_action() {
+                            use azul_core::events::DefaultAction;
+                            use azul_layout::managers::focus_cursor::resolve_focus_target;
 
-                        match &default_action_result.action {
-                            DefaultAction::FocusNext
-                            | DefaultAction::FocusPrevious
-                            | DefaultAction::FocusFirst
-                            | DefaultAction::FocusLast
-                            | DefaultAction::FocusUp
-                            | DefaultAction::FocusDown
-                            | DefaultAction::FocusLeft
-                            | DefaultAction::FocusRight => {
-                                let focus_target =
+                            match &default_action_result.action {
+                                DefaultAction::FocusNext
+                                | DefaultAction::FocusPrevious
+                                | DefaultAction::FocusFirst
+                                | DefaultAction::FocusLast
+                                | DefaultAction::FocusUp
+                                | DefaultAction::FocusDown
+                                | DefaultAction::FocusLeft
+                                | DefaultAction::FocusRight => {
+                                    let focus_target =
                                     azul_layout::default_actions::default_action_to_focus_target(
                                         &default_action_result.action,
                                     );
-                                if let Some(focus_target) = focus_target {
-                                    let out_of_scope = self
+                                    if let Some(focus_target) = focus_target {
+                                        let out_of_scope = self
                                         .get_layout_window()
-                                        .map(azul_layout::window::LayoutWindow::focus_out_of_scope_doms)
+                                        .map(LayoutWindow::focus_out_of_scope_doms)
                                         .unwrap_or_default();
-                                    let resolve_result = resolve_focus_target(
-                                        &focus_target,
-                                        layout_results,
-                                        focused_node,
-                                        &out_of_scope,
-                                    );
-                                    // Tab with nothing tabbable (NotFound) no
-                                    // longer clears focus — a miss is not a
-                                    // clear (browser behavior). Only a real
-                                    // resolution moves it.
-                                    use azul_layout::managers::focus_cursor::FocusResolution;
-                                    if let Ok(FocusResolution::Resolved(new_focus_node)) =
-                                        resolve_result
-                                    {
-                                        let change = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                        let resolve_result = resolve_focus_target(
+                                            &focus_target,
+                                            layout_results,
+                                            focused_node,
+                                            &out_of_scope,
+                                        );
+                                        // Tab with nothing tabbable (NotFound) no
+                                        // longer clears focus — a miss is not a
+                                        // clear (browser behavior). Only a real
+                                        // resolution moves it.
+                                        use azul_layout::managers::focus_cursor::FocusResolution;
+                                        if let Ok(FocusResolution::Resolved(new_focus_node)) =
+                                            resolve_result
+                                        {
+                                            let change = if key_seat
+                                                == azul_core::window::PRIMARY_POINTER_SEAT
+                                            {
+                                                SystemChange::SetFocus {
+                                                    new_focus: Some(new_focus_node),
+                                                    old_focus: focused_node,
+                                                    // KEYBOARD focus IS indicated -
+                                                    // this is the route the focus ring
+                                                    // exists for.
+                                                    visible: true,
+                                                }
+                                            } else {
+                                                SystemChange::SetSeatFocus {
+                                                    seat_id: key_seat,
+                                                    new_focus: Some(new_focus_node),
+                                                    old_focus: focused_node,
+                                                }
+                                            };
+                                            let r = self.apply_system_change(&change);
+                                            result = result.max(r);
+                                            default_action_focus_changed = true;
+                                        }
+                                    }
+                                }
+
+                                DefaultAction::ClearFocus => {
+                                    let change =
+                                        if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
                                             SystemChange::SetFocus {
-                                                new_focus: Some(new_focus_node),
-                                                old_focus: focused_node,
-                                                // KEYBOARD focus IS indicated -
-                                                // this is the route the focus ring
-                                                // exists for.
-                                                visible: true,
+                                                new_focus: None,
+                                                old_focus,
+                                                visible: false,
                                             }
                                         } else {
                                             SystemChange::SetSeatFocus {
                                                 seat_id: key_seat,
-                                                new_focus: Some(new_focus_node),
+                                                new_focus: None,
                                                 old_focus: focused_node,
                                             }
                                         };
-                                        let r = self.apply_system_change(&change);
-                                        result = result.max(r);
-                                        default_action_focus_changed = true;
+                                    let r = self.apply_system_change(&change);
+                                    result = result.max(r);
+                                    default_action_focus_changed = true;
+                                }
+
+                                DefaultAction::ActivateFocusedElement { target } => {
+                                    synthetic_click_target = Some(*target);
+                                }
+
+                                DefaultAction::InsertLineBreakAtCursor { target } => {
+                                    // Plain-text Enter / Shift+Enter: a literal
+                                    // "\n" through the standard text pipeline.
+                                    // The apply tail already ran this pass, so
+                                    // record + apply directly (same two system
+                                    // changes the tail uses). Runs only under
+                                    // !prevent_default, so the veto is honored;
+                                    // undo + caret-follow come from the changeset
+                                    // path itself.
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        if let Some(node_id) = target.node.into_crate_internal() {
+                                            let old_inline =
+                                                lw.get_text_before_textinput(target.dom, node_id);
+                                            let old_text =
+                                                lw.extract_text_from_inline_content(&old_inline);
+                                            use azul_layout::managers::text_input::TextInputSource;
+                                            lw.text_input_manager.record_input(
+                                                *target,
+                                                "\n".to_string(),
+                                                old_text,
+                                                TextInputSource::Keyboard,
+                                            );
+                                        }
+                                    }
+                                    let r =
+                                        self.apply_system_change(&SystemChange::ApplyTextChangeset);
+                                    result = result.max(r);
+                                    let r = self.apply_system_change(
+                                        &SystemChange::ScrollCursorIntoViewAfterTextInput,
+                                    );
+                                    result = result.max(r);
+                                    // Applied outside the record pipeline's event
+                                    // window — owe the host its Input dispatch.
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        lw.text_edit_manager
+                                            .pending_edit_notifications
+                                            .push(*target);
                                     }
                                 }
-                            }
 
-                            DefaultAction::ClearFocus => {
-                                let change = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                    SystemChange::SetFocus {
-                                        new_focus: None,
-                                        old_focus,
-                                        visible: false,
-                                    }
-                                } else {
-                                    SystemChange::SetSeatFocus {
-                                        seat_id: key_seat,
-                                        new_focus: None,
-                                        old_focus: focused_node,
-                                    }
-                                };
-                                let r = self.apply_system_change(&change);
-                                result = result.max(r);
-                                default_action_focus_changed = true;
-                            }
-
-                            DefaultAction::ActivateFocusedElement { target } => {
-                                synthetic_click_target = Some(*target);
-                            }
-
-                            DefaultAction::InsertLineBreakAtCursor { target } => {
-                                // Plain-text Enter / Shift+Enter: a literal
-                                // "\n" through the standard text pipeline.
-                                // The apply tail already ran this pass, so
-                                // record + apply directly (same two system
-                                // changes the tail uses). Runs only under
-                                // !prevent_default, so the veto is honored;
-                                // undo + caret-follow come from the changeset
-                                // path itself.
-                                if let Some(lw) = self.get_layout_window_mut() {
-                                    if let Some(node_id) = target.node.into_crate_internal() {
-                                        let old_inline =
-                                            lw.get_text_before_textinput(target.dom, node_id);
-                                        let old_text =
-                                            lw.extract_text_from_inline_content(&old_inline);
-                                        use azul_layout::managers::text_input::TextInputSource;
-                                        lw.text_input_manager.record_input(
-                                            *target,
-                                            "\n".to_string(),
-                                            old_text,
-                                            TextInputSource::Keyboard,
-                                        );
+                                DefaultAction::SplitBlockAtCursor { .. }
+                                | DefaultAction::MergeWithPrevious { .. }
+                                | DefaultAction::MergeWithNext { .. } => {
+                                    // Structural edits: execution IS recording
+                                    // (azul never mutates the DOM). The app reads
+                                    // the changeset and applies it to its model.
+                                    // A materialized PREVIEW paints on the next
+                                    // relayout (O3-render), so charge one.
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        if lw
+                                            .record_structural_default_action_for_seat(
+                                                key_seat,
+                                                &default_action_result.action,
+                                            )
+                                            .is_some()
+                                        {
+                                            result = result
+                                                .max(ProcessEventResult::ShouldIncrementalRelayout);
+                                        }
                                     }
                                 }
-                                let r = self.apply_system_change(&SystemChange::ApplyTextChangeset);
-                                result = result.max(r);
-                                let r = self.apply_system_change(
-                                    &SystemChange::ScrollCursorIntoViewAfterTextInput,
-                                );
-                                result = result.max(r);
-                                // Applied outside the record pipeline's event
-                                // window — owe the host its Input dispatch.
-                                if let Some(lw) = self.get_layout_window_mut() {
-                                    lw.text_edit_manager
-                                        .pending_edit_notifications
-                                        .push(*target);
-                                }
-                            }
 
-                            DefaultAction::SplitBlockAtCursor { .. }
-                            | DefaultAction::MergeWithPrevious { .. }
-                            | DefaultAction::MergeWithNext { .. } => {
-                                // Structural edits: execution IS recording
-                                // (azul never mutates the DOM). The app reads
-                                // the changeset and applies it to its model.
-                                // A materialized PREVIEW paints on the next
-                                // relayout (O3-render), so charge one.
-                                if let Some(lw) = self.get_layout_window_mut() {
-                                    if lw
-                                        .record_structural_default_action_for_seat(
-                                            key_seat,
-                                            &default_action_result.action,
-                                        )
-                                        .is_some()
-                                    {
-                                        result = result
-                                            .max(ProcessEventResult::ShouldIncrementalRelayout);
-                                    }
-                                }
-                            }
+                                DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                                    use azul_core::events::{ScrollAmount, ScrollDirection};
 
-                            DefaultAction::ScrollFocusedContainer { direction, amount } => {
-                                use azul_core::events::{ScrollAmount, ScrollDirection};
-
-                                if let Some(lw) = self.get_layout_window_mut() {
-                                    // MWA-C-scroll: anchor on the focused node,
-                                    // else the deepest hovered node — arrows /
-                                    // PgUp/PgDn/Space over an unfocused scroll
-                                    // container previously did nothing.
-                                    let anchor = lw.focus_manager.focused_node.or_else(|| {
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        // MWA-C-scroll: anchor on the focused node,
+                                        // else the deepest hovered node — arrows /
+                                        // PgUp/PgDn/Space over an unfocused scroll
+                                        // container previously did nothing.
+                                        let anchor = lw.focus_manager.focused_node.or_else(|| {
                                         let hit = lw.hover_manager.get_current(
-                                            &azul_layout::managers::hover::InputPointId::Mouse,
+                                            &InputPointId::Mouse,
                                         )?;
                                         hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
                                             entry.regular_hit_test_nodes.keys().next_back().map(|nid| {
                                                 azul_core::dom::DomNodeId {
                                                     dom: *dom_id,
-                                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*nid)),
+                                                    node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
                                                 }
                                             })
                                         })
                                     });
-                                    if let Some(focused) = anchor {
-                                        if let Some(ancestor) = lw.find_scrollable_ancestor(focused)
-                                        {
-                                            if let Some(anc_node) =
-                                                ancestor.node.into_crate_internal()
+                                        if let Some(focused) = anchor {
+                                            if let Some(ancestor) =
+                                                lw.find_scrollable_ancestor(focused)
                                             {
-                                                let anc_bounds =
-                                                    lw.get_node_bounds(ancestor.dom, anc_node);
-                                                let vp_h = anc_bounds
-                                                    .map(|b| b.size.height as f32)
-                                                    .unwrap_or(DEFAULT_VIEWPORT_HEIGHT);
+                                                if let Some(anc_node) =
+                                                    ancestor.node.into_crate_internal()
+                                                {
+                                                    let anc_bounds =
+                                                        lw.get_node_bounds(ancestor.dom, anc_node);
+                                                    let vp_h = anc_bounds
+                                                        .map(|b| b.size.height as f32)
+                                                        .unwrap_or(DEFAULT_VIEWPORT_HEIGHT);
 
-                                                let magnitude = match amount {
-                                                    ScrollAmount::Line => KEYBOARD_SCROLL_LINE_PX,
-                                                    ScrollAmount::Page => vp_h * 0.9,
-                                                    ScrollAmount::Document => {
-                                                        KEYBOARD_SCROLL_DOCUMENT_MAX
-                                                    }
-                                                };
+                                                    let magnitude = match amount {
+                                                        ScrollAmount::Line => {
+                                                            KEYBOARD_SCROLL_LINE_PX
+                                                        }
+                                                        ScrollAmount::Page => vp_h * 0.9,
+                                                        ScrollAmount::Document => {
+                                                            KEYBOARD_SCROLL_DOCUMENT_MAX
+                                                        }
+                                                    };
 
-                                                let (dx, dy) = match direction {
-                                                    ScrollDirection::Up => (0.0, -magnitude),
-                                                    ScrollDirection::Down => (0.0, magnitude),
-                                                    ScrollDirection::Left => (-magnitude, 0.0),
-                                                    ScrollDirection::Right => (magnitude, 0.0),
-                                                };
+                                                    let (dx, dy) = match direction {
+                                                        ScrollDirection::Up => (0.0, -magnitude),
+                                                        ScrollDirection::Down => (0.0, magnitude),
+                                                        ScrollDirection::Left => (-magnitude, 0.0),
+                                                        ScrollDirection::Right => (magnitude, 0.0),
+                                                    };
 
-                                                let now: azul_core::task::Instant =
-                                                    std::time::Instant::now().into();
-                                                lw.scroll_manager.scroll_by(
-                                                    ancestor.dom,
-                                                    anc_node,
-                                                    azul_core::geom::LogicalPosition {
-                                                        x: dx,
-                                                        y: dy,
-                                                    },
-                                                    std::time::Duration::from_millis(150).into(),
-                                                    azul_core::events::EasingFunction::EaseOut,
-                                                    now,
-                                                );
-                                                result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                                                    let now: azul_core::task::Instant =
+                                                        std::time::Instant::now().into();
+                                                    lw.scroll_manager.scroll_by(
+                                                        ancestor.dom,
+                                                        anc_node,
+                                                        LogicalPosition {
+                                                            x: dx,
+                                                            y: dy,
+                                                        },
+                                                        std::time::Duration::from_millis(150)
+                                                            .into(),
+                                                        azul_core::events::EasingFunction::EaseOut,
+                                                        now,
+                                                    );
+                                                    result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            DefaultAction::None => {}
+                                DefaultAction::None => {}
 
-                            DefaultAction::SubmitForm { form_node } => {
-                                // Was a documented placeholder. Enter on a
-                                // focused control produced this action and
-                                // nothing consumed it, so a form could not be
-                                // submitted from the keyboard at all.
-                                //
-                                // Targets the FORM node the action names, not
-                                // the focused field: a submit handler belongs
-                                // on the form, and the field that happened to
-                                // have focus is an implementation detail of
-                                // how the user got there.
-                                let now = {
-                                    #[cfg(feature = "std")]
-                                    {
-                                        azul_core::task::Instant::from(std::time::Instant::now())
-                                    }
-                                    #[cfg(not(feature = "std"))]
-                                    {
-                                        azul_core::task::Instant::Tick(
-                                            azul_core::task::SystemTick::new(0),
-                                        )
-                                    }
-                                };
-                                // CONSTRAINT VALIDATION FIRST, which is the
-                                // HTML order: a form whose controls fail must
-                                // fire `Invalid` on them and NOT submit.
-                                // Submitting anyway would hand the app data it
-                                // had already declared unacceptable.
-                                let invalid = {
-                                    let lw = self.get_layout_window();
-                                    lw.map(|lw| {
-                                        azul_layout::form::validate_form(
+                                DefaultAction::SubmitForm { form_node } => {
+                                    // Was a documented placeholder. Enter on a
+                                    // focused control produced this action and
+                                    // nothing consumed it, so a form could not be
+                                    // submitted from the keyboard at all.
+                                    //
+                                    // Targets the FORM node the action names, not
+                                    // the focused field: a submit handler belongs
+                                    // on the form, and the field that happened to
+                                    // have focus is an implementation detail of
+                                    // how the user got there.
+                                    let now = {
+                                        #[cfg(feature = "std")]
+                                        {
+                                            azul_core::task::Instant::from(std::time::Instant::now())
+                                        }
+                                        #[cfg(not(feature = "std"))]
+                                        {
+                                            azul_core::task::Instant::Tick(
+                                                azul_core::task::SystemTick::new(0),
+                                            )
+                                        }
+                                    };
+                                    // CONSTRAINT VALIDATION FIRST, which is the
+                                    // HTML order: a form whose controls fail must
+                                    // fire `Invalid` on them and NOT submit.
+                                    // Submitting anyway would hand the app data it
+                                    // had already declared unacceptable.
+                                    let invalid = {
+                                        let lw = self.get_layout_window();
+                                        lw.map(|lw| {
+                                            azul_layout::form::validate_form(
+                                                *form_node,
+                                                &lw.layout_results,
+                                                &|node| {
+                                                    let id = node.node.into_crate_internal()?;
+                                                    let content =
+                                                        lw.get_text_before_textinput(node.dom, id);
+                                                    Some(
+                                                        lw.extract_text_from_inline_content(
+                                                            &content,
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                        })
+                                        .unwrap_or_default()
+                                    };
+
+                                    if invalid.is_empty() {
+                                        // A form that now validates must not leave
+                                        // last attempt's reasons standing: a field
+                                        // the user just fixed would keep reporting
+                                        // the error it no longer has.
+                                        if let Some(lw) = self.get_layout_window_mut() {
+                                            lw.form_validation_manager.set_failures([]);
+                                        }
+                                        let ev = azul_core::events::SyntheticEvent::new(
+                                            azul_core::events::EventType::Submit,
+                                            azul_core::events::EventSource::User,
                                             *form_node,
-                                            &lw.layout_results,
-                                            &|node| {
-                                                let id = node.node.into_crate_internal()?;
-                                                let content =
-                                                    lw.get_text_before_textinput(node.dom, id);
-                                                Some(
-                                                    lw.extract_text_from_inline_content(&content),
+                                            now,
+                                            azul_core::events::EventData::None,
+                                        );
+                                        let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                        result = result.max(r);
+                                    } else {
+                                        // PUBLISH THE REASONS BEFORE DISPATCHING.
+                                        // The `Invalid` event names the control;
+                                        // `CallbackInfo::get_validity_state` says
+                                        // why, and it reads from here - so a
+                                        // callback that runs before this is stored
+                                        // would be told its own field is fine
+                                        // (11b-i-c).
+                                        if let Some(lw) = self.get_layout_window_mut() {
+                                            lw.form_validation_manager.set_failures(
+                                                invalid.iter().map(|f| (f.node, f.state)),
+                                            );
+                                        }
+                                        // One `Invalid` per failing control, in
+                                        // document order. ALL of them, not just
+                                        // the first: an app marking every bad
+                                        // field at once needs every event, and
+                                        // firing only the first would make the
+                                        // second error appear only after the
+                                        // first was fixed.
+                                        let events: Vec<_> = invalid
+                                            .iter()
+                                            .map(|failure| {
+                                                azul_core::events::SyntheticEvent::new(
+                                                    azul_core::events::EventType::Invalid,
+                                                    azul_core::events::EventSource::User,
+                                                    failure.node,
+                                                    now.clone(),
+                                                    azul_core::events::EventData::None,
                                                 )
-                                            },
-                                        )
-                                    })
-                                    .unwrap_or_default()
-                                };
-
-                                if invalid.is_empty() {
-                                    // A form that now validates must not leave
-                                    // last attempt's reasons standing: a field
-                                    // the user just fixed would keep reporting
-                                    // the error it no longer has.
-                                    if let Some(lw) = self.get_layout_window_mut() {
-                                        lw.form_validation_manager.set_failures([]);
+                                            })
+                                            .collect();
+                                        let (r, _u, _p) = self.dispatch_events_propagated(&events);
+                                        result = result.max(r);
                                     }
+                                }
+
+                                DefaultAction::ResetForm { form_node } => {
+                                    let now = {
+                                        #[cfg(feature = "std")]
+                                        {
+                                            azul_core::task::Instant::from(std::time::Instant::now())
+                                        }
+                                        #[cfg(not(feature = "std"))]
+                                        {
+                                            azul_core::task::Instant::Tick(
+                                                azul_core::task::SystemTick::new(0),
+                                            )
+                                        }
+                                    };
+                                    // THE EVENT FIRES FIRST AND IS CANCELLABLE,
+                                    // which is HTML's order: an app that wants to
+                                    // confirm ("discard your changes?") calls
+                                    // `prevent_default` on the `Reset`, and the
+                                    // values must still be there when it does.
+                                    // Restoring first would make the veto
+                                    // meaningless.
                                     let ev = azul_core::events::SyntheticEvent::new(
-                                        azul_core::events::EventType::Submit,
+                                        azul_core::events::EventType::Reset,
                                         azul_core::events::EventSource::User,
                                         *form_node,
                                         now,
                                         azul_core::events::EventData::None,
                                     );
-                                    let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                    let (r, _u, prevented) = self.dispatch_events_propagated(&[ev]);
                                     result = result.max(r);
-                                } else {
-                                    // PUBLISH THE REASONS BEFORE DISPATCHING.
-                                    // The `Invalid` event names the control;
-                                    // `CallbackInfo::get_validity_state` says
-                                    // why, and it reads from here - so a
-                                    // callback that runs before this is stored
-                                    // would be told its own field is fine
-                                    // (11b-i-c).
-                                    if let Some(lw) = self.get_layout_window_mut() {
-                                        lw.form_validation_manager.set_failures(
-                                            invalid.iter().map(|f| (f.node, f.state)),
-                                        );
-                                    }
-                                    // One `Invalid` per failing control, in
-                                    // document order. ALL of them, not just
-                                    // the first: an app marking every bad
-                                    // field at once needs every event, and
-                                    // firing only the first would make the
-                                    // second error appear only after the
-                                    // first was fixed.
-                                    let events: Vec<_> = invalid
-                                        .iter()
-                                        .map(|failure| {
-                                            azul_core::events::SyntheticEvent::new(
-                                                azul_core::events::EventType::Invalid,
-                                                azul_core::events::EventSource::User,
-                                                failure.node,
-                                                now.clone(),
-                                                azul_core::events::EventData::None,
-                                            )
-                                        })
-                                        .collect();
-                                    let (r, _u, _p) = self.dispatch_events_propagated(&events);
-                                    result = result.max(r);
-                                }
-                            }
 
-                            DefaultAction::ResetForm { form_node } => {
-                                let now = {
-                                    #[cfg(feature = "std")]
-                                    {
-                                        azul_core::task::Instant::from(std::time::Instant::now())
-                                    }
-                                    #[cfg(not(feature = "std"))]
-                                    {
-                                        azul_core::task::Instant::Tick(
-                                            azul_core::task::SystemTick::new(0),
-                                        )
-                                    }
-                                };
-                                // THE EVENT FIRES FIRST AND IS CANCELLABLE,
-                                // which is HTML's order: an app that wants to
-                                // confirm ("discard your changes?") calls
-                                // `prevent_default` on the `Reset`, and the
-                                // values must still be there when it does.
-                                // Restoring first would make the veto
-                                // meaningless.
-                                let ev = azul_core::events::SyntheticEvent::new(
-                                    azul_core::events::EventType::Reset,
-                                    azul_core::events::EventSource::User,
-                                    *form_node,
-                                    now,
-                                    azul_core::events::EventData::None,
-                                );
-                                let (r, _u, prevented) =
-                                    self.dispatch_events_propagated(&[ev]);
-                                result = result.max(r);
-
-                                if !prevented {
-                                    // Each control goes back to its `Value`
-                                    // ATTRIBUTE - the DEFAULT value, not the
-                                    // current one. That is what HTML restores,
-                                    // and it is why the item's "initial values
-                                    // to restore" turned out to be already in
-                                    // the DOM rather than something the engine
-                                    // had to remember.
-                                    let restores = self
-                                        .get_layout_window()
-                                        .map(|lw| {
-                                            azul_layout::form::default_values(
-                                                *form_node,
-                                                &lw.layout_results,
-                                            )
-                                        })
-                                        .unwrap_or_default();
-                                    for (node, value) in restores {
-                                        let change =
+                                    if !prevented {
+                                        // Each control goes back to its `Value`
+                                        // ATTRIBUTE - the DEFAULT value, not the
+                                        // current one. That is what HTML restores,
+                                        // and it is why the item's "initial values
+                                        // to restore" turned out to be already in
+                                        // the DOM rather than something the engine
+                                        // had to remember.
+                                        let restores = self
+                                            .get_layout_window()
+                                            .map(|lw| {
+                                                azul_layout::form::default_values(
+                                                    *form_node,
+                                                    &lw.layout_results,
+                                                )
+                                            })
+                                            .unwrap_or_default();
+                                        for (node, value) in restores {
+                                            let change =
                                             azul_layout::callbacks::CallbackChange::ChangeNodeText {
                                                 node_id: node,
                                                 text: value.into(),
                                             };
-                                        result = result.max(self.apply_user_change(&change));
+                                            result = result.max(self.apply_user_change(&change));
+                                        }
                                     }
                                 }
-                            }
 
-                            DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
-                                // Placeholder for future implementation
+                                DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
+                                    // Placeholder for future implementation
+                                }
                             }
                         }
                     }
                 }
             }
-                }
         }
 
         // GAMEPAD DEFAULT ACTIONS (D-pad spatial navigation).
@@ -11679,7 +11855,7 @@ pub trait PlatformWindow {
                 let focused_node = old_focus;
                 let out_of_scope = self
                     .get_layout_window()
-                    .map(azul_layout::window::LayoutWindow::focus_out_of_scope_doms)
+                    .map(LayoutWindow::focus_out_of_scope_doms)
                     .unwrap_or_default();
                 if let Some(layout_results) = self.get_layout_window().map(|lw| &lw.layout_results)
                 {
@@ -11762,7 +11938,8 @@ pub trait PlatformWindow {
         // it drowns out the lines that do say something.
         log_trace!(
             super::debug_server::LogCategory::Input,
-            "[Event] Focus check: focus_changed={}, default_action_focus_changed={}, mouse_click_focus_changed={}, depth={}, old_focus={:?}",
+            "[Event] Focus check: focus_changed={}, default_action_focus_changed={}, \
+             mouse_click_focus_changed={}, depth={}, old_focus={:?}",
             focus_changed,
             default_action_focus_changed,
             mouse_click_focus_changed,
@@ -11915,7 +12092,8 @@ pub trait PlatformWindow {
                         if let Some(node_id) = new_node.node.into_crate_internal() {
                             let content = lw.get_text_before_textinput(new_node.dom, node_id);
                             let value = lw.extract_text_from_inline_content(&content);
-                            lw.text_edit_manager.snapshot_value_at_focus(new_node, value);
+                            lw.text_edit_manager
+                                .snapshot_value_at_focus(new_node, value);
                         }
                     }
                 }
@@ -11983,7 +12161,6 @@ pub trait PlatformWindow {
             result = result.max(r);
         }
 
-
         // MWA-C-gesture: fold the Escape / focus-loss drag cancellation.
         if let Some(r) = drag_cancel_result {
             result = result.max(r);
@@ -11991,12 +12168,12 @@ pub trait PlatformWindow {
         result = result.max(accelerator_result);
 
         // End-of-pass housekeeping (top-level pass only):
-        // - MWA-A1: re-sync the pump timer — callbacks above may have added /
-        //   removed the DOM's first gamepad/sensor listener or a
-        //   GeolocationProbe (flags refresh during regenerate_layout's walk).
-        // - MWA-A3e: push any pending a11y tree update so INCREMENTAL updates
-        //   (text edits / caret moves computed during this pass) reach the OS
-        //   adapter now instead of waiting for the next full relayout.
+        // - MWA-A1: re-sync the pump timer — callbacks above may have added / removed the DOM's
+        //   first gamepad/sensor listener or a GeolocationProbe (flags refresh during
+        //   regenerate_layout's walk).
+        // - MWA-A3e: push any pending a11y tree update so INCREMENTAL updates (text edits / caret
+        //   moves computed during this pass) reach the OS adapter now instead of waiting for the
+        //   next full relayout.
         if depth == 0 {
             self.sync_capability_pump_timer();
             self.rebuild_a11y_after_scroll_if_due();
@@ -12190,7 +12367,7 @@ pub trait PlatformWindow {
     /// runs on every scroll update.
     fn perform_scrollbar_hit_test(
         &self,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     ) -> Option<azul_core::hit_test::ScrollbarHitId> {
         use azul_core::dom::ScrollbarOrientation;
         use azul_layout::managers::scroll_state::ScrollbarComponent;
@@ -12221,7 +12398,7 @@ pub trait PlatformWindow {
     fn handle_scrollbar_click(
         &mut self,
         hit_id: azul_core::hit_test::ScrollbarHitId,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     ) -> ProcessEventResult {
         use azul_core::hit_test::ScrollbarHitId;
 
@@ -12280,7 +12457,7 @@ pub trait PlatformWindow {
     fn handle_scrollbar_press(
         &mut self,
         hit_id: azul_core::hit_test::ScrollbarHitId,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
         button: azul_core::events::MouseButton,
         site: &str,
     ) -> ProcessEventResult {
@@ -12301,7 +12478,7 @@ pub trait PlatformWindow {
     /// latched DOWN forever after the first thumb drag.
     fn end_scrollbar_drag(
         &mut self,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
         button: azul_core::events::MouseButton,
         site: &str,
     ) -> Option<ProcessEventResult> {
@@ -12323,7 +12500,7 @@ pub trait PlatformWindow {
         &mut self,
         dom_id: DomId,
         node_id: CoreNodeId,
-        click_position: azul_core::geom::LogicalPosition,
+        click_position: LogicalPosition,
         is_vertical: bool,
     ) -> ProcessEventResult {
         use azul_core::dom::ScrollbarOrientation;
@@ -12475,8 +12652,7 @@ pub trait PlatformWindow {
     /// - **X11**: After `select()` timeout
     /// - **Wayland**: After `timerfd` read
     fn invoke_expired_timers(&mut self) -> (ProcessEventResult, Vec<azul_core::callbacks::Update>) {
-        use azul_core::callbacks::Update;
-        use azul_core::task::TimerId;
+        use azul_core::{callbacks::Update, task::TimerId};
         use azul_layout::callbacks::ExternalSystemCallbacks;
 
         // Get current system time
@@ -12733,7 +12909,8 @@ pub trait PlatformWindow {
     /// the writeback callbacks for any threads that have finished.
     ///
     /// ## Returns
-    /// * `Option<Update>` - Update level from thread writeback callbacks, or None if no threads processed
+    /// * `Option<Update>` - Update level from thread writeback callbacks, or None if no threads
+    ///   processed
     ///
     /// ## Platform Usage
     /// Call this from platform event loops when:
@@ -12790,10 +12967,9 @@ pub trait PlatformWindow {
     /// Handle scrollbar drag - update scroll position based on mouse delta.
     fn handle_scrollbar_drag(
         &mut self,
-        current_pos: azul_core::geom::LogicalPosition,
+        current_pos: LogicalPosition,
     ) -> ProcessEventResult {
-        use azul_core::dom::ScrollbarOrientation;
-        use azul_core::hit_test::ScrollbarHitId;
+        use azul_core::{dom::ScrollbarOrientation, hit_test::ScrollbarHitId};
 
         let drag_state = match self.get_scrollbar_drag_state() {
             Some(ds) => ds.clone(),
@@ -12944,8 +13120,8 @@ mod tests {
         }
         assert!(
             validation_enabled(),
-            "the validation gate is OFF in this test binary, so \
-             check_input_delta_consumed cannot fire and this suite proves nothing"
+            "the validation gate is OFF in this test binary, so check_input_delta_consumed cannot \
+             fire and this suite proves nothing"
         );
     }
 
@@ -12992,9 +13168,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "unconsumed input delta at test.move: previous_window_state.position"
-    )]
+    #[should_panic(expected = "unconsumed input delta at test.move: previous_window_state.position")]
     fn check_input_delta_consumed_panics_on_an_unconsumed_window_move() {
         require_validation_gate();
         let (previous, mut current) = state_pair();
@@ -13206,8 +13380,8 @@ mod tests {
             .expect("event baseline was seeded above");
         assert_eq!(
             baseline.size.dimensions, before.size.dimensions,
-            "update_window_state must never write the EVENT baseline — doing so \
-             zeroes the previous->current diff and the resize reaches no callback"
+            "update_window_state must never write the EVENT baseline — doing so zeroes the \
+             previous->current diff and the resize reaches no callback"
         );
         assert_ne!(
             baseline.size.dimensions,
@@ -13221,13 +13395,13 @@ mod tests {
             .expect("the OS-sync baseline was seeded by mark_os_synced");
         assert_eq!(
             synced.size.dimensions, current.size.dimensions,
-            "an OS-reported size must leave a ZERO sync diff, or sync_window_state \
-             pushes the size we last saw back at the OS mid-drag"
+            "an OS-reported size must leave a ZERO sync diff, or sync_window_state pushes the \
+             size we last saw back at the OS mid-drag"
         );
         assert_eq!(
             synced.flags.frame, current.flags.frame,
-            "same for the frame flag: the Fullscreen sync arm is a TOGGLE, so a \
-             stale OS baseline flaps the window in and out forever"
+            "same for the frame flag: the Fullscreen sync arm is a TOGGLE, so a stale OS baseline \
+             flaps the window in and out forever"
         );
     }
 
@@ -14018,7 +14192,8 @@ mod tests {
             .expect("run.rs creates the root macOS window");
         assert!(
             stub < window,
-            "setup_main_menu() must run before MacOSWindow::new_with_fc_cache():              a stub installed after the window overwrites the DOM's menu bar"
+            "setup_main_menu() must run before MacOSWindow::new_with_fc_cache():              a \
+             stub installed after the window overwrites the DOM's menu bar"
         );
         assert_eq!(
             RUN_RS.matches("setup_main_menu(").count(),
@@ -14034,9 +14209,8 @@ mod tests {
             .count();
         assert_eq!(
             call_sites, 1,
-            "every synchronous menu pop-up must go through \
-             present_pending_context_menu, which is only ever called with no \
-             &mut MacOSWindow live"
+            "every synchronous menu pop-up must go through present_pending_context_menu, which is \
+             only ever called with no &mut MacOSWindow live"
         );
 
         let presenter = MACOS_MOD_RS
@@ -14083,10 +14257,10 @@ mod tests {
     /// for — waited for the NEXT unrelated event ("the dropdown label updates
     /// only when I move the mouse"). Two halves keep that from regressing:
     ///
-    ///   1. `menuItemAction:` posts an app-defined NSEvent after queueing the
-    ///      tag, waking `runMode:beforeDate:` / `nextEventMatchingMask:`;
-    ///   2. every `present_pending_context_menu` call site drains the loop
-    ///      work immediately after the pop-up returns.
+    ///   1. `menuItemAction:` posts an app-defined NSEvent after queueing the tag, waking
+    ///      `runMode:beforeDate:` / `nextEventMatchingMask:`;
+    ///   2. every `present_pending_context_menu` call site drains the loop work immediately after
+    ///      the pop-up returns.
     #[test]
     fn a_menu_selection_never_waits_for_the_next_unrelated_event() {
         const MACOS_MENU_RS: &str = include_str!("../macos/menu.rs");
@@ -14110,9 +14284,9 @@ mod tests {
             let after = &MACOS_MOD_RS[at..(at + 1600).min(MACOS_MOD_RS.len())];
             assert!(
                 after.contains("drain_loop_work"),
-                "present_pending_context_menu call site #{call_sites} is not \
-                 followed by drain_loop_work — the picked item's action would \
-                 wait for the next unrelated event"
+                "present_pending_context_menu call site #{call_sites} is not followed by \
+                 drain_loop_work — the picked item's action would wait for the next unrelated \
+                 event"
             );
             from = at + 1;
         }
@@ -14306,12 +14480,13 @@ struct UndoRestore {
 /// while it is the top of the node's stack - see
 /// `NodeUndoRedoStack::pop_undo_for_seat`.
 fn undo_text_edit_on(
-    layout_window: &mut azul_layout::window::LayoutWindow,
+    layout_window: &mut LayoutWindow,
     target: azul_core::dom::DomNodeId,
     seat_id: u64,
 ) -> Option<UndoRestore> {
-    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
     use std::sync::Arc;
+
+    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
 
     let node_id = target.node.into_crate_internal()?;
     let operation = layout_window
@@ -14350,13 +14525,16 @@ fn undo_text_edit_on(
 /// restore the post-edit content (the styled snapshot, else the pre-text
 /// plus the inserted text for an insert). `false` = nothing redone.
 fn redo_text_edit_on(
-    layout_window: &mut azul_layout::window::LayoutWindow,
+    layout_window: &mut LayoutWindow,
     target: azul_core::dom::DomNodeId,
     seat_id: u64,
 ) -> bool {
-    use azul_layout::managers::changeset::TextOperation;
-    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
     use std::sync::Arc;
+
+    use azul_layout::{
+        managers::changeset::TextOperation,
+        text3::cache::{InlineContent, StyleProperties, StyledRun},
+    };
 
     let Some(node_id) = target.node.into_crate_internal() else {
         return false;
@@ -14398,4 +14576,69 @@ fn redo_text_edit_on(
     }
     layout_window.undo_redo_manager.push_redo(operation);
     false
+}
+
+#[cfg(test)]
+mod initial_window_theme_tests {
+    //! Item 5 of the theme-chain analysis (2026-09-12): the window's initial
+    //! theme has ONE source of truth with a fixed precedence.
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    use azul_css::system::Theme;
+
+    use super::initial_window_theme;
+
+    fn pinned() -> bool {
+        azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    }
+
+    #[test]
+    fn the_probe_seeds_the_window_when_nothing_is_requested() {
+        if pinned() {
+            return;
+        }
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::None, Theme::Dark),
+            WindowTheme::DarkMode,
+            "a dark desktop must not start a light window"
+        );
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::None, Theme::Light),
+            WindowTheme::LightMode
+        );
+    }
+
+    #[test]
+    fn an_explicit_request_beats_the_probe() {
+        if pinned() {
+            return;
+        }
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::Some(WindowTheme::LightMode), Theme::Dark),
+            WindowTheme::LightMode
+        );
+        assert_eq!(
+            initial_window_theme(OptionWindowTheme::Some(WindowTheme::DarkMode), Theme::Light),
+            WindowTheme::DarkMode
+        );
+    }
+
+    #[test]
+    fn the_env_pin_beats_both() {
+        let Some(pin) = azul_css::dynamic_selector::theme_pinned_by_env() else {
+            return; // only meaningful under AZ_THEME
+        };
+        let expected = match pin {
+            azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,
+            _ => WindowTheme::LightMode,
+        };
+        for requested in [
+            OptionWindowTheme::None,
+            OptionWindowTheme::Some(WindowTheme::LightMode),
+            OptionWindowTheme::Some(WindowTheme::DarkMode),
+        ] {
+            for probed in [Theme::Light, Theme::Dark] {
+                assert_eq!(initial_window_theme(requested, probed), expected);
+            }
+        }
+    }
 }

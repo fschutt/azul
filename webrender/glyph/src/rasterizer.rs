@@ -330,9 +330,9 @@ impl SubpixelOffset {
     }
 }
 
-impl Into<f64> for SubpixelOffset {
-    fn into(self) -> f64 {
-        match self {
+impl From<SubpixelOffset> for f64 {
+    fn from(val: SubpixelOffset) -> Self {
+        match val {
             SubpixelOffset::Zero => 0.0,
             SubpixelOffset::Quarter => 0.25,
             SubpixelOffset::Half => 0.5,
@@ -365,7 +365,7 @@ impl GlyphKey {
     fn subpixel_offset(&self) -> (SubpixelOffset, SubpixelOffset) {
         let x = (self.0 >> 28) as u8 & 3;
         let y = (self.0 >> 30) as u8 & 3;
-        unsafe { (mem::transmute(x), mem::transmute(y)) }
+        unsafe { (mem::transmute::<u8, SubpixelOffset>(x), mem::transmute::<u8, SubpixelOffset>(y)) }
     }
 }
 

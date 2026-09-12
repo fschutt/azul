@@ -1,33 +1,32 @@
 //! AzPaint — a simple drawing app built on the azul painting API.
 //!
 //! Architecture (the "dumb widget" / video-widget pattern):
-//!   * **App data** (`PaintState`) holds only the source of truth: the list of
-//!     strokes + their config (color / eraser), the undo + redo stacks, the
-//!     in-flight stroke, and a `rev` counter that bumps on every change.
-//!   * The **canvas** is a single `<img>` node whose pixels come from a
-//!     `RenderImageCallback`. The GPU `Texture` (or a CPU `RawImage`) is a
-//!     *derived cache* living in the node's own dataset (`CanvasCache`); a
-//!     **merge callback** carries that cache across DOM rebuilds, and the
-//!     render callback re-rasterizes the strokes only when `rev` changed
-//!     (reconciling the cached texture against the current strokes/config).
+//!   * **App data** (`PaintState`) holds only the source of truth: the list of strokes + their
+//!     config (color / eraser), the undo + redo stacks, the in-flight stroke, and a `rev` counter
+//!     that bumps on every change.
+//!   * The **canvas** is a single `<img>` node whose pixels come from a `RenderImageCallback`. The
+//!     GPU `Texture` (or a CPU `RawImage`) is a *derived cache* living in the node's own dataset
+//!     (`CanvasCache`); a **merge callback** carries that cache across DOM rebuilds, and the render
+//!     callback re-rasterizes the strokes only when `rev` changed (reconciling the cached texture
+//!     against the current strokes/config).
 //!   * Pen pressure scales the brush radius; barrel-roll is reserved for later.
 //!
 //! Undo/redo just move strokes between `strokes` and `undone` and bump `rev`;
 //! the texture is recreated from the strokes on the next frame.
 
-use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
-use azul::css::PhysicalSizeU32;
-use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
-use azul::dom::{DatasetMergeCallback, RenderImageCallback};
-use azul::error::{
-    ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError,
+use azul::{
+    callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo},
+    css::PhysicalSizeU32,
+    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dom::{DatasetMergeCallback, RenderImageCallback},
+    error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
+    file::FileReadBytesResult,
+    gl::{GlContextPtr, Texture},
+    image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat},
+    option::OptionFileTypeList,
+    prelude::*,
+    vec::{F32VecRef, StringVec, U8VecRef},
 };
-use azul::file::FileReadBytesResult;
-use azul::gl::{GlContextPtr, Texture};
-use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul::option::OptionFileTypeList;
-use azul::prelude::*;
-use azul::vec::{F32VecRef, StringVec, U8VecRef};
 
 // ───────── Model (the source of truth) ────────────────────────────────
 
@@ -525,8 +524,8 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
                 let width = 2.0 * BASE_RADIUS * (0.4 + 0.6 * p_avg);
                 let _ = write!(
                     out,
-                    "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
-                     stroke=\"{}\" stroke-width=\"{:.1}\" stroke-linecap=\"round\" />",
+                    "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" \
+                     stroke-width=\"{:.1}\" stroke-linecap=\"round\" />",
                     a.x, a.y, b.x, b.y, rgb, width
                 );
             }
@@ -1170,8 +1169,8 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
 // `user-select: none`: the title bar is chrome. A click on it used to open a
 // text-selection session that every later canvas stroke extended.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
-    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px; \
-    user-select: none;";
+                      flex-direction: row; align-items: center; font-family: sans-serif; \
+                      font-size: 16px; user-select: none;";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
@@ -1974,7 +1973,8 @@ mod tests {
         assert_eq!(
             rising_edges(&pair_row),
             2,
-            "two separate blobs must show exactly two rising edges on the row              through their centres — a notch or spur adds one: {pair_row:?}"
+            "two separate blobs must show exactly two rising edges on the row              \
+             through their centres — a notch or spur adds one: {pair_row:?}"
         );
         for y in 0..h as usize {
             let row = row_coverage(&pair, y, bg);

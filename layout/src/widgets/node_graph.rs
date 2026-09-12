@@ -711,10 +711,8 @@ impl NodeGraph {
     ///
     /// # Returns
     ///
-    /// - `Err(NodeGraphError::NodeInvalidNode)`: The node at index `input_node_id` does not
-    ///   exist
-    /// - `Err(NodeGraphError::NodeInvalidIndex)`: One node has an invalid `input` or `output`
-    ///   index
+    /// - `Err(NodeGraphError::NodeInvalidNode)`: The node at index `input_node_id` does not exist
+    /// - `Err(NodeGraphError::NodeInvalidIndex)`: One node has an invalid `input` or `output` index
     /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and
     ///   `output` do not match
     /// - `Ok(())`: The disconnection completed successfully.
@@ -985,8 +983,7 @@ impl NodeGraph {
         ];
 
         let marker_prefix = next_marker_prefix();
-        let connections_marker: AzString =
-            format!("{}-connections", marker_prefix.as_str()).into();
+        let connections_marker: AzString = format!("{}-connections", marker_prefix.as_str()).into();
 
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self.clone(), // TODO: expensive
@@ -1173,7 +1170,8 @@ struct ConnectionLocalDataset {
 }
 
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn render_node(
     node: &Node,
     graph_offset: (f32, f32),
@@ -2767,7 +2765,8 @@ fn render_node(
     ].into())
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
@@ -2898,7 +2897,8 @@ fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> D
         })
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
@@ -2987,7 +2987,9 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 // drag either the graph or the currently active nodes
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[allow(clippy::single_match_else)] // drag-node (Some) and drag-graph (None) are each ~135-line blocks; match labels the two modes far more clearly than if-let/else
+#[allow(clippy::single_match_else)] // drag-node (Some) and drag-graph (None) are each ~135-line
+                                    // blocks; match labels the two modes far more clearly than
+                                    // if-let/else
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
         return Update::DoNothing;
@@ -3076,8 +3078,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             );
 
             // get the NodeId of the node containing all the connection lines
-            let Some(connection_container_nodeid) =
-                info.get_node_id_by_marker(connections_marker)
+            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
             else {
                 return result;
             };
@@ -3241,8 +3242,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 format!("{}-connections", refany.marker_prefix.as_str()).into();
 
             // Update the connection positions
-            let Some(connection_container_nodeid) =
-                info.get_node_id_by_marker(connections_marker)
+            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
             else {
                 return result;
             };
@@ -3325,7 +3325,8 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 
@@ -3342,8 +3343,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
     // The wrapper root carries the render's marker prefix (see
     // `NodeGraph::dom`); resolving it is what tells us whether this graph is
     // actually in the DOM right now.
-    let Some(node_graph_wrapper_id) =
-        info.get_node_id_by_marker(backref.marker_prefix.clone())
+    let Some(node_graph_wrapper_id) = info.get_node_id_by_marker(backref.marker_prefix.clone())
     else {
         return Update::DoNothing;
     };
@@ -5583,10 +5583,7 @@ mod autotest_generated {
         {
             let mut probe = gd.clone();
             let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
-            assert_eq!(
-                d.active_node_being_dragged,
-                Some(N2),
-            );
+            assert_eq!(d.active_node_being_dragged, Some(N2),);
         }
 
         assert_eq!(

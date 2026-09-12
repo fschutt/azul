@@ -70,7 +70,7 @@ pub fn discover_workspace_types_parallel(
     // Phase 2: Scan files in parallel
     let discovered: Vec<DiscoveredType> = files_to_scan
         .par_iter()
-        .flat_map(|file_info| scan_file_for_types(file_info))
+        .flat_map(scan_file_for_types)
         .collect();
 
     // Phase 3: Build index (single-threaded, merging results)
@@ -129,7 +129,7 @@ fn collect_files_recursive(
             };
 
             collect_files_recursive(files, crate_name, &path, &new_prefix);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             let file_name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
 
             // Calculate module path

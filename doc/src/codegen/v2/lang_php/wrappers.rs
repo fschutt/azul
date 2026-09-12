@@ -4,14 +4,13 @@
 //! emit a `final class TypeName` inside `namespace Azul` that:
 //!
 //! - Stores the raw FFI cdata in a private property (`$ptr`).
-//! - Implements `__destruct()` to call `Azul::lib()->Az<Type>_delete($ptr)`,
-//!   forwarding the address via `FFI::addr(...)` so the C function gets a
-//!   pointer to the boxed value.
-//! - Surfaces every non-trait method on `TypeName` as an idiomatic instance
-//!   or static method that delegates to the underlying FFI function.
-//! - For tagged-union (data-bearing) enums, exposes per-variant predicates
-//!   `isVariantName()` and per-variant payload extractors
-//!   `payloadVariantName()` returning the FFI cdata of the variant payload.
+//! - Implements `__destruct()` to call `Azul::lib()->Az<Type>_delete($ptr)`, forwarding the address
+//!   via `FFI::addr(...)` so the C function gets a pointer to the boxed value.
+//! - Surfaces every non-trait method on `TypeName` as an idiomatic instance or static method that
+//!   delegates to the underlying FFI function.
+//! - For tagged-union (data-bearing) enums, exposes per-variant predicates `isVariantName()` and
+//!   per-variant payload extractors `payloadVariantName()` returning the FFI cdata of the variant
+//!   payload.
 //!
 //! ## Skipped categories
 //!
@@ -20,8 +19,8 @@
 //! - `TypeCategory::Boxed`            — internal heap wrappers.
 //! - `TypeCategory::GenericTemplate`  — generic shells.
 //! - `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the
-//!   user-facing wrapper struct is emitted instead).
+//! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the user-facing wrapper struct
+//!   is emitted instead).
 //! - Generic-parameterised types (those with non-empty `generic_params`).
 //!
 //! ## Naming
@@ -77,30 +76,24 @@ fn should_emit_struct(s: &StructDef) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    match s.category {
-        TypeCategory::Recursive
+    !matches!(s.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn should_emit_enum(e: &EnumDef) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    match e.category {
-        TypeCategory::Recursive
+    !matches!(e.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn has_delete_for(class: &str, ir: &CodegenIR) -> bool {
@@ -170,8 +163,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // Methods. We emit:
     //   - Instance methods for Method / MethodMut.
     //   - clone() for DeepCopy.
-    //   - toString() for DebugToString (NOT __toString — we don't want
-    //     PHP's casting magic to swallow native errors).
+    //   - toString() for DebugToString (NOT __toString — we don't want PHP's casting magic to
+    //     swallow native errors).
     //   - Static factories for Constructor / StaticMethod / Default.
     let mut emitted_any_instance = false;
     for f in &funcs {
@@ -559,9 +552,7 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
     }
     out.push_str(&format!("     * Wraps `Azul::lib()->{}`.\n", f.c_name));
     if returns_self {
-        out.push_str(&format!(
-            "     *\n     * @return self instance wrapping the returned FFI cdata.\n"
-        ));
+        out.push_str(&"     *\n     * @return self instance wrapping the returned FFI cdata.\n".to_string());
     }
     out.push_str("     */\n");
     let return_hint = if returns_self { ": self" } else { "" };
@@ -597,7 +588,7 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
 /// Filter the implicit `self` / lower-class-name receiver out of a
 /// function's arguments — the receiver is supplied by `$this` for
 /// instance methods, and is absent entirely for static factories.
-fn user_args<'a>(f: &'a FunctionDef) -> Vec<&'a super::super::ir::FunctionArg> {
+fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
     let class_lower = f.class_name.to_lowercase();
     f.args
         .iter()

@@ -5,29 +5,25 @@
 //! whitespace is trimmed, matching is case-insensitive.
 //!
 //! Tokens:
-//! - `memory`  — heap-breakdown dumps (StyledDom, LayoutCache, text cache,
-//!               cascade maps, RSS). Printed to stderr once per frame.
-//! - `cpu`     — per-phase wall-clock timings from `Probe::span` (layout,
-//!               style, cascade, paint, callbacks, …), dumped once per
-//!               frame so stuttering frames are easy to spot.
-//! - `cascade` — narrow diagnostic for prop-cache work: top-N CSS
-//!               properties by cascade-walk count per frame.
-//! - `heap`    — phase-boundary heap probes in `regenerate_layout`
-//!               (`emit_phase_heap`). By themselves print nothing —
-//!               pair with `jsonl` + `AZ_PROFILE_OUT` to persist.
-//! - `jsonl`   — format heap probes as JSONL to the file named by
-//!               `AZ_PROFILE_OUT=<path>`. Requires `heap` to do anything.
-//! - `detail`  — opt-in to the fine-grained per-step probes inside each
-//!               phase (e.g. `rf_*` labels inside
-//!               `rust_fontconfig::request_fonts`, and the `_extra`
-//!               cache-size payloads). Layered on top of `heap`.
+//! - `memory`  — heap-breakdown dumps (StyledDom, LayoutCache, text cache, cascade maps, RSS).
+//!   Printed to stderr once per frame.
+//! - `cpu`     — per-phase wall-clock timings from `Probe::span` (layout, style, cascade, paint,
+//!   callbacks, …), dumped once per frame so stuttering frames are easy to spot.
+//! - `cascade` — narrow diagnostic for prop-cache work: top-N CSS properties by cascade-walk count
+//!   per frame.
+//! - `heap`    — phase-boundary heap probes in `regenerate_layout` (`emit_phase_heap`). By
+//!   themselves print nothing — pair with `jsonl` + `AZ_PROFILE_OUT` to persist.
+//! - `jsonl`   — format heap probes as JSONL to the file named by `AZ_PROFILE_OUT=<path>`. Requires
+//!   `heap` to do anything.
+//! - `detail`  — opt-in to the fine-grained per-step probes inside each phase (e.g. `rf_*` labels
+//!   inside `rust_fontconfig::request_fonts`, and the `_extra` cache-size payloads). Layered on top
+//!   of `heap`.
 //!
 //! ## Examples
 //! - `AZ_PROFILE=cpu` — per-phase CPU timings to stderr.
-//! - `AZ_PROFILE=heap,jsonl AZ_PROFILE_OUT=/tmp/run.jsonl`
-//!     → coarse phase heap probes to JSONL.
-//! - `AZ_PROFILE=heap,jsonl,detail AZ_PROFILE_OUT=/tmp/detail.jsonl`
-//!     → fine-grained (per-step) heap probes to JSONL.
+//! - `AZ_PROFILE=heap,jsonl AZ_PROFILE_OUT=/tmp/run.jsonl` → coarse phase heap probes to JSONL.
+//! - `AZ_PROFILE=heap,jsonl,detail AZ_PROFILE_OUT=/tmp/detail.jsonl` → fine-grained (per-step) heap
+//!   probes to JSONL.
 //! - `AZ_PROFILE=cpu,cascade` — both dumps simultaneously.
 //!
 //! Tokens are independent flags, not mutually exclusive modes. Unset
@@ -41,14 +37,13 @@
 //! don't get polluted.
 //!
 //! ## Portability
-//! - **macOS / Linux**: full support. Span timings via `Instant`; RSS
-//!   checkpoints via `task_info` / `/proc/self/statm`.
-//! - **Windows**: span timings work. RSS checkpoints silently read 0
-//!   (the RSS helpers in `azul_layout::probe` are `cfg(unix)`-gated).
-//! - **WASM (`target_family = "wasm"`)**: `Instant::now()` panics on
-//!   browser WASM (no monotonic clock) and `libc::getrusage` isn't
-//!   available. The probe module detects WASM at compile time and
-//!   forces the no-op impl.
+//! - **macOS / Linux**: full support. Span timings via `Instant`; RSS checkpoints via `task_info` /
+//!   `/proc/self/statm`.
+//! - **Windows**: span timings work. RSS checkpoints silently read 0 (the RSS helpers in
+//!   `azul_layout::probe` are `cfg(unix)`-gated).
+//! - **WASM (`target_family = "wasm"`)**: `Instant::now()` panics on browser WASM (no monotonic
+//!   clock) and `libc::getrusage` isn't available. The probe module detects WASM at compile time
+//!   and forces the no-op impl.
 
 #[cfg(feature = "std")]
 use std::sync::OnceLock;

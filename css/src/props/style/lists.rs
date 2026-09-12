@@ -1,10 +1,11 @@
 //! CSS list styling properties (`list-style-type` and `list-style-position`)
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
+use crate::{
+    codegen::format::FormatAsRustCode, corety::AzString, props::formatter::PrintAsCssValue,
+};
 
 // --- list-style-type ---
 
@@ -85,7 +86,8 @@ impl fmt::Display for StyleListStyleType {
 
 // --- list-style-position ---
 
-/// CSS `list-style-position` property — controls whether the marker is inside or outside the list item box.
+/// CSS `list-style-position` property — controls whether the marker is inside or outside the list
+/// item box.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]

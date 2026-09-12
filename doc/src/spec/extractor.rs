@@ -3,9 +3,11 @@
 //! Parses downloaded W3C spec HTML files and extracts relevant paragraphs
 //! based on keywords. Uses simple HTML parsing without external dependencies.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    path::Path,
+};
 
 /// A single extracted paragraph with context
 #[derive(Debug, Clone)]
@@ -250,7 +252,8 @@ pub fn strip_html(html: &str) -> String {
         .to_string()
 }
 
-/// Extract href attribute value from an `<a ...>` tag body (without the `<a` prefix's angle bracket).
+/// Extract href attribute value from an `<a ...>` tag body (without the `<a` prefix's angle
+/// bracket).
 fn extract_href_attr(tag_body: &str) -> Option<String> {
     // Look for href="..." or href='...'
     let href_start = tag_body.find("href=")?;

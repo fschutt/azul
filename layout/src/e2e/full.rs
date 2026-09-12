@@ -19,17 +19,17 @@
 //! curl -X POST http://localhost:8765/ -d '{"type":"get_state"}'
 //! ```
 
-use crate::solver3::layout_tree::LayoutNodeId;
-use alloc::collections::BTreeMap;
-use alloc::collections::VecDeque;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{
+    collections::{BTreeMap, VecDeque},
+    string::String,
+    vec::Vec,
+};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
 // Import the NativeScreenshotExt trait for native screenshots
-
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
+
+use crate::solver3::layout_tree::LayoutNodeId;
 
 const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 
@@ -93,7 +93,10 @@ fn continuation_blocked(
     let Some(target) = cont.resume_after_frame else {
         return false;
     };
-    let frame_seq = callback_info.get_layout_window().content_journal.frame_seq();
+    let frame_seq = callback_info
+        .get_layout_window()
+        .content_journal
+        .frame_seq();
     if frame_seq >= target {
         cont.resume_after_frame = None;
         cont.frame_wait_ticks = 0;
@@ -105,8 +108,8 @@ fn continuation_blocked(
             LogLevel::Warn,
             LogCategory::DebugServer,
             format!(
-                "[E2E] wait_frame: no frame prepared in {} ticks (frame clock {} < {}) - \
-                 resuming without the barrier",
+                "[E2E] wait_frame: no frame prepared in {} ticks (frame clock {} < {}) - resuming \
+                 without the barrier",
                 cont.frame_wait_ticks, frame_seq, target
             ),
             None,
@@ -2405,7 +2408,8 @@ pub enum DebugEvent {
     // VirtualView inspection
     /// Get all tracked VirtualView states (scroll sizes, virtual sizes, invocation status)
     GetVirtualViewStates,
-    /// Get layout of nodes inside a specific VirtualView's DOM (by nested dom_id or parent node_id)
+    /// Get layout of nodes inside a specific VirtualView's DOM (by nested dom_id or parent
+    /// node_id)
     GetVirtualViewLayout {
         /// The nested DOM ID of the VirtualView (from get_virtual_view_states result)
         #[serde(default)]
@@ -2441,17 +2445,17 @@ pub enum DebugEvent {
     /// scenario can drive "open a file" -> resume with canned data without a
     /// native picker ever appearing. Keys of `set`:
     ///
-    /// * `file_open`: `{"path": "..."}` or `null` (cancelled) - the next
-    ///   `FileDialog::open_file` / `open_directory`
+    /// * `file_open`: `{"path": "..."}` or `null` (cancelled) - the next `FileDialog::open_file` /
+    ///   `open_directory`
     /// * `file_open_multi`: `{"paths": ["..", ".."]}`
     /// * `color_pick`: `{"r": 0, "g": 0, "b": 0}` or `null`
     /// * `save_file`: `{"path": "..."}` or `null`
-    /// * `save_bytes`: `{"accept": true}` - what `save_bytes` returns (the
-    ///   bytes are recorded either way, see `assert_saved_file`)
-    /// * `file_read`: `{"<path>": {"text": "..."} | {"b64": "..."}}` - canned
-    ///   documents served by `FilePath::read_bytes` / `read_string`
-    /// * `http`: `{"<url | prefix* | *>": {"status": 200, "text" | "b64": "...",
-    ///   "content_type": "..."} | {"error": "..."}}`
+    /// * `save_bytes`: `{"accept": true}` - what `save_bytes` returns (the bytes are recorded
+    ///   either way, see `assert_saved_file`)
+    /// * `file_read`: `{"<path>": {"text": "..."} | {"b64": "..."}}` - canned documents served by
+    ///   `FilePath::read_bytes` / `read_string`
+    /// * `http`: `{"<url | prefix* | *>": {"status": 200, "text" | "b64": "...", "content_type":
+    ///   "..."} | {"error": "..."}}`
     /// * `audio_devices`: `{"outputs": [".."], "inputs": [".."]}`
     /// * `video_decode`: `{"none": true}`
     /// * `reset`: `true` forgets every queued answer and record first
@@ -2852,8 +2856,8 @@ pub enum DebugEvent {
         /// Optional CSS to apply (overrides component css).
         #[serde(default)]
         css_override: Option<String>,
-        /// Component arguments as typed JSON values, e.g. {"label": "Click", "disabled": true, "count": 42}.
-        /// Keys must match the component's data_model field names.
+        /// Component arguments as typed JSON values, e.g. {"label": "Click", "disabled": true,
+        /// "count": 42}. Keys must match the component's data_model field names.
         /// Values are validated against the field's ComponentFieldType.
         /// Missing fields use their default_value from the data model.
         #[serde(default)]
@@ -2883,7 +2887,8 @@ pub enum DebugEvent {
         name: String,
         /// "render_fn" or "compile_fn"
         source_type: String,
-        /// Target language for compile_fn (ignored for render_fn). E.g. "rust", "c", "cpp", "python".
+        /// Target language for compile_fn (ignored for render_fn). E.g. "rust", "c", "cpp",
+        /// "python".
         #[serde(default)]
         language: Option<String>,
     },
@@ -2945,8 +2950,10 @@ fn parse_accessibility_action(
     selection_end: Option<u64>,
     custom_id: Option<i32>,
 ) -> Result<azul_core::dom::AccessibilityAction, String> {
-    use azul_core::dom::{AccessibilityAction as A, TextSelectionStartEnd};
-    use azul_core::geom::LogicalPosition;
+    use azul_core::{
+        dom::{AccessibilityAction as A, TextSelectionStartEnd},
+        geom::LogicalPosition,
+    };
 
     /// Every name this op accepts, in the error message so a typo is one read
     /// away from fixed.
@@ -3002,7 +3009,7 @@ fn parse_accessibility_action(
             _ => {
                 return Err(
                     "action 'set_text_selection' needs both \"selection_start\" and \
-                            \"selection_end\", and at least one was missing"
+                     \"selection_end\", and at least one was missing"
                         .to_string(),
                 )
             }
@@ -3040,8 +3047,7 @@ fn resolve_node_target(
     node_id: Option<u64>,
     text: Option<&str>,
 ) -> Option<azul_core::id::NodeId> {
-    use azul_core::dom::DomId;
-    use azul_core::id::NodeId;
+    use azul_core::{dom::DomId, id::NodeId};
 
     // Direct node ID
     if let Some(nid) = node_id {
@@ -3109,9 +3115,7 @@ fn resolve_all_matching_nodes(
     dom_id: azul_core::dom::DomId,
     selector: &str,
 ) -> Vec<azul_core::id::NodeId> {
-    use azul_core::dom::DomId;
-    use azul_core::id::NodeId;
-    use azul_core::style::matches_html_element;
+    use azul_core::{dom::DomId, id::NodeId, style::matches_html_element};
     use azul_css::parser2::parse_css_path;
     let layout_window = callback_info.get_layout_window();
 
@@ -3213,8 +3217,10 @@ fn resolve_node_center(
     node_id: Option<u64>,
     text: Option<&str>,
 ) -> Option<(f32, f32)> {
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::id::NodeId;
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        id::NodeId,
+    };
 
     if let Some(nid) = resolve_node_target(callback_info, dom_id, selector, node_id, text) {
         let dom_node_id = DomNodeId {
@@ -4048,8 +4054,8 @@ mod log_queue_bound_tests {
         );
         assert!(
             logs_dropped() > before_dropped,
-            "eviction must be COUNTED — a silently truncated log makes a \
-             reader believe an event did not happen"
+            "eviction must be COUNTED — a silently truncated log makes a reader believe an event \
+             did not happen"
         );
 
         // The messages kept must be the RECENT ones: a debugging session
@@ -4259,8 +4265,6 @@ pub struct E2eConfig {
     #[serde(default)]
     pub delay_between_steps_ms: u64,
 }
-
-#[cfg(feature = "std")]
 
 /// A single E2E test containing setup + steps.
 #[cfg(feature = "std")]
@@ -4542,7 +4546,13 @@ fn eval_assert_text(
         None => return AssertionResult::fail("assert_text: missing 'expected' parameter"),
     };
 
-    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
+    let node_id = match resolve_node_target(
+        callback_info,
+        params_dom(params),
+        Some(selector),
+        None,
+        None,
+    ) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5132,7 +5142,13 @@ fn eval_assert_layout(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
 
-    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
+    let node_id = match resolve_node_target(
+        callback_info,
+        params_dom(params),
+        Some(selector),
+        None,
+        None,
+    ) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5210,7 +5226,13 @@ fn eval_assert_css(
         None => return AssertionResult::fail("assert_css: missing 'expected' parameter"),
     };
 
-    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
+    let node_id = match resolve_node_target(
+        callback_info,
+        params_dom(params),
+        Some(selector),
+        None,
+        None,
+    ) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5387,7 +5409,13 @@ fn eval_assert_scroll(
         .and_then(|v| v.as_f64())
         .unwrap_or(1.0);
 
-    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
+    let node_id = match resolve_node_target(
+        callback_info,
+        params_dom(params),
+        Some(selector),
+        None,
+        None,
+    ) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5557,8 +5585,8 @@ fn eval_assert_screenshot(
                         }
                         return AssertionResult::fail_with(
                             format!(
-                                "assert_screenshot: PROVISIONAL baseline recorded to {} ({}x{}) \
-                                 — review it and re-run WITHOUT AZ_E2E_RECORD to gate on it",
+                                "assert_screenshot: PROVISIONAL baseline recorded to {} ({}x{}) — \
+                                 review it and re-run WITHOUT AZ_E2E_RECORD to gate on it",
                                 reference_path,
                                 rendered.width(),
                                 rendered.height()
@@ -5965,7 +5993,10 @@ fn e2e_mock_bytes(v: &serde_json::Value, what: &str) -> Result<Vec<u8>, String> 
     Err(format!("mock {what}: expected `text` or `b64`"))
 }
 
-fn e2e_mock_string_list(v: Option<&serde_json::Value>, what: &str) -> Result<Vec<azul_css::AzString>, String> {
+fn e2e_mock_string_list(
+    v: Option<&serde_json::Value>,
+    what: &str,
+) -> Result<Vec<azul_css::AzString>, String> {
     let Some(arr) = v.and_then(serde_json::Value::as_array) else {
         return Ok(Vec::new());
     };
@@ -5986,7 +6017,11 @@ fn apply_mock_set(set: &serde_json::Value) -> Result<(), String> {
         return Err("mock: `set` must be an object".to_string());
     };
     mock::arm();
-    if obj.get("reset").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+    if obj
+        .get("reset")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
         mock::reset();
     }
     for (key, value) in obj {
@@ -6047,7 +6082,9 @@ fn apply_mock_set(set: &serde_json::Value) -> Result<(), String> {
                     return Err("mock http: expected an object keyed by url".to_string());
                 };
                 for (pattern, answer) in routes {
-                    let mocked = if let Some(err) = answer.get("error").and_then(serde_json::Value::as_str) {
+                    let mocked = if let Some(err) =
+                        answer.get("error").and_then(serde_json::Value::as_str)
+                    {
                         mock::MockHttp::Error(azul_css::AzString::from(err))
                     } else {
                         let status = answer
@@ -6098,9 +6135,14 @@ fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
         return bad;
     }
     let name = params.get("name").and_then(serde_json::Value::as_str);
-    let ends = params.get("name_ends_with").and_then(serde_json::Value::as_str);
+    let ends = params
+        .get("name_ends_with")
+        .and_then(serde_json::Value::as_str);
     let mime = params.get("mime").and_then(serde_json::Value::as_str);
-    let min_len = params.get("min_len").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize;
+    let min_len = params
+        .get("min_len")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as usize;
     let contains = params.get("contains").and_then(serde_json::Value::as_str);
 
     let saved = azul_layout::request::mock::saved_files();
@@ -6111,7 +6153,8 @@ fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
     });
     let Some(file) = candidate else {
         return AssertionResult::fail_with(
-            "no export recorded with that name (was `FileDialog::save_bytes` called under an armed mock store?)",
+            "no export recorded with that name (was `FileDialog::save_bytes` called under an \
+             armed mock store?)",
             format!("name={name:?} name_ends_with={ends:?}"),
             format!("{} export(s): {names:?}", saved.len()),
         );
@@ -6134,7 +6177,11 @@ fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
             return AssertionResult::fail_with(
                 "exported bytes do not contain `contains`",
                 needle,
-                format!("{} bytes starting {:?}", file.bytes.len(), text.chars().take(80).collect::<String>()),
+                format!(
+                    "{} bytes starting {:?}",
+                    file.bytes.len(),
+                    text.chars().take(80).collect::<String>()
+                ),
             );
         }
     }
@@ -6197,8 +6244,8 @@ fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     let not_contains = params.get("not_contains").and_then(|v| v.as_str());
     if contains.is_none() && not_contains.is_none() {
         return AssertionResult::fail(
-            "assert_stderr needs `contains` or `not_contains` — with neither it \
-             asserts nothing and would pass forever",
+            "assert_stderr needs `contains` or `not_contains` — with neither it asserts nothing \
+             and would pass forever",
         );
     }
 
@@ -6225,8 +6272,8 @@ fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
             if let Some(hit) = recorded.iter().find(|m| m.contains(needle)) {
                 result = AssertionResult::fail_with(
                     format!(
-                        "a framework diagnostic contains {needle:?}, which this \
-                         scenario asserts must not happen"
+                        "a framework diagnostic contains {needle:?}, which this scenario asserts \
+                         must not happen"
                     ),
                     format!("no diagnostic containing {needle:?}"),
                     hit.clone(),
@@ -6582,7 +6629,8 @@ fn eval_assert_damage_covers_changes(
             );
         }
         AssertionResult::pass(format!(
-            "assert_damage_covers_changes: all {changed} changed px lie inside the {} damage rect(s)",
+            "assert_damage_covers_changes: all {changed} changed px lie inside the {} damage \
+             rect(s)",
             rects.len()
         ))
     }
@@ -6769,24 +6817,23 @@ fn eval_assert_idle_stable(
 /// swallowed with a `log_warn`; `hit_depth_cap` turns that into a red test.
 ///
 /// THREE COUNTERS, THREE DIFFERENT QUESTIONS — see `FrameReport`:
-/// * `max_relayouts` bounds `relayout_iterations`, the EVENT-pass depth. `0`
-///   means "no state delta was processed at all". It does NOT mean "no layout
-///   ran": a `set_node_*` mutation arrives through the callback API, never
-///   enters `process_window_events`, and still re-lays-out the whole root DOM.
+/// * `max_relayouts` bounds `relayout_iterations`, the EVENT-pass depth. `0` means "no state delta
+///   was processed at all". It does NOT mean "no layout ran": a `set_node_*` mutation arrives
+///   through the callback API, never enters `process_window_events`, and still re-lays-out the
+///   whole root DOM.
 /// * `max_dom_regens` bounds `dom_regenerations`, i.e. full DOM rebuilds.
-/// * `max_layout_passes` bounds `layout_passes`, i.e. how many times layout
-///   ACTUALLY ran, whichever scheduler asked for it. This is the one to use for
-///   "the engine schedules no relayout" over a callback-API mutation.
+/// * `max_layout_passes` bounds `layout_passes`, i.e. how many times layout ACTUALLY ran, whichever
+///   scheduler asked for it. This is the one to use for "the engine schedules no relayout" over a
+///   callback-API mutation.
 ///
 /// Every counter takes `max_`, `min_` and `exact_`. UPPER BOUNDS ALONE CANNOT
 /// FAIL ON A DEAD ENGINE: `0` satisfies every `max_*` there is, so an engine
 /// that dropped the interaction passed. Use `min_*` / `exact_*` to prove the
 /// work DID happen.
 ///
-/// * `max_virtual_view_size_passes` bounds `virtual_view_size_passes`: the
-///   extra layout passes content-sized `VirtualView`s cost (one per host dom
-///   whose views reported a size the solver had not seen). `0` in steady
-///   state is the invariant; a label re-rendered with longer text costs
+/// * `max_virtual_view_size_passes` bounds `virtual_view_size_passes`: the extra layout passes
+///   content-sized `VirtualView`s cost (one per host dom whose views reported a size the solver had
+///   not seen). `0` in steady state is the invariant; a label re-rendered with longer text costs
 ///   exactly one; one per keystroke is a view that never converges.
 ///
 /// Parameters: `max_relayouts` / `min_relayouts` / `exact_relayouts`,
@@ -7107,16 +7154,14 @@ fn eval_assert_resource_counts(
 //
 // * X1 — WHICH node was passed to `scroll_into_view`. Recorded by the op itself
 //   (`E2eScratch::last_scroll_into_view`); everything else is re-derived live.
-// * X4 — the second `Option<DragContext>` this pair named was deleted in
-//   2026-07. The seam survives as `DragState::from_context`, a derived view that
-//   every reader of the public drag API sees, so the invariant becomes "the view
-//   must agree with its source".
-// * X7 — an issued `ScrollAdjustment` is still not retained, and that half stays
-//   unobservable. What IS retained is the marker that says a cursor scroll is
-//   OWED, which catches the same bug one step earlier. The narrowing is spelled
-//   out at the check.
-// * X8 — frame-to-frame history, now that the composition trace keeps two
-//   samples and records per-container scroll offsets.
+// * X4 — the second `Option<DragContext>` this pair named was deleted in 2026-07. The seam survives
+//   as `DragState::from_context`, a derived view that every reader of the public drag API sees, so
+//   the invariant becomes "the view must agree with its source".
+// * X7 — an issued `ScrollAdjustment` is still not retained, and that half stays unobservable. What
+//   IS retained is the marker that says a cursor scroll is OWED, which catches the same bug one
+//   step earlier. The narrowing is spelled out at the check.
+// * X8 — frame-to-frame history, now that the composition trace keeps two samples and records
+//   per-container scroll offsets.
 //
 // They are OPT-IN, not in `DEFAULT_CROSS`: each is a statement about an
 // interaction, and each HARD-FAILS when the scenario did not perform that
@@ -7238,8 +7283,8 @@ fn collect_state_machine_leaks(
         .count();
     if unended > 0 {
         leaks.push(format!(
-            "gesture_drag_manager has {unended} un-ended input session(s) of {} (end_current_session \
-             / clear_old_sessions never ran)",
+            "gesture_drag_manager has {unended} un-ended input session(s) of {} \
+             (end_current_session / clear_old_sessions never ran)",
             lw.gesture_drag_manager.input_sessions.len()
         ));
     }
@@ -7301,8 +7346,8 @@ fn collect_state_machine_leaks(
         // count only keeps a bounded re-arm from being misread as "finalize
         // never ran".
         leaks.push(format!(
-            "focus_manager.pending_contenteditable_focus is still Some — contenteditable focus was \
-             queued and never finalized (re-armed {} time(s) for want of a text layout)",
+            "focus_manager.pending_contenteditable_focus is still Some — contenteditable focus \
+             was queued and never finalized (re-armed {} time(s) for want of a text layout)",
             lw.focus_manager.pending_focus_retries
         ));
     }
@@ -7319,8 +7364,8 @@ fn collect_state_machine_leaks(
         let report = lw.frame_report_synced();
         if !report.paint_damage.is_none() {
             leaks.push(format!(
-                "the last frame still reports PAINT damage ({}, {} rect(s)) — FrameDamage::None was \
-                 never reached",
+                "the last frame still reports PAINT damage ({}, {} rect(s)) — FrameDamage::None \
+                 was never reached",
                 damage_kind_str(&report.paint_damage),
                 report.paint_damage.rect_count()
             ));
@@ -7372,8 +7417,8 @@ fn eval_assert_state_machines_idle(
     if report.frames_since_reset == 0 {
         return AssertionResult::fail_with(
             "assert_state_machines_idle: NO FRAME was rendered since the last reset — every state \
-             machine is vacuously settled when nothing ever drove one. Perform the interaction and \
-             drive a frame (tick_ms / wait_frame) first."
+             machine is vacuously settled when nothing ever drove one. Perform the interaction \
+             and drive a frame (tick_ms / wait_frame) first."
                 .to_string(),
             "frames_since_reset >= 1".to_string(),
             "0".to_string(),
@@ -7409,15 +7454,13 @@ fn eval_assert_state_machines_idle(
 /// table.
 ///
 /// Parameters:
-/// * `managers` — which managers to sweep for dangling keys (X10). Default: all
-///   supported. Known: `scroll`, `hover`, `focus`, `gesture`, `selection`,
-///   `text_edit`, `virtual_view`, `undo_redo`.
-/// * `cross` — which pairwise invariants to check. Default:
-///   `["X2","X3","X5","X6","X9","X10"]`, the six that hold unconditionally.
-///   `X1`, `X4`, `X7` and `X8` are implemented but OPT-IN, because each one is a
-///   statement about an interaction that must actually have happened; requesting
-///   one without performing that interaction fails loudly rather than passing on
-///   an empty premise. See the module comment above.
+/// * `managers` — which managers to sweep for dangling keys (X10). Default: all supported. Known:
+///   `scroll`, `hover`, `focus`, `gesture`, `selection`, `text_edit`, `virtual_view`, `undo_redo`.
+/// * `cross` — which pairwise invariants to check. Default: `["X2","X3","X5","X6","X9","X10"]`, the
+///   six that hold unconditionally. `X1`, `X4`, `X7` and `X8` are implemented but OPT-IN, because
+///   each one is a statement about an interaction that must actually have happened; requesting one
+///   without performing that interaction fails loudly rather than passing on an empty premise. See
+///   the module comment above.
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_lines)]
 const KNOWN_MANAGERS: &[&str] = &[
@@ -7438,7 +7481,11 @@ const KNOWN_MANAGERS: &[&str] = &[
 const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     (
         "a11y_snapshot",
-        "pure projection — `A11ySnapshot::build()` is called on demand from `LayoutWindow::build_a11y_snapshot(&self)` and the result is handed straight to the platform bridge; nothing is stored on the window between calls. There is no state that could latch, so there is no invariant to assert. The a11y state that CAN latch lives in `a11y_manager`, which is checked",
+        "pure projection — `A11ySnapshot::build()` is called on demand from \
+         `LayoutWindow::build_a11y_snapshot(&self)` and the result is handed straight to the \
+         platform bridge; nothing is stored on the window between calls. There is no state that \
+         could latch, so there is no invariant to assert. The a11y state that CAN latch lives in \
+         `a11y_manager`, which is checked",
     ),
     (
         "scroll_into_view",
@@ -7476,8 +7523,8 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     (
         "eyedropper",
         "host capability (a native screen colour-sampler) with no headless backend — its \
-         issued/last_result/pending_event never populate in a headless run, so there is no \
-         latch to assert. The state it CAN hold is fingerprinted as `eyedropper`",
+         issued/last_result/pending_event never populate in a headless run, so there is no latch \
+         to assert. The state it CAN hold is fingerprinted as `eyedropper`",
     ),
     (
         "device_events",
@@ -7502,9 +7549,9 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
         "media_keys",
         "owns no window state at all: three PROCESS-GLOBAL mutex queues (media keys, \
          `MediaControlRequest`s, `SystemAudioChange`s) that a D-Bus / SMTC / remote-command \
-         thread parks in and the event pass drains destructively. There is no LayoutWindow \
-         field, nothing node-keyed, and nothing per-window — the queues belong to the process, \
-         so no assertion made against ONE window could say anything true about them",
+         thread parks in and the event pass drains destructively. There is no LayoutWindow field, \
+         nothing node-keyed, and nothing per-window — the queues belong to the process, so no \
+         assertion made against ONE window could say anything true about them",
     ),
     (
         "window_activation",
@@ -7516,9 +7563,9 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "a11y",
-        "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, \
-         not an impossibility: proving a tree node still maps to a live DOM node needs an \
-         A11yNodeId -> NodeId walk that does not exist here yet",
+        "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
+         an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
+         -> NodeId walk that does not exist here yet",
     ),
 ];
 
@@ -7659,8 +7706,8 @@ fn eval_assert_manager_invariants(
                                 checked += 1;
                                 if !live_dom || !node_is_live(lw, *dom, *nid) {
                                     violations.push(format!(
-                                        "X10 hover: hit-test history holds ({}, {}) which no longer \
-                                         exists",
+                                        "X10 hover: hit-test history holds ({}, {}) which no \
+                                         longer exists",
                                         dom.inner,
                                         nid.index()
                                     ));
@@ -7696,8 +7743,8 @@ fn eval_assert_manager_invariants(
                         checked += 1;
                         if !lw.layout_results.contains_key(dom) {
                             violations.push(format!(
-                                "X10 gpu_state: a GPU value cache is still held for DOM {} which no \
-                                 longer exists",
+                                "X10 gpu_state: a GPU value cache is still held for DOM {} which \
+                                 no longer exists",
                                 dom.inner
                             ));
                             // Its per-node keys cannot be judged against a DOM
@@ -7719,8 +7766,8 @@ fn eval_assert_manager_invariants(
                             checked += 1;
                             if !node_is_live(lw, *dom, *nid) {
                                 violations.push(format!(
-                                    "X10 gpu_state: DOM {} holds a GPU value keyed to node {}, which \
-                                     no longer exists",
+                                    "X10 gpu_state: DOM {} holds a GPU value keyed to node {}, \
+                                     which no longer exists",
                                     dom.inner,
                                     nid.index()
                                 ));
@@ -7753,10 +7800,15 @@ fn eval_assert_manager_invariants(
                         checked += 1;
                         if !dom_node_is_live(lw, queued.edit.node) {
                             violations.push(format!(
-                                "X10 text_input: a pending text edit is staged for ({}, {:?}), which \
-                                 no longer exists",
+                                "X10 text_input: a pending text edit is staged for ({}, {:?}), \
+                                 which no longer exists",
                                 queued.edit.node.dom.inner,
-                                queued.edit.node.node.into_crate_internal().map(|n| n.index())
+                                queued
+                                    .edit
+                                    .node
+                                    .node
+                                    .into_crate_internal()
+                                    .map(|n| n.index())
                             ));
                         }
                     }
@@ -7770,8 +7822,8 @@ fn eval_assert_manager_invariants(
                             checked += 1;
                             if !dom_node_is_live(lw, sub) {
                                 violations.push(format!(
-                                    "X10 permission: capability {cap:?} is still subscribed by ({}, \
-                                     {:?}) (refcount {}), which no longer exists",
+                                    "X10 permission: capability {cap:?} is still subscribed by \
+                                     ({}, {:?}) (refcount {}), which no longer exists",
                                     sub.dom.inner,
                                     sub.node.into_crate_internal().map(|n| n.index()),
                                     entry.refcount
@@ -7786,8 +7838,8 @@ fn eval_assert_manager_invariants(
                             checked += 1;
                             if !node_is_live(lw, dom, node) {
                                 violations.push(format!(
-                                    "X10 gesture: the active {} drag is anchored on ({}, {}), which \
-                                     no longer exists",
+                                    "X10 gesture: the active {} drag is anchored on ({}, {}), \
+                                     which no longer exists",
                                     drag_kind_str(drag),
                                     dom.inner,
                                     node.index()
@@ -7886,7 +7938,8 @@ fn eval_assert_manager_invariants(
                 checked += 1;
                 if !node_is_live(lw, dom, node) {
                     violations.push(format!(
-                        "X3: the active {} drag says ({}, {}) but the hit-test DOM has no such node",
+                        "X3: the active {} drag says ({}, {}) but the hit-test DOM has no such \
+                         node",
                         drag_kind_str(drag),
                         dom.inner,
                         node.index()
@@ -8562,55 +8615,59 @@ fn fingerprinted_managers() -> Vec<&'static str> {
 fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
     #[allow(unused_mut)]
     let mut reasons: Vec<(&'static str, &'static str)> = alloc::vec![
-    (
-        "a11y_snapshot",
-        "pure projection, rebuilt from the DOM on every call and never stored — see the matching entry in UNOBSERVABLE_MANAGERS. Fingerprinting it would hash a value that is recomputed rather than remembered, so it would report a change on every frame and mean nothing",
-    ),
-    (
-        "scroll_into_view",
-        "stateless — free functions that compute ScrollAdjustments, write them into ScrollManager \
-         and return; there is no state of its own to move. Its effect shows up as a `scroll` \
-         change, which IS fingerprinted",
-    ),
-    (
-        "scroll_registration",
-        "stateless — `register_scroll_nodes` publishes layout's scroll containers into \
-         ScrollManager and returns; it keeps nothing between calls. What it wrote is hashed as \
-         `scroll`, so fingerprinting it separately would hash the same bytes twice",
-    ),
-    (
-        "drag_drop",
-        "holds no state: the second Option<DragContext> was deleted in 2026-07 and what remains is \
-         the stateless DragState view built on demand from gesture_drag_manager.active_drag, which \
-         IS fingerprinted as `gesture`",
-    ),
-    (
-        "changeset",
-        "not a manager — a data type. A recorded changeset lives in TextInputManager, which IS \
-         fingerprinted as `text_input`",
-    ),
-    (
-        "selection",
-        "there is no SelectionManager; the live selection is TextEditManager::multi_cursor, which \
-         the `text_edit` fingerprint already covers. A separate entry would double-count one \
-         manager and make \"only text_edit moved\" unstateable",
-    ),
-    (
-        "media_keys",
-        "nothing on the WINDOW to hash. The three queues this module owns (media keys, media \
-         control requests, system audio changes) are process-globals, and their only readers — \
-         `drain_media_keys`, `drain_media_controls`, `drain_system_audio_changes` — consume what \
-         they return. Fingerprinting them would have to drain them, so the act of measuring would \
-         swallow the very key press the app was about to receive; and being per-PROCESS, a \
-         change in them could not be attributed to the window this snapshot is of",
-    ),
-    (
-        "window_activation",
-        "nothing on the WINDOW to hash, for both of `media_keys`' reasons: the pending-raise \
-         queue is a process-global, and its only reader `take_raise_request` removes the entry it \
-         reports, so measuring it would swallow a sibling window's raise. `manager_fingerprints` \
-         takes a `&LayoutWindow` and this module has no field on one",
-    ),
+        (
+            "a11y_snapshot",
+            "pure projection, rebuilt from the DOM on every call and never stored — see the \
+             matching entry in UNOBSERVABLE_MANAGERS. Fingerprinting it would hash a value that \
+             is recomputed rather than remembered, so it would report a change on every frame and \
+             mean nothing",
+        ),
+        (
+            "scroll_into_view",
+            "stateless — free functions that compute ScrollAdjustments, write them into \
+             ScrollManager and return; there is no state of its own to move. Its effect shows up \
+             as a `scroll` change, which IS fingerprinted",
+        ),
+        (
+            "scroll_registration",
+            "stateless — `register_scroll_nodes` publishes layout's scroll containers into \
+             ScrollManager and returns; it keeps nothing between calls. What it wrote is hashed \
+             as `scroll`, so fingerprinting it separately would hash the same bytes twice",
+        ),
+        (
+            "drag_drop",
+            "holds no state: the second Option<DragContext> was deleted in 2026-07 and what \
+             remains is the stateless DragState view built on demand from \
+             gesture_drag_manager.active_drag, which IS fingerprinted as `gesture`",
+        ),
+        (
+            "changeset",
+            "not a manager — a data type. A recorded changeset lives in TextInputManager, which \
+             IS fingerprinted as `text_input`",
+        ),
+        (
+            "selection",
+            "there is no SelectionManager; the live selection is TextEditManager::multi_cursor, \
+             which the `text_edit` fingerprint already covers. A separate entry would \
+             double-count one manager and make \"only text_edit moved\" unstateable",
+        ),
+        (
+            "media_keys",
+            "nothing on the WINDOW to hash. The three queues this module owns (media keys, media \
+             control requests, system audio changes) are process-globals, and their only readers \
+             — `drain_media_keys`, `drain_media_controls`, `drain_system_audio_changes` — consume \
+             what they return. Fingerprinting them would have to drain them, so the act of \
+             measuring would swallow the very key press the app was about to receive; and being \
+             per-PROCESS, a change in them could not be attributed to the window this snapshot is \
+             of",
+        ),
+        (
+            "window_activation",
+            "nothing on the WINDOW to hash, for both of `media_keys`' reasons: the pending-raise \
+             queue is a process-global, and its only reader `take_raise_request` removes the \
+             entry it reports, so measuring it would swallow a sibling window's raise. \
+             `manager_fingerprints` takes a `&LayoutWindow` and this module has no field on one",
+        ),
     ];
     #[cfg(not(feature = "a11y"))]
     reasons.push((
@@ -8626,17 +8683,16 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
 /// WHAT IS DELIBERATELY EXCLUDED, and why — an unexplained exclusion is a blind
 /// spot that reads as coverage:
 ///
-/// * `AnimatedScrollState::last_activity` (an `Instant`): moves on every scroll,
-///   i.e. it is redundant with the offset that is recorded, and rendering a
-///   clock value into a digest makes the digest depend on the wall clock.
-/// * `ScrollManager::scrollbar_states`: private, and recomputed from geometry
-///   every frame — it is a derived cache, not state anybody can leak into.
-/// * `GpuValueCache`'s animated VALUES: they change every frame of a running
-///   animation, so they would report "gpu_state moved" for every tick of a fade
-///   the scenario asked for. The KEYS are recorded (a key is what leaks) and
-///   `scrollbar_fade_active` says whether a fade is live.
-/// * `VirtualViewState`'s per-view internals and geolocation's private pending
-///   queues: no accessor exists. The view KEYS and the refcount are recorded.
+/// * `AnimatedScrollState::last_activity` (an `Instant`): moves on every scroll, i.e. it is
+///   redundant with the offset that is recorded, and rendering a clock value into a digest makes
+///   the digest depend on the wall clock.
+/// * `ScrollManager::scrollbar_states`: private, and recomputed from geometry every frame — it is a
+///   derived cache, not state anybody can leak into.
+/// * `GpuValueCache`'s animated VALUES: they change every frame of a running animation, so they
+///   would report "gpu_state moved" for every tick of a fade the scenario asked for. The KEYS are
+///   recorded (a key is what leaks) and `scrollbar_fade_active` says whether a fade is live.
+/// * `VirtualViewState`'s per-view internals and geolocation's private pending queues: no accessor
+///   exists. The view KEYS and the refcount are recorded.
 /// * the a11y tree's CONTENT — see [`fp_a11y`] for why, and for what that costs.
 ///
 /// A scenario must settle its frames (`wait_frame` + `wait`) before BOTH the
@@ -9276,13 +9332,12 @@ fn diff_manager_fingerprints(
 ///
 /// Parameters:
 /// * `vs` — the `snapshot_managers` name to diff against (required).
-/// * `changed` — the exact set of managers expected to have moved (required;
-///   `[]` means "this op must not have touched a single manager").
-/// * `min_populated` — optionally require that at least N managers are holding
-///   non-empty state right now. Without it, two empty snapshots compare equal
-///   and the assertion reports "nothing interfered" for a window where nothing
-///   ever happened. Same guard, same reason, as `min_checked` on
-///   `assert_manager_invariants`.
+/// * `changed` — the exact set of managers expected to have moved (required; `[]` means "this op
+///   must not have touched a single manager").
+/// * `min_populated` — optionally require that at least N managers are holding non-empty state
+///   right now. Without it, two empty snapshots compare equal and the assertion reports "nothing
+///   interfered" for a window where nothing ever happened. Same guard, same reason, as
+///   `min_checked` on `assert_manager_invariants`.
 ///
 /// ```json
 /// { "op": "snapshot_managers", "as": "before" },
@@ -9382,8 +9437,8 @@ fn eval_assert_only_managers_changed(
         if (populated as u64) < min {
             return AssertionResult::fail_with(
                 format!(
-                    "assert_only_managers_changed: only {populated} manager(s) hold any state, but \
-                     the scenario requires at least {min}. Two empty snapshots always compare \
+                    "assert_only_managers_changed: only {populated} manager(s) hold any state, \
+                     but the scenario requires at least {min}. Two empty snapshots always compare \
                      equal — this assertion proved nothing about interference."
                 ),
                 format!("at least {min} populated manager(s)"),
@@ -9774,17 +9829,14 @@ pub fn e2e_set_presented_frame(
 /// The global, stronger form of `assert_damage_covers_changes`. It differs in
 /// four ways:
 ///
-/// 1. `assert_damage_covers_changes` PASSES TRIVIALLY when the damage is `Full`
-///    ("a full repaint trivially covers every changed pixel"). Here a full
-///    repaint is still measured for TIGHTNESS, so over-paint cannot hide behind
-///    it, and `forbid_full` can reject it outright.
-/// 2. It checks PRESENT ⊇ PAINT, the invariant `FrameReport` documents and
-///    nothing asserted.
-/// 3. It adds the plan's TIGHTNESS bound: `area(damage) <=
-///    max_overpaint_ratio * area(bbox of the changed pixels)`.
-/// 4. With `pixel_identity: true` it additionally compares the damage-driven
-///    framebuffer against an independent full repaint — two different code paths
-///    for the same function.
+/// 1. `assert_damage_covers_changes` PASSES TRIVIALLY when the damage is `Full` ("a full repaint
+///    trivially covers every changed pixel"). Here a full repaint is still measured for TIGHTNESS,
+///    so over-paint cannot hide behind it, and `forbid_full` can reject it outright.
+/// 2. It checks PRESENT ⊇ PAINT, the invariant `FrameReport` documents and nothing asserted.
+/// 3. It adds the plan's TIGHTNESS bound: `area(damage) <= max_overpaint_ratio * area(bbox of the
+///    changed pixels)`.
+/// 4. With `pixel_identity: true` it additionally compares the damage-driven framebuffer against an
+///    independent full repaint — two different code paths for the same function.
 ///
 /// # Across a RESIZE
 ///
@@ -9797,11 +9849,10 @@ pub fn e2e_set_presented_frame(
 /// A dimension change does not make the comparison meaningless, it makes the
 /// CHANGED SET bigger, and in a way that is exactly definable:
 ///
-/// * inside the intersection of the two frames, a pixel changed iff it differs
-///   from the snapshot — the ordinary test;
-/// * every pixel of the new frame OUTSIDE that intersection is newly exposed,
-///   so it changed BY DEFINITION (there is no previous value for it) and the
-///   damage set must cover it.
+/// * inside the intersection of the two frames, a pixel changed iff it differs from the snapshot —
+///   the ordinary test;
+/// * every pixel of the new frame OUTSIDE that intersection is newly exposed, so it changed BY
+///   DEFINITION (there is no previous value for it) and the damage set must cover it.
 ///
 /// Both halves are checked, so a grow that reuses the old pixels but forgets to
 /// repaint a region the reflow moved is caught by the first half, and one that
@@ -9987,8 +10038,8 @@ fn eval_assert_damage_sound(
                             .to_string(),
                         "present ⊇ paint".to_string(),
                         format!(
-                            "paint rect ({x0:.1},{y0:.1})-({x1:.1},{y1:.1}) outside the {} present \
-                             rect(s)",
+                            "paint rect ({x0:.1},{y0:.1})-({x1:.1},{y1:.1}) outside the {} \
+                             present rect(s)",
                             present_rects.len()
                         ),
                     );
@@ -10093,7 +10144,8 @@ fn eval_assert_damage_sound(
 
         let across = if resized {
             format!(
-                " [across a resize {}x{} -> {}x{}: every px outside the overlap counted as changed]",
+                " [across a resize {}x{} -> {}x{}: every px outside the overlap counted as \
+                 changed]",
                 before.width(),
                 before.height(),
                 after.width(),
@@ -10311,9 +10363,9 @@ fn resume_e2e_continuation_inner(
 
                 let result = match response {
                     None => AssertionResult::fail_with(
-                        "assert_response: the previous step returned NO response data (an op \
-                         that answers `ok` with nothing is doing nothing — see the zombie-op \
-                         catch-all in process_debug_event)"
+                        "assert_response: the previous step returned NO response data (an op that \
+                         answers `ok` with nothing is doing nothing — see the zombie-op catch-all \
+                         in process_debug_event)"
                             .to_string(),
                         "a response payload".to_string(),
                         "null".to_string(),
@@ -10351,8 +10403,7 @@ fn resume_e2e_continuation_inner(
                             )
                         } else if want_sub.is_some_and(|s| !text.contains(s)) {
                             AssertionResult::fail_with(
-                                "assert_response: response does not contain the expected \
-                                 substring"
+                                "assert_response: response does not contain the expected substring"
                                     .to_string(),
                                 want_sub.unwrap_or_default().to_string(),
                                 text,
@@ -10701,8 +10752,7 @@ fn resume_e2e_continuation_inner(
 /// Returns `(needs_update, still_pending, resume_not_before)`:
 /// * `needs_update` — a step mutated state and the caller must relayout;
 /// * `still_pending` — the continuation yielded again (more steps remain);
-/// * `resume_not_before` — a `wait` deadline the caller should honor before the
-///   next pump.
+/// * `resume_not_before` — a `wait` deadline the caller should honor before the next pump.
 #[cfg(feature = "std")]
 pub fn e2e_pump_continuation(
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
@@ -10739,8 +10789,10 @@ pub extern "C" fn debug_timer_callback(
     mut timer_data: azul_core::refany::RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
-    use azul_core::callbacks::{TimerCallbackReturn, Update};
-    use azul_core::task::TerminateTimer;
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        task::TerminateTimer,
+    };
 
     // Downcast the RefAny to DebugTimerData to get app_data + channel + this
     // window's E2E session. The session is MOVED OUT for the duration of the
@@ -11174,8 +11226,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
 
     #[cfg(target_os = "windows")]
     {
-        use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
 
         extern "system" {
             fn GetModuleHandleExW(
@@ -11899,7 +11950,8 @@ struct ScaffoldComponentInfo {
     slot_fields: Vec<(String, String)>,
 }
 
-/// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat format).
+/// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat
+/// format).
 #[cfg(feature = "std")]
 fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
     use azul_core::xml::ComponentFieldType;
@@ -12121,9 +12173,9 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                 Ok(ComponentFieldType::EnumRef(AzString::from(name)))
             } else {
                 Err(format!(
-                    "Unknown field type '{}'. Valid types: String, bool, i32, i64, u32, u64, usize, \
-                     f32, f64, ColorU, CssProperty, ImageRef, FontRef, StyledDom, Callback(...), \
-                     RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name",
+                    "Unknown field type '{}'. Valid types: String, bool, i32, i64, u32, u64, \
+                     usize, f32, f64, ColorU, CssProperty, ImageRef, FontRef, StyledDom, \
+                     Callback(...), RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name",
                     other
                 ))
             }
@@ -12131,7 +12183,8 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
     }
 }
 
-/// Validate a field name: must be a valid identifier (alphanumeric + underscore, not starting with digit).
+/// Validate a field name: must be a valid identifier (alphanumeric + underscore, not starting with
+/// digit).
 #[cfg(feature = "std")]
 fn validate_field_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
@@ -12145,7 +12198,8 @@ fn validate_field_name(name: &str) -> Result<(), String> {
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(format!(
-            "Field name '{}' contains invalid characters (only alphanumeric, underscore, hyphen allowed)",
+            "Field name '{}' contains invalid characters (only alphanumeric, underscore, hyphen \
+             allowed)",
             name
         ));
     }
@@ -12498,7 +12552,10 @@ extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update 
     let mut layout_body = String::new();
     if components.is_empty() {
         layout_body.push_str("    Dom::create_body()\n");
-        layout_body.push_str("        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(\"Hello from Azul!\"))\n");
+        layout_body.push_str(
+            "        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(\"Hello \
+             from Azul!\"))\n",
+        );
         layout_body.push_str("        .with_css(\"\")\n");
     } else {
         layout_body.push_str("    Dom::create_body()\n");
@@ -12597,7 +12654,8 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
 
         for (slot_name, _cb_type) in &comp.callback_slots {
             callback_stubs.push_str(&format!(
-                "AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{\n    /* TODO: implement {slot_name} */\n    return AzUpdate_DoNothing;\n}}\n\n",
+                "AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{\n    /* TODO: \
+                 implement {slot_name} */\n    return AzUpdate_DoNothing;\n}}\n\n",
                 slot_name = slot_name
             ));
         }
@@ -12607,7 +12665,10 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
     let mut layout_body = String::new();
     layout_body.push_str("    AzDom body = AzDom_createBody();\n");
     if components.is_empty() {
-        layout_body.push_str("    AzDom_addChild(&body, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Hello from Azul!\")));\n");
+        layout_body.push_str(
+            "    AzDom_addChild(&body, \
+             AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Hello from Azul!\")));\n",
+        );
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);
@@ -12706,7 +12767,10 @@ fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, S
     let mut layout_body = String::new();
     layout_body.push_str("    auto body = Dom::create_body();\n");
     if components.is_empty() {
-        layout_body.push_str("    body.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"Hello from Azul!\")));\n");
+        layout_body.push_str(
+            "    body.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"\
+             Hello from Azul!\")));\n",
+        );
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);
@@ -12811,7 +12875,11 @@ fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String
     let mut layout_body = String::new();
     layout_body.push_str("    body = Dom.create_body()\n");
     if components.is_empty() {
-        layout_body.push_str("    body = body.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"Hello from Azul!\"))\n");
+        layout_body.push_str(
+            "    body = \
+             body.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"Hello from \
+             Azul!\"))\n",
+        );
     } else {
         for comp in components {
             let class_name = format!("{}Data", to_pascal_case(&comp.name));
@@ -13163,13 +13231,12 @@ extern "C" fn e2e_tick_timer_callback(
 /// For an op whose whole job is to deliver input that is a false-evidence
 /// factory, in both directions:
 ///
-/// * It MANUFACTURES the damage the test then measures. Delete the engine's
-///   `:hover` invalidation path entirely and a `mouse_move` still repaints the
-///   window, still resolves `:hover` during the rebuild and still reports
-///   non-empty damage — so `assert_changed` goes green against an engine that
-///   does not invalidate anything.
-/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever
-///   assert that an inert event costs zero DOM regenerations.
+/// * It MANUFACTURES the damage the test then measures. Delete the engine's `:hover` invalidation
+///   path entirely and a `mouse_move` still repaints the window, still resolves `:hover` during the
+///   rebuild and still reports non-empty damage — so `assert_changed` goes green against an engine
+///   that does not invalidate anything.
+/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever assert that an inert
+///   event costs zero DOM regenerations.
 ///
 /// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
 /// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
@@ -13300,9 +13367,9 @@ pub fn process_debug_event(
         }
 
         DebugEvent::FocusNode { selector, node_id } => {
-            use azul_core::callbacks::FocusTarget;
-            use azul_core::dom::DomNodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::{
+                callbacks::FocusTarget, dom::DomNodeId, styled_dom::NodeHierarchyItemId,
+            };
 
             let target = resolve_node_target(
                 callback_info,
@@ -13470,7 +13537,11 @@ pub fn process_debug_event(
                         ),
                         None,
                     );
-                    callback_info.perform_accessibility_action(target_dom(request), nid, parsed_action);
+                    callback_info.perform_accessibility_action(
+                        target_dom(request),
+                        nid,
+                        parsed_action,
+                    );
                     // NO `needs_update` — see the note on `process_debug_event`.
                     // The change itself decides what re-render is owed, exactly
                     // like a real adapter's action does.
@@ -13545,7 +13616,10 @@ pub fn process_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse down at ({}, {}) button {:?} seat {}", x, y, button, seat),
+                format!(
+                    "Debug mouse down at ({}, {}) button {:?} seat {}",
+                    x, y, button, seat
+                ),
                 None,
             );
 
@@ -13573,7 +13647,10 @@ pub fn process_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse up at ({}, {}) button {:?} seat {}", x, y, button, seat),
+                format!(
+                    "Debug mouse up at ({}, {}) button {:?} seat {}",
+                    x, y, button, seat
+                ),
                 None,
             );
 
@@ -13600,8 +13677,10 @@ pub fn process_debug_event(
             node_id,
             text,
         } => {
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                id::NodeId,
+            };
 
             // Resolve the click target position
             let click_pos: Option<(f32, f32)> = if let (Some(x), Some(y)) = (x, y) {
@@ -13691,7 +13770,8 @@ pub fn process_debug_event(
                                     dom: dom_id,
                                     node: Some(NodeId::new(parent_idx)).into(),
                                 };
-                                // Use get_node_hit_test_bounds for reliable positions from display list
+                                // Use get_node_hit_test_bounds for reliable positions from display
+                                // list
                                 if let Some(c) =
                                     node_centre_for_click(callback_info, parent_dom_node_id)
                                 {
@@ -13867,9 +13947,7 @@ pub fn process_debug_event(
             delta_x,
             delta_y,
         } => {
-            use azul_core::dom::DomId;
-            use azul_core::id::NodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::{dom::DomId, id::NodeId, styled_dom::NodeHierarchyItemId};
 
             log(
                 LogLevel::Debug,
@@ -14312,8 +14390,10 @@ pub fn process_debug_event(
         }
 
         DebugEvent::HitTest { x, y } => {
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                id::NodeId,
+            };
 
             let mut result_node_id: Option<u64> = None;
             let mut result_tag: Option<String> = None;
@@ -14397,8 +14477,8 @@ pub fn process_debug_event(
                     request,
                     format!(
                         "custom op '{name}' was not handled: the application's \
-                         AppConfig::custom_e2e_op returned handled=false (no handler \
-                         installed, or the name is not one it recognises)"
+                         AppConfig::custom_e2e_op returned handled=false (no handler installed, \
+                         or the name is not one it recognises)"
                     ),
                 );
             }
@@ -14855,8 +14935,10 @@ pub fn process_debug_event(
                 "Listing live DOMs",
                 None,
             );
-            use azul_core::dom::{DomId, NodeType};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, NodeType},
+                id::NodeId,
+            };
 
             // VirtualView documents announce their host, so a caller can tell
             // "the AzWriter document" from "some other nested DOM" without
@@ -14966,8 +15048,7 @@ pub fn process_debug_event(
                 "Getting node hierarchy",
                 None,
             );
-            use azul_core::dom::DomId;
-            use azul_core::id::NodeId;
+            use azul_core::{dom::DomId, id::NodeId};
 
             let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
@@ -15688,10 +15769,9 @@ pub fn process_debug_event(
             delta_x,
             delta_y,
         } => {
-            use azul_core::dom::DomId;
-            use azul_core::geom::LogicalPosition;
-            use azul_core::id::NodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::{
+                dom::DomId, geom::LogicalPosition, id::NodeId, styled_dom::NodeHierarchyItemId,
+            };
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
@@ -15747,10 +15827,9 @@ pub fn process_debug_event(
             x,
             y,
         } => {
-            use azul_core::dom::DomId;
-            use azul_core::geom::LogicalPosition;
-            use azul_core::id::NodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::{
+                dom::DomId, geom::LogicalPosition, id::NodeId, styled_dom::NodeHierarchyItemId,
+            };
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
@@ -15799,13 +15878,13 @@ pub fn process_debug_event(
             inline,
             behavior,
         } => {
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::events::{
-                ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition,
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition},
+                id::NodeId,
+                styled_dom::NodeHierarchyItemId,
+                task::Instant,
             };
-            use azul_core::id::NodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
-            use azul_core::task::Instant;
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
@@ -15895,8 +15974,10 @@ pub fn process_debug_event(
                 format!("Finding node by text: {}", text),
                 None,
             );
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                id::NodeId,
+            };
 
             let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
@@ -15968,8 +16049,10 @@ pub fn process_debug_event(
                 format!("Clicking node {} with button {:?}", node_id, button),
                 None,
             );
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                id::NodeId,
+            };
 
             let dom_id = target_dom(request);
             let dom_node_id = DomNodeId {
@@ -16029,13 +16112,22 @@ pub fn process_debug_event(
             text,
             orientation,
         } => {
-            use azul_core::dom::{DomId, ScrollbarOrientation};
-            use azul_core::geom::LogicalPosition;
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, ScrollbarOrientation},
+                geom::LogicalPosition,
+                id::NodeId,
+            };
 
-            log(LogLevel::Debug, LogCategory::DebugServer,
-                format!("Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, orientation={:?}", 
-                    node_id, selector, text, orientation), None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!(
+                    "Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, \
+                     orientation={:?}",
+                    node_id, selector, text, orientation
+                ),
+                None,
+            );
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
@@ -16420,7 +16512,8 @@ pub fn process_debug_event(
             } else {
                 send_err(
                     request,
-                    "No virtualized view found: specify dom_id or node_id. Use get_virtual_view_states to list all virtualized views.",
+                    "No virtualized view found: specify dom_id or node_id. Use \
+                     get_virtual_view_states to list all virtualized views.",
                 );
             }
         }
@@ -17427,8 +17520,7 @@ pub fn process_debug_event(
             classes,
             id,
         } => {
-            use azul_core::dom::DomId;
-            use azul_core::id::NodeId;
+            use azul_core::{dom::DomId, id::NodeId};
 
             let dom_id = target_dom(request);
             let parent_node_id = NodeId::new(*parent_id as usize);
@@ -17481,13 +17573,13 @@ pub fn process_debug_event(
                 send_err(
                     request,
                     format!(
-                    "insert_node: node {parent_id} is not on the DOM's rightmost spine. The flat \
-                     DFS hierarchy derives a node's first child as `id + 1`, so a node appended at \
-                     the end of the array can only become the last child of a subtree that already \
-                     ends the array. Inserting elsewhere requires a full re-index + \
-                     remap_node_ids, which is not implemented — refusing rather than corrupting \
-                     the tree."
-                ),
+                        "insert_node: node {parent_id} is not on the DOM's rightmost spine. The \
+                         flat DFS hierarchy derives a node's first child as `id + 1`, so a node \
+                         appended at the end of the array can only become the last child of a \
+                         subtree that already ends the array. Inserting elsewhere requires a full \
+                         re-index + remap_node_ids, which is not implemented — refusing rather \
+                         than corrupting the tree."
+                    ),
                 );
             } else {
                 let new_node_id = node_count as u64; // New node will be appended at end
@@ -17523,8 +17615,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::DeleteNode { node_id } => {
-            use azul_core::dom::DomId;
-            use azul_core::id::NodeId;
+            use azul_core::{dom::DomId, id::NodeId};
 
             let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
@@ -17560,9 +17651,11 @@ pub fn process_debug_event(
         }
 
         DebugEvent::SetNodeText { node_id, text } => {
-            use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::id::NodeId;
-            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::{
+                dom::{DomId, DomNodeId},
+                id::NodeId,
+                styled_dom::NodeHierarchyItemId,
+            };
 
             let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
@@ -17604,8 +17697,10 @@ pub fn process_debug_event(
             classes,
             id,
         } => {
-            use azul_core::dom::{DomId, IdOrClass};
-            use azul_core::id::NodeId;
+            use azul_core::{
+                dom::{DomId, IdOrClass},
+                id::NodeId,
+            };
 
             let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
@@ -17687,8 +17782,7 @@ pub fn process_debug_event(
             property,
             value,
         } => {
-            use azul_core::dom::DomId;
-            use azul_core::id::NodeId;
+            use azul_core::{dom::DomId, id::NodeId};
             use azul_css::props::property::{get_css_key_map, CssPropertyType};
 
             let dom_id = target_dom(request);
@@ -17774,8 +17868,7 @@ pub fn process_debug_event(
             height,
             color,
         } => {
-            use azul_core::dom::NodeType;
-            use azul_core::id::NodeId;
+            use azul_core::{dom::NodeType, id::NodeId};
 
             let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
@@ -17980,7 +18073,8 @@ pub fn process_debug_event(
 
             match result {
                 Ok(response) => {
-                    // Build ZIP entries from exported files (scaffold already includes build config)
+                    // Build ZIP entries from exported files (scaffold already includes build
+                    // config)
                     let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
                     let mut seen_paths = std::collections::HashSet::new();
 
@@ -17991,7 +18085,8 @@ pub fn process_debug_event(
                         }
                     }
 
-                    // Add generated source files (from generate_scaffold — includes Cargo.toml etc.)
+                    // Add generated source files (from generate_scaffold — includes Cargo.toml
+                    // etc.)
                     for (path, content) in &response.files {
                         if seen_paths.insert(path.clone()) {
                             zip_entries.push((path.clone(), content.as_bytes().to_vec()));
@@ -18155,11 +18250,20 @@ pub fn process_debug_event(
 
             if exportable_libs.is_empty() {
                 if let Some(ref name) = lib_name_opt {
-                    send_err(request, format!(
-                        "Library '{}' not found or is not exportable (builtin/compiled libraries cannot be exported)", name
-                    ));
+                    send_err(
+                        request,
+                        format!(
+                            "Library '{}' not found or is not exportable (builtin/compiled \
+                             libraries cannot be exported)",
+                            name
+                        ),
+                    );
                 } else {
-                    send_err(request, "No exportable component libraries found. Only user-defined libraries can be exported.");
+                    send_err(
+                        request,
+                        "No exportable component libraries found. Only user-defined libraries can \
+                         be exported.",
+                    );
                 }
             } else {
                 // Export the first matching library (or the only one)
@@ -18661,7 +18765,8 @@ pub fn process_debug_event(
             if let Some(comp) = comp_found {
                 let source_code = match source_type.as_str() {
                     "render_fn" => {
-                        // For user-defined components, the source is stored; for builtins, return a description
+                        // For user-defined components, the source is stored; for builtins, return a
+                        // description
                         comp.render_fn_source
                             .as_ref()
                             .map(|s| s.as_str().to_string())
@@ -18807,7 +18912,8 @@ pub fn process_debug_event(
             let result = {
                 #[cfg(target_os = "macos")]
                 {
-                    // macOS `open` doesn't support line numbers, so try `code --goto` first for precision
+                    // macOS `open` doesn't support line numbers, so try `code --goto` first for
+                    // precision
                     if *line > 0 {
                         std::process::Command::new("open")
                             .arg(file.as_str())
@@ -19074,14 +19180,13 @@ mod e2e_manager_accounting {
 /// Two things have to be true for `assert_only_managers_changed` to be real, and
 /// each gets its own test here:
 ///
-/// 1. The DIFF must report both failure directions: a manager that moved without
-///    being listed (the leak), and a listed manager that did not move (a
-///    scenario that has quietly stopped exercising what it names).
-/// 2. Every FINGERPRINT must actually move when its manager is written. A
-///    fingerprint that ignores the field somebody later leaks into is exactly the
-///    "cannot fail" defect at the level below the diff — and this repo has
-///    shipped it: `gpu_state` sat outside `KNOWN_MANAGERS`, so the scrollbar-fade
-///    latch was invisible to every invariant in this file.
+/// 1. The DIFF must report both failure directions: a manager that moved without being listed (the
+///    leak), and a listed manager that did not move (a scenario that has quietly stopped exercising
+///    what it names).
+/// 2. Every FINGERPRINT must actually move when its manager is written. A fingerprint that ignores
+///    the field somebody later leaks into is exactly the "cannot fail" defect at the level below
+///    the diff — and this repo has shipped it: `gpu_state` sat outside `KNOWN_MANAGERS`, so the
+///    scrollbar-fade latch was invisible to every invariant in this file.
 #[cfg(all(test, feature = "std"))]
 mod non_interference_can_fail {
     use alloc::collections::BTreeMap;

@@ -2,12 +2,11 @@
 //!
 //! Two files are produced:
 //!
-//! - `dune-project` — declares the Dune lang version. Every Dune
-//!   workspace needs exactly one of these at its root.
-//! - `dune` — the per-directory build description. We declare a
-//!   library `azul` that compiles the generated `azul.ml` /
-//!   `azul.mli` against `ctypes` and `ctypes-foreign` and links
-//!   against the prebuilt native library at runtime via `Dl.dlopen`.
+//! - `dune-project` — declares the Dune lang version. Every Dune workspace needs exactly one of
+//!   these at its root.
+//! - `dune` — the per-directory build description. We declare a library `azul` that compiles the
+//!   generated `azul.ml` / `azul.mli` against `ctypes` and `ctypes-foreign` and links against the
+//!   prebuilt native library at runtime via `Dl.dlopen`.
 //!
 //! The user is expected to drop the platform-appropriate native
 //! binary (`libazul.so` / `libazul.dylib` / `azul.dll`) somewhere

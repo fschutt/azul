@@ -1129,16 +1129,30 @@ lang_cpp() {
 
 # ---- Go (cgo) ----------------------------------------------------------------
 # Toolchain: go (preinstalled on GitHub runners) + a C compiler reachable to
-# cgo (clang on macOS, gcc on Linux, MinGW gcc on Windows). The example's
-# main.go pulls in azul.h via the cgo preamble and links libazul; it does NOT
-# import the generated azul-go package (it calls C.Az* directly), so no
-# ../azul-go sibling dir is needed. We mirror the C recipe's per-OS link flags
-# through CGO_CFLAGS / CGO_LDFLAGS.
+# cgo (clang on macOS, gcc on Linux, MinGW gcc on Windows). The example imports
+# the generated `azul-go` package (it used to call C.Az* directly, which is what
+# the old note here described), so `examples/azul-go/` MUST exist before
+# `go build`: the module's `replace` points at it, and a missing directory fails
+# with "replacement directory ../azul-go does not exist" rather than anything
+# that names the real cause. We stage it from the codegen output below and
+# check the copy landed. Link flags mirror the C recipe, per OS.
 lang_go() {
   have go || { skip go "go not installed (preinstalled on GH runners / apt: golang-go)"; return; }
   local f; f="$(log_path go)"
   (
     set -x
+    rm -rf "$REPO_ROOT/examples/azul-go"
+    mkdir -p "$REPO_ROOT/examples/azul-go"
+    if ! cp -r "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/azul-go/"; then
+      echo "go: no generated bindings at $CODEGEN_DIR/go — run the codegen step first" >&2
+      exit 1
+    fi
+    [ -f "$REPO_ROOT/examples/azul-go/azul.go" ] || {
+      echo "go: $CODEGEN_DIR/go staged no azul.go into examples/azul-go" >&2
+      exit 1
+    }
+    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
     cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/go" || exit 1
@@ -1154,7 +1168,9 @@ lang_go() {
     else
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
     fi
-    go build -o "$OUT" . || exit 1
+    # -x: every toolchain command in the log, so a timeout names the step
+    # (the cgo probe, the package compile, the link) instead of "hung".
+    go build -x -o "$OUT" . || exit 1
     "./$OUT"
   ) >"$f" 2>&1
   finish go "go build/run failed (cgo + libazul link)"
@@ -2219,6 +2235,13 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # costs about as much again: 1m48s for a clean `make` on an M-series Mac,
     # and CI's ubuntu runner is slower. The default 240s left no margin.
     fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # cgo compiles the generated azul-go package from scratch on every run: five
+    # MB of Go over 126k lines (wrappers.go alone is 2.8 MB) plus the DWARF
+    # probe of azul.h. 32 s on an M-series Mac; the 2-core ubuntu runner ran
+    # past 600 s on both attempts (2026-09-12, run 34707993902) with nothing
+    # after `go build` in the log. Same budget as the other big generated
+    # packages; `go build -x` below names the step if it ever times out again.
+    go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

@@ -6,16 +6,14 @@
 //! silent: nothing fails to compile, no test goes red, and the feature is simply
 //! missing on that platform forever. That is exactly how these were found:
 //!
-//!   * `process_timers_and_threads()` had ZERO call sites on iOS and Android, so
-//!     no Timer fired, no background Thread writeback was collected and no
-//!     animation advanced on either platform. Fixed in 822c2a7fd.
-//!   * `process_accessibility_actions()` had ZERO implementations on iOS,
-//!     Android and headless — not even a field to receive an action — so a
-//!     screen reader's request did nothing on any of the three, and headless
-//!     being one of them meant the E2E corpus could not observe accessibility
-//!     at all. Fixed by giving headless an injectable queue, iOS a
-//!     `UIAccessibilityContainer` bridge and Android an
-//!     `AccessibilityNodeProvider` bridge.
+//!   * `process_timers_and_threads()` had ZERO call sites on iOS and Android, so no Timer fired, no
+//!     background Thread writeback was collected and no animation advanced on either platform.
+//!     Fixed in 822c2a7fd.
+//!   * `process_accessibility_actions()` had ZERO implementations on iOS, Android and headless —
+//!     not even a field to receive an action — so a screen reader's request did nothing on any of
+//!     the three, and headless being one of them meant the E2E corpus could not observe
+//!     accessibility at all. Fixed by giving headless an injectable queue, iOS a
+//!     `UIAccessibilityContainer` bridge and Android an `AccessibilityNodeProvider` bridge.
 //!
 //! A scan is a weak check, but a weak check that goes red beats a strong
 //! abstraction nobody has written. When the trait exists, delete this file.
@@ -93,20 +91,19 @@ fn every_backend_dispatches_accessibility_actions() {
 ///
 /// Each platform's notification, and none of them are the same API:
 ///   * Windows — `WM_SETTINGCHANGE | WM_THEMECHANGED`;
-///   * macOS   — `NSView::viewDidChangeEffectiveAppearance`, with a slow poll
-///     of `NSApp.effectiveAppearance` behind it for the facets (accent colour,
-///     UI font) that fire no view callback;
+///   * macOS   — `NSView::viewDidChangeEffectiveAppearance`, with a slow poll of
+///     `NSApp.effectiveAppearance` behind it for the facets (accent colour, UI font) that fire no
+///     view callback;
 ///   * X11 and Wayland — `org.freedesktop.portal.Settings.SettingChanged` for
-///     `org.freedesktop.appearance`/`color-scheme`. There is no Wayland
-///     protocol and no XSETTINGS key for it; the portal is the mechanism on
-///     both, so one watcher thread serves both backends and wakes their
-///     `poll(2)` through an eventfd;
+///     `org.freedesktop.appearance`/`color-scheme`. There is no Wayland protocol and no XSETTINGS
+///     key for it; the portal is the mechanism on both, so one watcher thread serves both backends
+///     and wakes their `poll(2)` through an eventfd;
 ///   * iOS     — `UITraitCollection.userInterfaceStyle`;
-///   * Android — `onConfigurationChanged` with `UI_MODE_NIGHT_MASK`, latched
-///     for the loop thread to drain;
+///   * Android — `onConfigurationChanged` with `UI_MODE_NIGHT_MASK`, latched for the loop thread to
+///     drain;
 ///   * headless — no system theme to observe, so the injection IS the ingress
-///     (`HeadlessWindow::set_system_theme`). It is the backend the E2E corpus
-///     runs on, so without it no scenario could cover theme-dependent layout.
+///     (`HeadlessWindow::set_system_theme`). It is the backend the E2E corpus runs on, so without
+///     it no scenario could cover theme-dependent layout.
 ///
 /// SCAN KEY, and why it changed. The original check was `mod.rs` contains
 /// `RelayoutReason::ThemeChange`, chosen because requesting a regeneration
@@ -145,15 +142,15 @@ fn every_backend_reacts_to_a_runtime_theme_change() {
 
     assert!(
         missing.is_empty(),
-        "these backends never request a regeneration tagged ThemeChange, so a user toggling \
-         dark mode sees no change until restart: {missing:?}",
+        "these backends never request a regeneration tagged ThemeChange, so a user toggling dark \
+         mode sees no change until restart: {missing:?}",
     );
 
     // The other half of the key above: routing through the shared helper is
     // only as good as what the helper does. If this ever fails, every backend
     // in the list that delegates has silently stopped tagging its rebuild.
-    let policy = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("src/desktop/shell2/common/event.rs");
+    let policy =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/desktop/shell2/common/event.rs");
     let policy_src = std::fs::read_to_string(&policy)
         .unwrap_or_else(|e| panic!("read {}: {e}", policy.display()));
     let adopt = policy_src
@@ -172,9 +169,9 @@ fn every_backend_reacts_to_a_runtime_theme_change() {
     assert!(
         body.contains("RelayoutReason::ThemeChange"),
         "PlatformWindow::adopt_system_style no longer requests a ThemeChange regeneration, so \
-         every backend that delegates its theme switch to it now rebuilds under some other \
-         reason (or not at all) — and LayoutCallbackInfo::relayout_reason() stops telling \
-         callbacks to re-read system colours",
+         every backend that delegates its theme switch to it now rebuilds under some other reason \
+         (or not at all) — and LayoutCallbackInfo::relayout_reason() stops telling callbacks to \
+         re-read system colours",
     );
 }
 
@@ -218,8 +215,8 @@ fn every_backend_names_the_os_notification_it_observes() {
         .collect();
     assert!(
         untabled.is_empty(),
-        "these frame-driving backends have no entry in THEME_OBSERVATION, so nothing checks \
-         that they can hear a theme switch at all: {untabled:?}",
+        "these frame-driving backends have no entry in THEME_OBSERVATION, so nothing checks that \
+         they can hear a theme switch at all: {untabled:?}",
     );
 
     let missing: Vec<(&str, &str)> = THEME_OBSERVATION
@@ -230,8 +227,7 @@ fn every_backend_names_the_os_notification_it_observes() {
 
     assert!(
         missing.is_empty(),
-        "these backends no longer name the OS notification that tells them the theme changed, \
-         so they can still ADOPT a new system style but nothing will ever hand them one: \
-         {missing:?}",
+        "these backends no longer name the OS notification that tells them the theme changed, so \
+         they can still ADOPT a new system style but nothing will ever hand them one: {missing:?}",
     );
 }

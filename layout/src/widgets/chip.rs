@@ -21,8 +21,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -124,7 +126,9 @@ pub enum ChipKind {
 
 impl ChipKind {
     /// Returns the `(background, text)` colours for this chip kind.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
         const WHITE: ColorU = ColorU {
             r: 255,
@@ -225,7 +229,13 @@ pub struct Chip {
     /// Whether to render the "x" remove affordance (hides the chip on click).
     pub removable: bool,
     /// The computed inline style for the pill container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// The container's CSS, or `None` for "no opinion" — in which case the style
+    /// is derived from `kind` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -344,21 +354,36 @@ impl Chip {
             label,
             kind,
             removable: false,
-            container_style: build_chip_style(kind),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the colour variant, recomputing the container style.
+    /// The container CSS this chip renders with.
+    ///
+    /// `None` means no opinion, so the kind's default applies — the same answer
+    /// both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_chip_style(self.kind))
+    }
+
+    /// Sets the colour variant.
+    ///
+    /// Does not touch `container_style`: the style is resolved from `kind` when
+    /// the DOM is built, so changing the kind is enough. Writing it here would
+    /// also overwrite a caller's explicit style.
     #[inline]
-    pub fn set_kind(&mut self, kind: ChipKind) {
+    pub const fn set_kind(&mut self, kind: ChipKind) {
         self.kind = kind;
-        self.container_style = build_chip_style(kind);
     }
 
     /// Builder-style setter for the colour variant.
     #[inline]
     #[must_use]
-    pub fn with_chip_kind(mut self, kind: ChipKind) -> Self {
+    pub const fn with_chip_kind(mut self, kind: ChipKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -441,6 +466,9 @@ impl Chip {
             refany::OptionRefAny,
         };
 
+        // Resolved before `self.chip_state` is moved out below.
+        let container_style = self.resolved_container_style();
+
         let has_on_click = matches!(self.chip_state.on_click, OptionChipOnClick::Some(_));
 
         // The remove ("x") and the label-click callbacks share the same state
@@ -508,7 +536,7 @@ impl Chip {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_CONTAINER_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -1720,7 +1748,7 @@ mod autotest_generated {
                 "a fresh chip carries no click callback"
             );
             assert_eq!(
-                properties(&c.container_style),
+                properties(&c.resolved_container_style()),
                 properties(&build_chip_style(ChipKind::Default))
             );
         }
@@ -1744,10 +1772,13 @@ mod autotest_generated {
                 assert!(!c.removable, "{kind:?}: with_kind must not turn on the x");
                 // The invariant that makes `container_style` a cache and not a lie.
                 assert_eq!(
-                    properties(&c.container_style),
+                    properties(&c.resolved_container_style()),
                     properties(&build_chip_style(kind))
                 );
-                assert_eq!(background_color(&c.container_style), Some(kind.colors().0));
+                assert_eq!(
+                    background_color(&c.resolved_container_style()),
+                    Some(kind.colors().0)
+                );
             }
         }
     }
@@ -1826,17 +1857,17 @@ mod autotest_generated {
 
             assert_eq!(c.kind, kind, "round {round}: kind field not updated");
             assert_eq!(
-                c.container_style.as_ref().len(),
+                c.resolved_container_style().as_ref().len(),
                 expected_len,
                 "round {round}: style vec changed length — stale declarations?"
             );
             assert_eq!(
-                properties(&c.container_style),
+                properties(&c.resolved_container_style()),
                 properties(&build_chip_style(kind)),
                 "round {round}: style does not match a freshly built one"
             );
             assert_eq!(
-                background_color(&c.container_style),
+                background_color(&c.resolved_container_style()),
                 Some(kind.colors().0),
                 "round {round}: stale background"
             );
@@ -1892,12 +1923,12 @@ mod autotest_generated {
         assert_eq!(chained.kind, ChipKind::Info);
         assert_eq!(chained.label.as_str(), "t");
         assert_eq!(
-            properties(&chained.container_style),
+            properties(&chained.resolved_container_style()),
             properties(&build_chip_style(ChipKind::Info))
         );
         // In particular the Danger red must be completely gone.
         assert_eq!(
-            background_color(&chained.container_style),
+            background_color(&chained.resolved_container_style()),
             Some(ChipKind::Info.colors().0)
         );
     }
@@ -1929,7 +1960,7 @@ mod autotest_generated {
     #[test]
     fn set_removable_last_write_wins_and_touches_nothing_else() {
         let mut c = Chip::with_kind(AzString::from("t"), ChipKind::Warning);
-        let style_before = c.container_style.clone();
+        let style_before = c.resolved_container_style();
 
         for flag in [true, true, false, true, false, false] {
             c.set_removable(flag);
@@ -1939,7 +1970,8 @@ mod autotest_generated {
         assert_eq!(c.kind, ChipKind::Warning);
         assert_eq!(c.label.as_str(), "t");
         assert_eq!(
-            c.container_style, style_before,
+            c.resolved_container_style(),
+            style_before,
             "toggling must not restyle the pill"
         );
         assert!(
@@ -1978,11 +2010,12 @@ mod autotest_generated {
     #[test]
     fn removable_only_changes_the_child_count_not_the_pill() {
         let plain = Chip::create(AzString::from("t"));
-        let style = plain.container_style.clone();
+        let style = plain.resolved_container_style();
         let removable = plain.clone().with_removable(true);
 
         assert_eq!(
-            removable.container_style, style,
+            removable.resolved_container_style(),
+            style,
             "the x must not restyle the container"
         );
         assert_eq!(plain.dom().children.as_ref().len(), 1);
@@ -2049,7 +2082,10 @@ mod autotest_generated {
 
         assert_eq!(c.label.as_str(), "boom");
         assert_eq!(c.kind, ChipKind::Danger);
-        assert_eq!(c.container_style, build_chip_style(ChipKind::Danger));
+        assert_eq!(
+            c.resolved_container_style(),
+            build_chip_style(ChipKind::Danger)
+        );
         assert!(c.removable);
         assert!(c.chip_state.on_remove.is_some());
     }
@@ -2119,7 +2155,10 @@ mod autotest_generated {
 
         assert_eq!(c.label.as_str(), "click me");
         assert_eq!(c.kind, ChipKind::Primary);
-        assert_eq!(c.container_style, build_chip_style(ChipKind::Primary));
+        assert_eq!(
+            c.resolved_container_style(),
+            build_chip_style(ChipKind::Primary)
+        );
         assert!(c.chip_state.on_click.is_some());
     }
 
@@ -2171,7 +2210,7 @@ mod autotest_generated {
         assert_eq!(taken.kind, ChipKind::Danger);
         assert!(taken.removable);
         assert_eq!(
-            properties(&taken.container_style),
+            properties(&taken.resolved_container_style()),
             properties(&build_chip_style(ChipKind::Danger))
         );
 
@@ -2182,7 +2221,7 @@ mod autotest_generated {
         assert_eq!(c.kind, ChipKind::Default);
         assert!(!c.removable, "the x must not survive the swap");
         assert_eq!(
-            background_color(&c.container_style),
+            background_color(&c.resolved_container_style()),
             Some(ChipKind::Default.colors().0),
             "the red survived the swap"
         );
@@ -2274,7 +2313,7 @@ mod autotest_generated {
     fn dom_of_a_plain_chip_is_a_container_with_one_inert_label() {
         for kind in ALL_KINDS {
             let chip = Chip::with_kind(AzString::from("tag"), kind);
-            let expected = properties(&chip.container_style);
+            let expected = properties(&chip.resolved_container_style());
             let dom = chip.dom();
 
             assert!(

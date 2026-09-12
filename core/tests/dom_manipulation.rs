@@ -2,10 +2,14 @@
 //!
 //! Tests for DOM tree construction, node management, and related operations.
 
-use azul_core::a11y::SmallAriaInfo;
-use azul_core::dom::{Dom, NodeData, NodeType};
-use azul_css::dynamic_selector::CssPropertyWithConditions;
-use azul_css::props::{basic::font::StyleFontSize, property::CssProperty};
+use azul_core::{
+    a11y::SmallAriaInfo,
+    dom::{Dom, NodeData, NodeType},
+};
+use azul_css::{
+    dynamic_selector::CssPropertyWithConditions,
+    props::{basic::font::StyleFontSize, property::CssProperty},
+};
 
 #[test]
 fn test_dom_div_creation() {
@@ -372,9 +376,9 @@ fn test_add_child_estimated_total_children_with_nested_children() {
     // Expected behavior: parent should have estimated_total_children = 3
     // (the child itself + its 2 descendants)
     assert_eq!(
-        parent.estimated_total_children,
-        3,
-        "add_child should increment estimated_total_children by (child.estimated_total_children + 1), not just 1"
+        parent.estimated_total_children, 3,
+        "add_child should increment estimated_total_children by (child.estimated_total_children + \
+         1), not just 1"
     );
 }
 
@@ -421,9 +425,9 @@ fn test_add_child_vs_set_children_consistency() {
 
     // These should produce identical DOM structures with identical estimated_total_children
     assert_eq!(
-        parent1.estimated_total_children,
-        parent2.estimated_total_children,
-        "add_child and set_children should produce the same estimated_total_children for identical DOM structures"
+        parent1.estimated_total_children, parent2.estimated_total_children,
+        "add_child and set_children should produce the same estimated_total_children for \
+         identical DOM structures"
     );
 }
 

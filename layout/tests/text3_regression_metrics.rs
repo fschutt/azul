@@ -7,17 +7,18 @@
 //! alphabetic baseline is 16px below the content-box top. line-height's half-
 //! leading L/2 = (line-height - (A+D))/2 is split above and below the glyph box.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LineHeight,
-    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
-    UnifiedConstraints, UnifiedLayout, VerticalAlign,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::cache::{
+        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+        LineHeight, LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+        UnifiedConstraints, UnifiedLayout, VerticalAlign,
+    },
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -29,7 +30,8 @@ fn assert_px(actual: f32, expected: f32) {
     let delta = (actual - expected).abs();
     assert!(
         delta <= 0.05,
-        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > 0.05px)"
+        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > \
+         0.05px)"
     );
 }
 

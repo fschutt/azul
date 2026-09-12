@@ -2,27 +2,23 @@
 //!
 //! Produces two OCaml compilation units:
 //!
-//! 1. `azul.mli` — the module interface: type declarations, opaque
-//!    abstract record types for wrappers, FFI value signatures (the
-//!    `foreign` declarations), and the public surface of the idiomatic
-//!    `Azul` module nest.
-//! 2. `azul.ml` — the module implementation: `open Ctypes`, `open
-//!    Foreign`, library load, struct definitions (with `field` / `seal`),
-//!    function bindings via `foreign`, and the wrapper-record
-//!    constructors that attach a `Gc.finalise` hook to call the matching
-//!    `_delete` C function.
+//! 1. `azul.mli` — the module interface: type declarations, opaque abstract record types for
+//!    wrappers, FFI value signatures (the `foreign` declarations), and the public surface of the
+//!    idiomatic `Azul` module nest.
+//! 2. `azul.ml` — the module implementation: `open Ctypes`, `open Foreign`, library load, struct
+//!    definitions (with `field` / `seal`), function bindings via `foreign`, and the wrapper-record
+//!    constructors that attach a `Gc.finalise` hook to call the matching `_delete` C function.
 //!
 //! ## Surface
 //!
-//! - All FFI-level identifiers are emitted in `lower_snake_case`
-//!   (OCaml's value/type-name convention) — e.g. `az_app`, `az_app_create`.
-//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C
-//!   symbol from the IR (`AzApp_create`), never the OCaml-snake form.
-//! - Idiomatic surface lives inside nested modules: `Azul.App.create`,
-//!   `Azul.App.run`, etc. The `Az_` / `Az` prefix is dropped.
-//! - Tagged-union enums are surfaced as polymorphic variants
-//!   (`[ \`None | \`Some of int64 ]`) with `to_ffi` / `of_ffi`
-//!   conversion functions.
+//! - All FFI-level identifiers are emitted in `lower_snake_case` (OCaml's value/type-name
+//!   convention) — e.g. `az_app`, `az_app_create`.
+//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C symbol from the IR
+//!   (`AzApp_create`), never the OCaml-snake form.
+//! - Idiomatic surface lives inside nested modules: `Azul.App.create`, `Azul.App.run`, etc. The
+//!   `Az_` / `Az` prefix is dropped.
+//! - Tagged-union enums are surfaced as polymorphic variants (`[ \`None | \`Some of int64 ]`) with
+//!   `to_ffi` / `of_ffi` conversion functions.
 //! - Wrapper records:
 //!
 //!   ```ocaml
@@ -68,9 +64,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Library link name passed to `Dl.dlopen` and used by `foreign` to
 /// resolve the prebuilt artifact at runtime.
@@ -135,13 +129,12 @@ fn generate_implementation(ir: &CodegenIR, config: &CodegenConfig) -> Result<Str
     implementation_header(&mut builder);
     implementation_preamble(&mut builder);
 
-    // 1. Forward struct typ declarations so mutually-recursive references
-    //    resolve. Each struct emits an opaque `type` plus a `structure`
-    //    typ value; fields are added in the next pass.
+    // 1. Forward struct typ declarations so mutually-recursive references resolve. Each struct
+    //    emits an opaque `type` plus a `structure` typ value; fields are added in the next pass.
     types::emit_forward_struct_decls(&mut builder, ir, config);
 
-    // 2. Field definitions + seal for each struct, plus enum constants
-    //    and tagged-union accessor scaffolding.
+    // 2. Field definitions + seal for each struct, plus enum constants and tagged-union accessor
+    //    scaffolding.
     types::emit_struct_fields_and_enums(&mut builder, ir, config)?;
 
     // 3. Raw `foreign` bindings, one per IR FunctionDef.
@@ -158,9 +151,8 @@ fn generate_implementation(ir: &CodegenIR, config: &CodegenConfig) -> Result<Str
     // 5. Idiomatic Azul module surface implementation.
     wrappers::emit_idiomatic_module_implementation(&mut builder, ir, config)?;
 
-    // 6. Dom.t-returning layout registration sugar (needs the wrapper
-    //    records' `dom` / `raw_dom` and the managed prelude's
-    //    `azul_*_with_layout` / `azul_register_layout_callback`).
+    // 6. Dom.t-returning layout registration sugar (needs the wrapper records' `dom` / `raw_dom`
+    //    and the managed prelude's `azul_*_with_layout` / `azul_register_layout_callback`).
     wrappers::emit_layout_dom_sugar_implementation(&mut builder, ir, config);
 
     Ok(builder.finish())
@@ -200,7 +192,10 @@ fn implementation_preamble(builder: &mut CodeBuilder) {
     builder.line("let candidates = match Sys.getenv_opt \"AZ_DYLIB\" with");
     builder.indent();
     builder.line("| Some p when String.length p > 0 -> [p]");
-    builder.line("| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \"./libazul.so\"]");
+    builder.line(
+        "| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \
+         \"./libazul.so\"]",
+    );
     builder.dedent();
     builder.line("in");
     builder.line("let rec try_load = function");

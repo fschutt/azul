@@ -24,24 +24,28 @@
 //! font test that silently passes by skipping is the exact failure mode being
 //! fixed.
 
-use std::cell::RefCell;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
-use azul_core::dom::{Dom, NodeData};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::{
-    FcFallbackConfig, FcFont, FcFontCache, FcPattern, GenericFamily, OperatingSystem,
+use std::{
+    cell::RefCell,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
-use azul::desktop::shell2::common::layout::should_request_fonts;
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
+use azul::desktop::shell2::{
+    common::{layout::should_request_fonts, PlatformWindow},
+    headless::HeadlessWindow,
+};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    dom::{Dom, NodeData},
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+};
+use azul_layout::window_state::WindowCreateOptions;
+use rust_fontconfig::{
+    registry::FcFontRegistry, FcFallbackConfig, FcFont, FcFontCache, FcPattern, GenericFamily,
+    OperatingSystem,
+};
 
 // ---------------------------------------------------------------------------
 // 1. The guard itself
@@ -72,9 +76,9 @@ fn should_request_fonts_truth_table() {
     // request_fonts(), and laid out against a near-empty cache.
     assert!(
         should_request_fonts(false, false),
-        "an INCOMPLETE build must request fonts even when the cache is \
-         non-empty — this is the macOS 'no text renders' bug: two stale \
-         patterns are not an excuse to skip the blocking request"
+        "an INCOMPLETE build must request fonts even when the cache is non-empty — this is the \
+         macOS 'no text renders' bug: two stale patterns are not an excuse to skip the blocking \
+         request"
     );
     // Build running and cache empty → obviously request.
     assert!(
@@ -157,13 +161,11 @@ fn incomplete_build_with_nonempty_cache_still_loads_system_fonts() {
     // find them.
     let Some(expected) = installed_platform_ui_family() else {
         eprintln!(
-            "\n=====================================================================\n\
-             SKIPPED: none of {:?}'s declared sans-serif UI families\n\
-             ({:?})\n\
-             are installed on this machine, so there is no family whose\n\
-             resolution this test could assert. Install any one of them to get\n\
-             real coverage here.\n\
-             =====================================================================\n",
+            "\n=====================================================================\nSKIPPED: \
+             none of {:?}'s declared sans-serif UI families\n({:?})\nare installed on this \
+             machine, so there is no family whose\nresolution this test could assert. Install any \
+             one of them to get\nreal coverage \
+             here.\n=====================================================================\n",
             OperatingSystem::current(),
             platform_sans_serif_families(),
         );
@@ -189,8 +191,8 @@ fn incomplete_build_with_nonempty_cache_still_loads_system_fonts() {
     );
     assert!(
         !registry.is_build_complete(),
-        "lazy-scout mode must leave the build INCOMPLETE; without that this \
-         test would not reproduce the buggy condition at all"
+        "lazy-scout mode must leave the build INCOMPLETE; without that this test would not \
+         reproduce the buggy condition at all"
     );
 
     let seeded = two_pattern_cache();
@@ -222,8 +224,8 @@ fn incomplete_build_with_nonempty_cache_still_loads_system_fonts() {
     let before = families_in(&window);
     assert!(
         !before.contains(expected_family),
-        "the pre-layout cache already contains {expected_family:?}; this test \
-         cannot then prove that regenerate_layout is what put it there"
+        "the pre-layout cache already contains {expected_family:?}; this test cannot then prove \
+         that regenerate_layout is what put it there"
     );
 
     window.regenerate_layout().expect("regenerate_layout");
@@ -231,14 +233,12 @@ fn incomplete_build_with_nonempty_cache_still_loads_system_fonts() {
     let after = families_in(&window);
     assert!(
         after.contains(expected_family),
-        "after one layout pass the font cache still does NOT contain the \
-         system family {expected_family:?}, which an independent full scan \
-         proves IS installed on this machine.\n\
-         regenerate_layout never called request_fonts(): the registry build \
-         was incomplete and the cache non-empty, which is exactly the \
-         condition the old `cache_empty || build_complete` guard got wrong. \
-         Every UI family missed and text fell through to LAST-RESORT.\n\
-         cache holds {} families after layout.",
+        "after one layout pass the font cache still does NOT contain the system family \
+         {expected_family:?}, which an independent full scan proves IS installed on this \
+         machine.\nregenerate_layout never called request_fonts(): the registry build was \
+         incomplete and the cache non-empty, which is exactly the condition the old `cache_empty \
+         || build_complete` guard got wrong. Every UI family missed and text fell through to \
+         LAST-RESORT.\ncache holds {} families after layout.",
         after.len()
     );
     eprintln!("resolved {expected_family:?} through an INCOMPLETE registry build");
@@ -279,7 +279,8 @@ fn installed_platform_ui_family() -> Option<String> {
     );
     assert!(
         !probe.list().is_empty(),
-        "the ground-truth scan found ZERO fonts on this machine. This test          cannot run without any installed fonts — failing loudly rather than          passing vacuously."
+        "the ground-truth scan found ZERO fonts on this machine. This test          cannot run \
+         without any installed fonts — failing loudly rather than          passing vacuously."
     );
     let installed: std::collections::BTreeSet<String> = probe
         .list()
@@ -330,8 +331,8 @@ fn app_startup_persists_the_font_cache() {
         assert!(
             path.exists(),
             "child: App creation did not persist a font manifest at {path:?}. \
-             load_from_disk_cache() in AppInternal::create can therefore never \
-             hit, and every launch re-scans every font on the system."
+             load_from_disk_cache() in AppInternal::create can therefore never hit, and every \
+             launch re-scans every font on the system."
         );
         assert!(
             std::fs::metadata(&path).unwrap().len() > 0,
@@ -389,7 +390,7 @@ fn app_startup_persists_the_font_cache() {
     );
     assert!(
         !found.is_empty(),
-        "App startup wrote no font manifest under the redirected cache roots.\n\
-         checked: {candidates:?}\n--- child stdout ---\n{stdout}"
+        "App startup wrote no font manifest under the redirected cache roots.\nchecked: \
+         {candidates:?}\n--- child stdout ---\n{stdout}"
     );
 }

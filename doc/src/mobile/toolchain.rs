@@ -281,7 +281,11 @@ fn resolve_java_home(brew_prefix: Option<&Path>) -> Option<PathBuf> {
     }
     if let Some(prefix) = brew_prefix {
         let opt = prefix.join("opt").join(JDK_FORMULA);
-        let bundled = opt.join("libexec").join("openjdk.jdk").join("Contents").join("Home");
+        let bundled = opt
+            .join("libexec")
+            .join("openjdk.jdk")
+            .join("Contents")
+            .join("Home");
         if bundled.join("bin").join("java").is_file() {
             return Some(bundled);
         }

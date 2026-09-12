@@ -1,11 +1,11 @@
 //! CSS properties for flexbox layout.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
 
 use crate::{
     codegen::format::FormatAsRustCode,
+    corety::AzString,
     props::{
         basic::{
             error::ParseFloatErrorWithInput,
@@ -818,7 +818,8 @@ pub fn parse_layout_align_self(input: &str) -> Result<LayoutAlignSelf, AlignSelf
 
 // --- flex-basis ---
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents a `flex-basis` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

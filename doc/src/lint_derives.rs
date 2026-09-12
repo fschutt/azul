@@ -104,8 +104,9 @@ const ABI_DEFAULT: Expect = Expect::Marker(&["{T}_default"]);
 /// call. In the Rust mirrors it is emitted as `#[derive(Copy)]` and is what
 /// makes the memtest size/alignment gate meaningful. Counting it as a gap in 38
 /// bindings would be noise, so it is N/A everywhere.
-const COPY_NA: Expect =
-    Expect::NotApplicable("no ABI entry point exists or is needed: Copy values are copied by assignment");
+const COPY_NA: Expect = Expect::NotApplicable(
+    "no ABI entry point exists or is needed: Copy values are copied by assignment",
+);
 
 /// `Eq` outside Rust.
 ///
@@ -114,7 +115,8 @@ const COPY_NA: Expect =
 /// emits no `Az{T}_eq`. The equality entry point is already accounted for under
 /// `PartialEq`, so counting `Eq` again would double-count one export.
 const EQ_NA: Expect = Expect::NotApplicable(
-    "Rust marker trait with no runtime surface of its own; the equality entry point is counted under PartialEq",
+    "Rust marker trait with no runtime surface of its own; the equality entry point is counted \
+     under PartialEq",
 );
 
 /// The profile used by every binding that forwards the C ABI by symbol name —
@@ -137,10 +139,17 @@ const ABI_PROFILE: &[(&str, Expect)] = &[
 /// marker is the impl header — declaring `Az{T}_partialEq` and never writing
 /// `impl PartialEq` is exactly the bug this lint was written for.
 const RUST_MIRROR_PROFILE: &[(&str, Expect)] = &[
-    ("Debug", Expect::Marker(&["impl core::fmt::Debug for {T} {"])),
+    (
+        "Debug",
+        Expect::Marker(&["impl core::fmt::Debug for {T} {"]),
+    ),
     (
         "Clone",
-        Expect::Marker(&["impl Clone for {T} {", "#[derive(Clone)]\n#[repr(C)]\npub struct {T} ", "#[derive(Clone)]\n#[repr(C)]\npub enum {T} "]),
+        Expect::Marker(&[
+            "impl Clone for {T} {",
+            "#[derive(Clone)]\n#[repr(C)]\npub struct {T} ",
+            "#[derive(Clone)]\n#[repr(C)]\npub enum {T} ",
+        ]),
     ),
     ("Copy", COPY_NA),
     ("PartialEq", Expect::Marker(&["impl PartialEq for {T} {"])),
@@ -158,28 +167,55 @@ const RUST_MIRROR_PROFILE: &[(&str, Expect)] = &[
 const PYO3_PROFILE: &[(&str, Expect)] = &[
     (
         "Debug",
-        Expect::Block { start: PY_BLOCK, markers: &["fn __repr__", "fn __str__"] },
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __repr__", "fn __str__"],
+        },
     ),
     (
         "Clone",
-        Expect::Block { start: PY_BLOCK, markers: &["fn __copy__", "fn __deepcopy__", "fn clone("] },
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __copy__", "fn __deepcopy__", "fn clone("],
+        },
     ),
     ("Copy", COPY_NA),
     (
         "PartialEq",
-        Expect::Block { start: PY_BLOCK, markers: &["fn __eq__", "fn __richcmp__"] },
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __eq__", "fn __richcmp__"],
+        },
     ),
     ("Eq", EQ_NA),
     (
         "PartialOrd",
-        Expect::Block { start: PY_BLOCK, markers: &["fn __lt__", "fn __richcmp__"] },
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __lt__", "fn __richcmp__"],
+        },
     ),
     (
         "Ord",
-        Expect::Block { start: PY_BLOCK, markers: &["fn __lt__", "fn __richcmp__"] },
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __lt__", "fn __richcmp__"],
+        },
     ),
-    ("Hash", Expect::Block { start: PY_BLOCK, markers: &["fn __hash__"] }),
-    ("Default", Expect::Block { start: PY_BLOCK, markers: &["fn default("] }),
+    (
+        "Hash",
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn __hash__"],
+        },
+    ),
+    (
+        "Default",
+        Expect::Block {
+            start: PY_BLOCK,
+            markers: &["fn default("],
+        },
+    ),
 ];
 
 const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
@@ -207,31 +243,115 @@ const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
 /// verdict for a deliberate curation.
 const PHP_EXT_BLOCK: &[&str] = &["impl Azul{T} {"];
 const PHP_EXT_PROFILE: &[(&str, Expect)] = &[
-    ("Debug", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn toDbgString"] }),
-    ("Clone", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn clone"] }),
+    (
+        "Debug",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn toDbgString"],
+        },
+    ),
+    (
+        "Clone",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn clone"],
+        },
+    ),
     ("Copy", COPY_NA),
-    ("PartialEq", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn partialEq"] }),
+    (
+        "PartialEq",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn partialEq"],
+        },
+    ),
     ("Eq", EQ_NA),
-    ("PartialOrd", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn partialCmp"] }),
-    ("Ord", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn cmp"] }),
-    ("Hash", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn hash"] }),
-    ("Default", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn default"] }),
+    (
+        "PartialOrd",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn partialCmp"],
+        },
+    ),
+    (
+        "Ord",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn cmp"],
+        },
+    ),
+    (
+        "Hash",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn hash"],
+        },
+    ),
+    (
+        "Default",
+        Expect::Block {
+            start: PHP_EXT_BLOCK,
+            markers: &["fn default"],
+        },
+    ),
 ];
 
 const OCAML_BLOCK: &[&str] = &["module {T} : sig"];
 const OCAML_PROFILE: &[(&str, Expect)] = &[
-    ("Debug", Expect::Block { start: OCAML_BLOCK, markers: &["val to_string"] }),
-    ("Clone", Expect::Block { start: OCAML_BLOCK, markers: &["val clone"] }),
+    (
+        "Debug",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val to_string"],
+        },
+    ),
+    (
+        "Clone",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val clone"],
+        },
+    ),
     ("Copy", COPY_NA),
-    ("PartialEq", Expect::Block { start: OCAML_BLOCK, markers: &["val equal"] }),
+    (
+        "PartialEq",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val equal"],
+        },
+    ),
     ("Eq", EQ_NA),
     // A PartialOrd-only type gets `partial_compare : t -> t -> int option`,
     // not `compare`: the ABI answers 255 for "incomparable" and a total
     // `compare` has no honest value for it. Either spelling satisfies it.
-    ("PartialOrd", Expect::Block { start: OCAML_BLOCK, markers: &["val compare", "val partial_compare"] }),
-    ("Ord", Expect::Block { start: OCAML_BLOCK, markers: &["val compare"] }),
-    ("Hash", Expect::Block { start: OCAML_BLOCK, markers: &["val hash"] }),
-    ("Default", Expect::Block { start: OCAML_BLOCK, markers: &["val default"] }),
+    (
+        "PartialOrd",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val compare", "val partial_compare"],
+        },
+    ),
+    (
+        "Ord",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val compare"],
+        },
+    ),
+    (
+        "Hash",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val hash"],
+        },
+    ),
+    (
+        "Default",
+        Expect::Block {
+            start: OCAML_BLOCK,
+            markers: &["val default"],
+        },
+    ),
 ];
 
 /// C++ (`azul03.hpp` … `azul23.hpp`, `azul.cppm`).
@@ -258,21 +378,31 @@ const CPP_PROFILE: &[(&str, Expect)] = &[
     (
         "Debug",
         Expect::Either(&[
-            Expect::Block { start: CPP_BLOCK, markers: &["toDbgString() const", "operator<<"] },
+            Expect::Block {
+                start: CPP_BLOCK,
+                markers: &["toDbgString() const", "operator<<"],
+            },
             Expect::Marker(&["toDbgString(const {T}&"]),
         ]),
     ),
     (
         "Clone",
         Expect::Either(&[
-            Expect::Block { start: CPP_BLOCK, markers: &["clone() const"] },
+            Expect::Block {
+                start: CPP_BLOCK,
+                markers: &["clone() const"],
+            },
             Expect::Marker(&["clone(const {T}&"]),
         ]),
     ),
     ("Copy", COPY_NA),
     (
         "PartialEq",
-        Expect::Marker(&["partialEq(const {C}&", "operator==(const {C}&", "partialEq(const {T}&"]),
+        Expect::Marker(&[
+            "partialEq(const {C}&",
+            "operator==(const {C}&",
+            "partialEq(const {T}&",
+        ]),
     ),
     ("Eq", EQ_NA),
     (
@@ -290,22 +420,37 @@ const CPP_PROFILE: &[(&str, Expect)] = &[
     (
         "Hash",
         Expect::Either(&[
-            Expect::Block { start: CPP_BLOCK, markers: &["hash() const", "struct hash<"] },
+            Expect::Block {
+                start: CPP_BLOCK,
+                markers: &["hash() const", "struct hash<"],
+            },
             Expect::Marker(&["hash(const {T}&"]),
         ]),
     ),
-    ("Default", Expect::Marker(&["static {C} default_()", "defaultOf<{T}>()"])),
+    (
+        "Default",
+        Expect::Marker(&["static {C} default_()", "defaultOf<{T}>()"]),
+    ),
 ];
 
 /// Go. cgo makes `C.Az{T}_partialEq` reachable, which does not count under this
 /// lint's rule; the binding has to emit a Go-level name.
 const GO_PROFILE: &[(&str, Expect)] = &[
-    ("Debug", Expect::Marker(&["{T}_toDbgString", "{T}) String()"])),
+    (
+        "Debug",
+        Expect::Marker(&["{T}_toDbgString", "{T}) String()"]),
+    ),
     ("Clone", Expect::Marker(&["{T}_clone", "{T}) Clone()"])),
     ("Copy", COPY_NA),
-    ("PartialEq", Expect::Marker(&["{T}_partialEq", "{T}) Equals("])),
+    (
+        "PartialEq",
+        Expect::Marker(&["{T}_partialEq", "{T}) Equals("]),
+    ),
     ("Eq", EQ_NA),
-    ("PartialOrd", Expect::Marker(&["{T}_partialCmp", "{T}) PartialCmp("])),
+    (
+        "PartialOrd",
+        Expect::Marker(&["{T}_partialCmp", "{T}) PartialCmp("]),
+    ),
     ("Ord", Expect::Marker(&["{T}_cmp", "{T}) Cmp("])),
     ("Hash", Expect::Marker(&["{T}_hash", "{T}) Hash()"])),
     ("Default", Expect::Marker(&["{T}_default", "{T}Default()"])),
@@ -347,50 +492,358 @@ pub struct Binding {
 /// do NOT agree — the C++11 and C++14 emitters filter trait functions out and
 /// the other four do not, and one merged "cpp" row would hide that.
 pub const BINDINGS: &[Binding] = &[
-    Binding { name: "rust-internal (static)", files: &["dll_api_internal.rs"], prefix: "Az", block_end: "", expects: RUST_MIRROR_PROFILE, note: "mirror types + impls delegating to the real crate" },
-    Binding { name: "rust-dynamic (dynamic)", files: &["dll_api_external.rs"], prefix: "Az", block_end: "", expects: RUST_MIRROR_PROFILE, note: "mirror types + extern decls; impls must call the ABI" },
-    Binding { name: "rust-public (azul.rs)", files: &["azul.rs"], prefix: "", block_end: "", expects: RUST_MIRROR_PROFILE, note: "standalone unprefixed Rust surface" },
-    Binding { name: "memtest", files: &["memtest.rs"], prefix: "Az", block_end: "", expects: RUST_MIRROR_PROFILE, note: "layout/size tests over the mirror types" },
-    Binding { name: "c", files: &["azul.h"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "C header" },
-    Binding { name: "cpp03", files: &["azul03.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++03 wrapper classes" },
-    Binding { name: "cpp11", files: &["azul11.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++11 wrapper classes" },
-    Binding { name: "cpp14", files: &["azul14.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++14 wrapper classes" },
-    Binding { name: "cpp17", files: &["azul17.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++17 wrapper classes" },
-    Binding { name: "cpp20", files: &["azul20.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++20 wrapper classes" },
-    Binding { name: "cpp23", files: &["azul23.hpp"], prefix: "Az", block_end: "\n};", expects: CPP_PROFILE, note: "C++23 wrapper classes" },
-    Binding { name: "csharp", files: &["Azul.cs"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "P/Invoke externs + wrapper classes" },
-    Binding { name: "python", files: &["python_api.rs"], prefix: "Az", block_end: "\n}\n", expects: PYO3_PROFILE, note: "PyO3 native extension" },
-    Binding { name: "ruby", files: &["azul.rb"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Fiddle/FFI attach_function" },
-    Binding { name: "lua", files: &["azul.lua"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "LuaJIT ffi.cdef" },
-    Binding { name: "pascal", files: &["azul.pas"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "external declarations" },
-    Binding { name: "ada", files: &["azul.ads", "azul.adb"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "pragma Import (C, .., \"Az..\")" },
-    Binding { name: "freebasic", files: &["azul.bi"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Declare Function .. Alias" },
-    Binding { name: "zig", files: &["azul.zig"], prefix: "Az", block_end: "", expects: ZIG_PROFILE, note: "@cImport wrapper structs" },
-    Binding { name: "powershell", files: &["Azul.psm1"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Add-Type with the C# source embedded" },
-    Binding { name: "php", files: &["Azul.php"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "FFI::cdef over the whole header" },
-    Binding { name: "php-ext", files: &["php_api.rs"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Zend native extension (curated 5-class surface)" },
-    Binding { name: "perl", files: &["Azul.pm"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "FFI::Platypus attach" },
-    Binding { name: "ocaml", files: &["azul.mli"], prefix: "", block_end: "\nend\n", expects: OCAML_PROFILE, note: "the .mli SEALS the module - only what it lists is reachable" },
-    Binding { name: "haskell", files: &["haskell"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "foreign import ccall + idiomatic instances" },
-    Binding { name: "java", files: &["java"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "JNA/Panama" },
-    Binding { name: "kotlin", files: &["kotlin"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "JNA" },
-    Binding { name: "fortran", files: &["azul.f90"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "iso_c_binding interfaces" },
-    Binding { name: "go", files: &["go"], prefix: "Az", block_end: "", expects: GO_PROFILE, note: "cgo" },
-    Binding { name: "lisp", files: &["azul.lisp"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "CFFI defcfun" },
-    Binding { name: "smalltalk", files: &["Azul.st", "BaselineOfAzul.st"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Pharo FFI" },
-    Binding { name: "algol68", files: &["azul.a68"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Algol 68 Genie" },
-    Binding { name: "cobol", files: &["azul.cpy"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "GnuCOBOL copybook" },
-    Binding { name: "vb6", files: &["vb6"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Declare Function" },
-    Binding { name: "node", files: &["node"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "koffi/ffi-napi" },
-    Binding { name: "crystal", files: &["azul.cr"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "lib binding" },
-    Binding { name: "d", files: &["azul.d"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "extern(C)" },
-    Binding { name: "julia", files: &["azul.jl"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "ccall" },
-    Binding { name: "nim", files: &["azul.nim"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "importc" },
-    Binding { name: "odin", files: &["azul.odin"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "foreign import" },
-    Binding { name: "racket", files: &["azul.rkt"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "ffi/unsafe" },
-    Binding { name: "red", files: &["azul.reds"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Red/System" },
-    Binding { name: "swift", files: &["azul.swift"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "module map" },
-    Binding { name: "v", files: &["azul.v"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "V C interop" },
+    Binding {
+        name: "rust-internal (static)",
+        files: &["dll_api_internal.rs"],
+        prefix: "Az",
+        block_end: "",
+        expects: RUST_MIRROR_PROFILE,
+        note: "mirror types + impls delegating to the real crate",
+    },
+    Binding {
+        name: "rust-dynamic (dynamic)",
+        files: &["dll_api_external.rs"],
+        prefix: "Az",
+        block_end: "",
+        expects: RUST_MIRROR_PROFILE,
+        note: "mirror types + extern decls; impls must call the ABI",
+    },
+    Binding {
+        name: "rust-public (azul.rs)",
+        files: &["azul.rs"],
+        prefix: "",
+        block_end: "",
+        expects: RUST_MIRROR_PROFILE,
+        note: "standalone unprefixed Rust surface",
+    },
+    Binding {
+        name: "memtest",
+        files: &["memtest.rs"],
+        prefix: "Az",
+        block_end: "",
+        expects: RUST_MIRROR_PROFILE,
+        note: "layout/size tests over the mirror types",
+    },
+    Binding {
+        name: "c",
+        files: &["azul.h"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "C header",
+    },
+    Binding {
+        name: "cpp03",
+        files: &["azul03.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++03 wrapper classes",
+    },
+    Binding {
+        name: "cpp11",
+        files: &["azul11.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++11 wrapper classes",
+    },
+    Binding {
+        name: "cpp14",
+        files: &["azul14.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++14 wrapper classes",
+    },
+    Binding {
+        name: "cpp17",
+        files: &["azul17.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++17 wrapper classes",
+    },
+    Binding {
+        name: "cpp20",
+        files: &["azul20.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++20 wrapper classes",
+    },
+    Binding {
+        name: "cpp23",
+        files: &["azul23.hpp"],
+        prefix: "Az",
+        block_end: "\n};",
+        expects: CPP_PROFILE,
+        note: "C++23 wrapper classes",
+    },
+    Binding {
+        name: "csharp",
+        files: &["Azul.cs"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "P/Invoke externs + wrapper classes",
+    },
+    Binding {
+        name: "python",
+        files: &["python_api.rs"],
+        prefix: "Az",
+        block_end: "\n}\n",
+        expects: PYO3_PROFILE,
+        note: "PyO3 native extension",
+    },
+    Binding {
+        name: "ruby",
+        files: &["azul.rb"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Fiddle/FFI attach_function",
+    },
+    Binding {
+        name: "lua",
+        files: &["azul.lua"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "LuaJIT ffi.cdef",
+    },
+    Binding {
+        name: "pascal",
+        files: &["azul.pas"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "external declarations",
+    },
+    Binding {
+        name: "ada",
+        files: &["azul.ads", "azul.adb"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "pragma Import (C, .., \"Az..\")",
+    },
+    Binding {
+        name: "freebasic",
+        files: &["azul.bi"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Declare Function .. Alias",
+    },
+    Binding {
+        name: "zig",
+        files: &["azul.zig"],
+        prefix: "Az",
+        block_end: "",
+        expects: ZIG_PROFILE,
+        note: "@cImport wrapper structs",
+    },
+    Binding {
+        name: "powershell",
+        files: &["Azul.psm1"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Add-Type with the C# source embedded",
+    },
+    Binding {
+        name: "php",
+        files: &["Azul.php"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "FFI::cdef over the whole header",
+    },
+    Binding {
+        name: "php-ext",
+        files: &["php_api.rs"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Zend native extension (curated 5-class surface)",
+    },
+    Binding {
+        name: "perl",
+        files: &["Azul.pm"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "FFI::Platypus attach",
+    },
+    Binding {
+        name: "ocaml",
+        files: &["azul.mli"],
+        prefix: "",
+        block_end: "\nend\n",
+        expects: OCAML_PROFILE,
+        note: "the .mli SEALS the module - only what it lists is reachable",
+    },
+    Binding {
+        name: "haskell",
+        files: &["haskell"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "foreign import ccall + idiomatic instances",
+    },
+    Binding {
+        name: "java",
+        files: &["java"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "JNA/Panama",
+    },
+    Binding {
+        name: "kotlin",
+        files: &["kotlin"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "JNA",
+    },
+    Binding {
+        name: "fortran",
+        files: &["azul.f90"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "iso_c_binding interfaces",
+    },
+    Binding {
+        name: "go",
+        files: &["go"],
+        prefix: "Az",
+        block_end: "",
+        expects: GO_PROFILE,
+        note: "cgo",
+    },
+    Binding {
+        name: "lisp",
+        files: &["azul.lisp"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "CFFI defcfun",
+    },
+    Binding {
+        name: "smalltalk",
+        files: &["Azul.st", "BaselineOfAzul.st"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Pharo FFI",
+    },
+    Binding {
+        name: "algol68",
+        files: &["azul.a68"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Algol 68 Genie",
+    },
+    Binding {
+        name: "cobol",
+        files: &["azul.cpy"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "GnuCOBOL copybook",
+    },
+    Binding {
+        name: "vb6",
+        files: &["vb6"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Declare Function",
+    },
+    Binding {
+        name: "node",
+        files: &["node"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "koffi/ffi-napi",
+    },
+    Binding {
+        name: "crystal",
+        files: &["azul.cr"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "lib binding",
+    },
+    Binding {
+        name: "d",
+        files: &["azul.d"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "extern(C)",
+    },
+    Binding {
+        name: "julia",
+        files: &["azul.jl"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "ccall",
+    },
+    Binding {
+        name: "nim",
+        files: &["azul.nim"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "importc",
+    },
+    Binding {
+        name: "odin",
+        files: &["azul.odin"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "foreign import",
+    },
+    Binding {
+        name: "racket",
+        files: &["azul.rkt"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "ffi/unsafe",
+    },
+    Binding {
+        name: "red",
+        files: &["azul.reds"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "Red/System",
+    },
+    Binding {
+        name: "swift",
+        files: &["azul.swift"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "module map",
+    },
+    Binding {
+        name: "v",
+        files: &["azul.v"],
+        prefix: "Az",
+        block_end: "",
+        expects: ABI_PROFILE,
+        note: "V C interop",
+    },
 ];
 
 /// One (binding, class, derive) that should have been reachable and is not.
@@ -525,7 +978,9 @@ fn class_block<'a>(
             let len = if block_end.is_empty() {
                 rest.len().min(4096)
             } else {
-                rest.find(block_end).map(|e| e + block_end.len()).unwrap_or(rest.len().min(4096))
+                rest.find(block_end)
+                    .map(|e| e + block_end.len())
+                    .unwrap_or(rest.len().min(4096))
             };
             return Some(&rest[..len]);
         }
@@ -601,14 +1056,10 @@ fn contains_token(text: &str, needle: &str) -> bool {
 /// would be demanding something impossible.
 pub fn declared_derives(api: &ApiData) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (_ver, vd) in &api.0 {
+    for vd in api.0.values() {
         for (_module, md) in &vd.api {
             for (class, cd) in &md.classes {
-                if cd
-                    .generic_params
-                    .as_ref()
-                    .is_some_and(|g| !g.is_empty())
-                {
+                if cd.generic_params.as_ref().is_some_and(|g| !g.is_empty()) {
                     continue;
                 }
                 if let Some(d) = &cd.derive {
@@ -646,7 +1097,9 @@ fn evidence_found(
             // else is a plain token search.
             if let Some(suffix) = needle.strip_prefix(spelled) {
                 if suffix.starts_with('_')
-                    && suffix.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                    && suffix
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'_')
                 {
                     return abi_index.contains(&(class.to_string(), suffix.to_string()));
                 }
@@ -662,7 +1115,9 @@ fn evidence_found(
 pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingReport>> {
     let declared = declared_derives(api);
     if declared.is_empty() {
-        anyhow::bail!("api.json carries no `derive` lists at all - refusing to report a vacuous pass");
+        anyhow::bail!(
+            "api.json carries no `derive` lists at all - refusing to report a vacuous pass"
+        );
     }
     let mut reports = Vec::new();
 
@@ -670,7 +1125,8 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
         let text = read_binding_text(codegen_dir, binding.files)?;
         if text.is_empty() {
             anyhow::bail!(
-                "binding `{}` has no generated text at {} ({:?}) - run `azul-doc codegen all` first",
+                "binding `{}` has no generated text at {} ({:?}) - run `azul-doc codegen all` \
+                 first",
                 binding.name,
                 codegen_dir.display(),
                 binding.files
@@ -755,7 +1211,9 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
                     rep.honoured += 1;
                 } else {
                     rep.missing += 1;
-                    *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
+                    *rep.missing_by_derive
+                        .entry((*derive).to_string())
+                        .or_insert(0) += 1;
                     if rep.examples.len() < 40 {
                         rep.examples.push(Gap {
                             binding: binding.name.to_string(),
@@ -784,117 +1242,102 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
-///   * `python` (36) - the `*VecDestructor`s are now excluded by the owner's
-///     2026-09-05 ruling (opaque function pointer, treated as `*const c_void`,
-///     never generated), which cleared 114 of the original 150. What is left
-///     is NOT type aliases and NOT plumbing: `PhysicalSizeU32`, `RefAny`,
-///     `GLintVec`, `GLuintVec` and `ResultXmlXmlError` are real types with no
-///     `#[pyclass]` at all. Closing them means DECIDING which of them belong
-///     in the Python surface and giving them one - a product call, not a
-///     routing change - so it is logged rather than guessed.
-///   * `zig` (19, was 5168) - effectively closed. Three causes, all fixed:
-///     the wrapper gate excluded every trait kind (and `azul.zig` redeclares
-///     nothing, so a C symbol no wrapper calls cannot be spelled at all);
-///     enums needed their own emitter because an enum wrapper holds a raw
-///     tagged union rather than an `inner`; and unit-only enums were skipped
-///     entirely on the grounds that their VALUE is usable straight from `C.*`,
-///     which is true and left their trait entry points homeless. They now get
-///     a namespace carrying only those, plus `default()` - a static factory,
-///     so it sits outside the instance-method emitter that the union helper
-///     already covers.
-///     The last 19 are a handful of types the struct emitter excludes BY
-///     CATEGORY - `ImageRef`, `Svg`, `PhysicalSizeU32`, `GlVoidPtrConst`.
-///     Closing them means revisiting those category exclusions, which is a
-///     separate decision from routing a capability.
-///   * `go` (19, was 5648) - effectively closed, and the last step corrects a
-///     wrong call recorded here earlier. Structs needed the gate-plus-emitter
-///     pair; unit enums are named Go types and simply take methods; TAGGED
-///     UNIONS were written off as "a redesign, because the sealed interface
-///     holds no C value". That was wrong. Every generated signature that takes
-///     a union already takes `C.AzCssProperty`, not the interface - the raw
-///     type IS the currency a Go caller holds - so free functions over it
-///     (`CssPropertyEqual`, `CssPropertyString`, ...) are the honest fit and
-///     the interface stays what it was, a type-switch aid. 2246 -> 583.
-///     `Clone` and `Default` then closed the rest: both are real derives, and
-///     neither is an instance method (`Default` has no receiver at all, so it
-///     is a package-level function).
-///     The last 19 match zig's: types the emitter excludes BY CATEGORY.
-///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and
-///     `ResultXmlXmlError`, three classes whose entry points these emitters
-///     drop for a reason not yet established. Consistent across every binding
-///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (11) - and this 11 differs from the previous one: the code now
-///     TYPE-CHECKS. `ocamlfind ocamlc -package ctypes,ctypes.foreign` compiles
-///     both `azul.mli` and `azul.ml` clean, and `scripts/check.sh --only
-///     binding-syntax` runs it.
-///     The fix was ORDERING, not capability. OCaml is order-sensitive, so a
-///     unit enum's module cannot sit in the types section and call `foreign`
-///     bindings declared 42k lines later. The module could not be split either
+///   * `python` (36) - the `*VecDestructor`s are now excluded by the owner's 2026-09-05 ruling
+///     (opaque function pointer, treated as `*const c_void`, never generated), which cleared 114 of
+///     the original 150. What is left is NOT type aliases and NOT plumbing: `PhysicalSizeU32`,
+///     `RefAny`, `GLintVec`, `GLuintVec` and `ResultXmlXmlError` are real types with no
+///     `#[pyclass]` at all. Closing them means DECIDING which of them belong in the Python surface
+///     and giving them one - a product call, not a routing change - so it is logged rather than
+///     guessed.
+///   * `zig` (19, was 5168) - effectively closed. Three causes, all fixed: the wrapper gate
+///     excluded every trait kind (and `azul.zig` redeclares nothing, so a C symbol no wrapper calls
+///     cannot be spelled at all); enums needed their own emitter because an enum wrapper holds a
+///     raw tagged union rather than an `inner`; and unit-only enums were skipped entirely on the
+///     grounds that their VALUE is usable straight from `C.*`, which is true and left their trait
+///     entry points homeless. They now get a namespace carrying only those, plus `default()` - a
+///     static factory, so it sits outside the instance-method emitter that the union helper already
+///     covers. The last 19 are a handful of types the struct emitter excludes BY CATEGORY -
+///     `ImageRef`, `Svg`, `PhysicalSizeU32`, `GlVoidPtrConst`. Closing them means revisiting those
+///     category exclusions, which is a separate decision from routing a capability.
+///   * `go` (19, was 5648) - effectively closed, and the last step corrects a wrong call recorded
+///     here earlier. Structs needed the gate-plus-emitter pair; unit enums are named Go types and
+///     simply take methods; TAGGED UNIONS were written off as "a redesign, because the sealed
+///     interface holds no C value". That was wrong. Every generated signature that takes a union
+///     already takes `C.AzCssProperty`, not the interface - the raw type IS the currency a Go
+///     caller holds - so free functions over it (`CssPropertyEqual`, `CssPropertyString`, ...) are
+///     the honest fit and the interface stays what it was, a type-switch aid. 2246 -> 583. `Clone`
+///     and `Default` then closed the rest: both are real derives, and neither is an instance method
+///     (`Default` has no receiver at all, so it is a package-level function). The last 19 match
+///     zig's: types the emitter excludes BY CATEGORY.
+///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and `ResultXmlXmlError`, three classes
+///     whose entry points these emitters drop for a reason not yet established. Consistent across
+///     every binding that has a residue at all, so it is one cause, not fourteen.
+///   * `ocaml` (11) - and this 11 differs from the previous one: the code now TYPE-CHECKS.
+///     `ocamlfind ocamlc -package ctypes,ctypes.foreign` compiles both `azul.mli` and `azul.ml`
+///     clean, and `scripts/check.sh --only binding-syntax` runs it. The fix was ORDERING, not
+///     capability. OCaml is order-sensitive, so a unit enum's module cannot sit in the types
+///     section and call `foreign` bindings declared 42k lines later. The module could not be split
+///     either
 ///     - two `module X` is a duplicate - so the WHOLE module, variant
-///     constants included, moved to the late idiomatic pass. Nothing in the
-///     file references these modules internally, which is what made the move
-///     safe; the type checker confirmed it.
-///     Everything else here was the same fault in different places: the `.mli`
-///     SEALS the module, so anything the interface omits is unreachable
-///     however complete `azul.ml` is.
-///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it
-///     emitted code that does not compile. `is_method_kind_eligible` and
-///     `takes_self` were widened to the trait kinds; the result was methods
-///     with no receiver whose bodies still said `self.inner` and passed an
-///     extra argument - `AzDom_partialEq(&self.inner, &a.inner, &b.inner)` for
-///     a two-argument export. Three of them shipped, across two commits,
-///     because NOTHING in this repo's gates compiles `php_api.rs`. The gate
-///     went green the whole time: it greps for names, and broken code still
-///     contains the name.
-///     Both widenings are reverted. Emitting these needs `render_method`
-///     taught the STATIC shape (no receiver, both operands as arguments)
-///     first; the eligibility flag is not the hard part.
-///     A profile fix was also attempted and reverted: keying presence on
-///     `impl Azul{T}` instead of the extern symbol gave 0 honoured, which is
-///     the same "blind profile" signature that made ocaml read 272 for weeks.
-///     The `AzString` RETURN arm in `marshal_return` is KEPT - it is correct
-///     and independent, and any ordinary method returning a string needs it.
-///     LESSON: a name-presence gate cannot see a compile error. For a target
+///       constants included, moved to the late idiomatic pass. Nothing in the
+///       file references these modules internally, which is what made the move
+///       safe; the type checker confirmed it.
+///       Everything else here was the same fault in different places: the `.mli`
+///       SEALS the module, so anything the interface omits is unreachable
+///       however complete `azul.ml` is.
+///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it emitted code that
+///     does not compile. `is_method_kind_eligible` and `takes_self` were widened to the trait
+///     kinds; the result was methods with no receiver whose bodies still said `self.inner` and
+///     passed an extra argument - `AzDom_partialEq(&self.inner, &a.inner, &b.inner)` for a
+///     two-argument export. Three of them shipped, across two commits, because NOTHING in this
+///     repo's gates compiles `php_api.rs`. The gate went green the whole time: it greps for names,
+///     and broken code still contains the name. Both widenings are reverted. Emitting these needs
+///     `render_method` taught the STATIC shape (no receiver, both operands as arguments) first; the
+///     eligibility flag is not the hard part. A profile fix was also attempted and reverted: keying
+///     presence on `impl Azul{T}` instead of the extern symbol gave 0 honoured, which is the same
+///     "blind profile" signature that made ocaml read 272 for weeks. The `AzString` RETURN arm in
+///     `marshal_return` is KEPT - it is correct and independent, and any ordinary method returning
+///     a string needs it. LESSON: a name-presence gate cannot see a compile error. For a target
 ///     nothing builds, the gate is not evidence.
-///   * `haskell` - was 10 (the four XML types were enums or excluded structs,
-///     so no `Az{T}_toDbgString_via` shim existed for their Show instances);
-///     0 since Azul.Types declares every non-generic type and the shim
-///     generator shares the import filter, so it no longer needs a baseline.
-///   * `ocaml` enums - the interface loop iterates `ir.structs` only, so a
-///     tagged union like `AccessibilityAction` gets NO module at all. That is
-///     the whole of ocaml's 272, and it is the same shape C++, zig and go each
-///     had. It needs the module emitted in BOTH `azul.ml` and `azul.mli`
-///     carrying the full derive list at once - a partial module measures worse,
-///     see the two reverted attempts recorded above.
-///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
-///     block, a combination that could not compile in either direction. It is
-///     now `UsingCAPI` + `ExternalBindings`, the same shape as
-///     `dll_api_external.rs`; see `CodegenConfig::rust_public_api`.
+///   * `haskell` - was 10 (the four XML types were enums or excluded structs, so no
+///     `Az{T}_toDbgString_via` shim existed for their Show instances); 0 since Azul.Types declares
+///     every non-generic type and the shim generator shares the import filter, so it no longer
+///     needs a baseline.
+///   * `ocaml` enums - the interface loop iterates `ir.structs` only, so a tagged union like
+///     `AccessibilityAction` gets NO module at all. That is the whole of ocaml's 272, and it is the
+///     same shape C++, zig and go each had. It needs the module emitted in BOTH `azul.ml` and
+///     `azul.mli` carrying the full derive list at once - a partial module measures worse, see the
+///     two reverted attempts recorded above.
+///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern` block, a combination
+///     that could not compile in either direction. It is now `UsingCAPI` + `ExternalBindings`, the
+///     same shape as `dll_api_external.rs`; see `CodegenConfig::rust_public_api`.
 ///   * `cpp11` / `cpp14` (were 5682 / 5568) — those two emitters alone applied
-///     `should_skip_method`, which drops every `is_trait_function()` kind. They
-///     now filter on `is_constructor_or_default` like the other four.
-///   * every `cpp*` (2133 each) — enums and tagged unions get no wrapper class
-///     to hang a method on, so their capabilities are now free functions
-///     overloaded on the argument type; see
+///     `should_skip_method`, which drops every `is_trait_function()` kind. They now filter on
+///     `is_constructor_or_default` like the other four.
+///   * every `cpp*` (2133 each) — enums and tagged unions get no wrapper class to hang a method on,
+///     so their capabilities are now free functions overloaded on the argument type; see
 ///     `lang_cpp::common::generate_freefn_trait_helpers`.
-///   * `python` (was 4671) — the PyO3 extension had no `__eq__`, `__lt__`,
-///     `__hash__`, `__copy__` or `default` anywhere: the mirror's Rust trait
-///     impls are not dunders, so `a == b` silently fell back to identity.
-///     `generate_derive_dunders` emits them under exactly the condition that
+///   * `python` (was 4671) — the PyO3 extension had no `__eq__`, `__lt__`, `__hash__`, `__copy__`
+///     or `default` anywhere: the mirror's Rust trait impls are not dunders, so `a == b` silently
+///     fell back to identity. `generate_derive_dunders` emits them under exactly the condition that
 ///     makes the corresponding mirror impl exist.
 ///   * the `*VecDestructor` tail, in twenty bindings at once (114 each in
-///     csharp/java/node/kotlin/racket, and the bulk of the 118-134 in
-///     powershell, crystal, d, julia, nim, odin, v, fortran, red, smalltalk,
-///     vb6, freebasic, haskell, plus 114 previously-ABSENT classes each in
-///     pascal/ada/lisp/algol68/cobol) — every one of those
-///     `should_emit_function` filters excluded the whole `DestructorOrClone`
-///     category, including the one entry point a `derive` actually asks for.
-///     They now share `FunctionKind::is_declared_capability`.
-/// The surfaces that carry `*VecDestructor` as a first-class type and really
-/// do implement its derives. Everywhere else it is opaque - see the ruling at
-/// the exclusion site.
-const DESTRUCTOR_BEARING: &[&str] =
-    &["rust-internal", "rust-dynamic", "rust-public", "memtest", "c"];
+///     csharp/java/node/kotlin/racket, and the bulk of the 118-134 in powershell, crystal, d,
+///     julia, nim, odin, v, fortran, red, smalltalk, vb6, freebasic, haskell, plus 114
+///     previously-ABSENT classes each in pascal/ada/lisp/algol68/cobol) — every one of those
+///     `should_emit_function` filters excluded the whole `DestructorOrClone` category, including
+///     the one entry point a `derive` actually asks for. They now share
+///     `FunctionKind::is_declared_capability`.
+///     The surfaces that carry `*VecDestructor` as a first-class type and really
+///     do implement its derives. Everywhere else it is opaque - see the ruling at
+///     the exclusion site.
+const DESTRUCTOR_BEARING: &[&str] = &[
+    "rust-internal",
+    "rust-dynamic",
+    "rust-public",
+    "memtest",
+    "c",
+];
 
 /// How many of `DERIVES` a class actually declares - the number the exclusion
 /// has to add to `not_applicable` so the columns still sum to the same total.
@@ -918,15 +1361,21 @@ pub fn verdict(reports: &[BindingReport]) -> (bool, String) {
 
     let _ = writeln!(
         out,
-        "{:<28} {:>9} {:>8} {:>7} {:>8} {:>8}  {}",
-        "binding", "honoured", "missing", "n/a", "unmapped", "absent", "shape"
+        "{:<28} {:>9} {:>8} {:>7} {:>8} {:>8}  shape",
+        "binding", "honoured", "missing", "n/a", "unmapped", "absent"
     );
     let _ = writeln!(out, "{}", "-".repeat(110));
     for r in reports {
         let _ = writeln!(
             out,
             "{:<28} {:>9} {:>8} {:>7} {:>8} {:>8}  {}",
-            r.binding, r.honoured, r.missing, r.not_applicable, r.unmapped, r.classes_absent, r.note
+            r.binding,
+            r.honoured,
+            r.missing,
+            r.not_applicable,
+            r.unmapped,
+            r.classes_absent,
+            r.note
         );
     }
     let _ = writeln!(out, "{}", "-".repeat(110));
@@ -979,7 +1428,8 @@ pub fn verdict(reports: &[BindingReport]) -> (bool, String) {
     if ok {
         let _ = writeln!(
             out,
-            "[ok] every declared derive is reachable in every binding, or matches its recorded baseline"
+            "[ok] every declared derive is reachable in every binding, or matches its recorded \
+             baseline"
         );
     }
     (ok, out)

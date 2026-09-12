@@ -7,9 +7,6 @@
 //! which is called from `fc.rs` when a flex or grid formatting context is
 //! encountered during layout.
 
-use crate::solver3::calc::CalcResolveContext;
-use crate::solver3::getters::{get_overflow_x, get_overflow_y};
-use crate::solver3::layout_tree::LayoutNodeId;
 use azul_core::dom::FormattingContext;
 use azul_css::{
     css::CssPropertyValue,
@@ -37,12 +34,19 @@ use azul_css::{
 };
 use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
 
+use crate::solver3::{
+    calc::CalcResolveContext,
+    getters::{get_overflow_x, get_overflow_y},
+    layout_tree::LayoutNodeId,
+};
+
 /// CSS reference pixels per inch (96 dpi per CSS Values spec).
 const CSS_PX_PER_INCH: f32 = 96.0;
 
 /// Convert `PixelValue` to pixels, only for absolute units (no %, and em/rem use fallback)
 /// Used where proper resolution context is not available (grid tracks, etc.)
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
     match pv.metric {
         SizeMetric::Px => Some(pv.number.get()),
@@ -173,7 +177,8 @@ fn layout_display_to_taffy(val: LayoutDisplayValue) -> Display {
 }
 
 // to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn layout_position_to_taffy(val: LayoutPositionValue) -> Position {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => Position::Absolute,
@@ -205,7 +210,8 @@ fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> GridAutoFlow {
 }
 
 /// Convert an azul `GridLine` (single start or end) to a Taffy `GridPlacement`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 fn grid_line_to_taffy(line: &azul_css::props::layout::grid::GridLine) -> GridPlacement<String> {
     use azul_css::props::layout::grid::GridLine as AzGridLine;
     use taffy::style_helpers::{TaffyGridLine, TaffyGridSpan};
@@ -264,7 +270,7 @@ fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> AlignItems {
 
 fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<AlignSelf> {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec)
+        LayoutAlignSelf::Auto => None, /* Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec) */
         LayoutAlignSelf::Start => Some(AlignSelf::FlexStart),
         LayoutAlignSelf::End => Some(AlignSelf::FlexEnd),
         LayoutAlignSelf::Center => Some(AlignSelf::Center),
@@ -601,7 +607,8 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> LengthPercentage {
 /// Taffy only has Visible, Clip, Hidden, Scroll (no Auto).
 /// CSS `auto` behaves like `scroll` from a layout perspective —
 /// it constrains the container and enables scrolling.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn azul_overflow_to_taffy(
     ov: MultiValue<azul_css::props::layout::LayoutOverflow>,
 ) -> taffy::Overflow {
@@ -610,7 +617,7 @@ const fn azul_overflow_to_taffy(
         MultiValue::Exact(LayoutOverflow::Visible) => taffy::Overflow::Visible,
         MultiValue::Exact(LayoutOverflow::Hidden) => taffy::Overflow::Hidden,
         MultiValue::Exact(LayoutOverflow::Scroll) => taffy::Overflow::Scroll,
-        MultiValue::Exact(LayoutOverflow::Auto) => taffy::Overflow::Scroll, // Auto acts like scroll for layout
+        MultiValue::Exact(LayoutOverflow::Auto) => taffy::Overflow::Scroll, /* Auto acts like scroll for layout */
         MultiValue::Exact(LayoutOverflow::Clip) => taffy::Overflow::Clip,
         _ => taffy::Overflow::Visible, // default
     }
@@ -625,7 +632,9 @@ fn pixel_to_lp(pv: PixelValue) -> LengthPercentage {
 
 /// Slow path for flex-basis: full property cache lookup + decode.
 /// Extracted to avoid duplicating the logic in the compact fast-path fallback.
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn flex_basis_slow_path(
     cache: &azul_core::prop_cache::CssPropertyCache,
     node_data: &azul_core::dom::NodeData,
@@ -645,7 +654,8 @@ fn flex_basis_slow_path(
                         .unwrap_or_else(Dimension::auto),
                 };
                 // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
-                // take precedence. Workaround for Taffy not properly prioritizing flex-basis over width
+                // take precedence. Workaround for Taffy not properly prioritizing flex-basis over
+                // width
                 if !matches!(basis, auto if auto == Dimension::auto()) {
                     taffy_style.size.width = Dimension::auto();
                 }
@@ -719,7 +729,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
     /// This is the core of the integration, mapping one style system to another.
     #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn translate_style_to_taffy(&self, dom_id: Option<NodeId>) -> Style {
         let Some(id) = dom_id else {
             return Style::default();
@@ -1013,7 +1024,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .map(grid_template_columns_to_taffy)
                 .unwrap_or_default();
 
-            // Grid template areas - convert GridTemplateAreas to Vec<taffy::GridTemplateArea<String>>
+            // Grid template areas - convert GridTemplateAreas to
+            // Vec<taffy::GridTemplateArea<String>>
             taffy_style.grid_template_areas = cache
                 .get_property(
                     node_data,
@@ -1089,7 +1101,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 },
                 |cc| {
                     #[allow(clippy::wildcard_imports)]
-                    // widget/render module pulls in the css property/value types it builds with
+                    // widget/render module pulls in the css property/value types it builds
+                    // with
                     use azul_css::compact_cache::*;
                     let bits = ((cc.tier1_enums[id.index()] >> GRID_AUTO_FLOW_SHIFT)
                         & GRID_AUTO_FLOW_MASK) as u8;
@@ -1504,7 +1517,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// ONLY if the item's cross-size is 'auto' AND the item has no intrinsic cross-size.
     ///
     /// Returns (`suppress_width`, `suppress_height`) booleans.
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input
+                                      // variant (or cross-type bindings that can't merge)
     fn should_suppress_cross_intrinsic(&self, node_idx: usize, style: &Style) -> (bool, bool) {
         let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
             return (false, false);
@@ -1969,8 +1983,10 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)]
-    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that
+    // can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).
@@ -2190,14 +2206,16 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 // min-content size in the main axis; for items with a preferred aspect ratio, it
                 // should be clamped by definite min/max cross sizes converted through the ratio.
                 // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result.
-                // HOWEVER: If intrinsic sizes are 0 but content_width is non-zero, use content_width.
-                // This happens for FormattingContext::Inline nodes that are measured by their
-                // parent IFC root and don't have their own intrinsic sizes stored.
+                // HOWEVER: If intrinsic sizes are 0 but content_width is non-zero, use
+                // content_width. This happens for FormattingContext::Inline nodes
+                // that are measured by their parent IFC root and don't have their
+                // own intrinsic sizes stored.
                 //
-                // CRITICAL FIX: For InlineBlock elements with width: auto (known_dimensions.width = None),
-                // we must use intrinsic max-content width instead of content_width from BFC layout.
-                // The BFC layout was done with the full container width, but InlineBlock should
-                // shrink-to-fit its content. This is per CSS 2.1 § 10.3.9: "shrink-to-fit width".
+                // CRITICAL FIX: For InlineBlock elements with width: auto (known_dimensions.width =
+                // None), we must use intrinsic max-content width instead of
+                // content_width from BFC layout. The BFC layout was done with the
+                // full container width, but InlineBlock should shrink-to-fit its
+                // content. This is per CSS 2.1 § 10.3.9: "shrink-to-fit width".
                 let fc = self
                     .tree
                     .get(LayoutNodeId::new(node_idx))
@@ -2225,9 +2243,11 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     AvailableSpace::Definite(_) => {
                         // For shrink-to-fit elements (InlineBlock with auto width),
                         // use intrinsic max-content width clamped by available space.
-                        // CSS 2.1 § 10.3.9: shrink-to-fit = min(max(preferred minimum, available), preferred)
+                        // CSS 2.1 § 10.3.9: shrink-to-fit = min(max(preferred minimum, available),
+                        // preferred)
                         if is_shrink_to_fit && intrinsic.max_content_width > 0.0 {
-                            // Use max-content (preferred width) - already clamped by min/max-width in sizing
+                            // Use max-content (preferred width) - already clamped by min/max-width
+                            // in sizing
                             intrinsic.max_content_width
                         } else {
                             content_width
@@ -2363,7 +2383,8 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     ContentSizeOrigin::ContentBox,
                 );
 
-                // Store the border-box size and scrollbar_info on the node for display list generation
+                // Store the border-box size and scrollbar_info on the node for display list
+                // generation
                 if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
                     node.used_size = Some(LogicalSize {
                         width: final_width,
@@ -2526,7 +2547,8 @@ impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
 // --- Conversion Functions ---
 
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_width(
     val: LayoutWidth,
@@ -2553,7 +2575,8 @@ fn from_layout_width(
 }
 
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_height(
     val: LayoutHeight,
@@ -2602,7 +2625,8 @@ fn store_calc_and_make_dimension(
     Dimension::calc(ptr.cast::<()>())
 }
 
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn from_layout_position(val: LayoutPosition) -> Position {
     match val {
         LayoutPosition::Static => Position::Relative, // Taffy treats Static as Relative
@@ -2910,10 +2934,10 @@ mod autotest_generated {
 
     #[test]
     fn translate_track_minmax_takes_the_min_of_the_min_and_the_max_of_the_max() {
-        let t = GridTrackSizing::MinMax(GridMinMax {
-            min: Box::new(GridTrackSizing::Fixed(PixelValue::px(10.0))),
-            max: Box::new(GridTrackSizing::Fr(200)),
-        });
+        let t = GridTrackSizing::MinMax(GridMinMax::new(
+            GridTrackSizing::Fixed(PixelValue::px(10.0)),
+            GridTrackSizing::Fr(200),
+        ));
         assert_eq!(
             translate_track(&t),
             minmax(
@@ -2924,10 +2948,10 @@ mod autotest_generated {
 
         // The *other* halves are discarded: only minmax_box.min.min and
         // minmax_box.max.max survive the translation.
-        let t = GridTrackSizing::MinMax(GridMinMax {
-            min: Box::new(GridTrackSizing::MaxContent),
-            max: Box::new(GridTrackSizing::MinContent),
-        });
+        let t = GridTrackSizing::MinMax(GridMinMax::new(
+            GridTrackSizing::MaxContent,
+            GridTrackSizing::MinContent,
+        ));
         assert_eq!(
             translate_track(&t),
             minmax(
@@ -2942,10 +2966,7 @@ mod autotest_generated {
         // Nesting only on the `min` side keeps the recursion linear.
         let mut t = GridTrackSizing::Fixed(PixelValue::px(7.0));
         for _ in 0..64 {
-            t = GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(t),
-                max: Box::new(GridTrackSizing::MaxContent),
-            });
+            t = GridTrackSizing::MinMax(GridMinMax::new(t, GridTrackSizing::MaxContent));
         }
         assert_eq!(
             translate_track(&t),
@@ -2965,10 +2986,7 @@ mod autotest_generated {
         // the leaf on each side.
         let mut t = GridTrackSizing::Fixed(PixelValue::px(3.0));
         for _ in 0..10 {
-            t = GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(t.clone()),
-                max: Box::new(t),
-            });
+            t = GridTrackSizing::MinMax(GridMinMax::new(t.clone(), t));
         }
         assert_eq!(
             translate_track(&t),
@@ -3057,10 +3075,10 @@ mod autotest_generated {
             GridTrackSizing::Fr(250),
             GridTrackSizing::MinContent,
             GridTrackSizing::FitContent(PixelValue::px(9.0)),
-            GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(GridTrackSizing::Fixed(PixelValue::px(1.0))),
-                max: Box::new(GridTrackSizing::MaxContent),
-            }),
+            GridTrackSizing::MinMax(GridMinMax::new(
+                GridTrackSizing::Fixed(PixelValue::px(1.0)),
+                GridTrackSizing::MaxContent,
+            )),
         ];
         let rows = grid_auto_rows_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));
         let cols = grid_auto_columns_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));
@@ -3951,7 +3969,8 @@ mod autotest_generated {
     // from_layout_width / from_layout_height / store_calc_and_make_dimension
     // ==================================================================
 
-    #[allow(clippy::vec_box)] // return type must mirror the production calc_storage (Box = stable element addresses)
+    #[allow(clippy::vec_box)] // return type must mirror the production calc_storage (Box = stable
+                              // element addresses)
     fn empty_calc_storage() -> std::cell::RefCell<Vec<Box<CalcResolveContext>>> {
         std::cell::RefCell::new(Vec::new())
     }
@@ -4210,7 +4229,7 @@ mod autotest_generated {
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
-            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,

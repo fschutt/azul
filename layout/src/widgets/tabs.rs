@@ -23,7 +23,10 @@ use azul_css::{
     *,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::flat,
+};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -38,17 +41,6 @@ const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundConte
         ),
     })];
 
-const STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_16259001466875079747_ITEMS,
-        ),
-    })];
 const STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ColorU {
         r: 255,
@@ -78,114 +70,43 @@ const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] 
         }),
     },
 ];
-const LINEAR_COLOR_STOP_16259001466875079747_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 236,
-            g: 244,
-            b: 252,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 221,
-            g: 237,
-            b: 252,
-            a: 255,
-        }),
-    },
-];
 
 const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
-        )),
-    )),
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-noleftborder
     CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::None,
@@ -639,91 +560,40 @@ const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
-        )),
-    )),
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-norightborder
     CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::None,
@@ -949,91 +819,40 @@ const CSS_MATCH_4738503469417034630_NO_PADDING: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 126,
-                g: 180,
-                b: 234,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
-        )),
-    )),
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1505,7 +1324,10 @@ mod autotest_generated {
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::{MonitorVec, RawWindowHandle},
     };
-    use azul_css::system::SystemStyle;
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        system::SystemStyle,
+    };
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -1513,6 +1335,7 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        widgets::theme_probe,
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -1631,6 +1454,25 @@ mod autotest_generated {
             .filter(|p| p.apply_if.as_ref().is_empty() && pred(&p.property))
             .map(|p| p.property.clone())
             .collect()
+    }
+
+    /// `:hover` alone — the light half of a hover pair.
+    fn is_hover_only(conds: &[DynamicSelector]) -> bool {
+        matches!(
+            conds,
+            [DynamicSelector::PseudoState(PseudoStateType::Hover)]
+        )
+    }
+
+    /// `:hover` AND dark — the twin `themes::flat` pairs with every light rule.
+    fn is_dark_hover(conds: &[DynamicSelector]) -> bool {
+        conds.len() == 2
+            && conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            && conds
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
     }
 
     /// The style vec the widget must pair with a given class combination.
@@ -2448,9 +2290,28 @@ mod autotest_generated {
                 .iter()
                 .filter(|p| !p.apply_if.as_ref().is_empty())
                 .count();
+            let hover_only = style
+                .as_ref()
+                .iter()
+                .filter(|p| is_hover_only(p.apply_if.as_ref()))
+                .count();
+            let dark_hover = style
+                .as_ref()
+                .iter()
+                .filter(|p| is_dark_hover(p.apply_if.as_ref()))
+                .count();
             assert_eq!(
-                conditional, 13,
+                hover_only, 13,
                 "each inactive-tab style carries exactly the 13 :hover declarations"
+            );
+            assert_eq!(
+                dark_hover, 13,
+                "...and one dark twin per :hover declaration, from `themes::flat`"
+            );
+            assert_eq!(
+                conditional,
+                hover_only + dark_hover,
+                "nothing else in an inactive-tab style is conditional"
             );
         }
 
@@ -2470,6 +2331,109 @@ mod autotest_generated {
                     .iter()
                     .all(|p| p.apply_if.as_ref().is_empty()),
                 "this style must apply unconditionally"
+            );
+        }
+    }
+
+    #[test]
+    fn dom_carries_the_themes_tab_hover_state_with_dark_twins() {
+        // The thirteen hover rules moved OUT of this file and into
+        // `themes::flat`, where the dark half of each pair can be written. That
+        // is a move nothing else here would notice: no compiler error, and the
+        // verbatim style-vs-node comparisons pass whether or not a slice names
+        // the twins. So this asks the RENDERED tabs what they carry.
+        //
+        // active = 1 of 4 renders every inactive variant at once: tab 0 is the
+        // `-norightborder` seam, tab 2 the `-noleftborder` seam, tab 3 the plain
+        // inactive tab.
+        fn gated(node: &Dom, pick: fn(&[DynamicSelector]) -> bool) -> Vec<CssProperty> {
+            node.root
+                .style
+                .iter_inline_properties()
+                .filter(|(_, conds)| pick(conds.as_ref()))
+                .map(|(p, _)| p.clone())
+                .collect()
+        }
+
+        fn is_colour(p: &CssProperty) -> bool {
+            matches!(
+                p,
+                CssProperty::BorderTopColor(_)
+                    | CssProperty::BorderBottomColor(_)
+                    | CssProperty::BorderLeftColor(_)
+                    | CssProperty::BorderRightColor(_)
+                    | CssProperty::BackgroundContent(_)
+            )
+        }
+
+        let dom = TabHeader::create(numbered_labels(4))
+            .with_active_tab(1)
+            .dom();
+        let tabs = &dom.children.as_ref()[1..=4];
+        assert_eq!(
+            class_strs(&tabs[1]),
+            vec![CLASS_ACTIVE],
+            "the fixture's active tab"
+        );
+
+        for (i, node) in tabs.iter().enumerate() {
+            let cls = class_strs(node);
+            let light = gated(node, is_hover_only);
+            let dark = gated(node, is_dark_hover);
+
+            if cls.contains(&CLASS_ACTIVE) {
+                assert!(
+                    light.is_empty() && dark.is_empty(),
+                    "tab {i}: the active tab has no hover state to twin"
+                );
+                continue;
+            }
+
+            assert_eq!(
+                light.len(),
+                13,
+                "tab {i} {cls:?}: the hover ring (4 widths, 4 styles, 4 colours) and the fill"
+            );
+            assert_eq!(
+                dark.len(),
+                13,
+                "tab {i} {cls:?}: a dark twin is missing, so a hovered tab keeps its light-mode \
+                 ring or fill on a dark surface"
+            );
+            for rule in &light {
+                assert!(
+                    dark.iter().any(|twin| twin.get_type() == rule.get_type()),
+                    "tab {i} {cls:?}: the light hover rule {rule:?} has no dark twin"
+                );
+            }
+            for twin in &dark {
+                assert!(
+                    light.iter().any(|rule| rule.get_type() == twin.get_type()),
+                    "tab {i} {cls:?}: the dark rule {twin:?} twins nothing the light hover sets"
+                );
+            }
+
+            // The colour twins are genuinely the other mode's values, not the
+            // light rule spelled twice. (The widths and styles ARE the same in
+            // both modes; only the colours and the fill have a per-mode value.)
+            let light_colours: Vec<&CssProperty> = light.iter().filter(|p| is_colour(p)).collect();
+            let dark_colours: Vec<&CssProperty> = dark.iter().filter(|p| is_colour(p)).collect();
+            assert_eq!(
+                light_colours.len(),
+                5,
+                "tab {i}: four border colours and the fill"
+            );
+            assert_ne!(
+                light_colours, dark_colours,
+                "tab {i} {cls:?}: the dark twins repeat the light colours"
+            );
+
+            // The twins are gated on dark AND hover. A rule gated on dark alone
+            // would restyle the tab at rest, which is not what this section does.
+            assert_eq!(
+                theme_probe::dark(node).len(),
+                dark.len(),
+                "tab {i} {cls:?}: every dark-mode declaration on a tab is a hover twin"
             );
         }
     }
@@ -2863,8 +2827,8 @@ mod autotest_generated {
         assert_eq!(
             [first, second, third],
             [Update::RefreshDom; 3],
-            "a leaked RefMut would turn later clicks into the RefreshDom fallback \
-             without ever reaching the user callback"
+            "a leaked RefMut would turn later clicks into the RefreshDom fallback without ever \
+             reaching the user callback"
         );
         assert_eq!(
             logged(&mut user),

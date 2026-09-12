@@ -7,28 +7,31 @@
 //! `open()` returns `0`, and the widget keeps its test pattern.
 //!
 //! Flow (the same push → pull seam as `camera/avfoundation.rs`):
-//!   1. `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess`
-//!      (dlsym'd from CoreGraphics, 10.15+) trigger the Screen-Recording TCC
-//!      prompt. For a terminal-launched binary the grant is attributed to the
-//!      *responsible process* (Terminal); detached launches are denied.
+//!   1. `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess` (dlsym'd from
+//!      CoreGraphics, 10.15+) trigger the Screen-Recording TCC prompt. For a terminal-launched
+//!      binary the grant is attributed to the *responsible process* (Terminal); detached launches
+//!      are denied.
 //!   2. `SCShareableContent` enumerates displays (completion-handler block).
-//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (BGRA,
-//!      ~30 fps) + `SCStream` + an `SCStreamOutput` delegate registered via
-//!      `define_class!` (protocol added dynamically — it only exists once the
-//!      framework is loaded).
-//!   4. The delegate parks BGRA→RGBA frames in a shared slot; `read` drains
-//!      it. Screens only produce frames ON CHANGE, so `read` re-returns the
-//!      last frame on timeout instead of `(0,0)` (which would stop the worker).
+//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (BGRA, ~30 fps) + `SCStream` +
+//!      an `SCStreamOutput` delegate registered via `define_class!` (protocol added dynamically —
+//!      it only exists once the framework is loaded).
+//!   4. The delegate parks BGRA→RGBA frames in a shared slot; `read` drains it. Screens only
+//!      produce frames ON CHANGE, so `read` re-returns the last frame on timeout instead of `(0,0)`
+//!      (which would stop the worker).
 
-use std::ffi::c_void;
-use std::sync::mpsc;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    ffi::c_void,
+    sync::{mpsc, Arc, OnceLock},
+    time::Duration,
+};
 
 use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, AnyProtocol};
-use objc2::{define_class, msg_send, AllocAnyThread, ClassType, DefinedClass};
+use objc2::{
+    define_class, msg_send,
+    rc::Retained,
+    runtime::{AnyClass, AnyObject, AnyProtocol},
+    AllocAnyThread, ClassType, DefinedClass,
+};
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
     CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
@@ -287,7 +290,7 @@ unsafe fn make_config(
 /// fps, BGRA, with this process's own windows left out when
 /// `exclude_self`. Returns a boxed handle, or `0` on failure (test-pattern
 /// fallback).
-pub fn open(request: &CaptureRequest) -> u64 {
+pub(super) fn open(request: &CaptureRequest) -> u64 {
     let (index, width, height) = (request.index, request.width, request.height);
     if !ensure_sck_loaded() {
         return 0;
@@ -406,7 +409,8 @@ pub fn open(request: &CaptureRequest) -> u64 {
             }
             if filter.is_null() {
                 crate::plog_warn!(
-                    "[screencap] window {} not shareable (closed / off-screen?) — capturing the display instead",
+                    "[screencap] window {} not shareable (closed / off-screen?) — capturing the \
+                     display instead",
                     request.window
                 );
             }
@@ -547,7 +551,7 @@ pub fn open(request: &CaptureRequest) -> u64 {
 /// so after the bounded wait an idle desktop is `Idle` — NOT end-of-stream,
 /// and NOT the previous frame re-served as a new buffer (that made an
 /// unchanged picture repaint the tile once a second).
-pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
+pub(super) fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
         Some(s) => s,
         None => return CaptureRead::Ended,
@@ -565,7 +569,7 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
 /// (`updateConfiguration:completionHandler:`), so a resized tile or a new
 /// consumer does not restart the capture. `false` on failure (the worker
 /// reopens).
-pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
+pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
     let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
         Some(s) => s,
         None => return false,
@@ -620,7 +624,7 @@ pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
 }
 
 /// Stop the stream + free the capture (drops the boxed `SckScreen`).
-pub fn close(handle: u64) {
+pub(super) fn close(handle: u64) {
     if handle != 0 {
         unsafe {
             let scr = Box::from_raw(handle as *mut SckScreen);

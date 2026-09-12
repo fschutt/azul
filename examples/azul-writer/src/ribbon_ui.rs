@@ -5,22 +5,22 @@
 //! public `azul::widgets` ribbon API. The FILE app button opens the
 //! backstage (`crate::on_file_button`).
 
-use azul::callbacks::{
-    ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType,
-    RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, RefAny, Update,
-};
-use azul::dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback};
-use azul::option::OptionRefAny;
-use azul::str::String as AzString;
-use azul::widgets::{
-    ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
-    RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+use azul::{
+    callbacks::{
+        ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType, RefAny,
+        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
+    },
+    css::{ColorU, SystemStyle},
+    dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback},
+    option::OptionRefAny,
+    str::String as AzString,
+    widgets::{
+        ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
+        RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+    },
 };
 
-use azul::css::{ColorU, SystemStyle};
-
-use crate::palette::Palette;
-use crate::AppState;
+use crate::{palette::Palette, AppState};
 
 // ---------------------------------------------------------------------------
 // Callbacks
@@ -241,8 +241,10 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     );
     let mut size_combo = ribbon_style.styled_combo_box(font_sizes, s("11"), 45);
     // WORKAROUND(engine): pin the static UI font (see crate::fonts).
-    crate::fonts::push_ui_font(&mut name_combo.text_style);
-    crate::fonts::push_ui_font(&mut size_combo.text_style);
+    let name_text = name_combo.resolved_text_style();
+    crate::fonts::push_ui_font(&mut name_combo.text_style, name_text);
+    let size_text = size_combo.resolved_text_style();
+    crate::fonts::push_ui_font(&mut size_combo.text_style, size_text);
 
     let mut bold = small("format_bold", "").with_toggled(state.bold);
     bold.set_on_click(data.clone(), on_toggle_bold as ButtonOnClickCallbackType);
@@ -332,8 +334,9 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     // sample vanished into it. `sample_ink` keeps the hue and lifts only the
     // lightness, and only until it clears WCAG AA against this palette's
     // chrome - so on a light desktop every preview is byte-identical to before.
-    let ink =
-        |r: u8, g: u8, b: u8| Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal));
+    let ink = |r: u8, g: u8, b: u8| {
+        Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal))
+    };
     let cells = vec![
         cell(
             format!("font-size: 14px; color: {};", ink(68, 68, 68)),
@@ -355,7 +358,11 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
             "AaBbCcD",
             "Heading 2",
         ),
-        cell(format!("font-size: 19px; color: {};", ink(38, 38, 38)), "AaB", "Title"),
+        cell(
+            format!("font-size: 19px; color: {};", ink(38, 38, 38)),
+            "AaB",
+            "Title",
+        ),
         cell(
             format!("font-size: 13px; color: {};", ink(90, 90, 90)),
             "AaBbCcD",
@@ -438,7 +445,8 @@ pub fn build(
     ribbon.set_on_tab_click(data.clone(), on_tab_click as RibbonOnTabClickCallbackType);
     // WORKAROUND(engine): pin the static UI font on the ribbon container —
     // the font inherits into every tab / group / label (see crate::fonts).
-    crate::fonts::push_ui_font(&mut ribbon.style.container_style);
+    let container = ribbon.style.resolved_container_style();
+    crate::fonts::push_ui_font(&mut ribbon.style.container_style, container);
     if compact {
         // Touch chrome: a full-width active-tab button (tap opens the tab
         // picker, double-tap collapses the band), the group list on the

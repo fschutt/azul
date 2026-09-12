@@ -5,8 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::{log_debug, log_error};
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug, log_error};
 
 /// Create a timerfd and insert it into the timer_fds map.
 pub fn start_timerfd(

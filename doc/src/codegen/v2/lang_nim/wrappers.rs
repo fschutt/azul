@@ -7,14 +7,12 @@
 //!
 //! Naming (Nim is style-insensitive, so we keep names globally distinct):
 //!
-//! - **Instance methods** (`Method` / `MethodMut`) become
-//!   `proc <method>*(self: var AzClass, …)`. Overloading on the distinct
-//!   `self` type keeps a shared method name (e.g. `dom`, `withChild`)
+//! - **Instance methods** (`Method` / `MethodMut`) become `proc <method>*(self: var AzClass, …)`.
+//!   Overloading on the distinct `self` type keeps a shared method name (e.g. `dom`, `withChild`)
 //!   unambiguous across types.
-//! - **Constructors / static methods** become
-//!   `proc <class><Method>*(…)` (e.g. `domCreateBody`, `buttonCreate`) —
-//!   the class-name prefix guarantees a unique symbol, since Nim can't
-//!   overload argument-less statics purely on return type.
+//! - **Constructors / static methods** become `proc <class><Method>*(…)` (e.g. `domCreateBody`,
+//!   `buttonCreate`) — the class-name prefix guarantees a unique symbol, since Nim can't overload
+//!   argument-less statics purely on return type.
 //!
 //! Trait functions (`Delete`, `DeepCopy`, `Default`, comparisons, hash,
 //! debug) and enum-variant constructors are intentionally NOT wrapped —
@@ -23,12 +21,16 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
-use super::types::nim_arg_type;
-use super::ProcDedup;
-use super::{ffi_type_name, map_type_to_nim, sanitize_identifier, to_lower_camel, to_pascal_case};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    },
+    ffi_type_name, map_type_to_nim, sanitize_identifier, to_lower_camel, to_pascal_case,
+    types::nim_arg_type,
+    ProcDedup,
+};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,

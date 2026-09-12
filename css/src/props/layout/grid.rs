@@ -5,6 +5,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::mem::ManuallyDrop;
 
 use crate::{
     codegen::format::FormatAsRustCode,
@@ -17,11 +18,48 @@ use crate::{
 // --- grid-template-columns / grid-template-rows ---
 
 /// Wrapper for minmax(min, max) to satisfy repr(C) (enum variants can only have 1 field)
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GridMinMax {
-    pub min: Box<GridTrackSizing>,
-    pub max: Box<GridTrackSizing>,
+    /// `ManuallyDrop` so the owned `Box` is freed ONLY while `run_destructor`
+    /// is still set (see `Drop`): the codegen FFI mirror of the enclosing
+    /// `GridTrackSizing` embeds this by value AND drops the real type first,
+    /// then Rust's drop glue drops the field a second time on the same bytes.
+    /// Layout is unchanged — `ManuallyDrop<Box<T>>` is a single pointer.
+    pub min: ManuallyDrop<Box<GridTrackSizing>>,
+    pub max: ManuallyDrop<Box<GridTrackSizing>>,
+    /// The double-drop gate (the `GlContextPtr` convention): cleared by the
+    /// first drop, so the second one is a no-op.
+    pub run_destructor: bool,
+}
+
+impl GridMinMax {
+    #[must_use]
+    pub fn new(min: GridTrackSizing, max: GridTrackSizing) -> Self {
+        Self {
+            min: ManuallyDrop::new(Box::new(min)),
+            max: ManuallyDrop::new(Box::new(max)),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Clone for GridMinMax {
+    fn clone(&self) -> Self {
+        Self::new((**self.min).clone(), (**self.max).clone())
+    }
+}
+
+impl Drop for GridMinMax {
+    fn drop(&mut self) {
+        if self.run_destructor {
+            self.run_destructor = false;
+            unsafe {
+                ManuallyDrop::drop(&mut self.min);
+                ManuallyDrop::drop(&mut self.max);
+            }
+        }
+    }
 }
 
 impl core::fmt::Debug for GridMinMax {
@@ -228,7 +266,8 @@ impl NamedGridLine {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents a grid line position (start or end)
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -488,10 +527,7 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
         if parts.len() == 2 {
             let min = parse_grid_track_owned(parts[0].trim())?;
             let max = parse_grid_track_owned(parts[1].trim())?;
-            return Ok(GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(min),
-                max: Box::new(max),
-            }));
+            return Ok(GridTrackSizing::MinMax(GridMinMax::new(min, max)));
         }
         return Err(());
     }
@@ -878,7 +914,7 @@ impl FormatAsRustCode for GridTrackSizing {
             Self::Auto => "GridTrackSizing::Auto".to_string(),
             Self::MinMax(minmax) => {
                 format!(
-                    "GridTrackSizing::MinMax(GridMinMax {{ min: Box::new({}), max: Box::new({}) }})",
+                    "GridTrackSizing::MinMax(GridMinMax::new({}, {}))",
                     minmax.min.format_as_rust_code(tabs),
                     minmax.max.format_as_rust_code(tabs)
                 )
@@ -1426,7 +1462,8 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
         areas.push(GridAreaDefinition {
             name: name.into(),
             row_start: u16::try_from(min_row + 1).unwrap_or(u16::MAX),
-            row_end: u16::try_from(max_row + 2).unwrap_or(u16::MAX), // end line is one past the last cell
+            row_end: u16::try_from(max_row + 2).unwrap_or(u16::MAX), /* end line is one past the
+                                                                      * last cell */
             column_start: u16::try_from(min_col + 1).unwrap_or(u16::MAX),
             column_end: u16::try_from(max_col + 2).unwrap_or(u16::MAX),
         });
@@ -1703,10 +1740,10 @@ mod autotest_generated {
     fn parse_grid_track_owned_minmax_comma_split_is_paren_unaware() {
         assert_eq!(
             parse_grid_track_owned("minmax(100px, 1fr)"),
-            Ok(GridTrackSizing::MinMax(GridMinMax {
-                min: Box::new(GridTrackSizing::Fixed(PixelValue::px(100.0))),
-                max: Box::new(GridTrackSizing::Fr(100)),
-            }))
+            Ok(GridTrackSizing::MinMax(GridMinMax::new(
+                GridTrackSizing::Fixed(PixelValue::px(100.0)),
+                GridTrackSizing::Fr(100),
+            )))
         );
         // fit-content nests fine (it has no top-level comma)...
         assert!(matches!(
@@ -3133,10 +3170,10 @@ mod autotest_generated {
         let placement = parse_grid_placement("1 / span 2").unwrap();
         assert_eq!(format!("{placement:?}"), placement.print_as_css_value());
 
-        let minmax = GridMinMax {
-            min: Box::new(GridTrackSizing::Fixed(PixelValue::px(1.0))),
-            max: Box::new(GridTrackSizing::Auto),
-        };
+        let minmax = GridMinMax::new(
+            GridTrackSizing::Fixed(PixelValue::px(1.0)),
+            GridTrackSizing::Auto,
+        );
         assert_eq!(format!("{minmax:?}"), "minmax(1px, auto)");
     }
 }

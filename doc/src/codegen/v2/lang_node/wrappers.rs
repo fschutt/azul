@@ -4,13 +4,12 @@
 //! C function we emit a `class TypeName` that:
 //!
 //! - Holds the raw FFI pointer in `#ptr` (a private class field).
-//! - Registers a `FinalizationRegistry` callback so the underlying
-//!   native resource is released when the JS wrapper is GC'd.
-//! - Exposes every non-trait method as an instance/static method
-//!   that dispatches through the `lib` object.
-//! - Implements `[Symbol.for('nodejs.util.inspect.custom')]` so
-//!   `console.log(obj)` produces `App { ptr: 0x... }` rather than
-//!   leaking internals.
+//! - Registers a `FinalizationRegistry` callback so the underlying native resource is released when
+//!   the JS wrapper is GC'd.
+//! - Exposes every non-trait method as an instance/static method that dispatches through the `lib`
+//!   object.
+//! - Implements `[Symbol.for('nodejs.util.inspect.custom')]` so `console.log(obj)` produces `App {
+//!   ptr: 0x... }` rather than leaking internals.
 //!
 //! Tagged-union enums get the same treatment plus per-variant
 //! predicates (`isVariantName()`) that compare against the registered
@@ -29,11 +28,15 @@
 //!
 //! Same filter as PHP / Lua. See `mod.rs` doc-comment for the list.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+    },
+    ffi_type_name, sanitize_export_name, sanitize_js_identifier,
 };
-use super::{ffi_type_name, sanitize_export_name, sanitize_js_identifier};
 
 // ============================================================================
 // Public entry point
@@ -337,7 +340,10 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.indent();
         b.line("if (!this._ptr) return '';");
         b.line("// koffi-only path; Bun / Deno would need separate helpers.");
-        b.line("if (azulFFI.runtime !== 'node-koffi') return '[AzString — decode not implemented for this runtime]';");
+        b.line(
+            "if (azulFFI.runtime !== 'node-koffi') return '[AzString — decode not implemented for \
+             this runtime]';",
+        );
         b.line("const koffi = azulFFI.koffi;");
         b.line("const az = koffi.decode(this._ptr, 'AzString');");
         b.line("const len = Number(az.vec.len);");
@@ -463,7 +469,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     emit_node_equals_if_supported(b, s, ir, &class);
 
     // Phase I.3.4 (Node): toString() routed through Az<X>_toDbgString.
-    emit_node_toString_if_supported(b, s, ir);
+    emit_node_to_string_if_supported(b, s, ir);
 
     // Phase I.1.7 (Node): if this wrapper is a Vec (ptr/len/cap/destructor
     // shape), expose Symbol.iterator so `for (const x of vec)` works.
@@ -659,13 +665,13 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 /// Vec → host-iterable. Three element shapes (mirrors the
 /// Java/Kotlin/C#/Ruby/Lua Vec-iterator clone-via-_clone fix):
 ///
-///   - Primitive element (`u8`/`i32`/`f64`/...): `buf[i]` is a JS
-///     Number — value-decoded by koffi, fully independent.
-///   - Wrapper-class element with `_deepCopy`: clone each element
-///     via `lib.Az<Elem>_deepCopy(buf[i])`, wrap in
-///     `new <Elem>(__cloned)`. Safe past the Vec being closed.
-///   - Fallback (no clone): yield `buf[i]` with a doc comment
-///     warning the user not to retain past Vec lifetime.
+///   - Primitive element (`u8`/`i32`/`f64`/...): `buf[i]` is a JS Number — value-decoded by koffi,
+///     fully independent.
+///   - Wrapper-class element with `_deepCopy`: clone each element via
+///     `lib.Az<Elem>_deepCopy(buf[i])`, wrap in `new <Elem>(__cloned)`. Safe past the Vec being
+///     closed.
+///   - Fallback (no clone): yield `buf[i]` with a doc comment warning the user not to retain past
+///     Vec lifetime.
 fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if s.fields.len() != 4 {
         return;
@@ -768,7 +774,7 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 /// Phase I.3.4 (Node): emit `toString()` instance method routed
 /// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
 /// string via `_azStringDecode`. Skips AzString itself.
-fn emit_node_toString_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
@@ -819,7 +825,7 @@ fn emit_node_equals_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &Codege
     ));
     b.line(" * so this is exposed as an explicit method.");
     b.line(" */");
-    b.line(&format!("equals(other) {{"));
+    b.line(&"equals(other) {".to_string());
     b.indent();
     b.line(&format!("if (!(other instanceof {})) return false;", class));
     b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
@@ -959,12 +965,10 @@ fn node_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
 /// koffi-decoded outer struct already declared.
 ///
 /// Three payload shapes (mirrors JVM 75a1fbcd2):
-///   - AzString → decode `payload.vec.{ptr,len}` bytes into a JS
-///     string via `koffi.decode(ptr, 'char', len)`, then call
-///     `Az<Outer>_delete(_ret)` to free the embedded buffer.
-///   - Wrapper-class → call `Az<Payload>_clone(payload)` for an
-///     independent allocation, wrap in the JS wrapper class, then
-///     `Az<Outer>_delete(_ret)` drops the original.
+///   - AzString → decode `payload.vec.{ptr,len}` bytes into a JS string via `koffi.decode(ptr,
+///     'char', len)`, then call `Az<Outer>_delete(_ret)` to free the embedded buffer.
+///   - Wrapper-class → call `Az<Payload>_clone(payload)` for an independent allocation, wrap in the
+///     JS wrapper class, then `Az<Outer>_delete(_ret)` drops the original.
 ///   - Primitive / other → capture the value, then `_delete`.
 ///
 /// koffi auto-encodes JS objects into temp buffers when passing to
@@ -1147,9 +1151,8 @@ fn emit_instance_method(
         // Ruby/Lua 654b8cbd8):
         //   - AzString → decode UTF-8, then _delete to free Vec.ptr.
         //   - Wrapper-class → _clone payload first, then _delete.
-        //   - Primitive / other → capture value, _delete (no-op
-        //     heap-wise but consistent so future heap-bearing
-        //     payloads don't silently leak).
+        //   - Primitive / other → capture value, _delete (no-op heap-wise but consistent so future
+        //     heap-bearing payloads don't silently leak).
         b.line(&format!("const _ret = {};", call));
         for n in &consumed_args {
             b.line(&format!("_consume({});", n));
@@ -1299,7 +1302,7 @@ fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::
 // Argument helpers
 // ============================================================================
 
-fn user_args<'a>(f: &'a FunctionDef) -> Vec<&'a super::super::ir::FunctionArg> {
+fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
     let class_lower = f.class_name.to_lowercase();
     f.args
         .iter()

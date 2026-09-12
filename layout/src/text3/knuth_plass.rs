@@ -1,11 +1,11 @@
 //! An implementation of the Knuth-Plass line-breaking algorithm
 //! for simple rectangular layouts.
 
-#[cfg(not(feature = "text_layout_hyphenation"))]
-use crate::text3::cache::Standard;
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Standard};
 
+#[cfg(not(feature = "text_layout_hyphenation"))]
+use crate::text3::cache::Standard;
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
     is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
@@ -71,8 +71,8 @@ struct Breakpoint {
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
-/// - overflow-wrap: anywhere/break-word emergency breaks stay greedy-only
-///   (word-break / hyphens-driven opportunities ARE honoured here)
+/// - overflow-wrap: anywhere/break-word emergency breaks stay greedy-only (word-break /
+///   hyphens-driven opportunities ARE honoured here)
 // overflow-wrap emergency breaks; the greedy break_one_line path handles this
 pub(crate) fn kp_layout<T: ParsedFontTrait>(
     items: &[ShapedItem],
@@ -106,8 +106,10 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
 }
 
 /// Converts a slice of `ShapedItems` into the Box/Glue/Penalty model.
-// +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap, line-break) threaded via UnifiedConstraints
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+// +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap,
+// line-break) threaded via UnifiedConstraints
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
     hyphenator: Option<&Standard>,
@@ -120,7 +122,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
     let mut item_iter = items.iter().peekable();
 
     while let Some(item) = item_iter.next() {
-        // +spec:line-breaking:f12241 - shaping across intra-word breaks: shaped clusters preserve joining forms
+        // +spec:line-breaking:f12241 - shaping across intra-word breaks: shaped clusters preserve
+        // joining forms
         match item {
             item if is_zero_width_space(item) => {
                 nodes.push(LayoutNode::Penalty {
@@ -153,9 +156,10 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
             {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Box(item.clone(), width));
-                // +spec:line-breaking:2d3674 - U+002D/U+2010 are soft wrap opportunities, not hyphenation opportunities (no extra glyph inserted)
-                // Zero-width penalty: allows a line break after the visible
-                // hyphen character without inserting an additional hyphen glyph.
+                // +spec:line-breaking:2d3674 - U+002D/U+2010 are soft wrap opportunities, not
+                // hyphenation opportunities (no extra glyph inserted) Zero-width
+                // penalty: allows a line break after the visible hyphen character
+                // without inserting an additional hyphen glyph.
                 nodes.push(LayoutNode::Penalty {
                     item: None,
                     width: 0.0,
@@ -176,9 +180,9 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         //   * word separator     -> Glue + Penalty (soft wrap)
                         //   * zero-width space    -> Penalty (soft wrap)
                         //   * cluster ending '-'  -> Box + zero-width Penalty
-                        //     (+spec:line-breaking:2d3674 — U+002D/U+2010 are UAX#14
-                        //     class BA break opportunities AFTER the hyphen; a hyphen
-                        //     occurs mid-word, e.g. "well-being").
+                        //     (+spec:line-breaking:2d3674 — U+002D/U+2010 are UAX#14 class BA break
+                        //     opportunities AFTER the hyphen; a hyphen occurs mid-word, e.g.
+                        //     "well-being").
                         if is_word_separator(peeked_item)
                             || is_zero_width_space(peeked_item)
                             || next_cluster.text().ends_with('\u{002D}')
@@ -194,12 +198,13 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     }
                 }
 
-                // +spec:line-breaking:28a40b - Hyphenation is a rendering-only effect (no change to underlying content)
-                // +spec:line-breaking:f23fe8 - UA may use language-tailored heuristics (delegated to hyphenation crate)
+                // +spec:line-breaking:28a40b - Hyphenation is a rendering-only effect (no change to
+                // underlying content) +spec:line-breaking:f23fe8 - UA may use
+                // language-tailored heuristics (delegated to hyphenation crate)
                 // 2. Try to find all hyphenation opportunities for this word.
-                // +spec:display-property:508895 - hyphenation of direction-mismatched words is suppressed
-                // (CSS 2.2 §9.10 note: hyphenating an LTR word inside an RTL
-                // paragraph - or vice versa - would render the hyphen visually
+                // +spec:display-property:508895 - hyphenation of direction-mismatched words is
+                // suppressed (CSS 2.2 §9.10 note: hyphenating an LTR word inside an
+                // RTL paragraph - or vice versa - would render the hyphen visually
                 // MID-line rather than at the line edge, so UAs usually
                 // suppress it. The word's direction comes from its first
                 // cluster; the paragraph's from the logical items.)
@@ -308,7 +313,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 nodes.push(LayoutNode::Glue {
                     item: item.clone(),
                     width: bounds.width,
-                    stretch: bounds.width * SPACE_STRETCH_RATIO, // Treat like a space for flexibility
+                    stretch: bounds.width * SPACE_STRETCH_RATIO, /* Treat like a space for
+                                                                  * flexibility */
                     shrink: bounds.width * SPACE_SHRINK_RATIO,
                 });
             }
@@ -349,7 +355,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
 /// Uses dynamic programming to find the optimal set of line breaks.
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[allow(clippy::cognitive_complexity)] // cohesive Knuth-Plass DP: one branch per break class
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
@@ -556,8 +563,10 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
     breaks: &[usize],
@@ -616,11 +625,12 @@ fn position_lines_from_breaks(
             is_last_line || ends_with_forced_break,
         );
 
-        // +spec:display-contents:858337 - text-align justification: last line start-aligned, justify-all forces last line justify
-        // +spec:display-property:50e074 - justify stretches spaces/words in inline boxes, not inline-table/inline-block
-        // +spec:display-property:ce8d54 - text-justify selects justification method, inherited from block containers to root inline box
-        // Justify ONLY when the RESOLVED alignment says so.
-        // `resolve_effective_alignment` already encodes the last-line and
+        // +spec:display-contents:858337 - text-align justification: last line start-aligned,
+        // justify-all forces last line justify +spec:display-property:50e074 - justify
+        // stretches spaces/words in inline boxes, not inline-table/inline-block
+        // +spec:display-property:ce8d54 - text-justify selects justification method, inherited from
+        // block containers to root inline box Justify ONLY when the RESOLVED alignment says
+        // so. `resolve_effective_alignment` already encodes the last-line and
         // forced-break rules (§6.1/§6.3: Justify degrades to Start there,
         // JustifyAll does not), so no extra last-line disjunct belongs here.
         // The old gate justified every non-last line whenever text-justify
@@ -686,7 +696,8 @@ fn position_lines_from_breaks(
             (other, _) => other,
         };
 
-        // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end edge)
+        // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end
+        // edge)
         let mut main_axis_pen = if remaining_space < 0.0 {
             0.0
         } else {
@@ -697,10 +708,11 @@ fn position_lines_from_breaks(
             }
         };
 
-        // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line as usual
-        // +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
+        // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line
+        // as usual +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
         if constraints.text_indent != 0.0 {
-            // TODO: with text-indent-each-line, also detect lines after forced breaks in the KP path
+            // TODO: with text-indent-each-line, also detect lines after forced breaks in the KP
+            // path
             let is_indent_target = line_index == 0;
             let should_indent = if constraints.text_indent_hanging {
                 !is_indent_target
@@ -743,7 +755,8 @@ fn position_lines_from_breaks(
             }
         }
 
-        // +spec:box-model:96f5a7 - line box height uses line-height only; inline margins/borders/padding do not enter calculation
+        // +spec:box-model:96f5a7 - line box height uses line-height only; inline
+        // margins/borders/padding do not enter calculation
         cross_axis_pen += constraints.resolved_line_height();
         start_node = end_node;
     }
@@ -763,11 +776,13 @@ fn position_lines_from_breaks(
 
 #[cfg(test)]
 mod kp_fix_tests {
-    use super::*;
-    use crate::text3::cache::{ShapedCluster, StyleProperties, UnifiedConstraints};
+    use std::sync::Arc;
+
     use azul_core::selection::{ContentIndex, GraphemeClusterId};
     use azul_css::props::basic::FontRef;
-    use std::sync::Arc;
+
+    use super::*;
+    use crate::text3::cache::{ShapedCluster, StyleProperties, UnifiedConstraints};
 
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
@@ -1626,8 +1641,8 @@ mod autotest_generated {
         let lines = line_count(&layout);
         assert!(
             lines >= 4,
-            "at most 2 of these 41px words fit per 100px line, so 8 words need \
-             >= 4 lines; got {lines}"
+            "at most 2 of these 41px words fit per 100px line, so 8 words need >= 4 lines; got \
+             {lines}"
         );
         for line in 0..lines {
             assert!(
@@ -1859,7 +1874,8 @@ mod autotest_generated {
 
         assert!(
             n_pen_break_all > n_pen_normal,
-            "break-all must add intra-word opportunities: normal={n_pen_normal}, break-all={n_pen_break_all}"
+            "break-all must add intra-word opportunities: normal={n_pen_normal}, \
+             break-all={n_pen_break_all}"
         );
         // Three inter-cluster boundaries + the terminal forced break.
         assert_eq!(n_pen_break_all, n_pen_normal + 3);
@@ -2106,8 +2122,7 @@ mod autotest_generated {
             .join(" ");
         assert_eq!(
             round_tripped, "aa bb cccc",
-            "re-joining the lines with their trimmed break spaces must \
-             reproduce the source text"
+            "re-joining the lines with their trimmed break spaces must reproduce the source text"
         );
     }
 

@@ -10,8 +10,7 @@
 
 use std::{cell::RefCell, collections::BTreeMap};
 
-use super::super::common::debug_server::LogCategory;
-use super::dlopen::HWND;
+use super::{super::common::debug_server::LogCategory, dlopen::HWND};
 use crate::log_debug;
 
 thread_local! {

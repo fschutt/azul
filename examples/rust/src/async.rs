@@ -1,5 +1,7 @@
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use azul::prelude::*;
 
@@ -304,8 +306,8 @@ fn tile_dom(
     top: f32,
 ) -> Dom {
     let mut tile = Dom::create_div().with_css(format!(
-        "position: absolute; left: {left:.0}px; top: {top:.0}px; \
-         width: {TILE_PX:.0}px; height: {TILE_PX:.0}px; overflow: hidden;"
+        "position: absolute; left: {left:.0}px; top: {top:.0}px; width: {TILE_PX:.0}px; height: \
+         {TILE_PX:.0}px; overflow: hidden;"
     ));
 
     let cells = match entry {
@@ -434,8 +436,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     let header = Dom::create_div()
         .with_css(
-            "display: flex; flex-direction: row; align-items: center; height: 44px; \
-             padding-left: 14px; padding-right: 14px; background: #24303f; color: white;",
+            "display: flex; flex-direction: row; align-items: center; height: 44px; padding-left: \
+             14px; padding-right: 14px; background: #24303f; color: white;",
         )
         .with_child(
             Dom::create_div_with_text("Azul Maps")
@@ -451,8 +453,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let footer =
         Dom::create_div_with_text("drag to pan   -   tiles are generated on worker threads")
             .with_css(
-                "height: 22px; line-height: 22px; padding-left: 14px; background: #f3f5f7; \
-             color: #5b6875; font-size: 11px; border-top: 1px solid #d3d9df;",
+                "height: 22px; line-height: 22px; padding-left: 14px; background: #f3f5f7; color: \
+                 #5b6875; font-size: 11px; border-top: 1px solid #d3d9df;",
             );
 
     let stage = Dom::create_div()

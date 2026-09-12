@@ -3,9 +3,8 @@
 use std::sync::Arc;
 
 use azul_css::props::basic::ColorU;
-use hyphenation::{Language, Load, Standard};
-
 use azul_layout::text3::{cache::*, script::Script};
+use hyphenation::{Language, Load, Standard};
 
 use super::{create_mock_font_manager, default_style};
 
@@ -128,14 +127,12 @@ fn test_bug3_rtl_glyph_reversal() {
 }
 
 #[test]
-#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
-            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
-            encodes a hard-coded coordinate from the OLD text3 generation \
-            (line-item counts, glyph x/y, cursor offsets). They run fine \
-            headless — they are not hardware-gated — so this is a real \
-            old-vs-new behavioural delta someone must adjudicate per test \
-            (stale expectation vs. genuine regression). Kept ignored, not \
-            deleted, because the numbers are the only record of the old \
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` fails 12/12. \
+            Revived 2026-08-10 after years dormant; each of these encodes a hard-coded coordinate \
+            from the OLD text3 generation (line-item counts, glyph x/y, cursor offsets). They run \
+            fine headless — they are not hardware-gated — so this is a real old-vs-new behavioural \
+            delta someone must adjudicate per test (stale expectation vs. genuine regression). \
+            Kept ignored, not deleted, because the numbers are the only record of the old \
             behaviour."]
 fn test_simple_line_break() {
     let cache = TextShapingCache::new();

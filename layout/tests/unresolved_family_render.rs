@@ -51,8 +51,8 @@ fn text_in_a_family_that_exists_nowhere_renders_in_a_fallback() {
     let dark = render_text_in("\"Definitely Not Installed Sans\"");
     assert!(
         dark > 50,
-        "text in an unresolved family painted {dark} dark pixels — layout resolved a \
-         fallback face but the renderer could not draw it"
+        "text in an unresolved family painted {dark} dark pixels — layout resolved a fallback \
+         face but the renderer could not draw it"
     );
 }
 
@@ -64,7 +64,7 @@ fn the_shipped_demos_cantarell_stack_renders_either_way() {
     let dark = render_text_in("Cantarell, Sans, sans-serif");
     assert!(
         dark > 50,
-        "Cantarell/Sans/sans-serif painted {dark} dark pixels — this is the shipped \
-         widgets-demo font stack"
+        "Cantarell/Sans/sans-serif painted {dark} dark pixels — this is the shipped widgets-demo \
+         font stack"
     );
 }

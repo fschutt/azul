@@ -4,7 +4,6 @@
 use alloc::rc::Rc;
 use core::{fmt, mem, ptr};
 
-use crate::desktop::shell2::common::gl_loader::load_gl_context;
 use gl_context_loader::GenericGlContext;
 use winapi::shared::{
     minwindef::{BOOL, HINSTANCE, LOWORD, TRUE},
@@ -15,6 +14,7 @@ use super::{
     dlopen::{encode_wide, Win32Libraries, HWND, POINT, RECT, WNDCLASSW},
     wcreate::CLASS_NAME,
 };
+use crate::desktop::shell2::common::gl_loader::load_gl_context;
 
 /// OpenGL functions from `wglGetProcAddress` OR loaded from `opengl32.dll`.
 pub struct GlFunctions {

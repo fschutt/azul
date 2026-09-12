@@ -748,9 +748,9 @@ fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
     };
     // pre-order: 0=body, 1=title, 2=canvas, 3=sheet, 4=status
 
-    // 1. min-height:0 -> canvas gets the LEFTOVER (800-100-24=676) and the
-    //    status bar stays on-window. Also proves body height:100% resolves
-    //    against the viewport (the app-root pattern).
+    // 1. min-height:0 -> canvas gets the LEFTOVER (800-100-24=676) and the status bar stays
+    //    on-window. Also proves body height:100% resolves against the viewport (the app-root
+    //    pattern).
     let (dom, css) = word_shell("flex-grow: 1; min-height: 0px; overflow: hidden;");
     let lw = layout_dom(dom, &css, 1280.0, 800.0);
     let canvas = lw.get_node_layout_rect(node(2)).expect("canvas rect");
@@ -766,20 +766,19 @@ fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
         status.origin.y
     );
 
-    // 2. Control (spec): WITHOUT min-height:0 and with overflow:visible the
-    //    automatic minimum size holds the canvas at content height.
+    // 2. Control (spec): WITHOUT min-height:0 and with overflow:visible the automatic minimum size
+    //    holds the canvas at content height.
     let (dom, css) = word_shell("flex-grow: 1;");
     let lw = layout_dom(dom, &css, 1280.0, 800.0);
     let canvas = lw.get_node_layout_rect(node(2)).expect("canvas rect");
     assert!(
         canvas.size.height >= 1122.0,
-        "automatic minimum (overflow:visible, min-height:auto) must hold \
-         content size 1123, got {}",
+        "automatic minimum (overflow:visible, min-height:auto) must hold content size 1123, got {}",
         canvas.size.height
     );
 
-    // 3. Control (spec 4.5): overflow:hidden alone zeroes the automatic
-    //    minimum — min-height:0 is not even needed then.
+    // 3. Control (spec 4.5): overflow:hidden alone zeroes the automatic minimum — min-height:0 is
+    //    not even needed then.
     let (dom, css) = word_shell("flex-grow: 1; overflow: hidden;");
     let lw = layout_dom(dom, &css, 1280.0, 800.0);
     let canvas = lw.get_node_layout_rect(node(2)).expect("canvas rect");
@@ -789,10 +788,9 @@ fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
         canvas.size.height
     );
 
-    // 4. The miniword failure shape: NO definite column height (block body,
-    //    height:auto). The column grows to content, the canvas cannot
-    //    shrink (nothing to shrink INTO), the status bar leaves the window
-    //    — browser-identical behavior, pinned so the docs can point at it.
+    // 4. The miniword failure shape: NO definite column height (block body, height:auto). The
+    //    column grows to content, the canvas cannot shrink (nothing to shrink INTO), the status bar
+    //    leaves the window — browser-identical behavior, pinned so the docs can point at it.
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("col".into())].into())
@@ -826,8 +824,8 @@ fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
     let status = lw.get_node_layout_rect(node(5)).expect("status rect");
     assert!(
         status.origin.y >= 800.0,
-        "without a definite column height the status bar MUST fall \
-         off-window (browser parity), got y={}",
+        "without a definite column height the status bar MUST fall off-window (browser parity), \
+         got y={}",
         status.origin.y
     );
 }

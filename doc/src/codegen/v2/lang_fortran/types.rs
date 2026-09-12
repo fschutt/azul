@@ -2,40 +2,39 @@
 //!
 //! Strategy:
 //!
-//! - **POD structs** map to `type, bind(C) :: AzFoo ... end type AzFoo`.
-//!   Fortran `bind(C)` derived types have C-compatible memory layout
-//!   (matches Rust's `#[repr(C)]`), so values can flow across the FFI
-//!   boundary by value.
-//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which
-//!   has fixed underlying integer kind compatible with C `int`) plus
-//!   a public `integer(c_int)` named alias so users can declare
+//! - **POD structs** map to `type, bind(C) :: AzFoo ... end type AzFoo`. Fortran `bind(C)` derived
+//!   types have C-compatible memory layout (matches Rust's `#[repr(C)]`), so values can flow across
+//!   the FFI boundary by value.
+//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which has fixed underlying integer
+//!   kind compatible with C `int`) plus a public `integer(c_int)` named alias so users can declare
 //!   `integer(c_int) :: my_button = AzButtonType_Primary`.
-//! - **Tagged-union enums** have no native equivalent in Fortran; we
-//!   emit a derived type holding an ABI-opaque blob with the EXACT
-//!   size and alignment of the C `repr(C,u8)` union (computed by
-//!   `super::layout`). Anything else corrupts every struct that embeds
-//!   a union by value — see the 2026-07 e2e SIGSEGV post-mortem. The
-//!   `_TAG_*` enumerator constants are still emitted for reference.
-//! - **Callback typedefs** become `abstract interface` blocks plus a
-//!   `procedure(...), pointer :: AzFooCallbackType` alias. Fortran
-//!   procedure pointers with `bind(C)` are exactly C function pointers.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types
-//!   are emitted as ABI-opaque blob stand-ins when their layout is
-//!   computable (they ARE embedded by value — every `AzXVec` carries an
-//!   `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
+//! - **Tagged-union enums** have no native equivalent in Fortran; we emit a derived type holding an
+//!   ABI-opaque blob with the EXACT size and alignment of the C `repr(C,u8)` union (computed by
+//!   `super::layout`). Anything else corrupts every struct that embeds a union by value — see the
+//!   2026-07 e2e SIGSEGV post-mortem. The `_TAG_*` enumerator constants are still emitted for
+//!   reference.
+//! - **Callback typedefs** become `abstract interface` blocks plus a `procedure(...), pointer ::
+//!   AzFooCallbackType` alias. Fortran procedure pointers with `bind(C)` are exactly C function
+//!   pointers.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types are emitted as ABI-opaque
+//!   blob stand-ins when their layout is computable (they ARE embedded by value — every `AzXVec`
+//!   carries an `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
-};
-use super::layout::{blob_field_decl, mono_layout, type_layout};
 use super::{
-    ffi_type_name, map_type_to_fortran, sanitize_comment_line, sanitize_identifier,
-    truncate_identifier,
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef,
+            TypeCategory,
+        },
+    },
+    ffi_type_name,
+    layout::{blob_field_decl, mono_layout, type_layout},
+    map_type_to_fortran, sanitize_comment_line, sanitize_identifier, truncate_identifier,
 };
 
 // ============================================================================
@@ -52,13 +51,12 @@ pub fn generate_types(
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
-    // 1. Unit (simple) enums first so they may appear in derived-type
-    //    field declarations as `integer(c_int)` aliases. Skipped-category
-    //    tagged unions (DestructorOrClone etc.) are embedded BY VALUE in
-    //    regular structs (every AzXVec carries an AzXVecDestructor), so
-    //    they get an ABI-opaque blob stand-in here — mapping them to
-    //    `type(c_ptr)` shrank every embedding struct and corrupted all
-    //    by-value FFI calls (2026-07 Fortran e2e SIGSEGV root cause).
+    // 1. Unit (simple) enums first so they may appear in derived-type field declarations as
+    //    `integer(c_int)` aliases. Skipped-category tagged unions (DestructorOrClone etc.) are
+    //    embedded BY VALUE in regular structs (every AzXVec carries an AzXVecDestructor), so they
+    //    get an ABI-opaque blob stand-in here — mapping them to `type(c_ptr)` shrank every
+    //    embedding struct and corrupted all by-value FFI calls (2026-07 Fortran e2e SIGSEGV root
+    //    cause).
     for e in &ir.enums {
         if !should_include_enum(e, config) {
             if e.is_union && e.generic_params.is_empty() {

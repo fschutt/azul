@@ -55,9 +55,9 @@ fn sample_html(paragraphs: usize, edited: Option<usize>) -> String {
     for i in 0..paragraphs {
         let suffix = if edited == Some(i) { "X" } else { "" };
         s.push_str(&format!(
-            "<p>Paragraph number {i}: lorem ipsum dolor sit amet, consectetur \
-             adipiscing elit, sed do eiusmod tempor incididunt ut labore et \
-             dolore magna aliqua nostrud exercitation.{suffix}</p>\n"
+            "<p>Paragraph number {i}: lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+             sed do eiusmod tempor incididunt ut labore et dolore magna aliqua nostrud \
+             exercitation.{suffix}</p>\n"
         ));
     }
     s.push_str("</body></html>");
@@ -248,8 +248,8 @@ fn frame_cost_idle_edit_and_resize() {
 
     if cfg!(debug_assertions) {
         eprintln!(
-            "[frame] *** DEBUG BUILD — these numbers are NOT the shipped cost. \
-             Re-run with --release before drawing any conclusion. ***"
+            "[frame] *** DEBUG BUILD — these numbers are NOT the shipped cost. Re-run with \
+             --release before drawing any conclusion. ***"
         );
     }
 

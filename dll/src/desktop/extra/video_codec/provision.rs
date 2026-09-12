@@ -4,19 +4,17 @@
 //! but drivers are available — install them?" flow without hand-rolling any of
 //! the platform plumbing:
 //!
-//! 1. **Probe** ([`probe_hw_decode`]): can this machine hardware-decode H.264
-//!    *right now*? On Apple/Android the platform codec (VideoToolbox /
-//!    MediaCodec) is always present; on Linux/Windows we dlopen the Vulkan
-//!    loader and look for `VK_KHR_video_decode_h264` on any physical device
-//!    (gpu-video, our decode backend there, needs Vulkan Video). Drives
+//! 1. **Probe** ([`probe_hw_decode`]): can this machine hardware-decode H.264 *right now*? On
+//!    Apple/Android the platform codec (VideoToolbox / MediaCodec) is always present; on
+//!    Linux/Windows we dlopen the Vulkan loader and look for `VK_KHR_video_decode_h264` on any
+//!    physical device (gpu-video, our decode backend there, needs Vulkan Video). Drives
 //!    `capability::video_codec()`.
 //!
-//! 2. **Plan + run** ([`ProvisionPlan`]): if decode is *not* available but the
-//!    drivers that would enable it can be installed, build the exact command
-//!    list — kept as `program` + `args` + an `elevated` flag — so the app can
-//!    show the user precisely what will run *before* anything executes, then
-//!    [`ProvisionPlan::run`] it (elevation via `pkexec`, i.e. a graphical
-//!    password prompt — we never touch the password ourselves).
+//! 2. **Plan + run** ([`ProvisionPlan`]): if decode is *not* available but the drivers that would
+//!    enable it can be installed, build the exact command list — kept as `program` + `args` + an
+//!    `elevated` flag — so the app can show the user precisely what will run *before* anything
+//!    executes, then [`ProvisionPlan::run`] it (elevation via `pkexec`, i.e. a graphical password
+//!    prompt — we never touch the password ourselves).
 //!
 //! Driver facts (researched 2026-06): Vulkan Video decode ships in the NVIDIA
 //! proprietary driver (all supported GPUs) and in recent Mesa for AMD (RADV) and
@@ -121,7 +119,8 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
                     available: false,
                     backend: "Vulkan Video",
                     detail: String::from(
-                        "Vulkan present but no VK_KHR_video_decode_h264 (driver lacks video decode)",
+                        "Vulkan present but no VK_KHR_video_decode_h264 (driver lacks video \
+                         decode)",
                     ),
                     can_remediate: plan.possible,
                 }
@@ -367,13 +366,12 @@ pub struct ProvisionPlan {
     pub needs_elevation: bool,
     /// How elevation is obtained, so the app can message correctly and decide
     /// whether to offer an in-app "Install" button:
-    /// - `"pkexec"` — the **secure path**: polkit shows the OS's own trusted
-    ///   password/biometric dialog; our process never sees the secret. (Polkit
-    ///   itself can use a fingerprint via `pam_fprintd` — the same backend
-    ///   azul-vault uses — if the admin configured it.) Safe to run from a GUI.
-    /// - `"sudo"` — only works from a real terminal (sudo prompts on the tty).
-    ///   A GUI should show the commands and ask the user to run them, NOT collect
-    ///   the password itself.
+    /// - `"pkexec"` — the **secure path**: polkit shows the OS's own trusted password/biometric
+    ///   dialog; our process never sees the secret. (Polkit itself can use a fingerprint via
+    ///   `pam_fprintd` — the same backend azul-vault uses — if the admin configured it.) Safe to
+    ///   run from a GUI.
+    /// - `"sudo"` — only works from a real terminal (sudo prompts on the tty). A GUI should show
+    ///   the commands and ask the user to run them, NOT collect the password itself.
     /// - `"none"` — no elevation needed, or no escalator available.
     pub elevation: String,
     /// A reboot is needed afterwards (driver swap).
@@ -427,8 +425,8 @@ impl ProvisionPlan {
             ProvisionPlan::from_commands(
                 String::from(
                     "Update your GPU driver to one with Vulkan Video decode. On Windows the \
-                     driver comes from the GPU vendor; this opens winget to install it. A \
-                     reboot may be required.",
+                     driver comes from the GPU vendor; this opens winget to install it. A reboot \
+                     may be required.",
                 ),
                 true,
                 vec![ProvisionCommand::new(
@@ -1073,13 +1071,13 @@ impl VideoEncodeCheck {
             )
         } else {
             String::from(
-                "No H.264 encoder available: no hardware encode and no software x264 \
-                 (install gstreamer1.0-plugins-ugly).",
+                "No H.264 encoder available: no hardware encode and no software x264 (install \
+                 gstreamer1.0-plugins-ugly).",
             )
         };
         let detail = format!(
-            "hardware encode: available={hw} backend={backend} — {hw_detail}\n\
-             software fallback (gstreamer x264enc): {}",
+            "hardware encode: available={hw} backend={backend} — {hw_detail}\nsoftware fallback \
+             (gstreamer x264enc): {}",
             if software_fallback {
                 "available"
             } else {
@@ -1158,7 +1156,7 @@ fn software_x264_available() -> bool {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
         // `gst-inspect-1.0 x264enc` exits 0 iff the element is registered.
-        return std::process::Command::new("gst-inspect-1.0")
+        return Command::new("gst-inspect-1.0")
             .arg("x264enc")
             .output()
             .map(|o| o.status.success())
@@ -1256,11 +1254,11 @@ fn elevator() -> Option<&'static str> {
 // whose `nvidia-drm` lacks `fbdev` console takeover (e.g. the 535 branch) never
 // evicts it, so a Wayland desktop composites but never lights the panel — it
 // "boots black" until a VT switch. The fixes, encoded here:
-//   1. pick a driver branch that HAS fbdev (>= 545) and ships signed modules for
-//      the running kernel (no DKMS, no new kernel pulled), so Wayland boots lit;
-//   2. belt-and-suspenders, stage a reversible X11-session fallback for the
-//      display manager so a fresh boot can NEVER land on black, even if the GPU
-//      path misbehaves (the nvidia Xorg driver lights the panel regardless).
+//   1. pick a driver branch that HAS fbdev (>= 545) and ships signed modules for the running kernel
+//      (no DKMS, no new kernel pulled), so Wayland boots lit;
+//   2. belt-and-suspenders, stage a reversible X11-session fallback for the display manager so a
+//      fresh boot can NEVER land on black, even if the GPU path misbehaves (the nvidia Xorg driver
+//      lights the panel regardless).
 
 /// Firmware booted via UEFI — the kernel then sets up an EFI simple-framebuffer
 /// the proprietary NVIDIA driver must take over, or the desktop boots black.
@@ -1429,10 +1427,10 @@ fn visible_login_net_commands() -> Vec<ProvisionCommand> {
                 None => return Vec::new(),
             };
             format!(
-                "install -d /etc/lightdm/lightdm.conf.d && printf '%s\\n' \
-                 '# azul: guaranteed-visible X11 fallback so nvidia+Wayland cannot boot black. Delete to restore.' \
-                 '[Seat:*]' 'user-session={sess}' 'autologin-session={sess}' \
-                 > /etc/lightdm/lightdm.conf.d/99-azul-x11-fallback.conf"
+                "install -d /etc/lightdm/lightdm.conf.d && printf '%s\\n' '# azul: \
+                 guaranteed-visible X11 fallback so nvidia+Wayland cannot boot black. Delete to \
+                 restore.' '[Seat:*]' 'user-session={sess}' 'autologin-session={sess}' > \
+                 /etc/lightdm/lightdm.conf.d/99-azul-x11-fallback.conf"
             )
         }
         "sddm" => {
@@ -1441,10 +1439,9 @@ fn visible_login_net_commands() -> Vec<ProvisionCommand> {
                 None => return Vec::new(),
             };
             format!(
-                "install -d /etc/sddm.conf.d && printf '%s\\n' \
-                 '# azul: guaranteed-visible X11 fallback. Delete to restore.' \
-                 '[Autologin]' 'Session={sess}.desktop' \
-                 > /etc/sddm.conf.d/99-azul-x11-fallback.conf"
+                "install -d /etc/sddm.conf.d && printf '%s\\n' '# azul: guaranteed-visible X11 \
+                 fallback. Delete to restore.' '[Autologin]' 'Session={sess}.desktop' > \
+                 /etc/sddm.conf.d/99-azul-x11-fallback.conf"
             )
         }
         "gdm" => String::from(
@@ -1551,8 +1548,8 @@ fn nvidia_plan() -> ProvisionPlan {
         return ProvisionPlan::from_commands(
             format!(
                 "Install {} plus its signed modules for the running kernel (no DKMS build, no new \
-                 kernel pulled), for Vulkan Video H.264/H.265 hardware decode. {} Replaces nouveau; \
-                 needs a reboot (MOK enrolment under Secure Boot).{}",
+                 kernel pulled), for Vulkan Video H.264/H.265 hardware decode. {} Replaces \
+                 nouveau; needs a reboot (MOK enrolment under Secure Boot).{}",
                 choice.driver_pkg, fbdev_note, net_suffix
             ),
             true,
@@ -1946,9 +1943,9 @@ mod provision_tests {
     /// have stopped the incident: the new kernel lacked the root-disk driver.
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "needs a real Linux desktop: inspects /lib/modules + /boot for the \
-                running and a synthetic kernel; minimal CI runners lack that baseline \
-                so reboot_safety_check can't distinguish a bare kernel. Run explicitly."]
+    #[ignore = "needs a real Linux desktop: inspects /lib/modules + /boot for the running and a \
+                synthetic kernel; minimal CI runners lack that baseline so reboot_safety_check \
+                can't distinguish a bare kernel. Run explicitly."]
     fn reboot_safety_passes_running_kernel_fails_a_bare_one() {
         if let Some(kver) = capture("uname", &["-r"]) {
             let r = reboot_safety_check(&kver);
@@ -1988,9 +1985,8 @@ mod provision_tests {
     /// modules-extra and rebuilds the initramfs; a healthy one yields nothing.
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "needs a real Linux desktop: depends on apt package metadata + kernel \
-                module trees to build a repair plan; minimal CI runners lack them. \
-                Run explicitly."]
+    #[ignore = "needs a real Linux desktop: depends on apt package metadata + kernel module trees \
+                to build a repair plan; minimal CI runners lack them. Run explicitly."]
     fn repair_plan_targets_modules_extra() {
         if let Some(kver) = capture("uname", &["-r"]) {
             assert!(
@@ -2022,8 +2018,10 @@ mod provision_tests {
         let listing = "\
 nvidia-driver-535, (kernel modules provided by linux-modules-nvidia-535-generic-hwe-24.04)
 nvidia-driver-580, (kernel modules provided by linux-modules-nvidia-580-generic-hwe-24.04)
-nvidia-driver-535-server, (kernel modules provided by linux-modules-nvidia-535-server-generic-hwe-24.04)
-nvidia-driver-580-open, (kernel modules provided by linux-modules-nvidia-580-open-generic-hwe-24.04)";
+nvidia-driver-535-server, (kernel modules provided by \
+                       linux-modules-nvidia-535-server-generic-hwe-24.04)
+nvidia-driver-580-open, (kernel modules provided by \
+                       linux-modules-nvidia-580-open-generic-hwe-24.04)";
         let choice = parse_nvidia_listing(listing).expect("a branch is chosen");
         assert_eq!(
             choice.driver_pkg, "nvidia-driver-580",
@@ -2038,8 +2036,8 @@ nvidia-driver-580-open, (kernel modules provided by linux-modules-nvidia-580-ope
 
         // A 535-only box still gets a plan (535), but flagged no-fbdev so the net
         // is the thing that keeps it from booting black.
-        let only535 =
-            "nvidia-driver-535, (kernel modules provided by linux-modules-nvidia-535-generic-hwe-24.04)";
+        let only535 = "nvidia-driver-535, (kernel modules provided by \
+                       linux-modules-nvidia-535-generic-hwe-24.04)";
         let c = parse_nvidia_listing(only535).unwrap();
         assert_eq!(c.branch, 535);
         assert!(!c.has_fbdev);

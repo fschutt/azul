@@ -10,22 +10,20 @@
 //!
 //! # Provenance and licences (credit is REQUIRED, see `MapTheme::credit`)
 //!
-//! * `POSITRON`, `DARK`, `BRIGHT`, `LIBERTY` are palette extractions from
-//!   the styles `OpenFreeMap` publishes at `tiles.openfreemap.org/styles/*`
-//!   (repo `hyperknot/openfreemap-styles`, MIT). The styles themselves:
-//!   Positron and Dark (Dark Matter) — CARTO basemaps designed by Stamen
-//!   and Paul Norman, forked via `openmaptiles/positron-gl-style` and
-//!   `openmaptiles/dark-matter-gl-style`; Bright — `openmaptiles/
-//!   osm-bright-gl-style`; Liberty — `maputnik/osm-liberty`. Each is
-//!   BSD-3-Clause (code) and CC BY 4.0 (design); the design licence is
-//!   what applies to a palette, and CC BY 4.0 permits this use WITH
-//!   attribution — which the widget shows in its attribution line.
-//! * `GOOGLE_NIGHT` is the "Night mode" style array from the Google Maps
-//!   Platform documentation (`developers.google.com/maps/documentation/
-//!   javascript/examples/style-array`), whose code samples are Apache-2.0.
-//! * `GOOGLE_LIGHT`, `APPLE_LIGHT`, `APPLE_DARK` are AUTHORED here to
-//!   resemble the familiar default looks of those products; no asset,
-//!   style file or trademark of theirs is used — colour values only.
+//! * `POSITRON`, `DARK`, `BRIGHT`, `LIBERTY` are palette extractions from the styles `OpenFreeMap`
+//!   publishes at `tiles.openfreemap.org/styles/*` (repo `hyperknot/openfreemap-styles`, MIT). The
+//!   styles themselves: Positron and Dark (Dark Matter) — CARTO basemaps designed by Stamen and
+//!   Paul Norman, forked via `openmaptiles/positron-gl-style` and
+//!   `openmaptiles/dark-matter-gl-style`; Bright — `openmaptiles/ osm-bright-gl-style`; Liberty —
+//!   `maputnik/osm-liberty`. Each is BSD-3-Clause (code) and CC BY 4.0 (design); the design licence
+//!   is what applies to a palette, and CC BY 4.0 permits this use WITH attribution — which the
+//!   widget shows in its attribution line.
+//! * `GOOGLE_NIGHT` is the "Night mode" style array from the Google Maps Platform documentation
+//!   (`developers.google.com/maps/documentation/ javascript/examples/style-array`), whose code
+//!   samples are Apache-2.0.
+//! * `GOOGLE_LIGHT`, `APPLE_LIGHT`, `APPLE_DARK` are AUTHORED here to resemble the familiar default
+//!   looks of those products; no asset, style file or trademark of theirs is used — colour values
+//!   only.
 
 /// CARTO Positron via `OpenFreeMap` — the light, desaturated reference look.
 pub const POSITRON: &str = r"

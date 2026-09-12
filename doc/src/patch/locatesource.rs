@@ -553,7 +553,7 @@ fn find_method_in_ast(
                     .path
                     .segments
                     .last()
-                    .map_or(false, |seg| seg.ident == type_name),
+                    .is_some_and(|seg| seg.ident == type_name),
                 _ => false,
             };
 

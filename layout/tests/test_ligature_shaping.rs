@@ -5,10 +5,14 @@
 //! Roman do NOT have `liga` under `latn` — they only have it for Arabic.
 //! This matches HarfBuzz behavior (confirmed via `hb-shape`).
 
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::text3::cache::{BidiDirection, StyleProperties};
-use azul_layout::text3::default::shape_text_for_parsed_font;
-use azul_layout::text3::script::Script;
+use azul_layout::{
+    font::parsed::ParsedFont,
+    text3::{
+        cache::{BidiDirection, StyleProperties},
+        default::shape_text_for_parsed_font,
+        script::Script,
+    },
+};
 use hyphenation::Language;
 
 fn load_times_new_roman() -> Option<ParsedFont> {

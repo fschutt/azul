@@ -52,9 +52,9 @@ impl WorkspaceIndex {
     /// ties, which made path correction oscillate run-to-run and sometimes
     /// pick a shallow path):
     ///   1. highest-priority crate (lowest `priority`),
-    ///   2. then the LONGEST fully-qualified path — i.e. the real definition
-    ///      module (`azul_core::window::WindowSize`), never a shallow
-    ///      re-export/alias (`azul_core::WindowSize`),
+    ///   2. then the LONGEST fully-qualified path — i.e. the real definition module
+    ///      (`azul_core::window::WindowSize`), never a shallow re-export/alias
+    ///      (`azul_core::WindowSize`),
     ///   3. then the path string itself as a final stable tiebreak.
     pub fn get_best_location(&self, type_name: &str) -> Option<&TypeLocation> {
         self.types.get(type_name).and_then(|locs| {
@@ -144,7 +144,7 @@ fn scan_crate_directory(
             };
 
             scan_crate_directory(index, crate_name, &path, &new_prefix);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             // Parse Rust file for type definitions
             let file_name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
 

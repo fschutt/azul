@@ -1,11 +1,14 @@
 //! CSS properties for managing content overflow.
 
-use crate::corety::{AzString, OptionF32};
 use alloc::string::{String, ToString};
 
-use crate::props::formatter::PrintAsCssValue;
+use crate::{
+    corety::{AzString, OptionF32},
+    props::formatter::PrintAsCssValue,
+};
 
-// +spec:overflow:647a7b - overflow property (visible/hidden/clip/scroll/auto), overflow-clip-margin, text-overflow defined in CSS Overflow 3
+// +spec:overflow:647a7b - overflow property (visible/hidden/clip/scroll/auto),
+// overflow-clip-margin, text-overflow defined in CSS Overflow 3
 /// Represents an `overflow-x` or `overflow-y` property.
 ///
 /// Determines what to do when content overflows an element's box.
@@ -34,9 +37,10 @@ impl LayoutOverflow {
     /// - `overflow: scroll` always shows the scrollbar.
     /// - `overflow: auto` only shows the scrollbar if the content is currently overflowing.
     /// - `overflow: hidden`, `overflow: visible`, and `overflow: clip` do not show any scrollbars.
-    // +spec:overflow:2bf182 - overflow:scroll always shows scrollbar whether or not content is clipped
-    // +spec:overflow:84cd40 - scroll value always displays scrollbar for accessing clipped content
-    // +spec:overflow:8fcdd8 - auto causes scrolling mechanism for overflowing boxes (table exception is UA-level)
+    // +spec:overflow:2bf182 - overflow:scroll always shows scrollbar whether or not content is
+    // clipped +spec:overflow:84cd40 - scroll value always displays scrollbar for accessing
+    // clipped content +spec:overflow:8fcdd8 - auto causes scrolling mechanism for overflowing
+    // boxes (table exception is UA-level)
     #[must_use]
     pub const fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
         match self {
@@ -48,8 +52,9 @@ impl LayoutOverflow {
 
     // +spec:overflow:145749 - overflow:hidden clips content to containing element box
     // +spec:overflow:3dc18e - overflow:hidden clips content with no scrolling UI
-    // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does not cause overflow
-    // +spec:overflow:fd38ce - overflow properties specify whether a box's content is clipped / scroll container
+    // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does
+    // not cause overflow +spec:overflow:fd38ce - overflow properties specify whether a box's
+    // content is clipped / scroll container
     /// Returns `true` if this overflow value clips content (everything except `visible`).
     #[must_use]
     pub const fn is_clipped(&self) -> bool {
@@ -63,7 +68,8 @@ impl LayoutOverflow {
         matches!(self, Self::Scroll)
     }
 
-    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
+    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling
+    // still works
     /// Does this value establish a SCROLL CONTAINER (css-overflow-3 §3.1)?
     ///
     /// `hidden`, `scroll` and `auto` all do — an `overflow: hidden` box is
@@ -181,7 +187,8 @@ pub fn parse_layout_overflow(input: &str) -> Result<LayoutOverflow, LayoutOverfl
     let input_trimmed = input.trim();
     match input_trimmed {
         "scroll" => Ok(LayoutOverflow::Scroll),
-        "auto" | "overlay" => Ok(LayoutOverflow::Auto), // +spec:overflow:6120e6 - "overlay" is a legacy value alias of "auto"
+        "auto" | "overlay" => Ok(LayoutOverflow::Auto), /* +spec:overflow:6120e6 - "overlay" is
+                                                          * a legacy value alias of "auto" */
         "hidden" => Ok(LayoutOverflow::Hidden),
         "visible" => Ok(LayoutOverflow::Visible),
         "clip" => Ok(LayoutOverflow::Clip),
@@ -530,9 +537,11 @@ pub fn parse_style_overflow_clip_margin(
 pub struct StyleClipRect {
     /// Top edge offset in pixels. `None` means `auto` (= 0).
     pub top: OptionF32,
-    /// Right edge offset in pixels. `None` means `auto` (= used width + horiz padding + horiz border).
+    /// Right edge offset in pixels. `None` means `auto` (= used width + horiz padding + horiz
+    /// border).
     pub right: OptionF32,
-    /// Bottom edge offset in pixels. `None` means `auto` (= used height + vert padding + vert border).
+    /// Bottom edge offset in pixels. `None` means `auto` (= used height + vert padding + vert
+    /// border).
     pub bottom: OptionF32,
     /// Left edge offset in pixels. `None` means `auto` (= 0).
     pub left: OptionF32,
@@ -841,10 +850,8 @@ mod tests {
 
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
-    use crate::props::basic::length::SizeMetric;
-    use crate::props::basic::pixel::PixelValue;
-
     use super::*;
+    use crate::props::basic::{length::SizeMetric, pixel::PixelValue};
 
     // ---------------------------------------------------------------------
     // Variant tables. Each is kept honest by an exhaustive `match` below:

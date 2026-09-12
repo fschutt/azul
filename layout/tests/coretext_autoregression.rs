@@ -22,64 +22,59 @@
 //! ships.
 //!
 //! ## Divergence-class -> suspect-code map (keep in sync with the shell script)
-//! - over-ink everywhere .......... gamma/coverage in `cpurender/raster.rs`
-//!                                  (agg has no gamma; CoreText applies a text
-//!                                  gamma even with smoothing off)
-//! - 1px vertical shift ........... phantom-point / baseline rounding in
-//!                                  `glyph_cache.rs` (build_hinted_path) or the
-//!                                  y-flip (build_path_from_contours negates Y)
+//! - over-ink everywhere .......... gamma/coverage in `cpurender/raster.rs` (agg has no gamma;
+//!   CoreText applies a text gamma even with smoothing off)
+//! - 1px vertical shift ........... phantom-point / baseline rounding in `glyph_cache.rs`
+//!   (build_hinted_path) or the y-flip (build_path_from_contours negates Y)
 //! - stems 1px too far @ small ppem CVT cut-in / round state in
-//!                                  `third_party/allsorts/src/hinting/interpreter.rs`
-//! - identical to unhinted ........ hinting not running: check `gasp`,
-//!                                  `hint_instance`, or `build_hinted_path`
-//!                                  returning None (metrics field `all_hinted`)
+//!   `third_party/allsorts/src/hinting/interpreter.rs`
+//! - identical to unhinted ........ hinting not running: check `gasp`, `hint_instance`, or
+//!   `build_hinted_path` returning None (metrics field `all_hinted`)
 //!
 //! ## Metrics / bucket definitions
-//! - `rms_raw`     : coverage RMS over the union ink-bbox, glyphs at the SAME
-//!                   pixel coords (no shifting). This is the honest, canonical
-//!                   number used for ranking / bucket / filename — it counts BOTH
-//!                   wrong shape AND wrong position (a 1px baseline slip is a real
-//!                   defect we must NOT hide).
-//! - `rms_aligned` : coverage RMS after aligning the two ink-bbox origins. Isolates
-//!                   pure SHAPE fidelity — if `rms_aligned` is small but `rms_raw`
-//!                   is large, the glyph is the right shape in the wrong place
-//!                   (baseline / advance rounding), not a bad outline.
+//! - `rms_raw`     : coverage RMS over the union ink-bbox, glyphs at the SAME pixel coords (no
+//!   shifting). This is the honest, canonical number used for ranking / bucket / filename — it
+//!   counts BOTH wrong shape AND wrong position (a 1px baseline slip is a real defect we must NOT
+//!   hide).
+//! - `rms_aligned` : coverage RMS after aligning the two ink-bbox origins. Isolates pure SHAPE
+//!   fidelity — if `rms_aligned` is small but `rms_raw` is large, the glyph is the right shape in
+//!   the wrong place (baseline / advance rounding), not a bad outline.
 //! - bucket (on `rms_raw`): MATCH (<2) / CLOSE (<8) / DIVERGENT (>=8).
 
-use std::fs;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    fs,
+    fs::File,
+    io::BufWriter,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use agg_rust::basics::FillingRule;
-use agg_rust::color::Rgba8;
-use agg_rust::path_storage::PathStorage;
-use agg_rust::pixfmt_rgba::PixfmtRgba32;
-use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-use agg_rust::renderer_base::RendererBase;
-use agg_rust::renderer_scanline::render_scanlines_aa_solid;
-use agg_rust::rendering_buffer::RowAccessor;
-use agg_rust::scanline_u::ScanlineU8;
-use agg_rust::trans_affine::TransAffine;
-
+use agg_rust::{
+    basics::FillingRule, color::Rgba8, path_storage::PathStorage, pixfmt_rgba::PixfmtRgba32,
+    rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
+    renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
+    scanline_u::ScanlineU8, trans_affine::TransAffine,
+};
 use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
-
-use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
-use azul_layout::glyph_cache::{build_path_from_contours, GlyphCache};
-
-use core_foundation::attributed_string::CFMutableAttributedString;
-use core_foundation::base::{CFRange, TCFType};
-use core_foundation::string::CFString;
-use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::CGContext;
-use core_graphics::data_provider::CGDataProvider;
-use core_graphics::font::CGFont;
-use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-use core_text::font as ct_font;
-use core_text::font::CTFont;
-use core_text::line::CTLine;
-use core_text::string_attributes::kCTFontAttributeName;
+use azul_layout::{
+    font::parsed::{OwnedGlyph, ParsedFont},
+    glyph_cache::{build_path_from_contours, GlyphCache},
+};
+use core_foundation::{
+    attributed_string::CFMutableAttributedString,
+    base::{CFRange, TCFType},
+    string::CFString,
+};
+use core_graphics::{
+    color_space::CGColorSpace,
+    context::CGContext,
+    data_provider::CGDataProvider,
+    font::CGFont,
+    geometry::{CGPoint, CGRect, CGSize},
+};
+use core_text::{
+    font as ct_font, font::CTFont, line::CTLine, string_attributes::kCTFontAttributeName,
+};
 
 // ── Bitmap ──────────────────────────────────────────────────────────
 
@@ -693,12 +688,12 @@ fn coretext_autoregression() {
             // why the default stays a soft skip.)
             assert!(
                 std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_none(),
-                "AZ_REQUIRE_TEST_FONTS=1 but no CoreText comparison font was found — \
-                 set AZ_CT_FONT to a .ttf path. Silently skipping is NOT a pass."
+                "AZ_REQUIRE_TEST_FONTS=1 but no CoreText comparison font was found — set \
+                 AZ_CT_FONT to a .ttf path. Silently skipping is NOT a pass."
             );
             eprintln!(
-                "[coretext_autoregression] SKIP: no font found — set AZ_CT_FONT to a .ttf \
-                 path (or AZ_REQUIRE_TEST_FONTS=1 to make this a failure)"
+                "[coretext_autoregression] SKIP: no font found — set AZ_CT_FONT to a .ttf path \
+                 (or AZ_REQUIRE_TEST_FONTS=1 to make this a failure)"
             );
             return;
         }
@@ -766,7 +761,8 @@ fn coretext_autoregression() {
     }
 
     eprintln!(
-        "[coretext_autoregression] font={font_path:?} ppems={ppems:?} chars={} words={words:?} out={out_dir:?}",
+        "[coretext_autoregression] font={font_path:?} ppems={ppems:?} chars={} words={words:?} \
+         out={out_dir:?}",
         chars.len()
     );
 
@@ -995,14 +991,12 @@ fn emit_case(
     adv_json.push(']');
 
     jsonl.push_str(&format!(
-        "{{\"ppem\":{ppem},\"case\":\"{id}\",\"kind\":\"{kind}\",\"text\":\"{text}\",\
-\"bucket\":\"{bkt}\",\"rms_raw\":{rms_raw:.4},\"rms_aligned\":{rms_aligned:.4},\
-\"ours_bbox\":{ob_j},\"ct_bbox\":{cb_j},\"unhinted_bbox\":{ub_j},\
-\"ours_px\":{ours_px},\"ct_px\":{ct_px},\"unhinted_px\":{unh_px},\
-\"bbox_delta\":[{bd0},{bd1},{bd2},{bd3}],\
-\"max_col_diff\":{max_col:.3},\"max_row_diff\":{max_row:.3},\
-\"all_hinted\":{all_hinted},\"our_glyphs\":{our_glyphs},\"ct_glyphs\":{ct_glyphs},\
-\"advances\":{adv_json},\"file\":\"{file}\"}}\n",
+        "{{\"ppem\":{ppem},\"case\":\"{id}\",\"kind\":\"{kind}\",\"text\":\"{text}\",\"bucket\":\"\
+         {bkt}\",\"rms_raw\":{rms_raw:.4},\"rms_aligned\":{rms_aligned:.4},\"ours_bbox\":{ob_j},\"\
+         ct_bbox\":{cb_j},\"unhinted_bbox\":{ub_j},\"ours_px\":{ours_px},\"ct_px\":{ct_px},\"\
+         unhinted_px\":{unh_px},\"bbox_delta\":[{bd0},{bd1},{bd2},{bd3}],\"max_col_diff\":\
+         {max_col:.3},\"max_row_diff\":{max_row:.3},\"all_hinted\":{all_hinted},\"our_glyphs\":\
+         {our_glyphs},\"ct_glyphs\":{ct_glyphs},\"advances\":{adv_json},\"file\":\"{file}\"}}\n",
         text = esc(text),
         ob_j = bb_json(ob),
         cb_j = bb_json(cb),
@@ -1059,11 +1053,15 @@ fn write_summary(out_dir: &Path, font_path: &Path, ppems: &[u16], results: &[Cas
     let not_hinted: Vec<&CaseResult> = results.iter().filter(|r| !r.all_hinted).collect();
     if !not_hinted.is_empty() {
         md.push_str(&format!(
-            "- **WARNING: {} case(s) fell back to UNHINTED** (hinting not running — see divergence map)\n",
+            "- **WARNING: {} case(s) fell back to UNHINTED** (hinting not running — see \
+             divergence map)\n",
             not_hinted.len()
         ));
     }
-    md.push_str("\nPanels per PNG: `[ours-hinted (green) | coretext (blue) | diff-heatmap (magenta) | ours-unhinted (gray)]`. Diff: red=over-ink (ours>ct), blue=under-ink (ct>ours).\n");
+    md.push_str(
+        "\nPanels per PNG: `[ours-hinted (green) | coretext (blue) | diff-heatmap (magenta) | \
+         ours-unhinted (gray)]`. Diff: red=over-ink (ours>ct), blue=under-ink (ct>ours).\n",
+    );
 
     md.push_str("\n## Ranked (rms_raw desc)\n\n");
     md.push_str(

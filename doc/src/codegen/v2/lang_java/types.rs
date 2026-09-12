@@ -1,40 +1,39 @@
 //! Struct, enum and callback emission for the Java JNA generator.
 //!
 //! Strategy:
-//! - **Unit-only enums** -> `public enum <Name> { ... }` (unprefixed —
-//!   user-facing values inside `package com.azul`; see
-//!   `user_enum_type_name`) plus a per-variant `int VALUE` for the JNA
-//!   wire format (JNA passes enums as plain `int`).
+//! - **Unit-only enums** -> `public enum <Name> { ... }` (unprefixed — user-facing values inside
+//!   `package com.azul`; see `user_enum_type_name`) plus a per-variant `int VALUE` for the JNA wire
+//!   format (JNA passes enums as plain `int`).
 //! - **Tagged-union enums** (`is_union == true`) -> three pieces:
-//!     1. `Az<Name>_Tag` — Java enum giving every variant a stable
-//!        ordinal that matches the C-ABI tag.
-//!     2. `Az<Name>Variant<Variant>` — a per-variant `Structure`
-//!        (Sequential layout: tag + payload field(s)).
-//!     3. `Az<Name>` — a top-level `Structure` whose only field is a
-//!        JNA `Union` of the variant payload types. The `Union` class
-//!        inside JNA dispatches reads/writes via `setType` /
-//!        `getTypedValue`. We expose plain public fields and trust
-//!        the user to call `setType` themselves.
-//! - **POD structs** -> `Structure` subclass with public fields, a
-//!   `getFieldOrder()` override, and `ByValue` / `ByReference`
-//!   inner classes.
-//! - **Callback typedefs** -> a JNA `Callback` interface with a
-//!   `callback(...)` method whose signature mirrors the C function
-//!   pointer.
-//! - **Generic templates / Recursive / VecRef / DestructorOrClone**
-//!   are skipped here; they're exposed (or omitted) by the wrapper
-//!   layer.
+//!     1. `Az<Name>_Tag` — Java enum giving every variant a stable ordinal that matches the C-ABI
+//!        tag.
+//!     2. `Az<Name>Variant<Variant>` — a per-variant `Structure` (Sequential layout: tag + payload
+//!        field(s)).
+//!     3. `Az<Name>` — a top-level `Structure` whose only field is a JNA `Union` of the variant
+//!        payload types. The `Union` class inside JNA dispatches reads/writes via `setType` /
+//!        `getTypedValue`. We expose plain public fields and trust the user to call `setType`
+//!        themselves.
+//! - **POD structs** -> `Structure` subclass with public fields, a `getFieldOrder()` override, and
+//!   `ByValue` / `ByReference` inner classes.
+//! - **Callback typedefs** -> a JNA `Callback` interface with a `callback(...)` method whose
+//!   signature mirrors the C function pointer.
+//! - **Generic templates / Recursive / VecRef / DestructorOrClone** are skipped here; they're
+//!   exposed (or omitted) by the wrapper layer.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
-    TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
+            TypeAliasDef, TypeCategory,
+        },
+    },
+    emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, user_enum_type_name,
 };
-use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, user_enum_type_name};
 
 // ============================================================================
 // Top-level driver
@@ -315,7 +314,8 @@ fn emit_monomorphized_alias_files(
                                 b.line("byte tag = getPointer().getByte(0);");
                                 b.line("if (tag == 0) return null;");
                                 b.line(&format!(
-                                    "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, getPointer());",
+                                    "{}Variant_Some __s = \
+                                     Structure.newInstance({}Variant_Some.class, getPointer());",
                                     name, name
                                 ));
                                 b.line("__s.read();");
@@ -331,7 +331,8 @@ fn emit_monomorphized_alias_files(
                         name
                     ));
                     b.line(&format!(
-                        "public static class ByReference extends {} implements Structure.ByReference {{}}",
+                        "public static class ByReference extends {} implements \
+                         Structure.ByReference {{}}",
                         name
                     ));
                     b.dedent();
@@ -481,8 +482,7 @@ fn emit_tagged_union_files(
     )?;
     out.push_str(&tag_file);
 
-    // 2. Per-variant payload Structure files
-    //    AzFooVariant_Bar { tag; payload; }
+    // 2. Per-variant payload Structure files AzFooVariant_Bar { tag; payload; }
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         let chunk = emit_file(
@@ -540,8 +540,8 @@ fn emit_tagged_union_files(
         out.push_str(&chunk);
     }
 
-    // 3. Outer Az<Name> file: contains a JNA Union sized to fit any
-    //    variant payload. We pick the variant by setType().
+    // 3. Outer Az<Name> file: contains a JNA Union sized to fit any variant payload. We pick the
+    //    variant by setType().
     let outer = emit_file(
         &format!("{}.java", name),
         |b| {
@@ -579,7 +579,7 @@ fn emit_tagged_union_files(
                 if let (Some(_), Some(sv)) = (none, some) {
                     let payload_ty_opt = match &sv.kind {
                         EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                            Some((types[0].0.clone(), types[0].1.clone()))
+                            Some((types[0].0.clone(), types[0].1))
                         }
                         _ => None,
                     };
@@ -597,7 +597,8 @@ fn emit_tagged_union_files(
                         b.line("byte tag = getPointer().getByte(0);");
                         b.line("if (tag == 0) return null;");
                         b.line(&format!(
-                            "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, getPointer());",
+                            "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, \
+                             getPointer());",
                             name, name
                         ));
                         b.line("__s.read();");
@@ -621,7 +622,7 @@ fn emit_tagged_union_files(
                 if let (Some(ov), Some(_)) = (ok, err) {
                     let payload_ty_opt = match &ov.kind {
                         EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                            Some((types[0].0.clone(), types[0].1.clone()))
+                            Some((types[0].0.clone(), types[0].1))
                         }
                         _ => None,
                     };
@@ -634,12 +635,16 @@ fn emit_tagged_union_files(
                         b.line(" */");
                         b.line(&format!("public {} unwrap() {{", boxed));
                         b.indent();
-                        b.line("if (getPointer() == null) throw new RuntimeException(\"unwrap on null pointer\");");
+                        b.line(
+                            "if (getPointer() == null) throw new RuntimeException(\"unwrap on \
+                             null pointer\");",
+                        );
                         b.line("byte tag = getPointer().getByte(0);");
                         b.line("if (tag == 0) {");
                         b.indent();
                         b.line(&format!(
-                            "{}Variant_Ok __ok = Structure.newInstance({}Variant_Ok.class, getPointer());",
+                            "{}Variant_Ok __ok = Structure.newInstance({}Variant_Ok.class, \
+                             getPointer());",
                             name, name
                         ));
                         b.line("__ok.read();");
@@ -647,12 +652,14 @@ fn emit_tagged_union_files(
                         b.dedent();
                         b.line("}");
                         b.line(&format!(
-                            "{}Variant_Err __err = Structure.newInstance({}Variant_Err.class, getPointer());",
+                            "{}Variant_Err __err = Structure.newInstance({}Variant_Err.class, \
+                             getPointer());",
                             name, name
                         ));
                         b.line("__err.read();");
                         b.line(&format!(
-                            "throw new RuntimeException(\"{} unwrap on Err: \" + java.lang.String.valueOf(__err.payload));",
+                            "throw new RuntimeException(\"{} unwrap on Err: \" + \
+                             java.lang.String.valueOf(__err.payload));",
                             name
                         ));
                         b.dedent();

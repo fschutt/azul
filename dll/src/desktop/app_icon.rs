@@ -8,23 +8,20 @@
 //!
 //! The parts that shape this API:
 //!
-//! * **The Windows EXE icon cannot be changed at runtime.** `BeginUpdateResource`
-//!   documents that the target "cannot be currently executing", and rewriting
-//!   resources invalidates Authenticode anyway. What IS settable is the *window*
-//!   icon (title bar, Alt+Tab, and the taskbar button of a running, un-pinned
-//!   window). A pinned taskbar entry shows the shortcut's icon and is not ours.
-//! * **macOS windows have no icon** beyond the document proxy icon, which only
-//!   exists when the window represents a file. So `set_window_icon` is a no-op
-//!   there by design rather than being faked through the proxy-icon button.
-//! * **macOS `applicationIconImage` is explicitly temporary** — Apple's word.
-//!   It is process-local and resets on next launch; persisting it requires an
-//!   `NSDockTilePlugIn`, which is banned from the App Store. This does not touch
-//!   the bundle: `NSWorkspace.setIcon:forFile:` would, and it breaks the code
-//!   signature ("app is damaged" on Ventura+), so it is deliberately not offered.
-//! * **Wayland cannot set a window icon from pixels** unless the compositor
-//!   implements `xdg-toplevel-icon-v1` — which Mutter/GNOME still does not in
-//!   2026. The fallback is `set_app_id` + a matching `.desktop` file, i.e. no
-//!   runtime pixels at all.
+//! * **The Windows EXE icon cannot be changed at runtime.** `BeginUpdateResource` documents that
+//!   the target "cannot be currently executing", and rewriting resources invalidates Authenticode
+//!   anyway. What IS settable is the *window* icon (title bar, Alt+Tab, and the taskbar button of a
+//!   running, un-pinned window). A pinned taskbar entry shows the shortcut's icon and is not ours.
+//! * **macOS windows have no icon** beyond the document proxy icon, which only exists when the
+//!   window represents a file. So `set_window_icon` is a no-op there by design rather than being
+//!   faked through the proxy-icon button.
+//! * **macOS `applicationIconImage` is explicitly temporary** — Apple's word. It is process-local
+//!   and resets on next launch; persisting it requires an `NSDockTilePlugIn`, which is banned from
+//!   the App Store. This does not touch the bundle: `NSWorkspace.setIcon:forFile:` would, and it
+//!   breaks the code signature ("app is damaged" on Ventura+), so it is deliberately not offered.
+//! * **Wayland cannot set a window icon from pixels** unless the compositor implements
+//!   `xdg-toplevel-icon-v1` — which Mutter/GNOME still does not in 2026. The fallback is
+//!   `set_app_id` + a matching `.desktop` file, i.e. no runtime pixels at all.
 //!
 //! Everything here therefore reports what it actually did rather than returning
 //! `()`, so a caller can tell "set" from "silently nothing" — which is exactly

@@ -98,10 +98,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzMapTileLayer layer = AzMapTileLayer_default();
     AzString credit = AzString_clone(&layer.attribution);
 
-    /* 2-3. The widget, its look and its camera. `System` follows the window's
-     *      light/dark theme, re-decoding the visible tiles when it changes;
-     *      the presets (Positron, Bright, Dark, ...) pin a vendored MapCSS
-     *      palette instead. */
+    /* 2-3. The widget, its theme and its camera. A theme is a cartography
+     *      (Positron, Bright, Liberty, Google, Apple) with a light and a dark
+     *      MapCSS palette; the window's light/dark theme picks the half and
+     *      the visible tiles are re-decoded when it changes. `System` is the
+     *      platform's family (Apple here). */
     AzMapWidget widget = AzMapWidget_create(layer);
     widget = AzMapWidget_withTheme(widget, AzMapTheme_System);
     widget = AzMapWidget_withViewport(widget, viewport);

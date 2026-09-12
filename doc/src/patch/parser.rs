@@ -207,7 +207,8 @@ impl<'ast> Visit<'ast> for SymbolCollector {
                     let field_span_bytes = Self::get_span_lines(field);
 
                     // Format field type if available
-                    let mut hover_text = field_doc.clone(); // Clone field_doc as it's used later by itself
+                    let mut hover_text = field_doc.clone(); // Clone field_doc as it's used later by
+                                                            // itself
                     if let syn::Type::Path(type_path) = &field.ty {
                         if let Some(segment) = type_path.path.segments.last() {
                             hover_text = format!("{} (type: {})", field_doc, segment.ident);
@@ -284,7 +285,7 @@ impl<'ast> Visit<'ast> for SymbolCollector {
             .inputs
             .iter()
             .next()
-            .map_or(false, |arg| matches!(arg, syn::FnArg::Receiver(_)));
+            .is_some_and(|arg| matches!(arg, syn::FnArg::Receiver(_)));
 
         let symbol_type = if is_method {
             SymbolType::Method
@@ -694,7 +695,7 @@ impl SymbolHierarchy {
                 // let doc = extract_doc_comment(doc); // Original doc parameter used below for
                 // SymbolNode::Leaf
                 self.symbols
-                    .entry(format!("ENUMS"))
+                    .entry("ENUMS".to_string())
                     .or_default()
                     .entry(enum_path.to_string())
                     .or_insert_with(|| SymbolNode::Leaf {
@@ -713,7 +714,8 @@ impl SymbolHierarchy {
 
         match symbol_type {
             SymbolType::Function => {
-                let signature = extract_function_signature(doc); // doc is the original hover_text here
+                let signature = extract_function_signature(doc); // doc is the original hover_text
+                                                                 // here
                 let extracted_doc = extract_doc_comment(doc); // This is the actual doc part
                 self.symbols
                     .entry(category)
@@ -850,17 +852,17 @@ impl SymbolHierarchy {
 }
 
 fn extract_parent_path(path: &str) -> Option<String> {
-    path.rsplitn(2, "::").nth(1).map(|s| s.to_string())
+    path.rsplit_once("::").map(|x| x.0).map(|s| s.to_string())
 }
 
 fn extract_parent_enum(path: &str, _variant_name: &str) -> Option<String> {
     // Logic to extract parent enum path from a variant path
-    path.rsplitn(2, "::").nth(1).map(|s| s.to_string())
+    path.rsplit_once("::").map(|x| x.0).map(|s| s.to_string())
 }
 
 fn extract_parent_struct(path: &str, _field_name: &str) -> Option<String> {
     // Logic to extract parent struct path from a field path
-    path.rsplitn(2, "::").nth(1).map(|s| s.to_string())
+    path.rsplit_once("::").map(|x| x.0).map(|s| s.to_string())
 }
 
 /// Parse a single Rust file and collect symbols
@@ -894,7 +896,7 @@ pub fn parse_directory(dir_path: &Path) -> Result<BTreeMap<String, SymbolInfo>, 
             Ok(entry) => {
                 let path = entry.path();
 
-                if path.extension().map_or(false, |ext| ext == "rs") {
+                if path.extension().is_some_and(|ext| ext == "rs") {
                     if let Err(e) = parse_file(path, &mut collector) {
                         eprintln!("Error processing {}: {}", path.display(), e);
                     }
@@ -949,7 +951,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if enum_info.symbol_type == SymbolType::Enum {
                         enum_variants
                             .entry(enum_path.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(path.clone());
                         parent_enums.insert(path.clone());
                     }
@@ -971,7 +973,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if struct_info.symbol_type == SymbolType::Struct {
                         struct_fields
                             .entry(struct_path.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(path.clone());
                         parent_structs.insert(path.clone());
                     }
@@ -1013,7 +1015,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if !doc.is_empty() {
                         output.push_str(&format!(" /* {} */", doc));
                     }
-                    output.push_str("\n");
+                    output.push('\n');
 
                     // Add enum variants
                     if let Some(variants) = enum_variants.get(&path) {
@@ -1025,7 +1027,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                                 if !doc.is_empty() {
                                     output.push_str(&format!(" /* {} */", doc));
                                 }
-                                output.push_str("\n");
+                                output.push('\n');
                             }
                         }
                     }
@@ -1036,7 +1038,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if !doc.is_empty() {
                         output.push_str(&format!(" /* {} */", doc));
                     }
-                    output.push_str("\n");
+                    output.push('\n');
 
                     // Add struct fields
                     if let Some(fields) = struct_fields.get(&path) {
@@ -1056,7 +1058,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                             })
                             .collect();
                         output.push_str(&field_names.join("\n    "));
-                        output.push_str("\n");
+                        output.push('\n');
                     }
                 }
                 SymbolType::Function => {
@@ -1066,7 +1068,7 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if !doc.is_empty() {
                         output.push_str(&format!(" /* {} */", doc));
                     }
-                    output.push_str("\n");
+                    output.push('\n');
                 }
                 _ => {
                     let doc = extract_doc_comment(&info.hover_text);
@@ -1074,11 +1076,11 @@ pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
                     if !doc.is_empty() {
                         output.push_str(&format!(" /* {} */", doc));
                     }
-                    output.push_str("\n");
+                    output.push('\n');
                 }
             }
         }
-        output.push_str("\n");
+        output.push('\n');
     }
 
     output

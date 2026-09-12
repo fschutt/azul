@@ -16,13 +16,15 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind, MonomorphizedTypeDef,
-    StructDef, TypeAliasDef,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind, MonomorphizedTypeDef,
+            StructDef, TypeAliasDef,
+        },
+    },
     ffi_type_name, field_type_for_ref_kind, include_enum, include_struct, map_type_to_d,
     sanitize_identifier,
 };
@@ -366,5 +368,5 @@ fn tag_type(repr: Option<&str>) -> &'static str {
 
 /// Strip characters that would break a D `//` line comment.
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

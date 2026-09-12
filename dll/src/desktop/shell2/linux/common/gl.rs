@@ -14,8 +14,7 @@ use std::{
 use gl_context_loader::GenericGlContext;
 
 use super::super::x11::dlopen::{Egl, Library};
-use crate::desktop::shell2::common::dlopen::DynamicLibrary;
-use crate::desktop::shell2::common::gl_loader::load_gl_context;
+use crate::desktop::shell2::common::{dlopen::DynamicLibrary, gl_loader::load_gl_context};
 
 /// Wrapper to get access to the GL function pointers
 pub struct GlFunctions {
@@ -55,9 +54,8 @@ impl GlFunctions {
         // load sources (eglGetProcAddress + libGL) are still known.
         if context.glCreateShader.is_null() || context.glGetString.is_null() {
             crate::plog_warn!(
-                "[GL] core GL entry points did not resolve via eglGetProcAddress \
-                 (libGL.so.1 {}) — the GL context is unusable and rendering will \
-                 degrade downstream",
+                "[GL] core GL entry points did not resolve via eglGetProcAddress (libGL.so.1 {}) \
+                 — the GL context is unusable and rendering will degrade downstream",
                 if opengl_lib.is_some() {
                     "loaded, but also had no symbols"
                 } else {

@@ -20,8 +20,7 @@
 //! own pack.
 
 use azul_core::icon::IconProviderHandle;
-use azul_css::props::basic::color::ColorU;
-use azul_css::system::SystemStyle;
+use azul_css::{props::basic::color::ColorU, system::SystemStyle};
 
 /// The icons worth having: every one is a shape a widget draws today.
 ///
@@ -258,11 +257,10 @@ const MAX_REFERENCE_DEPTH: usize = 8;
 ///
 /// So the references are resolved FIRST, in the source:
 ///
-/// * `.ColorScheme-Text` is repointed at the palette tint, while
-///   `NegativeText` / `PositiveText` / `NeutralText` keep the colours their
-///   author chose (a close button is red on purpose);
-/// * every element's `currentColor` becomes the colour ITS class names, not a
-///   single global substitution - that is what kept the negative red;
+/// * `.ColorScheme-Text` is repointed at the palette tint, while `NegativeText` / `PositiveText` /
+///   `NeutralText` keep the colours their author chose (a close button is red on purpose);
+/// * every element's `currentColor` becomes the colour ITS class names, not a single global
+///   substitution - that is what kept the negative red;
 /// * `<use href="#id">` is replaced by the element it names, recursively, to
 ///   [`MAX_REFERENCE_DEPTH`].
 ///
@@ -693,11 +691,10 @@ fn titlebar_close_glyph(tint: ColorU) -> String {
 /// geometry - so an icon can simply BE part of the document. Three things fall
 /// out of that, and all three were wrong with a raster:
 ///
-///   * it scales with the display instead of being resampled from a fixed
-///     bitmap, so a 16px glyph is sharp at any DPI and any zoom;
-///   * CSS reaches it. A `:hover` on the button recolours the glyph, which is
-///     how a desktop's close button turns red - a rasterised icon has its
-///     colours baked and can never do it;
+///   * it scales with the display instead of being resampled from a fixed bitmap, so a 16px glyph
+///     is sharp at any DPI and any zoom;
+///   * CSS reaches it. A `:hover` on the button recolours the glyph, which is how a desktop's close
+///     button turns red - a rasterised icon has its colours baked and can never do it;
 ///   * there is nothing to cache, invalidate or garbage-collect on the GPU.
 fn icon_dom(markup: &str) -> Option<azul_core::dom::Dom> {
     let parsed = azul_layout::xml::parse_xml(markup).ok()?;
@@ -747,8 +744,8 @@ mod tests {
         );
         assert!(
             !text.contains(r##"fill="#123456""##),
-            "the colour must NOT be baked onto the element - that is what \
-             makes it unrestylable: {text}"
+            "the colour must NOT be baked onto the element - that is what makes it unrestylable: \
+             {text}"
         );
     }
 
@@ -779,8 +776,9 @@ mod tests {
         assert!(text.contains(r#"class="ColorScheme-NegativeText""#));
     }
 
-    /// An element with no class still has to resolve to SOMETHING    /// An element with no class still has to resolve to SOMETHING - the SVG
-    /// default is opaque black, which is invisible on a dark panel.
+    /// An element with no class still has to resolve to SOMETHING    /// An element with no class
+    /// still has to resolve to SOMETHING - the SVG default is opaque black, which is invisible
+    /// on a dark panel.
     #[test]
     fn an_unclassed_element_falls_back_to_the_tint() {
         let text = resolved(r#"<svg><path style="fill:currentColor"/></svg>"#);
@@ -881,13 +879,12 @@ mod tests {
         );
         assert!(
             !glyph.to_ascii_lowercase().contains("da4453"),
-            "and carries NO red of its own - the red is the button's hover \
-             fill: {glyph}"
+            "and carries NO red of its own - the red is the button's hover fill: {glyph}"
         );
         assert!(
             glyph.contains("ColorScheme-Text"),
-            "it is classed like every theme icon, so the same tinting and the \
-             same :hover restyling reach it: {glyph}"
+            "it is classed like every theme icon, so the same tinting and the same :hover \
+             restyling reach it: {glyph}"
         );
         // ... and the icon that is actually REGISTERED paints.
         //
@@ -903,8 +900,8 @@ mod tests {
             .expect("the glyph is registered");
         assert!(
             !registered.contains("currentColor"),
-            "the registered glyph must carry a resolved fill, not an unresolved \
-             `currentColor` that paints nothing: {registered}"
+            "the registered glyph must carry a resolved fill, not an unresolved `currentColor` \
+             that paints nothing: {registered}"
         );
         assert!(
             registered.contains("fill:#123456") || registered.contains("fill=\"#123456\""),
@@ -992,7 +989,13 @@ mod tests {
     /// app's own icon at a different size.
     #[test]
     fn the_gnome_spellings_are_reachable_for_every_breeze_name() {
-        for name in ["arrow-up", "arrow-down", "checkmark", "application-menu", "dialog-close"] {
+        for name in [
+            "arrow-up",
+            "arrow-down",
+            "checkmark",
+            "application-menu",
+            "dialog-close",
+        ] {
             assert!(
                 !icon_name_aliases(name).is_empty(),
                 "{name} is a Breeze spelling with no GNOME alias - it will not resolve on Mint, \
@@ -1011,10 +1014,16 @@ mod tests {
     /// layout found nothing on a Mint desktop.
     #[test]
     fn the_search_covers_both_directory_nestings_and_the_symbolic_trees() {
-        let dirs: Vec<String> = icon_theme_dirs("Mint-Y").into_iter().map(|(d, _)| d).collect();
+        let dirs: Vec<String> = icon_theme_dirs("Mint-Y")
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect();
         let has = |suffix: &str| dirs.iter().any(|d| d.ends_with(suffix));
         assert!(has("/Mint-Y/actions/16"), "Breeze-style sized actions dir");
-        assert!(has("/Mint-Y/actions/symbolic"), "Mint-Y keeps its SVGs here");
+        assert!(
+            has("/Mint-Y/actions/symbolic"),
+            "Mint-Y keeps its SVGs here"
+        );
         assert!(has("/Mint-Y/symbolic/actions"), "Adwaita-style nesting");
         assert!(has("/Mint-Y/scalable/actions"), "Adwaita-style scalable");
         assert!(has("/Mint-Y/16x16/actions"), "Adwaita-style size dir");

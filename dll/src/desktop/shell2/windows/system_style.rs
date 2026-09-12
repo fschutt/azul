@@ -9,16 +9,17 @@
 
 #![allow(non_snake_case)]
 
+use alloc::{boxed::Box, string::String};
 use core::ffi::c_void;
 
-use alloc::boxed::Box;
-use alloc::string::String;
-use azul_css::corety::AzString;
-use azul_css::css::Css;
-use azul_css::dynamic_selector::{BoolCondition, OsVersion};
-use azul_css::parser2::new_from_str;
-use azul_css::props::basic::color::{ColorU, OptionColorU};
-use azul_css::system::{defaults, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme};
+use azul_css::{
+    corety::AzString,
+    css::Css,
+    dynamic_selector::{BoolCondition, OsVersion},
+    parser2::new_from_str,
+    props::basic::color::{ColorU, OptionColorU},
+    system::{defaults, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme},
+};
 
 // ── kernel32 functions (always linked on Windows) ────────────────────────
 
@@ -350,8 +351,10 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
 /// Spawn a subprocess and capture its stdout, returning `Err(())` on
 /// timeout or any other failure.
 fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Result<String, ()> {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
 
     let mut child = Command::new(program)
         .args(args)
@@ -579,8 +582,7 @@ fn detect_language_windows() -> AzString {
 /// Load an application-specific stylesheet from
 /// `%APPDATA%\azul\styles\<exe_name>.css`.
 fn load_app_specific_stylesheet() -> Option<Css> {
-    use std::env;
-    use std::path::PathBuf;
+    use std::{env, path::PathBuf};
 
     if !azul_css::system::ricing_enabled() {
         return None;
@@ -610,8 +612,7 @@ fn load_app_specific_stylesheet() -> Option<Css> {
 /// - Windows Terminal `settings.json` for color scheme colours
 /// - pywal `colors.json` (available on Windows via WSL or native install)
 fn discover_windows_riced_style(style: &mut azul_css::system::SystemStyle) {
-    use std::env;
-    use std::path::PathBuf;
+    use std::{env, path::PathBuf};
 
     // ── Windows Terminal colour scheme ──────────────────────────────
     if let Ok(localappdata) = env::var("LOCALAPPDATA") {

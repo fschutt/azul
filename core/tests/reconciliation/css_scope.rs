@@ -352,8 +352,7 @@ fn all_property_types_have_relayout_scope() {
 
 #[test]
 fn change_accumulator_uses_correct_scope_for_text() {
-    use azul_core::diff::ChangeAccumulator;
-    use azul_core::id::NodeId;
+    use azul_core::{diff::ChangeAccumulator, id::NodeId};
 
     let mut acc = ChangeAccumulator::new();
     acc.add_text_change(NodeId::new(0), "old".into(), "new".into());
@@ -363,8 +362,7 @@ fn change_accumulator_uses_correct_scope_for_text() {
 
 #[test]
 fn change_accumulator_uses_correct_scope_for_width() {
-    use azul_core::diff::ChangeAccumulator;
-    use azul_core::id::NodeId;
+    use azul_core::{diff::ChangeAccumulator, id::NodeId};
 
     let mut acc = ChangeAccumulator::new();
     let width_scope = CssPropertyType::Width.relayout_scope(false);
@@ -374,8 +372,7 @@ fn change_accumulator_uses_correct_scope_for_width() {
 
 #[test]
 fn change_accumulator_uses_correct_scope_for_display() {
-    use azul_core::diff::ChangeAccumulator;
-    use azul_core::id::NodeId;
+    use azul_core::{diff::ChangeAccumulator, id::NodeId};
 
     let mut acc = ChangeAccumulator::new();
     let display_scope = CssPropertyType::Display.relayout_scope(false);

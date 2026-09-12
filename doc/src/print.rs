@@ -1,4 +1,7 @@
-use std::{path::PathBuf, process};
+use std::{
+    path::{Path, PathBuf},
+    process,
+};
 
 use anyhow::Result;
 
@@ -137,7 +140,7 @@ pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
 
 pub fn print_class(
     api_data: &ApiData,
-    project_root: &PathBuf,
+    project_root: &Path,
     module_name: &str,
     class_name: &str,
 ) -> Result<()> {
@@ -427,7 +430,7 @@ pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
 }
 
 pub fn validate_class_definition(
-    project_root: &PathBuf,
+    project_root: &Path,
     external_path: &str,
     _class_data: &ClassData,
 ) -> Result<bool> {
@@ -445,7 +448,7 @@ pub fn validate_class_definition(
 }
 
 pub fn match_function_with_source(
-    project_root: &PathBuf,
+    project_root: &Path,
     full_path: &str,
     _func_data: &FunctionData,
 ) -> Result<bool> {

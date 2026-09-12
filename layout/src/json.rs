@@ -6,9 +6,9 @@
 //! types (`RefAnySerializeFnType`, `RefAnyDeserializeFnType`).
 
 // Re-export all data types and methods from core
-pub use azul_core::json::*;
-
 use alloc::string::String;
+
+pub use azul_core::json::*;
 use azul_css::AzString;
 
 // ============================================================================
@@ -24,6 +24,7 @@ pub fn json_parse(s: &str) -> Result<Json, JsonParseError> {
 
 /// Serialize JSON to string
 #[cfg(feature = "json")]
+#[must_use] 
 pub fn json_stringify(json: &Json) -> AzString {
     json.to_json_string()
 }
@@ -34,11 +35,11 @@ pub fn json_stringify(json: &Json) -> AzString {
 
 use azul_core::refany::RefAny;
 
-/// Result type for RefAny deserialization
+/// Result type for `RefAny` deserialization
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum ResultRefAnyString {
-    /// Successfully deserialized RefAny
+    /// Successfully deserialized `RefAny`
     Ok(RefAny),
     /// Error message describing the failure
     Err(AzString),
@@ -46,39 +47,43 @@ pub enum ResultRefAnyString {
 
 impl ResultRefAnyString {
     /// Returns `true` if this is the `Ok` variant.
-    pub fn is_ok(&self) -> bool {
-        matches!(self, ResultRefAnyString::Ok(_))
+    #[must_use] 
+    pub const fn is_ok(&self) -> bool {
+        matches!(self, Self::Ok(_))
     }
 
     /// Returns `true` if this is the `Err` variant.
-    pub fn is_err(&self) -> bool {
-        matches!(self, ResultRefAnyString::Err(_))
+    #[must_use] 
+    pub const fn is_err(&self) -> bool {
+        matches!(self, Self::Err(_))
     }
 
     /// Converts into `Option<RefAny>`, discarding any error.
+    #[must_use] 
     pub fn ok(self) -> Option<RefAny> {
         match self {
-            ResultRefAnyString::Ok(r) => Some(r),
-            ResultRefAnyString::Err(_) => None,
+            Self::Ok(r) => Some(r),
+            Self::Err(_) => None,
         }
     }
 
     /// Converts into `Option<AzString>`, discarding any success value.
+    #[must_use] 
     pub fn err(self) -> Option<AzString> {
         match self {
-            ResultRefAnyString::Ok(_) => None,
-            ResultRefAnyString::Err(e) => Some(e),
+            Self::Ok(_) => None,
+            Self::Err(e) => Some(e),
         }
     }
 }
 
-/// C-compatible function type for serializing a RefAny's contents to JSON.
+/// C-compatible function type for serializing a `RefAny`'s contents to JSON.
 pub type RefAnySerializeFnType = extern "C" fn(RefAny) -> Json;
 
-/// C-compatible function type for deserializing JSON into a new RefAny.
+/// C-compatible function type for deserializing JSON into a new `RefAny`.
 pub type RefAnyDeserializeFnType = extern "C" fn(Json) -> ResultRefAnyString;
 
-/// Serialize a RefAny to JSON using its registered serialize function.
+/// Serialize a `RefAny` to JSON using its registered serialize function.
 #[cfg(feature = "json")]
 #[must_use]
 pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
@@ -99,7 +104,7 @@ pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
     }
 }
 
-/// Deserialize JSON into a RefAny using the provided deserialize function.
+/// Deserialize JSON into a `RefAny` using the provided deserialize function.
 #[cfg(feature = "json")]
 #[must_use]
 pub fn deserialize_refany_from_json(json: Json, deserialize_fn: usize) -> Result<RefAny, String> {
@@ -120,14 +125,15 @@ pub fn deserialize_refany_from_json(json: Json, deserialize_fn: usize) -> Result
 impl From<Result<RefAny, String>> for ResultRefAnyString {
     fn from(result: Result<RefAny, String>) -> Self {
         match result {
-            Ok(refany) => ResultRefAnyString::Ok(refany),
-            Err(msg) => ResultRefAnyString::Err(AzString::from(msg)),
+            Ok(refany) => Self::Ok(refany),
+            Err(msg) => Self::Err(AzString::from(msg)),
         }
     }
 }
 
-/// Serialize a RefAny to JSON, returns OptionJson::None if not supported or fails.
+/// Serialize a `RefAny` to JSON, returns `OptionJson::None` if not supported or fails.
 #[cfg(feature = "json")]
+#[must_use] 
 pub fn refany_serialize_to_json(refany: &RefAny) -> OptionJson {
     match serialize_refany_to_json(refany) {
         Some(json) => OptionJson::Some(json),
@@ -135,8 +141,9 @@ pub fn refany_serialize_to_json(refany: &RefAny) -> OptionJson {
     }
 }
 
-/// Deserialize JSON into a RefAny using the provided deserialize function.
+/// Deserialize JSON into a `RefAny` using the provided deserialize function.
 #[cfg(feature = "json")]
+#[must_use] 
 pub fn json_deserialize_to_refany(json: Json, deserialize_fn: usize) -> ResultRefAnyString {
     deserialize_refany_from_json(json, deserialize_fn).into()
 }
@@ -148,7 +155,7 @@ pub fn json_deserialize_to_refany(json: Json, deserialize_fn: usize) -> ResultRe
 /// `Err` with a reason if `state` has no deserialize fn, the JSON can't be
 /// deserialized, or the swap fails (active borrows).
 ///
-/// Shared by [`RefAnyUndoManager`] and the AZ_DEBUG server's `set_app_state` /
+/// Shared by [`RefAnyUndoManager`] and the `AZ_DEBUG` server's `set_app_state` /
 /// `restore_snapshot` so both round-trip identically.
 #[cfg(feature = "json")]
 pub fn restore_refany_from_json(state: &mut RefAny, json: Json) -> Result<(), String> {
@@ -188,14 +195,14 @@ mod jsondiff {
     /// One reversible change at a JSON Pointer path. `old`/`new` are `None` when
     /// the key is absent on that side (key added / removed).
     #[derive(Debug, Clone)]
-    pub struct Change {
+    pub(super) struct Change {
         pub path: String,
         pub old: Option<Value>,
         pub new: Option<Value>,
     }
 
     /// Computes a reversible diff `old → new`.
-    pub fn diff(old: &Value, new: &Value) -> Vec<Change> {
+    pub(super) fn diff(old: &Value, new: &Value) -> Vec<Change> {
         let mut out = Vec::new();
         diff_rec(old, new, String::new(), &mut out);
         out
@@ -237,16 +244,16 @@ mod jsondiff {
 
     /// Applies a diff to `base`. `forward = true` moves `old → new` (redo);
     /// `forward = false` moves `new → old` (undo).
-    pub fn apply(base: &Value, diff: &[Change], forward: bool) -> Value {
+    pub(super) fn apply(base: &Value, diff: &[Change], forward: bool) -> Value {
         let mut v = base.clone();
         for ch in diff {
             let target = if forward { &ch.new } else { &ch.old };
-            set_at(&mut v, &ch.path, target);
+            set_at(&mut v, &ch.path, target.as_ref());
         }
         v
     }
 
-    fn set_at(root: &mut Value, path: &str, val: &Option<Value>) {
+    fn set_at(root: &mut Value, path: &str, val: Option<&Value>) {
         if path.is_empty() {
             if let Some(v) = val {
                 *root = v.clone();
@@ -289,7 +296,7 @@ mod jsondiff {
 /// full snapshots (memory-efficient for large models like a text document).
 ///
 /// Workflow: [`commit`](Self::commit) the current state at action / auto-save
-/// boundaries (e.g. from a timer callback, or driven by the RefAny `update_fn`
+/// boundaries (e.g. from a timer callback, or driven by the `RefAny` `update_fn`
 /// hook marking the state dirty), then [`undo`](Self::undo) / [`redo`](Self::redo)
 /// walk the history. Like git, committing a new state *after* an undo discards
 /// the now-orphaned redo branch. Requires the state's JSON (de)serialize fns
@@ -304,9 +311,9 @@ pub struct RefAnyUndoManager {
     /// against and that undo/redo diffs are applied to. `None` until first commit.
     head: Option<serde_json::Value>,
     /// Reversible diffs, each from commit N-1 → N (top = most recent).
-    undo_diffs: alloc::vec::Vec<alloc::vec::Vec<jsondiff::Change>>,
+    undo_diffs: Vec<Vec<jsondiff::Change>>,
     /// Diffs of undone commits, available to redo.
-    redo_diffs: alloc::vec::Vec<alloc::vec::Vec<jsondiff::Change>>,
+    redo_diffs: Vec<Vec<jsondiff::Change>>,
     /// Maximum number of undo diffs retained (`0` = unlimited).
     capacity: usize,
 }
@@ -314,11 +321,12 @@ pub struct RefAnyUndoManager {
 #[cfg(feature = "json")]
 impl RefAnyUndoManager {
     /// Creates a history with a maximum depth (`0` = unlimited).
-    pub fn new(capacity: usize) -> Self {
+    #[must_use] 
+    pub const fn new(capacity: usize) -> Self {
         Self {
             head: None,
-            undo_diffs: alloc::vec::Vec::new(),
-            redo_diffs: alloc::vec::Vec::new(),
+            undo_diffs: Vec::new(),
+            redo_diffs: Vec::new(),
             capacity,
         }
     }
@@ -355,25 +363,21 @@ impl RefAnyUndoManager {
     }
 
     /// True if there is a commit to undo.
-    pub fn can_undo(&self) -> bool {
+    #[must_use] 
+    pub const fn can_undo(&self) -> bool {
         !self.undo_diffs.is_empty()
     }
 
     /// True if there is an undone commit to redo.
-    pub fn can_redo(&self) -> bool {
+    #[must_use] 
+    pub const fn can_redo(&self) -> bool {
         !self.redo_diffs.is_empty()
     }
 
     /// Reverts the most recent commit, restoring the previous state into `state`.
     pub fn undo(&mut self, state: &mut RefAny) -> bool {
-        let d = match self.undo_diffs.pop() {
-            Some(d) => d,
-            None => return false,
-        };
-        let head = match self.head.take() {
-            Some(h) => h,
-            None => return false,
-        };
+        let Some(d) = self.undo_diffs.pop() else { return false };
+        let Some(head) = self.head.take() else { return false };
         let reverted = jsondiff::apply(&head, &d, false);
         let ok = Self::restore(state, &reverted);
         self.head = Some(reverted);
@@ -383,14 +387,8 @@ impl RefAnyUndoManager {
 
     /// Re-applies the most recently undone commit.
     pub fn redo(&mut self, state: &mut RefAny) -> bool {
-        let d = match self.redo_diffs.pop() {
-            Some(d) => d,
-            None => return false,
-        };
-        let head = match self.head.take() {
-            Some(h) => h,
-            None => return false,
-        };
+        let Some(d) = self.redo_diffs.pop() else { return false };
+        let Some(head) = self.head.take() else { return false };
         let applied = jsondiff::apply(&head, &d, true);
         let ok = Self::restore(state, &applied);
         self.head = Some(applied);

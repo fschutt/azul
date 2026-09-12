@@ -48,17 +48,15 @@
 //! `layout/Cargo.toml` keeps a short list of `[[test]]` entries that cannot be
 //! modules here:
 //!
-//! * `contenteditable_e2e`, `e2e_json`, `text3_suite` — `required-features` is
-//!   a per-TARGET switch; a module cannot carry one.
-//! * `icu_parity` — CI runs it as
-//!   `cargo test --test icu_parity --no-default-features --features icu…`
-//!   (`.github/workflows/rust.yml`, job `icu_parity`). Under
-//!   `--no-default-features` the other ~116 modules do not compile, so it has
-//!   to be a target Cargo can select on its own.
-//! * `coretext_autoregression` — the coretext regression suite invokes it by
-//!   name (`--test coretext_autoregression`).
-//! * the subdirectory suites (`tests/solver3/`, `tests/managers/`,
-//!   `tests/text3/`) plus four root files that were already declared by hand.
+//! * `contenteditable_e2e`, `e2e_json`, `text3_suite` — `required-features` is a per-TARGET switch;
+//!   a module cannot carry one.
+//! * `icu_parity` — CI runs it as `cargo test --test icu_parity --no-default-features --features
+//!   icu…` (`.github/workflows/rust.yml`, job `icu_parity`). Under `--no-default-features` the
+//!   other ~116 modules do not compile, so it has to be a target Cargo can select on its own.
+//! * `coretext_autoregression` — the coretext regression suite invokes it by name (`--test
+//!   coretext_autoregression`).
+//! * the subdirectory suites (`tests/solver3/`, `tests/managers/`, `tests/text3/`) plus four root
+//!   files that were already declared by hand.
 //!
 //! On this host the two name-addressed ones cost ~6 MB each, because both are
 //! `#![cfg]`-stripped to nothing off-platform — a rounding error against the
@@ -74,16 +72,14 @@
 //! Folding this tree surfaced three latent instances of exactly that — all of
 //! them real defects the old one-process-per-file layout was hiding:
 //!
-//! 1. `web_flexbox_simple_ref` set `solver3::SKIP_DISPLAY_LIST` (a global
-//!    `AtomicBool`) and never put it back, so every test that ran afterwards
-//!    got an empty display list. `xml_dom_embed` measured zero text items.
-//! 2. `text3_shaping_cache_identity`'s negative control re-executes
-//!    `current_exe()` with `--exact <test name>`. libtest names are now
-//!    module-qualified, so the bare name matched nothing, the child ran zero
-//!    tests and exited 0, and the control read that as "the defect did not
+//! 1. `web_flexbox_simple_ref` set `solver3::SKIP_DISPLAY_LIST` (a global `AtomicBool`) and never
+//!    put it back, so every test that ran afterwards got an empty display list. `xml_dom_embed`
+//!    measured zero text items.
+//! 2. `text3_shaping_cache_identity`'s negative control re-executes `current_exe()` with `--exact
+//!    <test name>`. libtest names are now module-qualified, so the bare name matched nothing, the
+//!    child ran zero tests and exited 0, and the control read that as "the defect did not
 //!    reproduce" — a gate passing vacuously.
-//! 3. `probe_gate` flips the probe recording flag, another process global.
-//!    See [`PROBE_LOCK`].
+//! 3. `probe_gate` flips the probe recording flag, another process global. See [`PROBE_LOCK`].
 //!
 //! Each is fixed and documented at its site.
 
@@ -162,6 +158,8 @@ mod click_into_a_virtual_view_page;
 mod cpurender_image_probe;
 #[path = "cross_block_selection.rs"]
 mod cross_block_selection;
+#[path = "delete_keyed_to_caret_owner.rs"]
+mod delete_keyed_to_caret_owner;
 #[path = "demo_layout_regressions.rs"]
 mod demo_layout_regressions;
 #[path = "display_list_ids.rs"]
@@ -170,8 +168,6 @@ mod display_list_ids;
 mod dl_patch_golden;
 #[path = "document_edit_notify.rs"]
 mod document_edit_notify;
-#[path = "delete_keyed_to_caret_owner.rs"]
-mod delete_keyed_to_caret_owner;
 #[path = "document_selection_api.rs"]
 mod document_selection_api;
 #[path = "drag_image_between_pages_e2e.rs"]
@@ -220,6 +216,8 @@ mod inline_atomic_after_block;
 #[path = "atomic_inline_paint_once.rs"]
 mod atomic_inline_paint_once;
 
+#[path = "a11y_consumer_contract.rs"]
+mod a11y_consumer_contract;
 #[path = "image_child_paint.rs"]
 mod image_child_paint;
 #[path = "image_flex_grow.rs"]
@@ -264,6 +262,8 @@ mod pagination_perf;
 mod preedit_never_enters_the_text_store;
 #[path = "probe_gate.rs"]
 mod probe_gate;
+#[path = "radio_group_geometry.rs"]
+mod radio_group_geometry;
 #[path = "regression_font_size_bugs.rs"]
 mod regression_font_size_bugs;
 #[path = "resize_relayout_bug.rs"]
@@ -278,6 +278,12 @@ mod root_box_sizing_regression;
 mod run_remap;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
+#[path = "scroll_degenerate_ifc.rs"]
+mod scroll_degenerate_ifc;
+#[path = "scroll_id_identity.rs"]
+mod scroll_id_identity;
+#[path = "scroll_shift_ghost.rs"]
+mod scroll_shift_ghost;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
 #[path = "selection_handles.rs"]
@@ -288,6 +294,8 @@ mod session_regression;
 mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
+#[path = "svg_paint.rs"]
+mod svg_paint;
 #[path = "svg_tessellation.rs"]
 mod svg_tessellation;
 #[path = "synthetic_events.rs"]
@@ -358,44 +366,32 @@ mod text3_shaping_cache_identity;
 mod text3_shaping_exact;
 #[path = "text3_visual.rs"]
 mod text3_visual;
-#[path = "scroll_degenerate_ifc.rs"]
-mod scroll_degenerate_ifc;
-#[path = "radio_group_geometry.rs"]
-mod radio_group_geometry;
+#[path = "text_ack_survives_relayout.rs"]
+mod text_ack_survives_relayout;
 #[path = "text_edit_seam_regressions.rs"]
 mod text_edit_seam_regressions;
 #[path = "textarea_enter_repaint.rs"]
 mod textarea_enter_repaint;
-#[path = "textinput_resize_selection.rs"]
-mod textinput_resize_selection;
-#[path = "scroll_id_identity.rs"]
-mod scroll_id_identity;
-#[path = "scroll_shift_ghost.rs"]
-mod scroll_shift_ghost;
-#[path = "textinput_seed_style.rs"]
-mod textinput_seed_style;
-#[path = "text_ack_survives_relayout.rs"]
-mod text_ack_survives_relayout;
-#[path = "typed_script_font_fallback.rs"]
-mod typed_script_font_fallback;
-#[path = "a11y_consumer_contract.rs"]
-mod a11y_consumer_contract;
 #[path = "textinput_first_draw_and_focus.rs"]
 mod textinput_first_draw_and_focus;
-#[path = "svg_paint.rs"]
-mod svg_paint;
+#[path = "textinput_resize_selection.rs"]
+mod textinput_resize_selection;
+#[path = "textinput_seed_style.rs"]
+mod textinput_seed_style;
 #[path = "theme_conditional_stylesheet.rs"]
 mod theme_conditional_stylesheet;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
+#[path = "typed_script_font_fallback.rs"]
+mod typed_script_font_fallback;
 #[path = "unresolved_family_render.rs"]
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
 mod variable_font_disk_path;
-#[path = "virtualized_view_manager.rs"]
-mod virtualized_view_manager;
 #[path = "virtual_view_natural_size.rs"]
 mod virtual_view_natural_size;
+#[path = "virtualized_view_manager.rs"]
+mod virtualized_view_manager;
 #[path = "visibility_collapse.rs"]
 mod visibility_collapse;
 #[path = "vview_contenteditable_e2e.rs"]

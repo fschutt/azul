@@ -19,9 +19,13 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
-use crate::desktop::display::{get_display_at_point, get_primary_display};
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{
+    desktop::{
+        display::{get_display_at_point, get_primary_display},
+        shell2::common::debug_server::LogCategory,
+    },
+    log_debug,
+};
 
 /// Menu window data stored in RefAny
 #[derive(Debug, Clone)]
@@ -465,6 +469,8 @@ pub fn show_menu(
         // Set by the spawner (show_window_based_context_menu) which knows the
         // parent window's id; 0 here = filled in later / no parent.
         parent_window_id: 0,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     }
 }
 

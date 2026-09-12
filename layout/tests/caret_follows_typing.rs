@@ -6,22 +6,23 @@
 //! actually moved. A sign flip, a wrong padding, a reveal that resolved the
 //! correct container and then scrolled it by zero would all have stayed green.
 
-use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::StyledDom;
-use azul_core::task::Instant;
+use azul_core::{
+    dom::{Dom, DomId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::StyledDom,
+    task::Instant,
+};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
 /// A short, scrollable editable holding more lines than it can show.
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .box { display: block; width: 600px; height: 60px; overflow-y: scroll; } \
-                   .line { display: block; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .box { \
+                   display: block; width: 600px; height: 60px; overflow-y: scroll; } .line { \
+                   display: block; }";
 
 const LINES: usize = 30;
 const EDITABLE: usize = 1;

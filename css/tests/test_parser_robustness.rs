@@ -303,11 +303,10 @@ fn test_css_parser_flex_shorthand() {
 /// Verify that `flex: <number>` expands to grow + shrink:1 + basis:0 per CSS spec.
 #[test]
 fn test_flex_shorthand_single_number() {
-    use azul_css::props::basic::length::FloatValue;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::layout::flex::LayoutFlexBasis;
-    use azul_css::props::property::{
-        parse_combined_css_property, CombinedCssPropertyType, CssProperty,
+    use azul_css::props::{
+        basic::{length::FloatValue, pixel::PixelValue},
+        layout::flex::LayoutFlexBasis,
+        property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty},
     };
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1").unwrap();
@@ -334,11 +333,10 @@ fn test_flex_shorthand_single_number() {
 /// Verify `flex: <number> <number>` = grow + shrink + basis:0.
 #[test]
 fn test_flex_shorthand_two_numbers() {
-    use azul_css::props::basic::length::FloatValue;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::layout::flex::LayoutFlexBasis;
-    use azul_css::props::property::{
-        parse_combined_css_property, CombinedCssPropertyType, CssProperty,
+    use azul_css::props::{
+        basic::{length::FloatValue, pixel::PixelValue},
+        layout::flex::LayoutFlexBasis,
+        property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty},
     };
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "2 3").unwrap();
@@ -360,11 +358,10 @@ fn test_flex_shorthand_two_numbers() {
 /// Verify `flex: <number> <width>` = grow + shrink:1 + basis:<width>.
 #[test]
 fn test_flex_shorthand_number_and_width() {
-    use azul_css::props::basic::length::FloatValue;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::layout::flex::LayoutFlexBasis;
-    use azul_css::props::property::{
-        parse_combined_css_property, CombinedCssPropertyType, CssProperty,
+    use azul_css::props::{
+        basic::{length::FloatValue, pixel::PixelValue},
+        layout::flex::LayoutFlexBasis,
+        property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty},
     };
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1 200px").unwrap();
@@ -402,10 +399,10 @@ fn test_flex_shorthand_none() {
 /// Verify `flex: 1 2 auto` = grow:1, shrink:2, basis:auto.
 #[test]
 fn test_flex_shorthand_three_values() {
-    use azul_css::props::basic::length::FloatValue;
-    use azul_css::props::layout::flex::LayoutFlexBasis;
-    use azul_css::props::property::{
-        parse_combined_css_property, CombinedCssPropertyType, CssProperty,
+    use azul_css::props::{
+        basic::length::FloatValue,
+        layout::flex::LayoutFlexBasis,
+        property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty},
     };
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1 2 auto").unwrap();

@@ -1,17 +1,21 @@
+use std::collections::{BTreeMap, HashMap};
+
 /// Test body margin with vh units (like example.com)
 /// Verifies that margin: 15vh auto on body positions body correctly
 use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
+use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 /// Test case from example.com: body { margin: 15vh auto; }
 /// With a 768px viewport height, 15vh = 115.2px
@@ -131,8 +135,8 @@ fn test_body_margin_15vh_auto() {
         let tolerance = 1.0;
         assert!(
             (pos.y - expected_body_y).abs() < tolerance,
-            "Body margin-top should be ~{:.2}px (15vh), but got {:.2}px. \
-             This might indicate margin is being applied twice!",
+            "Body margin-top should be ~{:.2}px (15vh), but got {:.2}px. This might indicate \
+             margin is being applied twice!",
             expected_body_y,
             pos.y
         );

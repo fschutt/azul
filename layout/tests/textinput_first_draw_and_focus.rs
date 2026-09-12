@@ -1,12 +1,11 @@
 //! Pins for the 2026-08-31 TextInput device report:
 //!
-//! - A. FIRST DRAW: the placeholder rendered as a ~3px strip of glyph tops.
-//!   Every text run's clip in the FIRST display list must be at least a line
-//!   tall, and a no-op relayout must not change any text clip or any pixel -
-//!   the first frame is not allowed to differ from the settled one.
-//! - B. FOCUS THEN RELAYOUT: a caret session created through the real focus
-//!   path must survive a relayout. The display-list cache key ignored caret /
-//!   selection inputs, so the relayout served the pre-caret list verbatim.
+//! - A. FIRST DRAW: the placeholder rendered as a ~3px strip of glyph tops. Every text run's clip
+//!   in the FIRST display list must be at least a line tall, and a no-op relayout must not change
+//!   any text clip or any pixel - the first frame is not allowed to differ from the settled one.
+//! - B. FOCUS THEN RELAYOUT: a caret session created through the real focus path must survive a
+//!   relayout. The display-list cache key ignored caret / selection inputs, so the relayout served
+//!   the pre-caret list verbatim.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -108,9 +107,9 @@ impl Harness {
             .items
             .iter()
             .filter_map(|item| match item {
-                DisplayListItem::Text { clip_rect, glyphs, .. } if !glyphs.is_empty() => {
-                    Some(clip_rect.0)
-                }
+                DisplayListItem::Text {
+                    clip_rect, glyphs, ..
+                } if !glyphs.is_empty() => Some(clip_rect.0),
                 _ => None,
             })
             .collect()
@@ -162,7 +161,10 @@ fn pixel_diff_count(a: &AzulPixmap, b: &AzulPixmap) -> usize {
 fn the_first_frame_paints_the_placeholder_like_the_settled_frame() {
     let mut h = Harness::new_empty_with_placeholder(400.0, 120.0);
     let first_clips = h.text_clips();
-    assert!(!first_clips.is_empty(), "the placeholder run is in the first list");
+    assert!(
+        !first_clips.is_empty(),
+        "the placeholder run is in the first list"
+    );
     for c in &first_clips {
         assert!(
             c.size.height >= 8.0,
@@ -193,9 +195,8 @@ fn a_caret_created_by_the_real_focus_path_survives_a_relayout() {
     // The click's focus path, without initialize_editing shortcuts.
     h.lw.focus_manager.set_focused_node(Some(dnid(CONTAINER)));
     let ws = h.window_state.clone();
-    let _ = h
-        .lw
-        .handle_focus_change_for_cursor_blink(Some(dnid(CONTAINER)), &ws);
+    let _ =
+        h.lw.handle_focus_change_for_cursor_blink(Some(dnid(CONTAINER)), &ws);
     assert!(
         h.lw.finalize_pending_focus_changes(),
         "the deferred focus becomes an editing session"

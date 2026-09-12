@@ -22,7 +22,9 @@ use azul_core::{
     refany::RefAny,
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -42,7 +44,13 @@ use crate::callbacks::{Callback, CallbackInfo};
 #[repr(C)]
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
-    pub style: CssPropertyWithConditionsVec,
+    /// The swatch's CSS, or `None` for "no opinion" — in which case the widget's
+    /// default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -169,9 +177,22 @@ impl ColorInput {
                 inner: ColorInputState { color },
                 ..Default::default()
             },
-            style: CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
+            style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The swatch CSS this input renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift. The
+    /// colour swatch, the checkerboard geometry and the translucency overrides
+    /// are all appended to this in `dom()`.
+    #[must_use]
+    pub fn resolved_style(&self) -> CssPropertyWithConditionsVec {
+        self.style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE)
+        })
     }
 
     /// Sets the callback invoked when the color value changes.
@@ -222,12 +243,14 @@ impl ColorInput {
 
         let color = self.color_input_state.inner.color;
         let title = self.color_input_state.title.clone();
+        // Resolved before `self.accessibility_name` is moved out below.
+        let resolved_style = self.resolved_style();
         let a11y_name = match self.accessibility_name {
             OptionString::Some(n) => n,
             OptionString::None => title,
         };
 
-        let mut style = self.style.into_library_owned_vec();
+        let mut style = resolved_style.into_library_owned_vec();
         style.push(CssPropertyWithConditions::simple(
             CssProperty::const_background_content(
                 vec![StyleBackgroundContent::Color(color)].into(),
@@ -285,7 +308,8 @@ impl ColorInput {
             swatch = swatch
                 .with_child(checkerboard(w, h, (w.min(h) / 2.0).max(1.0)))
                 .with_child(Dom::create_div().with_css(&format!(
-                    "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
+                    "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+                     background: {};",
                     css_rgba(ColorU { a: 255, ..color }, color.a)
                 )));
         }
@@ -563,7 +587,8 @@ fn plane_background_css(hue: f32) -> String {
 
 /// The plane's shade overlay: transparent at the top, black at the bottom.
 const SHADE_CSS: &str = "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
-    border-radius: 4px; background: linear-gradient(to bottom, rgba(0, 0, 0, 0), #000000);";
+                         border-radius: 4px; background: linear-gradient(to bottom, rgba(0, 0, 0, \
+                         0), #000000);";
 
 /// `rgba(r, g, b, a)` for CSS, alpha as a fraction.
 fn css_rgba(color: ColorU, alpha: u8) -> String {
@@ -649,8 +674,8 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
     let mut board = Dom::create_div()
         .with_ids_and_classes(vec![Class(CHECKERBOARD_CLASS.into())].into())
         .with_css(&format!(
-            "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; \
-             display: flex; flex-direction: column; overflow: hidden;"
+            "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; display: flex; \
+             flex-direction: column; overflow: hidden;"
         ));
     for y in 0..rows {
         let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");
@@ -672,8 +697,8 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
     board
 }
 
-const HUE_BACKGROUND_CSS: &str = "linear-gradient(to right, #ff0000 0%, #ffff00 17%, \
-    #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)";
+const HUE_BACKGROUND_CSS: &str = "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, \
+                                  #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)";
 
 /// A property parsed from its CSS text; `None` if the text does not parse.
 fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
@@ -685,10 +710,7 @@ fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
 /// replaced, so the fields inside the picker still look like fields.
 fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditionsVec {
     let mut props: Vec<CssPropertyWithConditions> =
-        crate::widgets::text_input::TextInput::default()
-            .container_style
-            .as_ref()
-            .to_vec();
+        crate::widgets::text_input::TEXT_INPUT_CONTAINER_PROPS.to_vec();
     props.retain(|p| {
         !matches!(
             p.property.get_type(),
@@ -706,12 +728,13 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
 
 /// The picker panel that lives inside the popup.
 fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
-    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter, IdOrClass::Class},
     };
+
+    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
 
     let hsv = Hsv::from_color(color);
     let hex = color_to_hex(color);
@@ -745,9 +768,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Saturation/value plane with its ring marker.
     let plane_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; \
-             margin-left: -6px; margin-top: -6px; border: 2px solid #ffffff; \
-             border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; margin-left: \
+         -6px; margin-top: -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px \
+         0px 2px rgba(0, 0, 0, 0.6);",
         hsv.s * 100.0,
         (1.0 - hsv.v) * 100.0
     ));
@@ -781,9 +804,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Hue bar with its marker.
     let hue_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
-             margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
-             box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; margin-left: \
+         -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, \
+         0, 0.6);",
         hsv.h / 360.0 * 100.0
     ));
     let hue = Dom::create_div()
@@ -814,9 +837,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // Alpha bar: checkerboard, then transparent→colour over it, then the marker.
     let opaque = ColorU { a: 255, ..color };
     let alpha_marker = Dom::create_div().with_css(&format!(
-        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
-         margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
-         box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; margin-left: \
+         -6px; border: 2px solid #ffffff; border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, \
+         0, 0.6);",
         f32::from(color.a) / 255.0 * 100.0
     ));
     let alpha_fill = Dom::create_div().with_css(&format!(
@@ -854,8 +877,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // Preview + hex. A translucent colour shows the checkerboard through it.
     let mut preview = Dom::create_div()
         .with_css(
-            "position: relative; width: 28px; height: 28px; border-radius: 4px; \
-             border: 1px solid #c8c8c8; overflow: hidden;",
+            "position: relative; width: 28px; height: 28px; border-radius: 4px; border: 1px solid \
+             #c8c8c8; overflow: hidden;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
@@ -885,9 +908,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let eyedropper = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
         .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 28px; \
-             height: 28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; \
-             background: #f4f4f4; color: #404040; font-size: 18px;",
+            "display: flex; align-items: center; justify-content: center; width: 28px; height: \
+             28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: \
+             #f4f4f4; color: #404040; font-size: 18px;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
@@ -955,8 +978,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_ids_and_classes(vec![Class(COLOR_PICKER_GRIP_CLASS.into())].into())
         .with_css(
             "display: flex; flex-direction: row; justify-content: center; align-items: center; \
-             height: 10px; margin-top: -4px; margin-bottom: -2px; cursor: grab; \
-             -azul-app-region: drag;",
+             height: 10px; margin-top: -4px; margin-bottom: -2px; cursor: grab; -azul-app-region: \
+             drag;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Separator,
@@ -971,9 +994,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
         .with_css(
-            "display: flex; flex-direction: column; gap: 8px; padding: 8px; \
-             background: #ffffff; border: 1px solid #c8c8c8; border-radius: 6px; \
-             box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); font-size: 12px; color: #202020;",
+            "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; \
+             border: 1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, \
+             0, 0.25); font-size: 12px; color: #202020;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,
@@ -1183,7 +1206,11 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
         // Alpha is a channel of the COLOUR, not of `hsv` - go through the
         // same `set_color` the alpha drag uses.
         (NudgeAxis::Alpha, K::Left | K::Down | K::Right | K::Up) => {
-            let dir = if matches!(key, K::Left | K::Down) { -1.0 } else { 1.0 };
+            let dir = if matches!(key, K::Left | K::Down) {
+                -1.0
+            } else {
+                1.0
+            };
             let mut c = picker.color();
             let a = f32::from(c.a) / 255.0;
             c.a = channel_value((a + dir * step).clamp(0.0, 1.0) * 255.0);
@@ -1968,9 +1995,13 @@ mod autotest_generated {
         // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent.
         for c in SAMPLE_COLORS {
             let w = ColorInput::create(c);
-            assert_eq!(width_px(&w.style), Some(SIDE), "{c:?}: wrong swatch width");
             assert_eq!(
-                height_px(&w.style),
+                width_px(&w.resolved_style()),
+                Some(SIDE),
+                "{c:?}: wrong swatch width"
+            );
+            assert_eq!(
+                height_px(&w.resolved_style()),
                 Some(SIDE),
                 "{c:?}: wrong swatch height"
             );
@@ -1981,7 +2012,7 @@ mod autotest_generated {
     fn create_marks_the_swatch_as_clickable() {
         // Without `cursor: pointer` the swatch looks inert even though it is the node
         // that carries the mouse-up handler.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         assert!(
             props.contains(&CssProperty::const_cursor(StyleCursor::Pointer)),
             "the color input does not present as clickable: {props:?}",
@@ -1992,7 +2023,7 @@ mod autotest_generated {
     fn create_is_a_non_growing_block() {
         // A swatch with flex-grow != 0 would stretch to fill its row and stop being a
         // 14px square, silently defeating the width/height declarations above.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         assert!(
             props.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
             "the swatch is allowed to flex-grow: {props:?}",
@@ -2007,7 +2038,7 @@ mod autotest_generated {
     fn create_declares_no_property_twice() {
         // A duplicate declaration means the later one silently wins — a latent
         // "why is my override ignored" bug that never surfaces as an error.
-        let props = properties(&ColorInput::create(DEFAULT_COLOR).style);
+        let props = properties(&ColorInput::create(DEFAULT_COLOR).resolved_style());
         let mut seen = Vec::new();
         for p in &props {
             let d = discriminant(p);
@@ -2023,7 +2054,7 @@ mod autotest_generated {
         // render the same color (and `dom()` would then declare it twice).
         for c in SAMPLE_COLORS {
             assert_eq!(
-                background_color(&ColorInput::create(c).style),
+                background_color(&ColorInput::create(c).resolved_style()),
                 None,
                 "create({c:?}) leaked the color into the base style",
             );
@@ -2032,10 +2063,10 @@ mod autotest_generated {
 
     #[test]
     fn create_style_does_not_depend_on_the_color() {
-        let reference = properties(&ColorInput::create(SAMPLE_COLORS[0]).style);
+        let reference = properties(&ColorInput::create(SAMPLE_COLORS[0]).resolved_style());
         for c in SAMPLE_COLORS {
             assert_eq!(
-                properties(&ColorInput::create(c).style),
+                properties(&ColorInput::create(c).resolved_style()),
                 reference,
                 "create({c:?}) produced a different style than create({:?})",
                 SAMPLE_COLORS[0],
@@ -2211,8 +2242,8 @@ mod autotest_generated {
                 "installing a callback rewrote the color",
             );
             assert_eq!(
-                properties(&w.style),
-                properties(&pristine.style),
+                properties(&w.resolved_style()),
+                properties(&pristine.resolved_style()),
                 "installing a callback rewrote the style",
             );
             assert_eq!(
@@ -2240,7 +2271,10 @@ mod autotest_generated {
             by_builder.color_input_state.inner,
             by_setter.color_input_state.inner
         );
-        assert_eq!(properties(&by_builder.style), properties(&by_setter.style));
+        assert_eq!(
+            properties(&by_builder.resolved_style()),
+            properties(&by_setter.resolved_style())
+        );
 
         let a = by_builder
             .color_input_state
@@ -2313,37 +2347,49 @@ mod autotest_generated {
     }
 
     #[test]
-    fn swap_with_default_leaves_an_unstyled_widget_behind() {
-        // `ColorInput::default()` is *derived*, so its `style` is an empty vec — unlike
-        // `create()`, which installs the 14x14 + cursor table. The two therefore differ
-        // even though their state is identical. Documented here so a change in either
-        // direction is loud rather than silent.
+    fn swap_with_default_leaves_a_canonical_widget_behind() {
+        // `ColorInput::default()` is *derived*, so it used to leave `style` an
+        // empty vec while `create()` installed the 14x14 + cursor table — two
+        // widgets with identical state that rendered differently, which this
+        // test pinned as a known trap. Neither constructor stores a style now,
+        // so the trap is gone: `default()` resolves the same table `create()`
+        // used to copy in, and the two ARE interchangeable. Asserted in that
+        // direction, because the old `assert_ne!` would now be asserting the
+        // absence of the fix.
         assert_eq!(
             ColorInput::default().color_input_state,
             ColorInput::create(DEFAULT_COLOR).color_input_state,
             "default() and create(white) no longer agree on the state",
         );
         assert!(
-            ColorInput::default().style.as_ref().is_empty(),
-            "ColorInput::default() gained a style",
+            ColorInput::default().style.as_ref().is_none(),
+            "ColorInput::default() gained an opinion on its style",
         );
-        assert_ne!(
+        assert_eq!(
             ColorInput::default(),
             ColorInput::create(DEFAULT_COLOR),
-            "default() and create(white) became interchangeable",
+            "default() and create(white) drifted apart again",
+        );
+        assert!(
+            !ColorInput::default().resolved_style().as_ref().is_empty(),
+            "both resolve to the real default table, not to nothing",
         );
 
+        // What `swap_with_default` leaves behind used to have no geometry at all,
+        // because the derived `Default` left the style empty. It resolves the
+        // canonical table now, so the swapped-in widget is a usable 14x14 swatch
+        // rather than a zero-sized one — assert the geometry is there.
         let mut w = ColorInput::create(SAMPLE_COLORS[6]);
         let _ = w.swap_with_default();
         assert_eq!(
-            width_px(&w.style),
-            None,
-            "the swapped-in widget unexpectedly has a width"
+            width_px(&w.resolved_style()),
+            Some(SIDE),
+            "the swapped-in widget lost the default swatch width"
         );
         assert_eq!(
-            height_px(&w.style),
-            None,
-            "the swapped-in widget unexpectedly has a height"
+            height_px(&w.resolved_style()),
+            Some(SIDE),
+            "the swapped-in widget lost the default swatch height"
         );
     }
 
@@ -2455,7 +2501,7 @@ mod autotest_generated {
         // rendered node's background, byte-identical, with the base style untouched and the
         // background appended *after* it (so a user override earlier in the table can't win).
         for c in SAMPLE_COLORS {
-            let base = properties(&ColorInput::create(c).style);
+            let base = properties(&ColorInput::create(c).resolved_style());
             let rendered = inline_properties(&ColorInput::create(c).dom());
 
             // The colour, plus — for a translucent swatch only — the three
@@ -2550,10 +2596,9 @@ mod autotest_generated {
             assert_eq!(
                 callbacks[0].event,
                 EventFilter::Hover(HoverEventFilter::Click),
-                "{c:?}: the swatch must fire on ACTIVATION (Click), not on a \
-                 raw MouseUp - a real pointer release emits BOTH, so a MouseUp \
-                 handler ran the open/close toggle twice and the picker opened \
-                 and instantly closed (2026-09-01)",
+                "{c:?}: the swatch must fire on ACTIVATION (Click), not on a raw MouseUp - a real \
+                 pointer release emits BOTH, so a MouseUp handler ran the open/close toggle twice \
+                 and the picker opened and instantly closed (2026-09-01)",
             );
             assert_eq!(
                 callbacks[0].callback.cb, on_color_input_clicked as usize,
@@ -2617,14 +2662,32 @@ mod autotest_generated {
         assert!(picker.state.on_value_change.as_ref().is_none());
     }
     #[test]
-    fn dom_of_an_unstyled_default_widget_still_carries_its_background() {
-        // `ColorInput::default()` has an empty style vec — pushing onto it must still work
-        // and must produce exactly the one background property.
-        let dom = ColorInput::default().dom();
+    fn dom_of_an_unstyled_widget_still_carries_its_background() {
+        // "Unstyled" is spelled `Some(empty)` now: `ColorInput::default()` leaves
+        // the field `None`, which means "no opinion" and resolves to the full
+        // default table. An explicitly empty style is the case this test is
+        // about — pushing the background onto nothing must still work and must
+        // produce exactly the one property.
+        let w = ColorInput {
+            style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::new()),
+            ..ColorInput::default()
+        };
+        let dom = w.dom();
         assert_eq!(
             inline_properties(&dom),
             vec![expected_background(DEFAULT_COLOR)],
-            "a default color input did not render its background alone",
+            "an explicitly unstyled color input did not render its background alone",
+        );
+
+        // ...and the no-opinion default still gets the real table around it.
+        let dom = ColorInput::default().dom();
+        assert!(
+            inline_properties(&dom).len() > 1,
+            "a no-opinion default must resolve its style, not render bare",
+        );
+        assert!(
+            inline_properties(&dom).contains(&expected_background(DEFAULT_COLOR)),
+            "the background must survive being appended to the resolved style",
         );
     }
 
@@ -3321,8 +3384,14 @@ mod autotest_generated {
         };
 
         let stepped = |s0: f32, step: f32| (s0 + step).clamp(0.0, 1.0);
-        assert!((stepped(mid.s, 0.01) - 0.51).abs() < 1e-6, "fine step is 1%");
-        assert!((stepped(mid.s, 0.10) - 0.60).abs() < 1e-6, "coarse step is 10%");
+        assert!(
+            (stepped(mid.s, 0.01) - 0.51).abs() < 1e-6,
+            "fine step is 1%"
+        );
+        assert!(
+            (stepped(mid.s, 0.10) - 0.60).abs() < 1e-6,
+            "coarse step is 10%"
+        );
 
         // Clamping at both ends, so holding an arrow cannot walk out of range.
         assert!((stepped(1.0, 0.10) - 1.0).abs() < 1e-6);
@@ -3330,8 +3399,13 @@ mod autotest_generated {
 
         // Hue WRAPS instead of clamping - it is an angle.
         let hue_after = |h: f32, d: f32| (h + d * 360.0).rem_euclid(360.0);
-        assert!((hue_after(355.0, 0.10) - 31.0).abs() < 1e-4, "hue wraps past 360");
-        assert!((hue_after(5.0, -0.10) - 329.0).abs() < 1e-4, "and wraps below 0");
+        assert!(
+            (hue_after(355.0, 0.10) - 31.0).abs() < 1e-4,
+            "hue wraps past 360"
+        );
+        assert!(
+            (hue_after(5.0, -0.10) - 329.0).abs() < 1e-4,
+            "and wraps below 0"
+        );
     }
-
 }

@@ -9,7 +9,6 @@
 //! headless lacks is a native surface, so a "created popup" is the
 //! `WindowCreateOptions` left in `pending_window_creates` — which this test
 //! then turns into a SECOND headless window, exactly as `run.rs` would.
-//!
 
 use std::{
     cell::RefCell,
@@ -220,8 +219,8 @@ fn an_open_transient_window_becomes_a_child_window_of_its_measured_size() {
         let w = &open[0];
         assert!(
             !lw.layout_results.contains_key(&w.content_dom),
-            "the popup's content is measured on scratch caches, never parked in the \
-             parent's layout_results — hit testing and the display list must not see it"
+            "the popup's content is measured on scratch caches, never parked in the parent's \
+             layout_results — hit testing and the display list must not see it"
         );
         assert_ne!(w.content_dom, DomId::ROOT_ID);
         let a = w.placement.anchor_rect;
@@ -1232,13 +1231,18 @@ extern "C" fn zones_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     );
     let anchor = Dom::create_div()
         .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("anchor".into())].into())
-        .with_css("position: absolute; left: 300px; top: 20px; width: 80px; height: 24px; background: #888;".into())
+        .with_css(
+            "position: absolute; left: 300px; top: 20px; width: 80px; height: 24px; background: \
+             #888;"
+                .into(),
+        )
         .with_child(popup);
     let zone = |left: f32| {
         Dom::create_div()
             .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("dock".into())].into())
             .with_css(&format!(
-                "position: absolute; left: {left}px; top: 200px; width: 120px; height: 300px; background: #ddd;"
+                "position: absolute; left: {left}px; top: 200px; width: 120px; height: 300px; \
+                 background: #ddd;"
             ))
     };
     Dom::create_body()
@@ -1866,7 +1870,8 @@ extern "C" fn workspace_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> D
         let mut d = Dom::create_div()
             .with_ids_and_classes(vec![Class("dock".into()), Class(class.into())].into())
             .with_css(&format!(
-                "position: absolute; left: {left}px; top: 20px; width: 200px; height: 500px; background: #eee;"
+                "position: absolute; left: {left}px; top: 20px; width: 200px; height: 500px; \
+                 background: #eee;"
             ));
         if let Some(c) = child {
             d = d.with_child(c);
@@ -1963,7 +1968,8 @@ fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
     // 2. Drag the grip into the open (between the columns, below them).
     let grip = rect_of(&parent, "grip").expect("grip");
     let grip_mid = LogicalPosition::new(grip.origin.x + 100.0, grip.origin.y + 8.0);
-    drag_by(&mut parent, grip_mid, LogicalPosition::new(150.0, 540.0)); // to (250, 568): no zone there
+    drag_by(&mut parent, grip_mid, LogicalPosition::new(150.0, 540.0)); // to (250, 568): no zone
+                                                                        // there
     assert!(
         parent.get_layout_window().unwrap().inline_tear.is_none(),
         "the drag ended"
@@ -2077,8 +2083,8 @@ fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
     assert_eq!(panel2, panel, "a drop inside the same zone is a no-op");
     assert_eq!(events.lock().unwrap().len(), 3);
 
-    // 6. An identical rebuild keeps the graft (the fast path must not
-    //    forget it): still in C after a RefreshDom with no DOM change.
+    // 6. An identical rebuild keeps the graft (the fast path must not forget it): still in C after
+    //    a RefreshDom with no DOM change.
     relayout(&mut parent);
     relayout(&mut parent);
     let panel3 = rect_of(&parent, "panel").expect("still inline");

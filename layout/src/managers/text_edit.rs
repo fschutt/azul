@@ -9,10 +9,7 @@
 //! Every mutation that affects visual output sets `display_list_dirty = true`,
 //! ensuring the display list is always regenerated.
 
-use alloc::collections::BTreeMap;
-use azul_css::props::basic::color::ColorU;
-
-use alloc::sync::Arc;
+use alloc::{collections::BTreeMap, sync::Arc};
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_core::{
@@ -23,6 +20,7 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
+use azul_css::props::basic::color::ColorU;
 
 /// Default cursor blink interval in milliseconds
 pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
@@ -517,12 +515,42 @@ pub struct TextEditManager {
 #[must_use]
 pub const fn seat_owner_color(seat_id: u64) -> ColorU {
     const PALETTE: [ColorU; 6] = [
-        ColorU { r: 0xE0, g: 0x6C, b: 0x00, a: 0xFF }, // orange
-        ColorU { r: 0x2E, g: 0x9E, b: 0x44, a: 0xFF }, // green
-        ColorU { r: 0x8E, g: 0x44, b: 0xAD, a: 0xFF }, // purple
-        ColorU { r: 0x00, g: 0x8B, b: 0x9E, a: 0xFF }, // teal
-        ColorU { r: 0xC2, g: 0x18, b: 0x5B, a: 0xFF }, // magenta
-        ColorU { r: 0x7A, g: 0x5C, b: 0x00, a: 0xFF }, // olive
+        ColorU {
+            r: 0xE0,
+            g: 0x6C,
+            b: 0x00,
+            a: 0xFF,
+        }, // orange
+        ColorU {
+            r: 0x2E,
+            g: 0x9E,
+            b: 0x44,
+            a: 0xFF,
+        }, // green
+        ColorU {
+            r: 0x8E,
+            g: 0x44,
+            b: 0xAD,
+            a: 0xFF,
+        }, // purple
+        ColorU {
+            r: 0x00,
+            g: 0x8B,
+            b: 0x9E,
+            a: 0xFF,
+        }, // teal
+        ColorU {
+            r: 0xC2,
+            g: 0x18,
+            b: 0x5B,
+            a: 0xFF,
+        }, // magenta
+        ColorU {
+            r: 0x7A,
+            g: 0x5C,
+            b: 0x00,
+            a: 0xFF,
+        }, // olive
     ];
     PALETTE[(seat_id % 6) as usize]
 }
@@ -821,7 +849,11 @@ impl TextEditManager {
             caret.cursor = diff.map_cursor(caret.cursor);
             if let Some(anchor) = caret.anchor {
                 let mapped = diff.map_cursor(anchor);
-                caret.anchor = if mapped == caret.cursor { None } else { Some(mapped) };
+                caret.anchor = if mapped == caret.cursor {
+                    None
+                } else {
+                    Some(mapped)
+                };
             }
         }
     }
@@ -1238,10 +1270,9 @@ impl TextEditManager {
             let Some(node_id) = caret.node.node.into_crate_internal() else {
                 continue;
             };
-            let (preedit_bytes, preedit_chars) = self
-                .seat_preedits
-                .get(seat)
-                .map_or((0, 0), |p| (p.text.len() as u32, p.text.chars().count() as u32));
+            let (preedit_bytes, preedit_chars) = self.seat_preedits.get(seat).map_or((0, 0), |p| {
+                (p.text.len() as u32, p.text.chars().count() as u32)
+            });
             out.push(CursorLocation {
                 dom: caret.node.dom,
                 node: node_id,
@@ -1448,10 +1479,7 @@ impl TextEditManager {
     /// into the map the display list paints, as remote ranges under the
     /// seat's owner - so they take the seat's tint like a peer's. A dom
     /// with no primary selection gets a collapsed entry to hang them on.
-    fn fold_seat_selections(
-        &self,
-        map: &mut BTreeMap<DomId, azul_core::selection::TextSelection>,
-    ) {
+    fn fold_seat_selections(&self, map: &mut BTreeMap<DomId, azul_core::selection::TextSelection>) {
         use azul_core::selection::{SelectionOwner, TextSelection};
         for (seat, caret) in &self.seat_carets {
             let Selection::Range(range) = caret.selection() else {
@@ -1642,15 +1670,14 @@ impl crate::managers::NodeIdRemap for TextEditManager {
         // Same for the post-commit `TextChanged` queue: a text node that the
         // rebuild unmounted (the Enter split moves its text into a new leaf)
         // has nothing to report; the surviving one is renamed in place.
-        self.pending_text_changed.retain_mut(|node| {
-            match map.resolve_dom_node_id(dom, *node) {
+        self.pending_text_changed
+            .retain_mut(|node| match map.resolve_dom_node_id(dom, *node) {
                 Some(new_id) => {
                     *node = new_id;
                     true
                 }
                 None => false,
-            }
-        });
+            });
     }
 }
 
@@ -1710,7 +1737,6 @@ mod autotest_generated {
             .map(|l| (l.dom, l.node, l.cursor))
             .collect()
     }
-
 
     /// THE ORDERING RULE (10a-iv). Two writers share one queue - the shell's
     /// focus-driven raise and the app's explicit request - and the app must be
@@ -2231,10 +2257,7 @@ mod autotest_generated {
             Some(u64::MAX),
             "the contenteditable key is opaque — u64::MAX must survive verbatim"
         );
-        assert_eq!(
-            locs_as_triples(&m),
-            vec![(DOM_MAX, node, extreme_cursor)]
-        );
+        assert_eq!(locs_as_triples(&m), vec![(DOM_MAX, node, extreme_cursor)]);
     }
 
     #[test]
@@ -2538,8 +2561,18 @@ mod autotest_generated {
 
         let locations = m.build_cursor_locations();
         assert_eq!(locations.len(), 1000);
-        assert_eq!((locations[0].dom, locations[0].node, locations[0].cursor), (DOM0, node, cursor(0, 0)));
-        assert_eq!((locations[999].dom, locations[999].node, locations[999].cursor), (DOM0, node, cursor(0, 999)));
+        assert_eq!(
+            (locations[0].dom, locations[0].node, locations[0].cursor),
+            (DOM0, node, cursor(0, 0))
+        );
+        assert_eq!(
+            (
+                locations[999].dom,
+                locations[999].node,
+                locations[999].cursor
+            ),
+            (DOM0, node, cursor(0, 999))
+        );
     }
 
     // ------------------------------------------------------------------
@@ -3440,7 +3473,6 @@ mod autotest_generated {
         m.clear_value_at_focus();
         assert_eq!(m.value_changed_since_focus(n, "v"), None);
     }
-
 }
 
 impl azul_core::events::EventProvider for TextEditManager {
@@ -3455,10 +3487,7 @@ impl azul_core::events::EventProvider for TextEditManager {
     /// cleared by the owner during the same pass (see `take_pending_composition`);
     /// re-emitting a stale phase would fire `CompositionStart` on every frame
     /// for the life of the composition.
-    fn get_pending_events(
-        &self,
-        timestamp: Instant,
-    ) -> Vec<SyntheticEvent> {
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
         use azul_core::events::{
             CompositionEventData, EventData, EventSource, EventType, SyntheticEvent,
         };
@@ -3521,19 +3550,17 @@ impl azul_core::events::EventProvider for TextEditManager {
 /// replacement selection is set on the document and the composition is
 /// then confirmed before the new text lands.
 ///
-/// - `None` (`NSNotFound`) stays `None`: an implicit range is the caret or
-///   the composition, which need no rebasing.
+/// - `None` (`NSNotFound`) stays `None`: an implicit range is the caret or the composition, which
+///   need no rebasing.
 /// - No composition: the range is only ordered.
 /// - A range wholly BEFORE the preedit is unchanged.
 /// - A range wholly AFTER it slides back by the preedit's length.
-/// - A range OVERLAPPING the preedit (partially or wholly, or containing
-///   it) resolves to the preedit's own place in the committed text: the
-///   empty span at the composition's start, which is where the caret sits
-///   once the preedit is gone. The caller's replacement rule reads an empty
-///   range as "act at the caret", so the committed text around the
-///   composition is never deleted on the strength of offsets that named
-///   composed glyphs - a partial overlap is not a shape any IME documents,
-///   and this is the conservative reading of it.
+/// - A range OVERLAPPING the preedit (partially or wholly, or containing it) resolves to the
+///   preedit's own place in the committed text: the empty span at the composition's start, which is
+///   where the caret sits once the preedit is gone. The caller's replacement rule reads an empty
+///   range as "act at the caret", so the committed text around the composition is never deleted on
+///   the strength of offsets that named composed glyphs - a partial overlap is not a shape any IME
+///   documents, and this is the conservative reading of it.
 /// - A zero-length range is a point and follows the same rules.
 #[must_use]
 pub fn rebase_ime_range_onto_committed(
@@ -3541,7 +3568,11 @@ pub fn rebase_ime_range_onto_committed(
     marked: Option<(usize, usize)>,
 ) -> Option<(usize, usize)> {
     let (start, end) = range?;
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     let Some((mark_start, mark_end)) = marked else {
         return Some((start, end));
     };
@@ -3575,12 +3606,18 @@ mod ime_range_rebase_tests {
 
     #[test]
     fn without_a_composition_the_range_is_only_ordered() {
-        assert_eq!(rebase_ime_range_onto_committed(Some((5, 2)), None), Some((2, 5)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((5, 2)), None),
+            Some((2, 5))
+        );
     }
 
     #[test]
     fn a_range_before_the_preedit_is_unchanged() {
-        assert_eq!(rebase_ime_range_onto_committed(Some((0, 2)), MARKED), Some((0, 2)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((0, 2)), MARKED),
+            Some((0, 2))
+        );
         assert_eq!(
             rebase_ime_range_onto_committed(Some((0, 1)), MARKED),
             Some((0, 1)),
@@ -3591,7 +3628,10 @@ mod ime_range_rebase_tests {
     #[test]
     fn a_range_after_the_preedit_slides_back_by_its_length() {
         // "cd" is bytes 11..13 of the document and 2..4 of the committed text.
-        assert_eq!(rebase_ime_range_onto_committed(Some((11, 13)), MARKED), Some((2, 4)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((11, 13)), MARKED),
+            Some((2, 4))
+        );
         assert_eq!(
             rebase_ime_range_onto_committed(Some((13, 11)), MARKED),
             Some((2, 4)),
@@ -3631,7 +3671,10 @@ mod ime_range_rebase_tests {
 
     #[test]
     fn a_zero_length_range_is_a_point_under_the_same_rules() {
-        assert_eq!(rebase_ime_range_onto_committed(Some((1, 1)), MARKED), Some((1, 1)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((1, 1)), MARKED),
+            Some((1, 1))
+        );
         assert_eq!(
             rebase_ime_range_onto_committed(Some((2, 2)), MARKED),
             Some((2, 2)),
@@ -3642,7 +3685,10 @@ mod ime_range_rebase_tests {
             Some((2, 2)),
             "at its end: after it, and the same point once it is gone"
         );
-        assert_eq!(rebase_ime_range_onto_committed(Some((13, 13)), MARKED), Some((4, 4)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((13, 13)), MARKED),
+            Some((4, 4))
+        );
         assert_eq!(
             rebase_ime_range_onto_committed(Some((5, 5)), MARKED),
             Some((2, 2)),
@@ -3702,6 +3748,4 @@ mod composition_end_tests {
         m.clear_preedit();
         assert_eq!(m.take_pending_composition(), None);
     }
-
 }
-

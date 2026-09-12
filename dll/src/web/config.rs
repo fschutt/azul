@@ -8,16 +8,14 @@
 //! `web://<host>:<port>[?key=value&key=value...]`
 //!
 //! Supported query parameters (see `WebConfig` for defaults):
-//! - `tls_cert=<path>` / `tls_key=<path>` — TLS PEM files. Both must be
-//!   set together; setting only one is an error.
-//! - `max_body=<bytes>` — request body cap. Must be `> 0` and `<= 1 GiB`.
-//!   Default `16 MiB`.
-//! - `auth_token=<string>` — required `Authorization: Bearer <token>`
-//!   for `/az/exec/*`. Embedded NUL / CR / LF are rejected.
-//! - `allow_public=1` — opt-in to bind on a non-loopback address. By
-//!   default, binding to `0.0.0.0` / any public IP is rejected because
-//!   the server has no authentication on by default and only minimal
-//!   DoS protection.
+//! - `tls_cert=<path>` / `tls_key=<path>` — TLS PEM files. Both must be set together; setting only
+//!   one is an error.
+//! - `max_body=<bytes>` — request body cap. Must be `> 0` and `<= 1 GiB`. Default `16 MiB`.
+//! - `auth_token=<string>` — required `Authorization: Bearer <token>` for `/az/exec/*`. Embedded
+//!   NUL / CR / LF are rejected.
+//! - `allow_public=1` — opt-in to bind on a non-loopback address. By default, binding to `0.0.0.0`
+//!   / any public IP is rejected because the server has no authentication on by default and only
+//!   minimal DoS protection.
 //! - `max_connections=<n>` — concurrent connection cap. Default unlimited.
 //!
 //! All values are percent-decoded. Duplicate keys are rejected as
@@ -25,8 +23,10 @@
 //!
 //! See `doc/guide/en/internals/web.md` for the user-facing documentation.
 
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 
 /// Default body cap when `max_body` isn't supplied — 16 MiB.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
@@ -273,8 +273,9 @@ fn hex_digit(b: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
+
+    use super::*;
 
     fn loopback_v4(port: u16) -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))

@@ -314,7 +314,7 @@ pub fn debug_parse_file(file_path: &Path) -> Result<()> {
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
                 if macro_name.starts_with("impl_") {
-                    macros.push(format!("{}!({})", macro_name, m.mac.tokens.to_string()));
+                    macros.push(format!("{}!({})", macro_name, m.mac.tokens));
                 }
             }
             _ => {}
@@ -704,8 +704,9 @@ mod tests {
 
 /// Analyze and display types ranked by FFI difficulty
 pub fn analyze_ffi_difficulty(api_data: &ApiData) {
-    use super::module_map::{analyze_ffi_difficulty, is_internal_only_type, FfiDifficulty};
     use std::collections::BTreeMap;
+
+    use super::module_map::{analyze_ffi_difficulty, is_internal_only_type, FfiDifficulty};
 
     println!("\n=== FFI Difficulty Analysis ===\n");
     println!("Note: Vec<T> and String are NOT flagged - they have FFI wrappers.\n");
@@ -956,7 +957,10 @@ pub fn show_wrong_module_types(api_data: &ApiData) {
 
     let api = &version_data.api;
 
-    let mut wrong_module: Vec<(String, String, String, String)> = Vec::new(); // (current_module, type_name, correct_module, reason)
+    let mut wrong_module: Vec<(String, String, String, String)> = Vec::new(); // (current_module,
+                                                                              // type_name,
+                                                                              // correct_module,
+                                                                              // reason)
 
     for (module_name, module) in api.iter() {
         for (class_name, class_data) in module.classes.iter() {
@@ -1004,10 +1008,11 @@ pub fn show_wrong_module_types(api_data: &ApiData) {
 /// Analyze which API functions pull in difficult/internal types
 /// This helps identify the root cause of FFI issues
 pub fn analyze_function_dependencies(api_data: &ApiData) {
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
     use super::module_map::{
         analyze_ffi_difficulty, is_internal_only_type, FfiDifficulty, INTERNAL_ONLY_TYPES,
     };
-    use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
     println!("\n=== Function Dependency Analysis ===\n");
     println!("Finding which API functions pull in difficult/internal types...\n");
@@ -1501,7 +1506,7 @@ fn get_problem_reason(
     use super::module_map::INTERNAL_ONLY_TYPES;
 
     if internal_types.contains(type_name) {
-        return format!("Internal-only type (contains BTreeMap/HashMap/Arc)");
+        return "Internal-only type (contains BTreeMap/HashMap/Arc)".to_string();
     }
 
     // Check what makes it difficult based on known patterns

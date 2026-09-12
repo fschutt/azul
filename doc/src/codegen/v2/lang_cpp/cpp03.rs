@@ -8,10 +8,13 @@
 //! - No noexcept, no enum class, no move semantics
 //! - Uses memset/strlen instead of std::memset/std::strlen
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::{common::*, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    CppDialect,
+};
 
 /// C++03 dialect generator
 pub struct Cpp03Generator;
@@ -28,7 +31,11 @@ impl CppDialect for Cpp03Generator {
         // Header comment
         code.push_str(&generate_header_comment(std));
         code.push_str(&generate_cpp03_move_docs());
-        code.push_str("// =============================================================================\r\n\r\n");
+        // The closing banner and its blank line, BUILT rather than written out: a
+        // literal this wide gets wrapped by rustfmt (`format_strings = true`), and the
+        // wrap used to land inside the CR-LF escape, emitting a bare backslash and an
+        // `r` into every generated header (the bindings job failed on exactly that).
+        code.push_str(&format!("// {}\r\n\r\n", "=".repeat(77)));
 
         // Include guards
         code.push_str(&generate_include_guards_begin(std));
@@ -88,7 +95,10 @@ impl CppDialect for Cpp03Generator {
 
         // Method implementations
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -196,7 +206,8 @@ impl CppDialect for Cpp03Generator {
 
         // release() - C++03 version uses memset
         code.push_str(&format!(
-            "    {} release() {{ {} result = inner_; memset(&inner_, 0, sizeof(inner_)); return result; }}\r\n",
+            "    {} release() {{ {} result = inner_; memset(&inner_, 0, sizeof(inner_)); return \
+             result; }}\r\n",
             c_type_name, c_type_name
         ));
 
@@ -421,7 +432,8 @@ impl CppDialect for Cpp03Generator {
         } else {
             // Non-copy types use Colvin-Gibbons trick (destructive copy like std::auto_ptr)
             code.push_str(&format!(
-                "    {}(const {}& other) : inner_(other.inner_) {{ memset(const_cast<{}*>(&other.inner_), 0, sizeof(other.inner_)); }}\r\n",
+                "    {}(const {}& other) : inner_(other.inner_) {{ \
+                 memset(const_cast<{}*>(&other.inner_), 0, sizeof(other.inner_)); }}\r\n",
                 class_name, class_name, c_type_name
             ));
             code.push_str(&format!(
@@ -512,7 +524,10 @@ impl CppDialect for Cpp03Generator {
         _config: &CodegenConfig,
     ) {
         code.push_str("\r\n    // String methods\r\n");
-        code.push_str("    explicit String(const char* s) : inner_(AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s))) {}\r\n");
+        code.push_str(
+            "    explicit String(const char* s) : inner_(AzString_copyFromBytes((const \
+             uint8_t*)s, 0, strlen(s))) {}\r\n",
+        );
         code.push_str(
             "    const char* c_str() const { return (const char*)(inner_.vec.ptr); }\r\n",
         );
@@ -553,7 +568,8 @@ impl CppDialect for Cpp03Generator {
             c_inner_type
         ));
         code.push_str(&format!(
-            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
+            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; \
+             }}\r\n",
             c_inner_type, c_inner_type
         ));
     }
@@ -685,5 +701,4 @@ impl Cpp03Generator {
             }
         }
     }
-
 }

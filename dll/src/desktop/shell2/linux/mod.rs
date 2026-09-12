@@ -28,10 +28,7 @@ use azul_core::refany::RefAny;
 use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 
-use super::common::event::SharedUndoManager;
-use super::common::WindowError;
-
-use super::common::debug_server::LogCategory;
+use super::common::{debug_server::LogCategory, event::SharedUndoManager, WindowError};
 use crate::{log_info, log_warn};
 
 /// Linux window - supports both X11 and Wayland
@@ -157,8 +154,8 @@ impl LinuxWindow {
     /// `AZ_BACKEND` by [`AzBackend::resolve`]. The two used to collide in a single
     /// `AZ_BACKEND` variable, so "X11 + CPU" could not be expressed. Now:
     ///   - `AZ_WINDOW=x11|wayland|auto` selects the windowing backend (highest priority).
-    ///   - `AZ_BACKEND=x11|wayland` is still honored for backward compatibility, but
-    ///     `AZ_WINDOW` wins. (`AZ_BACKEND`'s render values cpu/gpu/auto are ignored here.)
+    ///   - `AZ_BACKEND=x11|wayland` is still honored for backward compatibility, but `AZ_WINDOW`
+    ///     wins. (`AZ_BACKEND`'s render values cpu/gpu/auto are ignored here.)
     ///   - Otherwise auto-detect: Wayland if `WAYLAND_DISPLAY`, else X11 if `DISPLAY`.
     ///
     /// e.g. `AZ_WINDOW=x11 AZ_BACKEND=cpu` → X11 windowing + CPU rendering.

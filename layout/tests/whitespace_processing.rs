@@ -13,18 +13,22 @@
 //! - CSS Text Level 3 §4.1.2: Phase II: Trimming and Positioning
 //! - https://www.w3.org/TR/css-text-3/#white-space-processing
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 /// Helper: runs layout on an HTML fragment and returns the layout cache
 fn run_layout(html: &str) -> Solver3LayoutCache {
@@ -129,10 +133,8 @@ fn test_whitespace_normal_collapses_newlines_to_spaces() {
 #[test]
 fn test_whitespace_normal_collapses_tabs() {
     // CSS Text L3 §4.1.1: Tabs are treated as spaces and collapsed
-    let html = "<html><head><style>\
-        p { white-space: normal; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><p>Hello\tWorld</p></body></html>";
+    let html = "<html><head><style>p { white-space: normal; margin: 0; padding: 0; \
+                }</style></head><body><p>Hello\tWorld</p></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -172,10 +174,8 @@ fn test_whitespace_pre_preserves_spaces() {
 #[test]
 fn test_whitespace_pre_honors_newlines() {
     // CSS Text L3 §3: "Segment breaks such as line feeds are preserved as forced line breaks"
-    let html = "<html><head><style>\
-        pre { white-space: pre; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><pre>Line1\nLine2\nLine3</pre></body></html>";
+    let html = "<html><head><style>pre { white-space: pre; margin: 0; padding: 0; \
+                }</style></head><body><pre>Line1\nLine2\nLine3</pre></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -183,10 +183,8 @@ fn test_whitespace_pre_honors_newlines() {
 #[test]
 fn test_whitespace_pre_preserves_tabs() {
     // CSS Text L3 §4.1.2: "each preserved tab is rendered as a horizontal shift"
-    let html = "<html><head><style>\
-        pre { white-space: pre; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><pre>Col1\tCol2\tCol3</pre></body></html>";
+    let html = "<html><head><style>pre { white-space: pre; margin: 0; padding: 0; \
+                }</style></head><body><pre>Col1\tCol2\tCol3</pre></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -212,10 +210,8 @@ fn test_whitespace_pre_wrap_preserves_spaces_but_allows_wrapping() {
 #[test]
 fn test_whitespace_pre_wrap_honors_newlines() {
     // CSS Text L3 §3: Newlines in pre-wrap create forced line breaks
-    let html = "<html><head><style>\
-        p { white-space: pre-wrap; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><p>Line1\nLine2</p></body></html>";
+    let html = "<html><head><style>p { white-space: pre-wrap; margin: 0; padding: 0; \
+                }</style></head><body><p>Line1\nLine2</p></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -227,10 +223,8 @@ fn test_whitespace_pre_wrap_honors_newlines() {
 #[test]
 fn test_whitespace_pre_line_collapses_spaces_but_honors_newlines() {
     // CSS Text L3 §3: pre-line collapses whitespace but honors newlines
-    let html = "<html><head><style>\
-        p { white-space: pre-line; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><p>Hello     World\nNext Line</p></body></html>";
+    let html = "<html><head><style>p { white-space: pre-line; margin: 0; padding: 0; \
+                }</style></head><body><p>Hello     World\nNext Line</p></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -238,10 +232,8 @@ fn test_whitespace_pre_line_collapses_spaces_but_honors_newlines() {
 #[test]
 fn test_whitespace_pre_line_multiple_newlines() {
     // Multiple newlines should each produce a forced line break
-    let html = "<html><head><style>\
-        p { white-space: pre-line; margin: 0; padding: 0; }\
-    </style></head>\
-    <body><p>Line1\n\nLine3</p></body></html>";
+    let html = "<html><head><style>p { white-space: pre-line; margin: 0; padding: 0; \
+                }</style></head><body><p>Line1\n\nLine3</p></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }
@@ -334,10 +326,8 @@ fn test_whitespace_only_spaces_normal() {
 #[test]
 fn test_whitespace_only_newlines_normal() {
     // Newlines-only in normal mode → collapse to single space
-    let html = "<html><head><style>\
-        p { margin: 0; padding: 0; }\
-    </style></head>\
-    <body><p>\n\n\n</p></body></html>";
+    let html = "<html><head><style>p { margin: 0; padding: 0; \
+                }</style></head><body><p>\n\n\n</p></body></html>";
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
 }

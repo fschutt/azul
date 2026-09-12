@@ -70,7 +70,8 @@ macro_rules! impl_callback_traits {
 
 // Types that need to be defined locally (not in azul-core)
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Message that is sent back from the running thread to the main thread
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
@@ -79,7 +80,8 @@ pub enum ThreadReceiveMsg {
     Update(Update),
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
 pub enum OptionThreadReceiveMsg {
@@ -258,7 +260,8 @@ impl Drop for ThreadSenderInner {
 pub type ThreadSendCallbackType = extern "C" fn(*const core::ffi::c_void, ThreadReceiveMsg) -> bool;
 
 #[allow(missing_copy_implementations)]
-// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
+// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip
+// expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSendCallback {
     pub cb: ThreadSendCallbackType,
@@ -270,7 +273,8 @@ impl_callback_traits!(ThreadSendCallback);
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
 
 #[allow(missing_copy_implementations)]
-// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
+// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip
+// expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSenderDestructorCallback {
     pub cb: ThreadSenderDestructorCallbackType,
@@ -450,9 +454,8 @@ impl core::hash::Hash for ThreadCallback {
 //   * OpenJDK: AttachCurrentThread / DetachCurrentThread
 //   * CLR / .NET: nothing ([UnmanagedCallersOnly] auto-trampolines)
 //   * OCaml: caml_acquire_runtime_system / _release
-//   * Lua / Perl / PHP / Pharo: cannot be called from worker thread
-//     (single-threaded interpreter) — fall back to writeback-only
-//     pattern (Rust extern "C" cb on worker, host fn on main via
+//   * Lua / Perl / PHP / Pharo: cannot be called from worker thread (single-threaded interpreter) —
+//     fall back to writeback-only pattern (Rust extern "C" cb on worker, host fn on main via
 //     WriteBackCallback).
 // Each VM has its own lock-acquire call: PyGILState_Ensure,
 // rb_thread_call_with_gvl, AttachCurrentThread, and so on.
@@ -476,7 +479,8 @@ pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;
 
 #[allow(missing_copy_implementations)]
-// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
+// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip
+// expl_impl_clone_on_copy
 #[repr(C)]
 pub struct LibraryReceiveThreadMsgCallback {
     pub cb: LibraryReceiveThreadMsgCallbackType,
@@ -488,7 +492,8 @@ impl_callback_traits!(LibraryReceiveThreadMsgCallback);
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
 
 #[allow(missing_copy_implementations)]
-// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
+// C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip
+// expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadDestructorCallback {
     pub cb: ThreadDestructorCallbackType,
@@ -727,12 +732,10 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
             // Detached. Say so — a silently leaked worker is how a "why is this
             // slow to exit" question becomes unanswerable.
             eprintln!(
-                "[azul][thread] a background thread did not acknowledge \
-                 TerminateThread within {}ms and was DETACHED rather than \
-                 joined. It will be torn down by process exit. If this recurs, \
-                 that worker is blocking on something it cannot be interrupted \
-                 from (a device read, or a channel other than its terminate \
-                 channel).",
+                "[azul][thread] a background thread did not acknowledge TerminateThread within \
+                 {}ms and was DETACHED rather than joined. It will be torn down by process exit. \
+                 If this recurs, that worker is blocking on something it cannot be interrupted \
+                 from (a device read, or a channel other than its terminate channel).",
                 THREAD_TERMINATE_GRACE_STEPS * 10,
             );
             drop(thread_handle);
@@ -959,7 +962,8 @@ mod tests {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Optional Thread type for API compatibility
 #[derive(Debug, Clone)]
 #[repr(C, u8)]

@@ -15,8 +15,10 @@
 //!
 //! Plain `std`, no Objective-C: the Linux CI compiles and tests it.
 
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
+};
 
 #[derive(Default)]
 struct Inner {

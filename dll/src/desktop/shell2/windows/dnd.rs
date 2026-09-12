@@ -8,13 +8,12 @@
 //! `NSDraggingDestination` delegate (item 1).
 //!
 //! Flow:
-//!   - `register_drag_drop(hwnd)` (run loop, after the window is in the global
-//!     registry) calls `OleInitialize` once + `RegisterDragDrop`.
-//!   - `revoke_drag_drop(hwnd)` (`WM_DESTROY`, before the HWND dies) calls
-//!     `RevokeDragDrop`.
-//!   - The COM methods resolve the `Win32Window` from the HWND via the registry,
-//!     call the matching `handle_file_*` method, then route the result through
-//!     `route_main_window_result` so a callback-driven restyle repaints.
+//!   - `register_drag_drop(hwnd)` (run loop, after the window is in the global registry) calls
+//!     `OleInitialize` once + `RegisterDragDrop`.
+//!   - `revoke_drag_drop(hwnd)` (`WM_DESTROY`, before the HWND dies) calls `RevokeDragDrop`.
+//!   - The COM methods resolve the `Win32Window` from the HWND via the registry, call the matching
+//!     `handle_file_*` method, then route the result through `route_main_window_result` so a
+//!     callback-driven restyle repaints.
 //!
 //! The `windows` crate is metadata-only, so this whole module cross-compiles
 //! cleanly from a non-Windows host (`--target x86_64-pc-windows-msvc`).

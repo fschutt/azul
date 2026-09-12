@@ -465,8 +465,8 @@ fn overflow_hidden_item_shrinks_below_min_content() {
 
     assert!(
         strip_rect.size.width < 400.0,
-        "overflow:hidden item did not shrink below min-content: width = {} \
-         (expected ~380 in a 500px row with a 120px rigid tail)",
+        "overflow:hidden item did not shrink below min-content: width = {} (expected ~380 in a \
+         500px row with a 120px rigid tail)",
         strip_rect.size.width
     );
     assert!(
@@ -800,9 +800,12 @@ fn fixed_height_children_survive_an_auto_height_flex_root() {
 #[test]
 fn hit_testing_a_nodes_own_centre_returns_that_node() {
     use azul_core::dom::DomId as CoreDomId;
-    use azul_layout::headless::CpuHitTester;
-    use azul_layout::widgets::ribbon::{
-        Ribbon, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
+    use azul_layout::{
+        headless::CpuHitTester,
+        widgets::ribbon::{
+            Ribbon, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab,
+            RibbonTabVec,
+        },
     };
 
     let cells: Vec<RibbonGalleryCell> = (0..8)
@@ -856,7 +859,8 @@ fn hit_testing_a_nodes_own_centre_returns_that_node() {
     assert!(
         (layout_rect.origin.x - hit_bounds.origin.x).abs() < 1.0
             && (layout_rect.origin.y - hit_bounds.origin.y).abs() < 1.0,
-        "hit-test bounds disagree with the layout rect: layout {layout_rect:?} vs hit {hit_bounds:?}"
+        "hit-test bounds disagree with the layout rect: layout {layout_rect:?} vs hit \
+         {hit_bounds:?}"
     );
 
     // ...and clicking that centre must actually hit the More button.
@@ -870,7 +874,8 @@ fn hit_testing_a_nodes_own_centre_returns_that_node() {
     println!("hits at {centre:?}: {hits:?} (More = node {more_idx})");
     assert!(
         hits.iter().any(|(_, n)| n.index() == more_idx),
-        "a click at the More button's own centre {centre:?} hit {hits:?} instead of node {more_idx}"
+        "a click at the More button's own centre {centre:?} hit {hits:?} instead of node \
+         {more_idx}"
     );
 }
 
@@ -927,8 +932,8 @@ fn overflow_hidden_clips_hit_testing_not_just_painting() {
         .collect();
     assert!(
         cell_hits.is_empty(),
-        "clipped-away cells {cell_hits:?} are still hit-testable at {p:?} \
-         (outside their overflow:hidden container)"
+        "clipped-away cells {cell_hits:?} are still hit-testable at {p:?} (outside their \
+         overflow:hidden container)"
     );
     assert!(
         hits.iter().any(|(_, n)| n.index() == 8),
@@ -993,8 +998,8 @@ fn nested_overflow_containers_clip_hit_testing_at_the_inner_edge() {
         .collect();
     assert!(
         cell_hits.is_empty(),
-        "cells {cell_hits:?} clipped away by the INNER strip are still hit at {p:?} \
-         (over the spinner) — the inner clip was ignored"
+        "cells {cell_hits:?} clipped away by the INNER strip are still hit at {p:?} (over the \
+         spinner) — the inner clip was ignored"
     );
     assert!(
         hits.iter().any(|(_, n)| n.index() == 9),
@@ -1121,8 +1126,8 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
 
     assert!(
         (layout_rect.origin.x - hit_bounds.origin.x).abs() < 1.0,
-        "hit-test bounds for the More button point at a different node: \
-         layout {layout_rect:?} vs hit {hit_bounds:?} (cell0 is {cell_rect:?})"
+        "hit-test bounds for the More button point at a different node: layout {layout_rect:?} vs \
+         hit {hit_bounds:?} (cell0 is {cell_rect:?})"
     );
 
     // (a) TAG-NAMESPACE COLLISION: `tag.0` holds a node's sequential TagId
@@ -1166,8 +1171,8 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
             assert!(
                 (layout.origin.x - hit.origin.x).abs() < 1.0
                     && (layout.origin.y - hit.origin.y).abs() < 1.0,
-                "node {} (tag {tag}): hit bounds {hit:?} are not its layout rect {layout:?} \
-                 — the lookup crossed the DOM-node/cursor tag namespaces",
+                "node {} (tag {tag}): hit bounds {hit:?} are not its layout rect {layout:?} — the \
+                 lookup crossed the DOM-node/cursor tag namespaces",
                 nid.index()
             );
         }
@@ -1178,8 +1183,8 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
         );
         assert!(
             collisions > 0,
-            "this fixture no longer contains a DOM-node/cursor tag collision, so it \
-             cannot catch the regression — extend it until one exists"
+            "this fixture no longer contains a DOM-node/cursor tag collision, so it cannot catch \
+             the regression — extend it until one exists"
         );
         // Sanity: the More button still contributes exactly one DOM-node area.
         let more_tag = result
@@ -1748,7 +1753,8 @@ fn collapsed_borders_paint_across_header_rows() {
     if let (Some(bg), Some(strip)) = (last_cell_bg_idx, first_strip_idx) {
         assert!(
             bg < strip,
-            "cell background (item {bg}) painted AFTER a collapsed border strip (item {strip}) — it covers the border"
+            "cell background (item {bg}) painted AFTER a collapsed border strip (item {strip}) — \
+             it covers the border"
         );
     }
     for item in &result.display_list.items {
@@ -1835,8 +1841,8 @@ fn real_table_cells_center_their_text_vertically() {
     let y = y_offset.expect("no vertical-align debug line for any cell");
     assert!(
         y.abs() < 2.5,
-        "header cell text must sit at the padding edge (row height equals \
-         content height, so EVERY alignment gives ~0), got y_offset={y}"
+        "header cell text must sit at the padding edge (row height equals content height, so \
+         EVERY alignment gives ~0), got y_offset={y}"
     );
 
     // End-to-end glyph check: the white header glyphs must start ~2px
@@ -1863,8 +1869,8 @@ fn real_table_cells_center_their_text_vertically() {
     let expected = th_rect.origin.y + 2.0 + 10.0 + 15.2;
     assert!(
         (baseline_y - expected).abs() < 3.0,
-        "header glyph baseline must sit at the padding-box top plus the \
-         ascent ({expected:.1}), got {baseline_y:.1} (cell top {:.1})",
+        "header glyph baseline must sit at the padding-box top plus the ascent ({expected:.1}), \
+         got {baseline_y:.1} (cell top {:.1})",
         th_rect.origin.y
     );
 }
@@ -1953,16 +1959,15 @@ fn glyph_advances_stay_linear_and_unquantized() {
     let per_glyph_40 = w40 / 40.0;
     assert!(
         (per_glyph_10 - per_glyph_40).abs() < 0.01,
-        "per-glyph advance must not depend on run length (quantization!): \
-         10-run {per_glyph_10:.4}px/glyph vs 40-run {per_glyph_40:.4}px/glyph"
+        "per-glyph advance must not depend on run length (quantization!): 10-run \
+         {per_glyph_10:.4}px/glyph vs 40-run {per_glyph_40:.4}px/glyph"
     );
     // `expected` computed above from the layout's own font (see the 40-run
     // block): the anti-quantization law, checked against that font's tables.
     assert!(
         (per_glyph_40 - expected).abs() < 0.05,
-        "advance must be the resolved font's linear design advance \
-         ({expected:.4}px for 'l' at 14px), got {per_glyph_40:.4}px - \
-         hinted-quantized advances leak into layout"
+        "advance must be the resolved font's linear design advance ({expected:.4}px for 'l' at \
+         14px), got {per_glyph_40:.4}px - hinted-quantized advances leak into layout"
     );
 }
 
@@ -2189,6 +2194,7 @@ fn padded_last_child_bottom_margin_collapses_into_the_parents() {
     let gap = after.origin.y - child_bottom;
     assert!(
         (gap - 50.0).abs() < 1.0,
-        "gap below the padded child must be max(child mb 50, parent mb 40, next mt 30) = 50, got {gap}"
+        "gap below the padded child must be max(child mb 50, parent mb 40, next mt 30) = 50, got \
+         {gap}"
     );
 }

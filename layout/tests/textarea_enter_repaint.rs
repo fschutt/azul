@@ -2,17 +2,15 @@
 //! host (`white-space: pre-wrap`), where Enter inserts an
 //! `InlineContent::LineBreak` through text3 rather than splitting blocks.
 //!
-//! - A. Enter at the end of the text: the caret must LAND ON THE NEW EMPTY
-//!   LINE — a rect must exist (it vanished: the cursor addresses the empty
-//!   run after the trailing break, which shapes to no cluster), sit BELOW the
-//!   previous line, and lie inside the host's border box.
-//! - B. After Enter mid-text every shifted line must repaint: an incremental
-//!   frame (damage-diff + clipped raster, the path every shell presents
-//!   through) must be pixel-identical to a full repaint. Same for a plain
-//!   character insert (device: typing under-damages, Enter eventually covers).
-//! - C. A TextArea whose content overflows must actually BE a scroller: the
-//!   container registers a scroll node and the scroll-target walk finds IT,
-//!   not the page.
+//! - A. Enter at the end of the text: the caret must LAND ON THE NEW EMPTY LINE — a rect must exist
+//!   (it vanished: the cursor addresses the empty run after the trailing break, which shapes to no
+//!   cluster), sit BELOW the previous line, and lie inside the host's border box.
+//! - B. After Enter mid-text every shifted line must repaint: an incremental frame (damage-diff +
+//!   clipped raster, the path every shell presents through) must be pixel-identical to a full
+//!   repaint. Same for a plain character insert (device: typing under-damages, Enter eventually
+//!   covers).
+//! - C. A TextArea whose content overflows must actually BE a scroller: the container registers a
+//!   scroll node and the scroll-target walk finds IT, not the page.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -62,9 +60,32 @@ impl Harness {
         Self::new_with_dom(width, height, dom)
     }
 
-    fn new_with_dom(width: f32, height: f32, mut dom: Dom) -> Self {
+    /// [`Self::new_with_text_area`] on a window whose system style is macOS
+    /// FROM THE FIRST CASCADE: the UA scrollbar CSS (overlay bars, 0 px
+    /// reserved) is evaluated against the context the DOM was cascaded
+    /// under, so a system style set after the first layout is not seen by
+    /// the scrollbar resolution any more than by the rest of the cascade.
+    fn new_with_text_area_on_macos(width: f32, height: f32, text: &str) -> Self {
+        let dom =
+            Dom::create_body().with_child(TextArea::create().with_text(AzString::from(text)).dom());
+        let mut style = azul_css::system::SystemStyle::default();
+        style.platform = azul_css::system::Platform::MacOs;
+        Self::new_with_dom_on(width, height, dom, Some(std::sync::Arc::new(style)))
+    }
+
+    fn new_with_dom(width: f32, height: f32, dom: Dom) -> Self {
+        Self::new_with_dom_on(width, height, dom, None)
+    }
+
+    fn new_with_dom_on(
+        width: f32,
+        height: f32,
+        mut dom: Dom,
+        system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    ) -> Self {
         let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.system_style = system_style;
         // Instant reveals: the physics timer that drives glides is armed in
         // the dll and does not exist here.
         lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
@@ -273,9 +294,8 @@ fn pixel_diff_bbox(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, u32, u32
 // C. The overflowing TextArea is a scroller
 // =========================================================================
 
-const TEN_LINES: &str =
-    "line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline \
-     eight\nline nine\nline ten";
+const TEN_LINES: &str = "line one\nline two\nline three\nline four\nline five\nline six\nline \
+                         seven\nline eight\nline nine\nline ten";
 
 #[test]
 fn an_overflowing_text_area_registers_as_a_scroller() {
@@ -349,8 +369,8 @@ fn enter_at_end_of_text_keeps_the_caret_on_the_new_empty_line() {
     h.type_str("\n");
 
     let after = h.lw.get_focused_cursor_rect().expect(
-        "the caret must still have a rect after Enter on the last line \
-         (cursor after a trailing LineBreak)",
+        "the caret must still have a rect after Enter on the last line (cursor after a trailing \
+         LineBreak)",
     );
     eprintln!("  [caret] after Enter: {after:?}");
 
@@ -477,9 +497,9 @@ fn assert_incremental_identity(h: &mut Harness, edit: &str) -> Option<Vec<Logica
     let offsets = cpurender::ScrollOffsetMap::new();
 
     let present_frame = |h: &mut Harness,
-                             base: &mut AzulPixmap,
-                             prev: &azul_layout::solver3::display_list::DisplayList,
-                             tag: &str| {
+                         base: &mut AzulPixmap,
+                         prev: &azul_layout::solver3::display_list::DisplayList,
+                         tag: &str| {
         let dl = h.dl();
         let damage = cpurender::compute_display_list_damage(prev, &dl, &offsets, &offsets);
         eprintln!(
@@ -574,17 +594,14 @@ fn several_enters_in_a_row_stay_pixel_correct() {
 fn typing_into_an_empty_text_area_until_overflow_makes_the_container_a_scroller() {
     use azul_core::selection::GraphemeClusterId;
 
-    let mut h = Harness::new_with_text_area(300.0, 90.0, "");
     // Model the DEVICE: macOS overlay scrollbars (reserve 0px). Without a
     // system style the UA resolves a classic space-reserving bar, and a
     // reserving bar legitimately takes the ESCALATION path instead (it
     // changes geometry) — that path needs the DOM to carry the text and is
-    // pinned elsewhere.
-    h.lw.system_style = Some(std::sync::Arc::new({
-        let mut style = azul_css::system::SystemStyle::default();
-        style.platform = azul_css::system::Platform::MacOs;
-        style
-    }));
+    // pinned elsewhere. The style is in place BEFORE the first cascade: the
+    // scrollbar CSS is evaluated against the context the DOM was cascaded
+    // under, not against a system style set afterwards.
+    let mut h = Harness::new_with_text_area_on_macos(300.0, 90.0, "");
     h.register_scroll_nodes();
     assert!(
         !h.lw

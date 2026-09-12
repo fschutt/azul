@@ -51,13 +51,15 @@
 //! so a user callback is an ordinary Fortran module function and needs
 //! no `iso_c_binding`, no `c_f_pointer`, and no out-pointer writes.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CallbackTypedefDef;
-use super::super::managed_host_invoker::{
-    has_return, host_invoker_kinds, to_snake_case, wrapper_name,
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::CallbackTypedefDef,
+        managed_host_invoker::{has_return, host_invoker_kinds, to_snake_case, wrapper_name},
+    },
+    ffi_type_name, map_type_to_fortran, truncate_identifier,
+    wrappers::{Ctx, UserType},
 };
-use super::wrappers::{Ctx, UserType};
-use super::{ffi_type_name, map_type_to_fortran, truncate_identifier};
 
 // ============================================================================
 // Names (every module-level identifier this file emits)
@@ -414,7 +416,11 @@ fn emit_abstract_interface(builder: &mut CodeBuilder, ctx: &Ctx, cb: &CallbackTy
         builder.line(&format!("! {}", super::sanitize_comment_line(d)));
     }
     if ret.is_some() {
-        builder.line(&format!("function {}({}) result(r)", name, names.join(", ")));
+        builder.line(&format!(
+            "function {}({}) result(r)",
+            name,
+            names.join(", ")
+        ));
     } else {
         builder.line(&format!("subroutine {}({})", name, names.join(", ")));
     }
@@ -461,7 +467,10 @@ fn emit_handle_table(builder: &mut CodeBuilder, ctx: &Ctx) {
     ));
     builder.line("integer :: n");
     builder.line(&format!("call {}()", ENSURE));
-    builder.line(&format!("if (.not. allocated({})) allocate({}(0))", HANDLE_TABLE, HANDLE_TABLE));
+    builder.line(&format!(
+        "if (.not. allocated({})) allocate({}(0))",
+        HANDLE_TABLE, HANDLE_TABLE
+    ));
     builder.line(&format!("n = size({})", HANDLE_TABLE));
     builder.line("allocate(azul_grown(n + 1))");
     builder.line(&format!("azul_grown(1:n) = {}(1:n)", HANDLE_TABLE));
@@ -508,14 +517,8 @@ fn emit_handle_table(builder: &mut CodeBuilder, ctx: &Ctx) {
     ));
     builder.line(&format!("n = size({})", HANDLE_TABLE));
     builder.line("allocate(azul_kept(n - 1))");
-    builder.line(&format!(
-        "azul_kept(1:slot-1) = {}(1:slot-1)",
-        HANDLE_TABLE
-    ));
-    builder.line(&format!(
-        "azul_kept(slot:n-1) = {}(slot+1:n)",
-        HANDLE_TABLE
-    ));
+    builder.line(&format!("azul_kept(1:slot-1) = {}(1:slot-1)", HANDLE_TABLE));
+    builder.line(&format!("azul_kept(slot:n-1) = {}(slot+1:n)", HANDLE_TABLE));
     builder.line(&format!("call move_alloc(azul_kept, {})", HANDLE_TABLE));
     builder.dedent();
     builder.line(&format!("end subroutine {}", HANDLE_RELEASE));
@@ -570,10 +573,7 @@ fn emit_invoker(builder: &mut CodeBuilder, ctx: &Ctx, cb: &CallbackTypedefDef) {
     if ret.is_some() {
         builder.line("type(c_ptr), value :: out_ptr");
     }
-    builder.line(&format!(
-        "procedure({}), pointer :: azul_fp",
-        iface_name(k)
-    ));
+    builder.line(&format!("procedure({}), pointer :: azul_fp", iface_name(k)));
     for a in &args {
         builder.line(&a.local);
         builder.line(&a.ptr);

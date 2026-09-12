@@ -12,20 +12,20 @@
 //! lands in the overlay under the PARAGRAPH — the same key typing uses — and
 //! `unsynced_text_edits` reports the paragraph.
 
-use azul_core::dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .host { display: block; } \
-                   p { display: block; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .host { \
+                   display: block; } p { display: block; }";
 
 /// body(0) > div.host(1, contenteditable) > p(2) > text(3) "hello".
 const HOST: NodeId = NodeId::new(1);
@@ -36,9 +36,9 @@ fn editable_dom() -> StyledDom {
     let mut host =
         Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("host".into())].into());
     host.set_contenteditable(true);
-    let host = host.with_child(
-        Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello")),
-    );
+    let host = host.with_child(Dom::create_p().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("hello"),
+    ));
     let mut dom = Dom::create_body().with_child(host);
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     StyledDom::create(&mut dom, css)
@@ -99,7 +99,10 @@ fn overlay_entries(lw: &LayoutWindow) -> Vec<(NodeId, String)> {
     lw.content_overlay
         .iter_text()
         .map(|(&(_, node), dirty)| {
-            (node, azul_layout::overlay::flatten_inline_content(&dirty.content))
+            (
+                node,
+                azul_layout::overlay::flatten_inline_content(&dirty.content),
+            )
         })
         .collect()
 }
@@ -112,7 +115,11 @@ fn backspace_is_keyed_to_the_paragraph_like_typing() {
     let affected = lw
         .delete_selection(host_id(), false)
         .expect("a backspace at the end of 'hello' deletes 'o'");
-    assert_eq!(affected, vec![host_id()], "the host is what the caller re-renders");
+    assert_eq!(
+        affected,
+        vec![host_id()],
+        "the host is what the caller re-renders"
+    );
 
     assert_eq!(
         overlay_entries(&lw),

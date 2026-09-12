@@ -8,28 +8,24 @@
 //!
 //! 1. File banner (Lisp `;;;` line comments).
 //! 2. Two `defpackage` forms:
-//!    - `:azul-internal` — holds the raw `%az-*` FFI symbols (the leading
-//!      `%` follows the convention of "internal/raw" in many Lisp
-//!      libraries: `cl-fad`, `bordeaux-threads`, etc.).
-//!    - `:azul` — the user-facing package; exports CLOS classes,
-//!      `with-*` macros, idiomatic `make-*` constructors and named
-//!      methods. Uses `:cl` and `:cffi`.
-//! 3. `cffi:define-foreign-library` + `cffi:use-foreign-library` that
-//!    locate `libazul.{so,dylib}` / `azul.dll` automatically.
+//!    - `:azul-internal` — holds the raw `%az-*` FFI symbols (the leading `%` follows the
+//!      convention of "internal/raw" in many Lisp libraries: `cl-fad`, `bordeaux-threads`, etc.).
+//!    - `:azul` — the user-facing package; exports CLOS classes, `with-*` macros, idiomatic
+//!      `make-*` constructors and named methods. Uses `:cl` and `:cffi`.
+//! 3. `cffi:define-foreign-library` + `cffi:use-foreign-library` that locate `libazul.{so,dylib}` /
+//!    `azul.dll` automatically.
 //! 4. Type definitions inside `:azul-internal`:
 //!    - `cffi:defcenum` for unit-only enums.
 //!    - `cffi:defcstruct` for POD structs.
-//!    - For tagged unions: a `cffi:defcenum` for the tag plus a
-//!      `cffi:defcstruct` per variant payload plus a wrapping
-//!      `cffi:defcunion`. (See [`types`].)
-//! 5. `cffi:defcfun` declarations — one per IR function, mapping the
-//!    C-ABI symbol to a `%az-*` Lisp function.
+//!    - For tagged unions: a `cffi:defcenum` for the tag plus a `cffi:defcstruct` per variant
+//!      payload plus a wrapping `cffi:defcunion`. (See [`types`].)
+//! 5. `cffi:defcfun` declarations — one per IR function, mapping the C-ABI symbol to a `%az-*` Lisp
+//!    function.
 //! 6. CLOS wrappers in `:azul`:
 //!    - `(defclass app () ((ptr ...)))` per heap-owning type.
 //!    - `(defmethod close-app ...)` calling the matching `_delete`.
 //!    - `(defmacro with-app ...)` doing the `unwind-protect` for users.
-//!    - Idiomatic `make-app`, `app-run`, ... wrappers that call the
-//!      `%az-*` raw FFI symbols.
+//!    - Idiomatic `make-app`, `app-run`, ... wrappers that call the `%az-*` raw FFI symbols.
 //!
 //! ## Why CFFI
 //!
@@ -55,9 +51,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Library name used in `cffi:define-foreign-library`. Matches the
 /// prebuilt artifact name without extension. CFFI resolves

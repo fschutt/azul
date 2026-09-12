@@ -151,8 +151,8 @@ mod autotest_generated {
         for (name, cfg) in all_presets() {
             assert!(
                 cfg.edge_threshold_min <= cfg.edge_threshold,
-                "{name}: edge_threshold_min ({}) > edge_threshold ({}) makes the \
-                 relative threshold unreachable",
+                "{name}: edge_threshold_min ({}) > edge_threshold ({}) makes the relative \
+                 threshold unreachable",
                 cfg.edge_threshold_min,
                 cfg.edge_threshold
             );

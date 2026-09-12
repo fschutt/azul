@@ -3,13 +3,12 @@
 //!
 //! Three (well, four) files are emitted at the site root:
 //!
-//! * `llms.txt`      — the emerging llms.txt convention: a concise markdown
-//!                     index of the docs with absolute links.
-//! * `llms-full.txt` — the full concatenation of every guide page, for
-//!                     "dump everything into context" workflows.
-//! * `skill.md`      — a Claude Code Agent Skill (with valid frontmatter)
-//!                     that teaches an agent how to build azul apps and how
-//!                     to use the API reference as a search tool.
+//! * `llms.txt`      — the emerging llms.txt convention: a concise markdown index of the docs with
+//!   absolute links.
+//! * `llms-full.txt` — the full concatenation of every guide page, for "dump everything into
+//!   context" workflows.
+//! * `skill.md`      — a Claude Code Agent Skill (with valid frontmatter) that teaches an agent how
+//!   to build azul apps and how to use the API reference as a search tool.
 //! * `.well-known/azul-skill.md` — a copy of `skill.md` at a discoverable path.
 //!
 //! All of these are built programmatically from `guide::get_guide_list()` and
@@ -66,14 +65,14 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
 
     out.push_str("# azul\n\n");
     out.push_str(
-        "> azul is a cross-platform, MIT-licensed GUI framework for building native desktop \
-         (and, soon, web) applications. It pairs a retained DOM/CSS UI model with an \
-         immediate-mode-style developer experience: a `LayoutCallback` maps your application \
-         data to a `Dom`, CSS styles it, and event callbacks mutate the data and request a \
-         re-layout. The whole API is exposed over a stable `repr(C)` ABI, so the same concepts \
-         are available from Rust (native) plus 10+ generated language bindings \
-         (C, C++, Python, and more). It ships headless rendering and a JSON-driven E2E test \
-         runner for windowless verification.\n\n",
+        "> azul is a cross-platform, MIT-licensed GUI framework for building native desktop (and, \
+         soon, web) applications. It pairs a retained DOM/CSS UI model with an \
+         immediate-mode-style developer experience: a `LayoutCallback` maps your application data \
+         to a `Dom`, CSS styles it, and event callbacks mutate the data and request a re-layout. \
+         The whole API is exposed over a stable `repr(C)` ABI, so the same concepts are available \
+         from Rust (native) plus 10+ generated language bindings (C, C++, Python, and more). It \
+         ships headless rendering and a JSON-driven E2E test runner for windowless \
+         verification.\n\n",
     );
 
     out.push_str("## Guide (concept pages, raw markdown)\n\n");
@@ -96,7 +95,8 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
         HTML_ROOT
     ));
     out.push_str(&format!(
-        "- [Version manifest]({}/api/index.json): JSON `{{ \"latest\": \"{}\", \"versions\": [...] }}`\n",
+        "- [Version manifest]({}/api/index.json): JSON `{{ \"latest\": \"{}\", \"versions\": \
+         [...] }}`\n",
         HTML_ROOT, latest
     ));
     out.push_str(&format!(
@@ -104,10 +104,10 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
         HTML_ROOT, latest
     ));
     out.push_str(&format!(
-        "- [Search index (JSON)]({}/api/{}.search.json): compact searchable index over the \
-         whole API. Each entry has short keys — `k` kind (`m` module, `s` struct, `e` enum, \
-         `fp` fnptr, `ev` enum variant, `f` struct field, `fn` method, `cn` constructor), \
-         `n` name, `m` module, `p` parent class, `a` anchor, `d` doc text, `s` signature.\n\n",
+        "- [Search index (JSON)]({}/api/{}.search.json): compact searchable index over the whole \
+         API. Each entry has short keys — `k` kind (`m` module, `s` struct, `e` enum, `fp` fnptr, \
+         `ev` enum variant, `f` struct field, `fn` method, `cn` constructor), `n` name, `m` \
+         module, `p` parent class, `a` anchor, `d` doc text, `s` signature.\n\n",
         HTML_ROOT, latest
     ));
 
@@ -122,8 +122,8 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
 
     out.push_str("## Agent skill\n\n");
     out.push_str(&format!(
-        "- [azul-gui skill file]({}/skill.md): install once to make a coding agent ready to \
-         build azul apps; also at {}/.well-known/azul-skill.md\n",
+        "- [azul-gui skill file]({}/skill.md): install once to make a coding agent ready to build \
+         azul apps; also at {}/.well-known/azul-skill.md\n",
         HTML_ROOT, HTML_ROOT
     ));
     out.push_str(&format!(
@@ -139,8 +139,8 @@ pub fn generate_llms_full_txt() -> String {
     let mut out = String::new();
     out.push_str("# azul — full documentation\n\n");
     out.push_str(
-        "This file concatenates every azul guide page in teaching order. It is meant to be \
-         pasted wholesale into an LLM context window. For the structured index see llms.txt.\n\n",
+        "This file concatenates every azul guide page in teaching order. It is meant to be pasted \
+         wholesale into an LLM context window. For the structured index see llms.txt.\n\n",
     );
 
     for g in ordered_guides() {
@@ -160,9 +160,9 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str("---\n");
     s.push_str("name: azul-gui\n");
     s.push_str(
-        "description: Build native desktop (and web) GUI applications with the azul framework \
-         in Rust, C, C++, Python, and 10+ other language bindings — DOM/CSS UI, callbacks, \
-         widgets, headless + E2E testing.\n",
+        "description: Build native desktop (and web) GUI applications with the azul framework in \
+         Rust, C, C++, Python, and 10+ other language bindings — DOM/CSS UI, callbacks, widgets, \
+         headless + E2E testing.\n",
     );
     s.push_str("---\n\n");
 
@@ -177,19 +177,17 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str("## What azul is\n\n");
     s.push_str(
         "azul pairs a **retained DOM/CSS UI** with an **immediate-mode-style** developer \
-         experience. You never hand-mutate widgets. Instead:\n\n\
-         - Your application state lives in a single plain struct, type-erased into a `RefAny` \
-           (a refcounted, runtime-checked `Box<dyn Any>`-like handle).\n\
-         - A **`LayoutCallback`** maps that data to a `Dom` tree. It runs on startup and again \
-           whenever a callback asks for a refresh.\n\
-         - **CSS** (inline or stylesheet, with `:hover`, `:focus`, `@media`, and `@os(...)` \
-           queries) styles the DOM and drives the layout solver.\n\
-         - **Event callbacks** receive the `RefAny`, downcast it to your struct, mutate it, and \
-           return an `Update` telling the framework whether to do nothing or rebuild the DOM.\n\n\
-         The entire public API is a stable `repr(C)` ABI. Native Rust callbacks are still \
-         `extern \"C\"`. The 10+ language bindings are generated from a single `api.json`, so \
-         the *concepts* below map one-to-one across C, C++, Python, etc. — only syntax differs.\n\n\
-         Depth: see ",
+         experience. You never hand-mutate widgets. Instead:\n\n- Your application state lives in \
+         a single plain struct, type-erased into a `RefAny` (a refcounted, runtime-checked \
+         `Box<dyn Any>`-like handle).\n- A **`LayoutCallback`** maps that data to a `Dom` tree. \
+         It runs on startup and again whenever a callback asks for a refresh.\n- **CSS** (inline \
+         or stylesheet, with `:hover`, `:focus`, `@media`, and `@os(...)` queries) styles the DOM \
+         and drives the layout solver.\n- **Event callbacks** receive the `RefAny`, downcast it \
+         to your struct, mutate it, and return an `Update` telling the framework whether to do \
+         nothing or rebuild the DOM.\n\nThe entire public API is a stable `repr(C)` ABI. Native \
+         Rust callbacks are still `extern \"C\"`. The 10+ language bindings are generated from a \
+         single `api.json`, so the *concepts* below map one-to-one across C, C++, Python, etc. — \
+         only syntax differs.\n\nDepth: see ",
     );
     s.push_str(&format!(
         "{HTML_ROOT}/guide/architecture.md and {HTML_ROOT}/guide/dom.md.\n\n"
@@ -198,8 +196,8 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     // --- Mental model + hello world -----------------------------------------
     s.push_str("## Mental model: a minimal Rust counter app\n\n");
     s.push_str(
-        "`App` owns the data + config; `WindowCreateOptions::create(layout_fn)` wires the \
-         layout callback; callbacks return `Update`. Minimal, correct against the current API:\n\n",
+        "`App` owns the data + config; `WindowCreateOptions::create(layout_fn)` wires the layout \
+         callback; callbacks return `Update`. Minimal, correct against the current API:\n\n",
     );
     s.push_str("```rust\n");
     s.push_str(MINIMAL_RUST_HELLO_WORLD);
@@ -207,32 +205,28 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str(&format!(
         "Notes that bite: every callback is `extern \"C\"`; `downcast_ref`/`downcast_mut` are \
          runtime-checked and may fail (return `Update::DoNothing`); `data.clone()` bumps a \
-         refcount, it does not deep-copy; `with_css` is the consuming builder form of \
-         `set_css`. Full walk-through: {HTML_ROOT}/guide/hello-world/rust.md.\n\n"
+         refcount, it does not deep-copy; `with_css` is the consuming builder form of `set_css`. \
+         Full walk-through: {HTML_ROOT}/guide/hello-world/rust.md.\n\n"
     ));
 
     // --- Feature checklist ---------------------------------------------------
     s.push_str("## Feature set\n\n");
     s.push_str(
-        "- DOM construction + CSS layout (flexbox-like solver, `:hover`/`:focus`/`@media`/`@os`)\n\
-         - Built-in widgets (Button, TextInput, CheckBox, DropDown, lists, scroll regions, ...)\n\
-         - OpenGL custom rendering surfaces\n\
-         - Images and SVG\n\
-         - Text input + text selection + IME\n\
-         - Accessibility (screen-reader tree)\n\
-         - Clipboard and native file dialogs\n\
-         - Networking + background tasks (threads / timers) for async work\n\
-         - Real-time media\n\
-         - Routing (swap the layout callback, SPA-style)\n\
-         - Headless rendering + JSON-driven E2E testing\n\
-         - Web deployment (in progress) and mobile deployment\n\n",
+        "- DOM construction + CSS layout (flexbox-like solver, \
+         `:hover`/`:focus`/`@media`/`@os`)\n- Built-in widgets (Button, TextInput, CheckBox, \
+         DropDown, lists, scroll regions, ...)\n- OpenGL custom rendering surfaces\n- Images and \
+         SVG\n- Text input + text selection + IME\n- Accessibility (screen-reader tree)\n- \
+         Clipboard and native file dialogs\n- Networking + background tasks (threads / timers) \
+         for async work\n- Real-time media\n- Routing (swap the layout callback, SPA-style)\n- \
+         Headless rendering + JSON-driven E2E testing\n- Web deployment (in progress) and mobile \
+         deployment\n\n",
     );
 
     // --- API reference as a tool --------------------------------------------
     s.push_str("## Using the API reference as a search tool\n\n");
     s.push_str(
-        "Treat the published reference as your API search backend via WebFetch:\n\n\
-         1. Fetch the version manifest to learn the latest version:\n",
+        "Treat the published reference as your API search backend via WebFetch:\n\n1. Fetch the \
+         version manifest to learn the latest version:\n",
     );
     s.push_str(&format!(
         "   `{HTML_ROOT}/api/index.json` → `{{ \"latest\": \"{latest}\", \"versions\": [...] }}`\n"
@@ -242,18 +236,15 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
          `{HTML_ROOT}/api/<version>.search.json` (e.g. `{HTML_ROOT}/api/{latest}.search.json`).\n"
     ));
     s.push_str(
-        "   Schema — top level `{ \"v\": version, \"e\": [entries] }`. Each entry uses short keys:\n\n\
-         | key | meaning |\n\
-         |-----|---------|\n\
-         | `k` | kind: `m` module, `s` struct, `e` enum, `fp` fnptr, `ev` enum variant, `f` struct field, `fn` method, `cn` constructor |\n\
-         | `n` | the entity's own name |\n\
-         | `m` | module it lives in |\n\
-         | `p` | parent class (for variants/fields/methods/constructors) |\n\
-         | `a` | anchor fragment in the api page (no leading `#`) |\n\
-         | `d` | plain-text doc body |\n\
-         | `s` | signature line (fns/constructors/fields/callbacks) |\n\n\
-         To answer \"what methods does `Dom` have?\" filter for `k == \"fn\" && p == \"Dom\"` and \
-         read each `s`. To find a type, match `n` against `k in (s, e, fp)`.\n",
+        "   Schema — top level `{ \"v\": version, \"e\": [entries] }`. Each entry uses short \
+         keys:\n\n| key | meaning |\n|-----|---------|\n| `k` | kind: `m` module, `s` struct, `e` \
+         enum, `fp` fnptr, `ev` enum variant, `f` struct field, `fn` method, `cn` constructor \
+         |\n| `n` | the entity's own name |\n| `m` | module it lives in |\n| `p` | parent class \
+         (for variants/fields/methods/constructors) |\n| `a` | anchor fragment in the api page \
+         (no leading `#`) |\n| `d` | plain-text doc body |\n| `s` | signature line \
+         (fns/constructors/fields/callbacks) |\n\nTo answer \"what methods does `Dom` have?\" \
+         filter for `k == \"fn\" && p == \"Dom\"` and read each `s`. To find a type, match `n` \
+         against `k in (s, e, fp)`.\n",
     );
     s.push_str(&format!(
         "3. For prose + full rendering, fetch `{HTML_ROOT}/api/<version>.html` and deep-link \
@@ -264,18 +255,17 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str("## Verification: headless rendering + E2E testing\n\n");
     s.push_str(
         "Always verify your app builds and behaves before declaring done — and you can do it \
-         windowless:\n\n\
-         - **Headless render**: run with `AZ_BACKEND=headless` to execute the layout/render \
-           pipeline without opening a window (CI-friendly, lets you assert the DOM/layout was \
-           produced).\n\
-         - **E2E test runner**: set `AZ_E2E=<path-to-json>` (or pass the JSON inline) to drive \
-           the app through a scripted sequence of synthetic events and state assertions. The \
-           test JSON schema lives in `tests/e2e/*.json` in the repo.\n\
-         - Assert application state by checking your data model after the scripted events, and \
-           assert the rendered tree via the headless display list.\n\n",
+         windowless:\n\n- **Headless render**: run with `AZ_BACKEND=headless` to execute the \
+         layout/render pipeline without opening a window (CI-friendly, lets you assert the \
+         DOM/layout was produced).\n- **E2E test runner**: set `AZ_E2E=<path-to-json>` (or pass \
+         the JSON inline) to drive the app through a scripted sequence of synthetic events and \
+         state assertions. The test JSON schema lives in `tests/e2e/*.json` in the repo.\n- \
+         Assert application state by checking your data model after the scripted events, and \
+         assert the rendered tree via the headless display list.\n\n",
     );
     s.push_str(&format!(
-        "Details: {HTML_ROOT}/guide/debugging/e2e-testing.md and {HTML_ROOT}/guide/headless/rendering.md.\n\n"
+        "Details: {HTML_ROOT}/guide/debugging/e2e-testing.md and \
+         {HTML_ROOT}/guide/headless/rendering.md.\n\n"
     ));
 
     // --- Per-language --------------------------------------------------------

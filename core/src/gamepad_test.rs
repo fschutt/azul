@@ -66,8 +66,8 @@ mod autotest_generated {
             let d = *b as u32;
             assert_eq!(
                 d, i as u32,
-                "{b:?} has discriminant {d}, expected {i} — the bitset in \
-                 GamepadState::buttons assumes contiguous discriminants"
+                "{b:?} has discriminant {d}, expected {i} — the bitset in GamepadState::buttons \
+                 assumes contiguous discriminants"
             );
             assert!(
                 d < 32,
@@ -210,8 +210,8 @@ mod autotest_generated {
                 assert_eq!(
                     s.is_pressed(other),
                     other == pressed,
-                    "buttons={:#x}: is_pressed({other:?}) disagrees with the only \
-                     pressed button {pressed:?}",
+                    "buttons={:#x}: is_pressed({other:?}) disagrees with the only pressed button \
+                     {pressed:?}",
                     s.buttons
                 );
             }
@@ -295,8 +295,8 @@ mod autotest_generated {
                 assert_eq!(
                     decoded,
                     subset.contains(b),
-                    "decode of {encoded:#x}: is_pressed({b:?}) disagrees with the \
-                     encoded subset (bit {i})"
+                    "decode of {encoded:#x}: is_pressed({b:?}) disagrees with the encoded subset \
+                     (bit {i})"
                 );
                 if decoded {
                     re_encoded |= b.bit();

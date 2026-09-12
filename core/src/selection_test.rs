@@ -56,8 +56,7 @@ mod audit_tests {
 #[cfg(test)]
 mod autotest_generated {
     use super::*;
-    use crate::geom::LogicalSize;
-    use crate::styled_dom::NodeHierarchyItemId;
+    use crate::{geom::LogicalSize, styled_dom::NodeHierarchyItemId};
 
     // ---------------------------------------------------------------------
     // Fixtures
@@ -1456,7 +1455,6 @@ mod autotest_generated {
     }
 }
 
-
 #[cfg(test)]
 mod owner_tests {
     use alloc::{vec, vec::Vec};
@@ -1518,7 +1516,11 @@ mod owner_tests {
         assert_eq!(mc.len(), 2, "Bob is still in the session");
         let bob_after = mc.selections.iter().find(|s| s.owner == bob).unwrap();
         assert_eq!(bob_after.id, bob_id, "and keeps his id");
-        assert_eq!(bob_after.selection, Selection::Cursor(cursor(7)), "and his place");
+        assert_eq!(
+            bob_after.selection,
+            Selection::Cursor(cursor(7)),
+            "and his place"
+        );
         assert_eq!(mc.get_primary().map(|p| p.id), Some(local_id));
         assert_eq!(mc.get_primary_cursor(), Some(cursor(1)));
     }
@@ -1532,7 +1534,10 @@ mod owner_tests {
 
         mc.set_single_cursor(cursor(9));
         assert_eq!(mc.local_len(), 1, "the local set collapsed");
-        assert!(mc.owners().contains(&alice), "the click did not erase Alice");
+        assert!(
+            mc.owners().contains(&alice),
+            "the click did not erase Alice"
+        );
         assert!(mc.get_primary().unwrap().owner.is_local());
 
         mc.set_single_range(SelectionRange {
@@ -1560,7 +1565,11 @@ mod owner_tests {
         // With a second local caret, the primary falls back onto IT.
         let mut mc = with_peer(state(), bob, 7);
         let second = mc.add_cursor(cursor(4));
-        let first_local = mc.local_selections().map(|s| s.id).find(|id| *id != second).unwrap();
+        let first_local = mc
+            .local_selections()
+            .map(|s| s.id)
+            .find(|id| *id != second)
+            .unwrap();
         assert!(mc.remove_selection(second));
         assert_eq!(mc.get_primary().map(|p| p.id), Some(first_local));
         assert!(mc.get_primary().unwrap().owner.is_local());
@@ -1573,7 +1582,11 @@ mod owner_tests {
         mc.move_all_cursors(false, |c| cursor(c.cluster_id.start_byte_in_run + 1));
         assert_eq!(mc.get_primary_cursor(), Some(cursor(1)));
         let alice_sel = mc.selections.iter().find(|s| s.owner == alice).unwrap();
-        assert_eq!(alice_sel.selection, Selection::Cursor(cursor(3)), "Alice did not move");
+        assert_eq!(
+            alice_sel.selection,
+            Selection::Cursor(cursor(3)),
+            "Alice did not move"
+        );
     }
 
     #[test]
@@ -1642,7 +1655,10 @@ mod owner_tests {
         let mut mc = state();
         let alice = SelectionOwner::new(1, 1);
         let bob = SelectionOwner::new(2, 2);
-        mc.set_owner_selections(alice, &[Selection::Cursor(cursor(0)), Selection::Cursor(cursor(4))]);
+        mc.set_owner_selections(
+            alice,
+            &[Selection::Cursor(cursor(0)), Selection::Cursor(cursor(4))],
+        );
         mc.set_owner_selections(bob, &[Selection::Cursor(cursor(8))]);
         assert_eq!(mc.selections.iter().filter(|s| s.owner == alice).count(), 2);
 
@@ -1715,7 +1731,11 @@ mod peer_shift_tests {
     }
 
     fn peer(mc: &MultiCursorState, who: SelectionOwner) -> Selection {
-        mc.selections.iter().find(|s| s.owner == who).unwrap().selection
+        mc.selections
+            .iter()
+            .find(|s| s.owner == who)
+            .unwrap()
+            .selection
     }
 
     fn change(start: u32, end: u32, inserted: u32) -> RunTextChange {
@@ -1729,9 +1749,18 @@ mod peer_shift_tests {
 
     #[test]
     fn the_diff_between_two_texts_is_the_replaced_middle() {
-        assert_eq!(RunTextChange::between(0, "hello", "hexllo"), Some(change(2, 2, 1)));
-        assert_eq!(RunTextChange::between(0, "abc", "ac"), Some(change(1, 2, 0)));
-        assert_eq!(RunTextChange::between(0, "abcd", "aXYd"), Some(change(1, 3, 2)));
+        assert_eq!(
+            RunTextChange::between(0, "hello", "hexllo"),
+            Some(change(2, 2, 1))
+        );
+        assert_eq!(
+            RunTextChange::between(0, "abc", "ac"),
+            Some(change(1, 2, 0))
+        );
+        assert_eq!(
+            RunTextChange::between(0, "abcd", "aXYd"),
+            Some(change(1, 3, 2))
+        );
         assert_eq!(RunTextChange::between(0, "same", "same"), None);
         assert_eq!(RunTextChange::between(0, "", "new"), Some(change(0, 0, 3)));
         assert_eq!(RunTextChange::between(0, "gone", ""), Some(change(0, 4, 0)));
@@ -1742,8 +1771,14 @@ mod peer_shift_tests {
     /// overlap between prefix and suffix).
     #[test]
     fn a_repeated_character_is_placed_after_its_twin() {
-        assert_eq!(RunTextChange::between(0, "aa", "aaa"), Some(change(2, 2, 1)));
-        assert_eq!(RunTextChange::between(0, "aaa", "aa"), Some(change(2, 3, 0)));
+        assert_eq!(
+            RunTextChange::between(0, "aa", "aaa"),
+            Some(change(2, 2, 1))
+        );
+        assert_eq!(
+            RunTextChange::between(0, "aaa", "aa"),
+            Some(change(2, 3, 0))
+        );
     }
 
     /// A change never starts or ends inside a multi-byte character.
@@ -1751,7 +1786,10 @@ mod peer_shift_tests {
     fn the_diff_respects_char_boundaries() {
         // 'é' (C3 A9) -> 'è' (C3 A8): the first byte is shared, but the
         // change must cover the whole character.
-        assert_eq!(RunTextChange::between(0, "\u{e9}", "\u{e8}"), Some(change(0, 2, 2)));
+        assert_eq!(
+            RunTextChange::between(0, "\u{e9}", "\u{e8}"),
+            Some(change(0, 2, 2))
+        );
     }
 
     /// U3-a-i: a merge of two runs, a split of one, and a delete spanning
@@ -1774,8 +1812,16 @@ mod peer_shift_tests {
             middle: None,
             prev_len: None,
         };
-        assert_eq!(merge.map_cursor(at(1, 1)), at(0, 3), "'d' is byte 3 of the merged run");
-        assert_eq!(merge.map_cursor(at(2, 1)), at(1, 1), "the run after moves down by one");
+        assert_eq!(
+            merge.map_cursor(at(1, 1)),
+            at(0, 3),
+            "'d' is byte 3 of the merged run"
+        );
+        assert_eq!(
+            merge.map_cursor(at(2, 1)),
+            at(1, 1),
+            "the run after moves down by one"
+        );
         // ["abcd", "ef"] -> ["ab", "cd", "ef"]: run 0 split.
         let split = RunRemap {
             first: 0,
@@ -1785,7 +1831,11 @@ mod peer_shift_tests {
             prev_len: None,
         };
         assert_eq!(split.map_cursor(at(0, 3)), at(1, 1));
-        assert_eq!(split.map_cursor(at(0, 2)), at(0, 2), "a boundary caret stays at the end of the first piece");
+        assert_eq!(
+            split.map_cursor(at(0, 2)),
+            at(0, 2),
+            "a boundary caret stays at the end of the first piece"
+        );
         assert_eq!(split.map_cursor(at(1, 0)), at(2, 0));
         // ["hello", "world"] -> ["heorld"]: "llo" + "w" deleted across the seam.
         let spanning = RunRemap {
@@ -1795,8 +1845,16 @@ mod peer_shift_tests {
             middle: RunTextChange::between(0, "helloworld", "heorld"),
             prev_len: None,
         };
-        assert_eq!(spanning.map_cursor(at(1, 3)), at(0, 4), "the 'l' of \"world\" is byte 4 of \"heorld\"");
-        assert_eq!(spanning.map_cursor(at(0, 4)), at(0, 2), "inside the deleted span collapses to its start");
+        assert_eq!(
+            spanning.map_cursor(at(1, 3)),
+            at(0, 4),
+            "the 'l' of \"world\" is byte 4 of \"heorld\""
+        );
+        assert_eq!(
+            spanning.map_cursor(at(0, 4)),
+            at(0, 2),
+            "inside the deleted span collapses to its start"
+        );
         // The whole middle vanished: land at the end of the run before it.
         let gone = RunRemap {
             first: 1,

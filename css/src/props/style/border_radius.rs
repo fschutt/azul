@@ -2,14 +2,16 @@
 //! `border-top-right-radius`, `border-bottom-left-radius`,
 //! `border-bottom-right-radius`) and the `border-radius` shorthand parser.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
-use crate::props::{
-    basic::pixel::{
-        parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+use crate::{
+    corety::AzString,
+    props::{
+        basic::pixel::{
+            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+        },
+        macros::PixelValueTaker,
     },
-    macros::PixelValueTaker,
 };
 
 // --- Property Struct Definitions ---

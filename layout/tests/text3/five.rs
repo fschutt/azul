@@ -1,12 +1,12 @@
 // In a new file, layout/src/text3/tests4.rs
 
 use azul_core::{geom::LogicalPosition, selection::*};
-
-use super::{create_mock_font_manager, default_style, MockFontManager};
 use azul_layout::text3::{
     cache::*,
     edit::{edit_text, TextEdit},
 };
+
+use super::{create_mock_font_manager, default_style, MockFontManager};
 
 #[test]
 fn test_hittest_simple_ltr() {
@@ -117,7 +117,8 @@ fn create_test_layout() -> (UnifiedLayout, MockFontManager) {
         source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
-        available_width: AvailableSpace::Definite(60.0), // "hello " fits, "world" wraps to next line
+        available_width: AvailableSpace::Definite(60.0), /* "hello " fits, "world" wraps to next
+                                                          * line */
         line_height: LineHeight::Px(12.0),
         ..Default::default()
     };
@@ -141,14 +142,12 @@ fn create_test_layout() -> (UnifiedLayout, MockFontManager) {
 }
 
 #[test]
-#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
-            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
-            encodes a hard-coded coordinate from the OLD text3 generation \
-            (line-item counts, glyph x/y, cursor offsets). They run fine \
-            headless — they are not hardware-gated — so this is a real \
-            old-vs-new behavioural delta someone must adjudicate per test \
-            (stale expectation vs. genuine regression). Kept ignored, not \
-            deleted, because the numbers are the only record of the old \
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` fails 12/12. \
+            Revived 2026-08-10 after years dormant; each of these encodes a hard-coded coordinate \
+            from the OLD text3 generation (line-item counts, glyph x/y, cursor offsets). They run \
+            fine headless — they are not hardware-gated — so this is a real old-vs-new behavioural \
+            delta someone must adjudicate per test (stale expectation vs. genuine regression). \
+            Kept ignored, not deleted, because the numbers are the only record of the old \
             behaviour."]
 fn test_move_cursor_up_down() {
     let (layout, _) = create_test_layout();
@@ -195,14 +194,12 @@ fn test_move_cursor_up_down() {
 }
 
 #[test]
-#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
-            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
-            encodes a hard-coded coordinate from the OLD text3 generation \
-            (line-item counts, glyph x/y, cursor offsets). They run fine \
-            headless — they are not hardware-gated — so this is a real \
-            old-vs-new behavioural delta someone must adjudicate per test \
-            (stale expectation vs. genuine regression). Kept ignored, not \
-            deleted, because the numbers are the only record of the old \
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` fails 12/12. \
+            Revived 2026-08-10 after years dormant; each of these encodes a hard-coded coordinate \
+            from the OLD text3 generation (line-item counts, glyph x/y, cursor offsets). They run \
+            fine headless — they are not hardware-gated — so this is a real old-vs-new behavioural \
+            delta someone must adjudicate per test (stale expectation vs. genuine regression). \
+            Kept ignored, not deleted, because the numbers are the only record of the old \
             behaviour."]
 fn test_move_cursor_line_start_end() {
     let (layout, _) = create_test_layout();
@@ -333,14 +330,12 @@ fn create_test_layout_2() -> (UnifiedLayout, MockFontManager) {
 }
 
 #[test]
-#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
-            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
-            encodes a hard-coded coordinate from the OLD text3 generation \
-            (line-item counts, glyph x/y, cursor offsets). They run fine \
-            headless — they are not hardware-gated — so this is a real \
-            old-vs-new behavioural delta someone must adjudicate per test \
-            (stale expectation vs. genuine regression). Kept ignored, not \
-            deleted, because the numbers are the only record of the old \
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` fails 12/12. \
+            Revived 2026-08-10 after years dormant; each of these encodes a hard-coded coordinate \
+            from the OLD text3 generation (line-item counts, glyph x/y, cursor offsets). They run \
+            fine headless — they are not hardware-gated — so this is a real old-vs-new behavioural \
+            delta someone must adjudicate per test (stale expectation vs. genuine regression). \
+            Kept ignored, not deleted, because the numbers are the only record of the old \
             behaviour."]
 fn test_move_cursor_left_right_simple() {
     let (layout, _) = create_test_layout_2();

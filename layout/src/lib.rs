@@ -155,20 +155,20 @@ extern crate self as azul_layout;
 use brotli_decompressor as _;
 // `lru`: reserved for the slippy-map tile cache (azul-dll widgets).
 use lru as _;
-// `unicode-normalization` / `xmlwriter`: pulled by text_layout / xml for the
-// shaping + SVG-writer paths consumed downstream.
-#[cfg(feature = "text_layout")]
-use unicode_normalization as _;
-#[cfg(feature = "xml")]
-use xmlwriter as _;
 // `rustls` / `webpki-roots`: selected through ureq's `rustls-no-provider` +
 // `rustls-webpki-roots` features and reached only via `ureq::tls::*`, so this
 // crate never names them — but it must depend on them to pin the versions
 // ureq resolves against (see the `http` feature).
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use rustls as _;
+// `unicode-normalization` / `xmlwriter`: pulled by text_layout / xml for the
+// shaping + SVG-writer paths consumed downstream.
+#[cfg(feature = "text_layout")]
+use unicode_normalization as _;
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use webpki_roots as _;
+#[cfg(feature = "xml")]
+use xmlwriter as _;
 
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
@@ -281,15 +281,13 @@ pub mod solver3;
 /// tier is configured, so linking it in does not by itself send anything.
 #[cfg(feature = "telemetry")]
 // Scoped allows, per the crate lint policy above:
-//   * the submodule names (`config`, `metrics`) are the public API grouping,
-//     while the types are re-exported at `telemetry::*` where the `Telemetry`
-//     prefix is what disambiguates them from every other `Config` in the tree;
-//   * the registry and the config cell are global-by-design, so their guards
-//     are held across the whole read/modify they protect — tightening the
-//     drop would split an atomic update in half;
-//   * `missing_const_for_fn` fires on accessors that read a `static` today and
-//     will read more tomorrow; making them `const` is not a promise this API
-//     wants to keep.
+//   * the submodule names (`config`, `metrics`) are the public API grouping, while the types are
+//     re-exported at `telemetry::*` where the `Telemetry` prefix is what disambiguates them from
+//     every other `Config` in the tree;
+//   * the registry and the config cell are global-by-design, so their guards are held across the
+//     whole read/modify they protect — tightening the drop would split an atomic update in half;
+//   * `missing_const_for_fn` fires on accessors that read a `static` today and will read more
+//     tomorrow; making them `const` is not a promise this API wants to keep.
 #[allow(
     clippy::module_name_repetitions,
     clippy::significant_drop_tightening,
@@ -340,6 +338,12 @@ pub use icu::{
 /// Project Fluent localization: message bundles, argument formatting, ZIP I/O.
 #[cfg(feature = "fluent")]
 pub mod fluent;
+/// URL parsing (RFC 3986 compliant). Pure-Rust, always present (no TLS deps).
+/// URL types live in `azul_core::url`; re-exported so `azul_layout::url::*`
+/// keeps resolving. `Url::parse`/`join` are enabled via the `http` feature
+/// (which turns on `azul-core/url`).
+pub use azul_core::url;
+pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 #[cfg(feature = "fluent")]
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
@@ -347,13 +351,6 @@ pub use fluent::{
     FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec, FluentLocalizerHandle,
     FluentSyntaxCheckResult, FluentZipLoadResult,
 };
-
-/// URL parsing (RFC 3986 compliant). Pure-Rust, always present (no TLS deps).
-/// URL types live in `azul_core::url`; re-exported so `azul_layout::url::*`
-/// keeps resolving. `Url::parse`/`join` are enabled via the `http` feature
-/// (which turns on `azul-core/url`).
-pub use azul_core::url;
-pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
 // Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`
@@ -409,6 +406,11 @@ pub use zip::{
 
 /// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
+// Re-export core icon types
+pub use azul_core::icon::{
+    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
+    IconViewState, OptionIconProviderHandle,
+};
 pub use icon::{
     create_default_icon_provider,
     // Resolver
@@ -422,11 +424,6 @@ pub use icon::{
     FontIconData,
     // Data types for RefAny
     ImageIconData,
-};
-// Re-export core icon types
-pub use azul_core::icon::{
-    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
-    IconViewState, OptionIconProviderHandle,
 };
 
 /// Callback handling for layout events (invocation, result processing).
@@ -635,7 +632,8 @@ pub fn parsed_font_to_font_ref(parsed_font: ParsedFont) -> azul_css::props::basi
 }
 
 #[cfg(feature = "text_layout")]
-/// Recovers a reference to the [`ParsedFont`] stored inside a [`FontRef`](azul_css::props::basic::FontRef).
+/// Recovers a reference to the [`ParsedFont`] stored inside a
+/// [`FontRef`](azul_css::props::basic::FontRef).
 ///
 /// # Safety contract
 /// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
@@ -653,14 +651,13 @@ mod autotest_generated {
     //!
     //! Covers the four items defined directly in `lib.rs`:
     //!   * `az_mark` / `az_mark_read` — the web-lift diagnostic markers. Only the
-    //!     `#[cfg(not(feature = "web_lift"))]` (no-op `const`) variants are
-    //!     exercised: the `web_lift` variants store to *absolute* addresses and
-    //!     would segfault a native test binary, so they are deliberately untested
-    //!     here (the doc comment says as much).
+    //!     `#[cfg(not(feature = "web_lift"))]` (no-op `const`) variants are exercised: the
+    //!     `web_lift` variants store to *absolute* addresses and would segfault a native test
+    //!     binary, so they are deliberately untested here (the doc comment says as much).
     //!   * `parse_font_fn` — raw bytes → `Option<FontRef>`.
-    //!   * `parsed_font_to_font_ref` / `font_ref_to_parsed_font` — the
-    //!     `Box::into_raw` / reborrow round-trip, plus the refcounted
-    //!     clone/drop contract of the `FontRef` handle those two produce.
+    //!   * `parsed_font_to_font_ref` / `font_ref_to_parsed_font` — the `Box::into_raw` / reborrow
+    //!     round-trip, plus the refcounted clone/drop contract of the `FontRef` handle those two
+    //!     produce.
 
     use super::*;
 

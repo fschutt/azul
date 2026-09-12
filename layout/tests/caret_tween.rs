@@ -2,22 +2,23 @@
 //! geometry between frames via user-replaceable C-ABI interpolators in
 //! `AppConfig.system_animations` (defaults: ease-out cubic).
 //!
-//! - The tween is a DISPLAY-LIST POST-PASS (`LayoutWindow::apply_text_tweens`):
-//!   the solver's cached list keeps the true geometry, the stored list gets
-//!   the interpolated rects patched in.
-//! - Retargeting compares against the tween's TARGET, not the rendered rect —
-//!   comparing against the rendered rect would restart the clock every tick
-//!   and the tween would Zeno-crawl forever (pinned below).
+//! - The tween is a DISPLAY-LIST POST-PASS (`LayoutWindow::apply_text_tweens`): the solver's cached
+//!   list keeps the true geometry, the stored list gets the interpolated rects patched in.
+//! - Retargeting compares against the tween's TARGET, not the rendered rect — comparing against the
+//!   rendered rect would restart the clock every tick and the tween would Zeno-crawl forever
+//!   (pinned below).
 //! - While a tween is in flight the caret is forced SOLID (blink suppressed).
 
-use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, TabIndex};
-use azul_core::geom::{LogicalRect, LogicalSize};
-use azul_core::resources::{RendererResources, SystemAnimations};
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::solver3::display_list::DisplayListItem;
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+    geom::{LogicalRect, LogicalSize},
+    resources::{RendererResources, SystemAnimations},
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -173,8 +174,8 @@ fn caret_move_arms_a_tween_and_renders_near_the_previous_rect() {
     let progress = (rendered.origin.x - a.origin.x) / (b.origin.x - a.origin.x);
     assert!(
         (-0.05..0.4).contains(&progress),
-        "immediately after the move the caret renders near its previous rect \
-         (got progress {progress}, rendered {rendered:?}, from {a:?}, to {b:?})"
+        "immediately after the move the caret renders near its previous rect (got progress \
+         {progress}, rendered {rendered:?}, from {a:?}, to {b:?})"
     );
 }
 
@@ -270,9 +271,11 @@ fn disabled_durations_jump_without_tween_state() {
 
 #[test]
 fn default_caret_tween_math_hits_both_endpoints_and_moves_between() {
-    use azul_core::callbacks::{default_caret_tween, CaretTweenInfo};
-    use azul_core::geom::LogicalPosition;
-    use azul_core::refany::RefAny;
+    use azul_core::{
+        callbacks::{default_caret_tween, CaretTweenInfo},
+        geom::LogicalPosition,
+        refany::RefAny,
+    };
 
     let past = LogicalRect {
         origin: LogicalPosition { x: 10.0, y: 20.0 },
@@ -318,9 +321,11 @@ fn default_caret_tween_math_hits_both_endpoints_and_moves_between() {
 
 #[test]
 fn default_selection_tween_pairs_rects_by_line_not_by_index() {
-    use azul_core::callbacks::{default_selection_tween, SelectionTweenInfo};
-    use azul_core::geom::LogicalPosition;
-    use azul_core::refany::RefAny;
+    use azul_core::{
+        callbacks::{default_selection_tween, SelectionTweenInfo},
+        geom::LogicalPosition,
+        refany::RefAny,
+    };
 
     // One rect per LINE; `y` identifies the line.
     let line = |y: f32, x: f32| LogicalRect {
@@ -508,8 +513,8 @@ fn extending_a_selection_arms_the_band_tween() {
     );
     assert!(
         rendered.iter().zip(true_bands.iter()).any(|(r, t)| r != t),
-        "mid-flight (t ~ 0 of a 10s tween) at least one band must still \
-         differ from the final geometry: {rendered:?} vs {true_bands:?}"
+        "mid-flight (t ~ 0 of a 10s tween) at least one band must still differ from the final \
+         geometry: {rendered:?} vs {true_bands:?}"
     );
 
     // ...and completion snaps to the exact final geometry.

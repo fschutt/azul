@@ -14,13 +14,18 @@
 //! AzulNative.INSTANCE.AzApp_create(...);
 //! ```
 
-use anyhow::Result;
 use std::collections::BTreeMap;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{emit_file, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME};
+use anyhow::Result;
+
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    emit_file, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME,
+};
 
 /// Look up the api.json module that owns `class_name`. Falls back to
 /// `"misc"` when the IR has no mapping — that bucket exists so

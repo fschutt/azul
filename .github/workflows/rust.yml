@@ -3889,18 +3889,24 @@ jobs:
             cp "$APK" "mobile-apps/${demo}-android.apk"
           done
 
-          echo "=== Android APK (x86_64 emulator variant): azul-self-test ==="
+          # The emulator variant used to be `azul-self-test`, which was deleted
+          # from the workspace; this job kept building it and failed with
+          # "package ID specification `azul-self-test` did not match any
+          # packages". AzWidgets is the natural stand-in: it is already one of
+          # the demos built above, and exercising the widget showcase on the
+          # emulator is a broader smoke test than the old one was.
+          echo "=== Android APK (x86_64 emulator variant): AzWidgets ==="
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDKBIN/x86_64-linux-android24-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           AZ_ANDROID_NO_DEPLOY=1 \
-            bash scripts/build-android.sh x86_64-linux-android azul-self-test com.azul.azul_self_test azul-self-test
-          APK="target/android-bundle/azul-self-test-x86_64/aligned.apk"
-          [ -f "$APK" ] || { echo "::error::x86_64 self-test produced no APK at $APK"; exit 1; }
+            bash scripts/build-android.sh x86_64-linux-android AzWidgets com.azul.AzWidgets AzWidgets
+          APK="target/android-bundle/AzWidgets-x86_64/aligned.apk"
+          [ -f "$APK" ] || { echo "::error::x86_64 emulator APK missing at $APK"; exit 1; }
           "$BT/apksigner" verify --verbose "$APK" \
-            || { echo "::error::x86_64 self-test APK is not validly signed"; exit 1; }
+            || { echo "::error::x86_64 emulator APK is not validly signed"; exit 1; }
           unzip -l "$APK" | grep -q 'lib/x86_64/.*\.so' \
-            || { echo "::error::x86_64 self-test APK has no lib/x86_64/*.so"; exit 1; }
-          cp "$APK" "mobile-apps/azul-self-test-android-x86_64.apk"
+            || { echo "::error::x86_64 emulator APK has no lib/x86_64/*.so"; exit 1; }
+          cp "$APK" "mobile-apps/AzWidgets-android-x86_64.apk"
           ls -l mobile-apps
       - name: Upload mobile demo apps (Android)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -8,19 +8,18 @@
 //!
 //! What stays here is exactly what has a hard dependency on this crate:
 //!
-//! * the HTTP transport (`start_debug_server`, `serve_response`,
-//!   `handle_http_connection`, `compile_and_send_zip`) — it serves the debugger
-//!   UI from `include_bytes!(concat!(env!("OUT_DIR"), "/debugger.*.br"))`, and
-//!   those assets are emitted by THIS crate's `build.rs`;
-//! * `register_debug_timer`, which takes a `&mut dyn PlatformWindow` — a trait
-//!   that only exists in the DLL.
+//! * the HTTP transport (`start_debug_server`, `serve_response`, `handle_http_connection`,
+//!   `compile_and_send_zip`) — it serves the debugger UI from
+//!   `include_bytes!(concat!(env!("OUT_DIR"), "/debugger.*.br"))`, and those assets are emitted by
+//!   THIS crate's `build.rs`;
+//! * `register_debug_timer`, which takes a `&mut dyn PlatformWindow` — a trait that only exists in
+//!   the DLL.
 //!
 //! Everything else these functions need (`DebugRequest`, `DebugServerHandle`,
 //! `handle_event_request`, the log queue, …) is public API of
 //! `azul_layout::e2e`.
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use std::sync::{mpsc, Arc, Mutex};
 
 use azul_layout::e2e::{
@@ -46,11 +45,14 @@ use azul_layout::e2e::{
 #[cfg(feature = "debug-server")]
 pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
     // HTTP-only: registering the served port has no meaning for a script run.
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+        time::Duration,
+    };
+
     use azul_layout::e2e::init_debug_server_statics;
-    use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
-    use std::thread;
-    use std::time::Duration;
 
     // Initialize the server-side statics that live in `azul_layout::e2e`
     // (start time, log queue, port, enabled flag).
@@ -226,14 +228,16 @@ fn handle_http_connection(
     if method == "GET" && path == "/material-icons.ttf" {
         if let Some(font_bytes) = crate::desktop::material_icons::get_material_icons_font_bytes() {
             let header = format!(
-                "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, \
+                 max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 font_bytes.len()
             );
             serve_response(stream, &header, font_bytes);
         } else {
             let body = b"Material Icons font not available (icons feature not enabled)";
             let header = format!(
-                "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: \
+                 {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             serve_response(stream, &header, body);
@@ -250,7 +254,8 @@ fn handle_http_connection(
     // ── Route: GET /debugger.css → serve brotli-compressed CSS ──
     if method == "GET" && path == "/debugger.css" {
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Encoding: \
+             br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             DEBUGGER_CSS_BR.len()
         );
         serve_response(stream, &header, DEBUGGER_CSS_BR);
@@ -260,7 +265,9 @@ fn handle_http_connection(
     // ── Route: GET /debugger.js → serve brotli-compressed JS ──
     if method == "GET" && path == "/debugger.js" {
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
             DEBUGGER_JS_BR.len()
         );
         serve_response(stream, &header, DEBUGGER_JS_BR);
@@ -270,7 +277,8 @@ fn handle_http_connection(
     // ── Route: GET / → serve brotli-compressed debugger HTML ──
     if method == "GET" && (path == "/" || path == "/index.html") {
         let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: \
+             br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             DEBUGGER_HTML_BR.len()
         );
         serve_response(stream, &header, DEBUGGER_HTML_BR);
@@ -348,13 +356,18 @@ fn handle_http_connection(
 
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /material-icons.ttf → font, GET /health → status, POST / → debug commands (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project ZIP".to_string(),
+            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET \
+                      /material-icons.ttf → font, GET /health → status, POST / → debug commands \
+                      (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project \
+                      ZIP"
+            .to_string(),
         })),
     };
 
     let body_bytes = response_json.as_bytes();
     let header = format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: \
+         close\r\n\r\n",
         body_bytes.len()
     );
     serve_response(stream, &header, body_bytes);
@@ -409,8 +422,8 @@ fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source
         Err(e) => {
             let body = format!("ZIP write failed: {e:?}");
             let header = format!(
-                "HTTP/1.0 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: \
-                 {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.0 500 Internal Server Error\r\nContent-Type: \
+                 text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             stream.set_nodelay(true).ok();
@@ -430,8 +443,7 @@ fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source
 
     let header = format!(
         "HTTP/1.0 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; \
-         filename=\"azul-generated-{lang}.zip\"\r\nContent-Length: {}\r\nConnection: \
-         close\r\n\r\n",
+         filename=\"azul-generated-{lang}.zip\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         zip_bytes.len()
     );
     stream.set_nodelay(true).ok();

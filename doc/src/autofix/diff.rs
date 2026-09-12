@@ -461,14 +461,13 @@ fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     // (unique) name, so two paths sharing the same crate root AND the same leaf
     // type name denote the SAME type, regardless of how many module segments sit
     // between them. Treat them as equivalent. This covers two cases:
-    //  1. the `azul_dll::unified::*` re-export façade (a `pub use` of the real
-    //     type, so `unified::…::T` == the canonical def-site path), and
-    //  2. the resolver occasionally returning a MODULE-SHORTENED path
-    //     (e.g. `azul_css::AlignContentParseErrorOwned` vs the real
-    //     `azul_css::props::layout::flex::AlignContentParseErrorOwned`). The
-    //     fully-qualified form in api.json is correct; autofix must NOT "fix" it
-    //     down to the shallower one (doing so oscillated run-to-run and broke
-    //     codegen, since the short path isn't a real module path).
+    //  1. the `azul_dll::unified::*` re-export façade (a `pub use` of the real type, so
+    //     `unified::…::T` == the canonical def-site path), and
+    //  2. the resolver occasionally returning a MODULE-SHORTENED path (e.g.
+    //     `azul_css::AlignContentParseErrorOwned` vs the real
+    //     `azul_css::props::layout::flex::AlignContentParseErrorOwned`). The fully-qualified form
+    //     in api.json is correct; autofix must NOT "fix" it down to the shallower one (doing so
+    //     oscillated run-to-run and broke codegen, since the short path isn't a real module path).
     // A genuinely wrong path (different crate root, or a typo'd leaf) still
     // differs in root/leaf and is corrected as before.
     crate_root_and_leaf(path1) == crate_root_and_leaf(path2)
@@ -1464,11 +1463,11 @@ fn generate_diff_v2(
 /// referenced (directly or transitively) by any type that does have functions/constructors.
 ///
 /// Algorithm:
-/// 1. Build a reference graph: type A → type B if A's struct fields, enum variants,
-///    callback args, type_alias target, or generic_args reference B.
-/// 2. Define "root types" = types that have `constructors` (user entry points).
-///    Types with only `functions` (no constructors, e.g. auto-generated Vec methods)
-///    become roots only if reachable from a constructor root.
+/// 1. Build a reference graph: type A → type B if A's struct fields, enum variants, callback args,
+///    type_alias target, or generic_args reference B.
+/// 2. Define "root types" = types that have `constructors` (user entry points). Types with only
+///    `functions` (no constructors, e.g. auto-generated Vec methods) become roots only if reachable
+///    from a constructor root.
 /// 3. BFS from root types through function signatures AND structural references.
 /// 4. Any api.json type NOT reachable from a root type is dead.
 ///
@@ -1553,10 +1552,9 @@ fn find_dead_type_clusters(current_api_types: &BTreeMap<String, ApiTypeInfo>) ->
         references.insert(type_name.as_str(), refs);
     }
 
-    // 2. Two-phase root detection:
-    //    Phase A: Types with constructors are unconditional roots (user can create them directly)
-    //    Phase B: Types with only functions (no constructors) are roots ONLY if they are
-    //             referenced by a constructor-root's functions (directly or transitively)
+    // 2. Two-phase root detection: Phase A: Types with constructors are unconditional roots (user
+    //    can create them directly) Phase B: Types with only functions (no constructors) are roots
+    //    ONLY if they are referenced by a constructor-root's functions (directly or transitively)
     //    This prevents orphaned auto-generated Vec functions from anchoring dead type clusters.
 
     // Phase A: find constructor roots
@@ -2598,7 +2596,8 @@ fn collect_vec_required_types(
 /// Check if a Vec type is missing any standard functions
 /// Vec types are identified by:
 /// 1. Having vec_element_type set in api.json, OR
-/// 2. Having a type name ending with "Vec" AND having the standard Vec fields (ptr, len, cap, destructor)
+/// 2. Having a type name ending with "Vec" AND having the standard Vec fields (ptr, len, cap,
+///    destructor)
 ///
 /// Also checks if required dependency types (OptionX, XVecSlice) exist in api.json.
 /// Uses element_to_option_map to find the correct Option type for the element type
@@ -2744,7 +2743,8 @@ fn check_vec_functions(
 /// Infer Vec element type from type name (fallback when struct_fields not available)
 fn infer_element_type_from_name(type_name: &str) -> String {
     let base = &type_name[..type_name.len() - 3]; // Remove "Vec" suffix
-                                                  // Handle special cases like "U8Vec" -> "u8", "U16Vec" -> "u16", etc.
+                                                  // Handle special cases like "U8Vec" -> "u8",
+                                                  // "U16Vec" -> "u16", etc.
     match base {
         "U8" => "u8".to_string(),
         "U16" => "u16".to_string(),
@@ -2886,8 +2886,8 @@ mod api_json_declared_derives {
             panic!(
                 "{gen} is OLDER than the codegen sources that produce it, so this test would \
                  report on a build that no longer exists. Re-run `azul-doc codegen all` and try \
-                 again. (Refusing to pass or fail on a stale artifact: the result would be \
-                 about a different program.)",
+                 again. (Refusing to pass or fail on a stale artifact: the result would be about \
+                 a different program.)",
             );
         }
 
@@ -2963,15 +2963,13 @@ mod no_byte_level_trait_impls {
     /// and the same shape for `partial_cmp`, `cmp` and `hash`. Three silent
     /// defects came out of that:
     ///
-    ///   * for any type holding a `String`/`Vec`/`Box` — most of api.json — it
-    ///     compares HEAP POINTERS rather than contents, so two equal `AzString`s
-    ///     are `!=` from Python, and `Ord` sorts by allocation address, which is
-    ///     not even stable between runs;
-    ///   * reading a struct's interior PADDING as `u8` is undefined behaviour,
-    ///     since those bytes are never initialised;
-    ///   * `Hash` sat on the same byte view, so it agreed with the broken `eq`
-    ///     instead of the real one — a dict keyed on an azul type missed on a
-    ///     logically-equal key.
+    ///   * for any type holding a `String`/`Vec`/`Box` — most of api.json — it compares HEAP
+    ///     POINTERS rather than contents, so two equal `AzString`s are `!=` from Python, and `Ord`
+    ///     sorts by allocation address, which is not even stable between runs;
+    ///   * reading a struct's interior PADDING as `u8` is undefined behaviour, since those bytes
+    ///     are never initialised;
+    ///   * `Hash` sat on the same byte view, so it agreed with the broken `eq` instead of the real
+    ///     one — a dict keyed on an azul type missed on a logically-equal key.
     ///
     /// The GENERIC arms of that same emitter always delegated to the real type;
     /// only the non-generic ones byte-compared, so the harder case was right and
@@ -2998,10 +2996,9 @@ mod no_byte_level_trait_impls {
         assert!(
             offenders.is_empty(),
             "{} emitter line(s) build a trait impl out of a raw byte view of the value. That \
-             compares heap pointers instead of contents and reads uninitialised padding \
-             (UB). Delegate to the real type instead — `PartialEq::eq(&*(self as *const Mirror \
-             as *const Real), ...)` — as the generic arms of the same function already \
-             do:\n  {}",
+             compares heap pointers instead of contents and reads uninitialised padding (UB). \
+             Delegate to the real type instead — `PartialEq::eq(&*(self as *const Mirror as \
+             *const Real), ...)` — as the generic arms of the same function already do:\n  {}",
             offenders.len(),
             offenders.join("\n  "),
         );

@@ -17,47 +17,45 @@
 //! end type dom_t
 //! ```
 //!
-//! - There is deliberately NO `final ::` subroutine: gfortran finalizes
-//!   a function result after the assignment that consumed it, so a
-//!   finalizer on a type returned by factories would `_delete` every
-//!   value a factory ever returns. Cleanup is the explicit `delete`
-//!   type-bound procedure, guarded by `owned`.
-//! - Factories (constructors, `default`, static methods) are public
-//!   module procedures named `<snake>_<method>`:
-//!   `dom_create_p_with_text('5')`, `button_create('Increase counter')`.
-//! - Instance methods are type-bound procedures. A method that consumes
-//!   `self` and returns `Self` (`with_css`, `with_child`, ...) becomes an
-//!   in-place SUBROUTINE (`call label%with_css('font-size: 32px;')`);
-//!   any other consumer marks `self%owned = .false.` after the call.
-//! - `String` arguments are `character(len=*)`, `String` results are
-//!   `character(len=:), allocatable`; unit enums are plain `integer`
-//!   with un-prefixed constants (`ButtonType_Primary`,
+//! - There is deliberately NO `final ::` subroutine: gfortran finalizes a function result after the
+//!   assignment that consumed it, so a finalizer on a type returned by factories would `_delete`
+//!   every value a factory ever returns. Cleanup is the explicit `delete` type-bound procedure,
+//!   guarded by `owned`.
+//! - Factories (constructors, `default`, static methods) are public module procedures named
+//!   `<snake>_<method>`: `dom_create_p_with_text('5')`, `button_create('Increase counter')`.
+//! - Instance methods are type-bound procedures. A method that consumes `self` and returns `Self`
+//!   (`with_css`, `with_child`, ...) becomes an in-place SUBROUTINE (`call
+//!   label%with_css('font-size: 32px;')`); any other consumer marks `self%owned = .false.` after
+//!   the call.
+//! - `String` arguments are `character(len=*)`, `String` results are `character(len=:),
+//!   allocatable`; unit enums are plain `integer` with un-prefixed constants (`ButtonType_Primary`,
 //!   `Update_RefreshDom`); `bool` is `logical`.
-//! - A wrapper passed to a consuming (by-value) parameter is moved when
-//!   it is owned and deep-copied when it is borrowed (the `RefAny` a
-//!   callback receives), via the per-class `azul_take_<snake>` helper.
-//! - Callback-wrapper arguments (`ButtonOnClickCallback`, ...) take a
-//!   Fortran procedure matching the kind's typed abstract interface
-//!   (see [`super::managed`]).
+//! - A wrapper passed to a consuming (by-value) parameter is moved when it is owned and deep-copied
+//!   when it is borrowed (the `RefAny` a callback receives), via the per-class `azul_take_<snake>`
+//!   helper.
+//! - Callback-wrapper arguments (`ButtonOnClickCallback`, ...) take a Fortran procedure matching
+//!   the kind's typed abstract interface (see [`super::managed`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, FieldRefKind, FunctionArg, FunctionDef,
-    FunctionKind, StructDef, TypeCategory,
-};
-use super::super::managed_host_invoker::{
-    host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
-    LayoutCallbackFactoryInfo,
-};
-use super::functions::{fortran_alias_for, should_emit_function};
 use super::{
-    ffi_type_name, map_type_to_fortran, sanitize_identifier, truncate_identifier,
-    wrapper_type_name,
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+        managed_host_invoker::{
+            host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
+            LayoutCallbackFactoryInfo,
+        },
+    },
+    ffi_type_name,
+    functions::{fortran_alias_for, should_emit_function},
+    map_type_to_fortran, sanitize_identifier, truncate_identifier, wrapper_type_name,
 };
 
 // ============================================================================
@@ -141,8 +139,10 @@ pub(crate) struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     pub(crate) fn new(ir: &'a CodegenIR, config: &'a CodegenConfig) -> Self {
         let kinds: Vec<&CallbackTypedefDef> = host_invoker_kinds(ir).collect();
-        let kind_names: BTreeSet<String> =
-            kinds.iter().map(|cb| wrapper_name(cb).to_string()).collect();
+        let kind_names: BTreeSet<String> = kinds
+            .iter()
+            .map(|cb| wrapper_name(cb).to_string())
+            .collect();
 
         let mut delete = BTreeMap::new();
         let mut clone = BTreeMap::new();
@@ -220,7 +220,8 @@ impl<'a> Ctx<'a> {
                 .insert(truncate_identifier(&format!("{}_iface", n)).to_lowercase());
         }
         for f in &self.ir.functions {
-            self.names.insert(fortran_alias_for(&f.c_name).to_lowercase());
+            self.names
+                .insert(fortran_alias_for(&f.c_name).to_lowercase());
         }
         for n in super::ISO_C_REEXPORTS {
             self.names.insert(n.to_lowercase());
@@ -312,10 +313,19 @@ impl<'a> Ctx<'a> {
                 .iter()
                 .filter(|f| f.class_name == s.name)
                 .filter(|f| should_emit_function(f, self.ir, self.config))
-                .filter(|f| !matches!(f.kind, FunctionKind::Delete | FunctionKind::EnumVariantConstructor))
+                .filter(|f| {
+                    !matches!(
+                        f.kind,
+                        FunctionKind::Delete | FunctionKind::EnumVariantConstructor
+                    )
+                })
                 .collect();
             for f in funcs {
-                let name = self.claim(&format!("{}_{}", snake, sanitize_identifier(&f.method_name)));
+                let name = self.claim(&format!(
+                    "{}_{}",
+                    snake,
+                    sanitize_identifier(&f.method_name)
+                ));
                 let binding = if takes_self(f) {
                     let b = sanitize_identifier(&f.method_name);
                     if bindings.insert(b.to_lowercase()) {
@@ -418,12 +428,19 @@ pub(crate) const STRING_IN_HELPER: &str = "azul_string";
 pub(crate) const STRING_OUT_HELPER: &str = "azul_string_value";
 
 fn find_string_class(ir: &CodegenIR) -> Option<StringClass> {
-    for s in ir.structs.iter().filter(|s| s.category == TypeCategory::String) {
+    for s in ir
+        .structs
+        .iter()
+        .filter(|s| s.category == TypeCategory::String)
+    {
         let copy = ir.functions.iter().find(|f| {
             f.class_name == s.name
                 && f.method_name == "copy_from_bytes"
                 && f.args.len() == 3
-                && f.return_type.as_deref().map(|r| r.trim() == s.name).unwrap_or(false)
+                && f.return_type
+                    .as_deref()
+                    .map(|r| r.trim() == s.name)
+                    .unwrap_or(false)
         });
         let Some(copy) = copy else { continue };
         if s.fields.len() != 1 {
@@ -481,7 +498,9 @@ fn should_emit_enum_consts(e: &EnumDef, config: &CodegenConfig) -> bool {
         && config.should_include_type(&e.name)
         && !matches!(
             e.category,
-            TypeCategory::Recursive | TypeCategory::DestructorOrClone | TypeCategory::GenericTemplate
+            TypeCategory::Recursive
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
         )
 }
 
@@ -508,8 +527,10 @@ fn takes_self(f: &FunctionDef) -> bool {
 /// The raw `<Class>_create(<LayoutCallbackType fn ptr>)` factory that the
 /// smart `create(layout)` replaces.
 fn is_raw_layout_factory(f: &FunctionDef, info: &LayoutCallbackFactoryInfo) -> bool {
-    matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
-        && f.args.len() == 1
+    matches!(
+        f.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod
+    ) && f.args.len() == 1
         && f.args[0]
             .callback_info
             .as_ref()
@@ -525,9 +546,35 @@ fn is_raw_layout_factory(f: &FunctionDef, info: &LayoutCallbackFactoryInfo) -> b
 /// helper names the generated bodies call.
 pub(crate) fn dummy_name(name: &str) -> String {
     const CLASHES: &[&str] = &[
-        "int", "nint", "char", "trim", "null", "present", "associated", "allocated", "index",
-        "count", "sum", "mod", "sign", "float", "any", "all", "shape", "merge", "huge", "tiny",
-        "self", "logical", "achar", "ichar", "adjustl", "repeat", "verify", "scan", "r",
+        "int",
+        "nint",
+        "char",
+        "trim",
+        "null",
+        "present",
+        "associated",
+        "allocated",
+        "index",
+        "count",
+        "sum",
+        "mod",
+        "sign",
+        "float",
+        "any",
+        "all",
+        "shape",
+        "merge",
+        "huge",
+        "tiny",
+        "self",
+        "logical",
+        "achar",
+        "ichar",
+        "adjustl",
+        "repeat",
+        "verify",
+        "scan",
+        "r",
     ];
     let base = if name.is_empty() {
         "arg".to_string()
@@ -568,8 +615,11 @@ pub(crate) fn plan_arg(ctx: &Ctx, a: &FunctionArg) -> (String, ArgPlan) {
     };
     match ctx.classify(&a.type_name) {
         UserType::Kind(k) if owned => {
-            plan.decls
-                .push(format!("procedure({}) :: {}", super::managed::iface_name(&k), nm));
+            plan.decls.push(format!(
+                "procedure({}) :: {}",
+                super::managed::iface_name(&k),
+                nm
+            ));
             plan.actual = format!("{}({})", super::managed::register_name(&k), nm);
         }
         UserType::Str if owned => {
@@ -578,21 +628,31 @@ pub(crate) fn plan_arg(ctx: &Ctx, a: &FunctionArg) -> (String, ArgPlan) {
             plan.actual = format!("{}({})", STRING_IN_HELPER, nm);
         }
         UserType::Str => {
-            let st = ctx.string.as_ref().expect("Str classified without a string class");
+            let st = ctx
+                .string
+                .as_ref()
+                .expect("Str classified without a string class");
             let tmp = truncate_identifier(&format!("azul_tmp_{}", nm));
             plan.decls
                 .push(format!("character(len=*), intent(in) :: {}", nm));
-            plan.locals
-                .push(format!("type({}), target :: {}", ffi_type_name(&st.name), tmp));
-            plan.pre.push(format!("{} = {}({})", tmp, STRING_IN_HELPER, nm));
+            plan.locals.push(format!(
+                "type({}), target :: {}",
+                ffi_type_name(&st.name),
+                tmp
+            ));
+            plan.pre
+                .push(format!("{} = {}({})", tmp, STRING_IN_HELPER, nm));
             plan.actual = format!("c_loc({})", tmp);
             if let Some(del) = ctx.delete_call(&st.name, &tmp) {
                 plan.post.push(del);
             }
         }
         UserType::Wrapper(w) if owned => {
-            plan.decls
-                .push(format!("type({}), intent(in), target :: {}", ctx.wt(&w), nm));
+            plan.decls.push(format!(
+                "type({}), intent(in), target :: {}",
+                ctx.wt(&w),
+                nm
+            ));
             plan.actual = ctx.take_expr(&w, &nm);
         }
         UserType::Wrapper(w) => {
@@ -616,7 +676,8 @@ pub(crate) fn plan_arg(ctx: &Ctx, a: &FunctionArg) -> (String, ArgPlan) {
             plan.decls.push(format!("{}, intent(in) :: {}", fty, nm));
         }
         _ => {
-            plan.decls.push(format!("type(c_ptr), intent(in) :: {}", nm));
+            plan.decls
+                .push(format!("type(c_ptr), intent(in) :: {}", nm));
         }
     }
     (nm, plan)
@@ -707,7 +768,10 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
     builder.indent();
     builder.line(&format!("procedure :: delete => {}", c.delete_name));
     if ctx.ref_any.as_deref() == Some(c.s.name.as_str()) {
-        builder.line(&format!("procedure :: get => {}", super::managed::REF_ANY_GET));
+        builder.line(&format!(
+            "procedure :: get => {}",
+            super::managed::REF_ANY_GET
+        ));
     }
     for p in &c.procs {
         if let Some(b) = &p.binding {
@@ -841,7 +905,17 @@ fn emit_factory(builder: &mut CodeBuilder, ctx: &Ctx, p: &ProcPlan) {
     let dummies: Vec<&str> = plans.iter().map(|(n, _)| n.as_str()).collect();
     let actuals: Vec<&str> = plans.iter().map(|(_, p)| p.actual.as_str()).collect();
     let ret = f.return_type.as_deref().map(|r| plan_return(ctx, r));
-    emit_procedure(builder, &p.name, &dummies, &[], &plans, ret.as_ref(), &alias, &actuals, &[]);
+    emit_procedure(
+        builder,
+        &p.name,
+        &dummies,
+        &[],
+        &plans,
+        ret.as_ref(),
+        &alias,
+        &actuals,
+        &[],
+    );
 }
 
 fn emit_method(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, p: &ProcPlan) {
@@ -855,7 +929,8 @@ fn emit_method(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, p: &ProcPlan
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
-    let self_decl = if consumed || matches!(recv.ref_kind, ArgRefKind::RefMut | ArgRefKind::PtrMut) {
+    let self_decl = if consumed || matches!(recv.ref_kind, ArgRefKind::RefMut | ArgRefKind::PtrMut)
+    {
         format!("class({}), intent(inout), target :: self", c.wt)
     } else {
         format!("class({}), intent(in), target :: self", c.wt)
@@ -877,9 +952,22 @@ fn emit_method(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, p: &ProcPlan
         let call = format!("{}({})", alias, actuals.join(", "));
         let ret = RetPlan {
             decl: String::new(),
-            assign: vec![format!("self%raw = {}", call), "self%owned = .true.".to_string()],
+            assign: vec![
+                format!("self%raw = {}", call),
+                "self%owned = .true.".to_string(),
+            ],
         };
-        emit_procedure(builder, &p.name, &dummies, &[self_decl], &plans, Some(&ret), &alias, &actuals, &[]);
+        emit_procedure(
+            builder,
+            &p.name,
+            &dummies,
+            &[self_decl],
+            &plans,
+            Some(&ret),
+            &alias,
+            &actuals,
+            &[],
+        );
         return;
     }
     let ret = f.return_type.as_deref().map(|r| plan_return(ctx, r));
@@ -888,7 +976,17 @@ fn emit_method(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, p: &ProcPlan
     } else {
         Vec::new()
     };
-    emit_procedure(builder, &p.name, &dummies, &[self_decl], &plans, ret.as_ref(), &alias, &actuals, &post);
+    emit_procedure(
+        builder,
+        &p.name,
+        &dummies,
+        &[self_decl],
+        &plans,
+        ret.as_ref(),
+        &alias,
+        &actuals,
+        &post,
+    );
 }
 
 /// Shared body writer. `ret.decl` empty means "subroutine whose
@@ -907,7 +1005,11 @@ fn emit_procedure(
 ) {
     let is_function = ret.map(|r| !r.decl.is_empty()).unwrap_or(false);
     if is_function {
-        builder.line(&format!("function {}({}) result(r)", name, dummies.join(", ")));
+        builder.line(&format!(
+            "function {}({}) result(r)",
+            name,
+            dummies.join(", ")
+        ));
     } else {
         builder.line(&format!("subroutine {}({})", name, dummies.join(", ")));
     }
@@ -976,7 +1078,11 @@ fn emit_smart_factory(
     info: &LayoutCallbackFactoryInfo,
 ) {
     let arg = dummy_name(&p.func.args[0].name);
-    let path: Vec<String> = info.field_path.iter().map(|s| sanitize_identifier(s)).collect();
+    let path: Vec<String> = info
+        .field_path
+        .iter()
+        .map(|s| sanitize_identifier(s))
+        .collect();
     builder.line(&format!("function {}({}) result(r)", p.name, arg));
     builder.indent();
     builder.line(&format!(
@@ -985,7 +1091,10 @@ fn emit_smart_factory(
         arg
     ));
     builder.line(&format!("type({}) :: r", c.wt));
-    builder.line(&format!("r%raw = {}()", fortran_alias_for(&info.default_c_name)));
+    builder.line(&format!(
+        "r%raw = {}()",
+        fortran_alias_for(&info.default_c_name)
+    ));
     builder.line(&format!(
         "r%raw%{} = {}({})",
         path.join("%"),

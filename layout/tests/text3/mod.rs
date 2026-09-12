@@ -14,18 +14,19 @@ use std::{
 };
 
 use azul_css::props::basic::ColorU;
-use hyphenation::Language;
-
-use azul_layout::font_traits::FontLoaderTrait;
-use azul_layout::text3::{
-    cache::{
-        BidiDirection, BidiLevel, FontSelector, FontStack, Glyph, GlyphOrientation, GlyphSource,
-        LayoutError, LayoutFontMetrics, LineHeight, ParsedFontTrait, Point, PositionedItem,
-        ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation, TextTransform,
-        VerticalMetrics, WritingMode,
+use azul_layout::{
+    font_traits::FontLoaderTrait,
+    text3::{
+        cache::{
+            BidiDirection, BidiLevel, FontSelector, FontStack, Glyph, GlyphOrientation,
+            GlyphSource, LayoutError, LayoutFontMetrics, LineHeight, ParsedFontTrait, Point,
+            PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
+            TextTransform, VerticalMetrics, WritingMode,
+        },
+        script::Script,
     },
-    script::Script,
 };
+use hyphenation::Language;
 
 pub mod five;
 pub mod four;

@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use accesskit::{ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate};
 #[cfg(feature = "a11y")]
 use accesskit_unix::Adapter;
-
 #[cfg(feature = "a11y")]
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 

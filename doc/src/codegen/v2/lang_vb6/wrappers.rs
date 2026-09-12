@@ -3,19 +3,15 @@
 //! For every IR struct that has a matching `<TypeName>_delete` C
 //! function, we emit a VB6 Class Module (`.cls` file). The class:
 //!
-//! 1. Holds the underlying FFI record (`AzTypeName`) by value in a
-//!    private `m_raw` field, plus an `m_owned` flag so wrap-existing
-//!    factories can opt out of automatic deletion.
-//! 2. Exposes one or more `Public Sub Init...(...)` initialisers per
-//!    IR `FunctionKind::Constructor` / `FunctionKind::Default` method
-//!    on the type. VB6 does **not** support overloaded
-//!    constructors, so each constructor gets a distinct `Init<Suffix>`
-//!    name.
-//! 3. Implements `Class_Initialize` / `Class_Terminate` — the latter
-//!    calls the matching `_delete` extern when `m_owned` is True.
-//! 4. Surfaces every non-trait method as a `Public Function`/`Sub`
-//!    delegating to the FFI symbol with `m_raw` passed as the
-//!    self-pointer.
+//! 1. Holds the underlying FFI record (`AzTypeName`) by value in a private `m_raw` field, plus an
+//!    `m_owned` flag so wrap-existing factories can opt out of automatic deletion.
+//! 2. Exposes one or more `Public Sub Init...(...)` initialisers per IR `FunctionKind::Constructor`
+//!    / `FunctionKind::Default` method on the type. VB6 does **not** support overloaded
+//!    constructors, so each constructor gets a distinct `Init<Suffix>` name.
+//! 3. Implements `Class_Initialize` / `Class_Terminate` — the latter calls the matching `_delete`
+//!    extern when `m_owned` is True.
+//! 4. Surfaces every non-trait method as a `Public Function`/`Sub` delegating to the FFI symbol
+//!    with `m_raw` passed as the self-pointer.
 //!
 //! User-facing class names drop the `Az` prefix:  `AzApp` → `App`,
 //! `AzWindow` → `Window`. Each lives in its own `.cls` file.
@@ -42,15 +38,18 @@
 //! Attribute VB_Exposed = True
 //! ```
 
-use anyhow::Result;
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
-};
+use anyhow::Result;
+
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+    },
     ffi_type_name, idiomatic_method_name, map_type_to_vb6, sanitize_comment, sanitize_identifier,
 };
 
@@ -163,9 +162,9 @@ pub fn emit_class_module(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) 
     // Wrap-existing factory: takes a Long pointer to a populated FFI
     // record and copies its bytes into m_raw, claiming ownership.
     builder.line("' WrapRaw: take ownership of an existing AzXxx record (passed via VarPtr).");
-    builder.line(&format!("Public Sub WrapRaw(ByVal rawPtr As Long)"));
+    builder.line(&"Public Sub WrapRaw(ByVal rawPtr As Long)".to_string());
     builder.indent();
-    builder.line(&format!("CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)"));
+    builder.line(&"CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)".to_string());
     builder.line("m_owned = True");
     builder.dedent();
     builder.line("End Sub");
@@ -296,7 +295,7 @@ fn emit_init_sub(
         builder.line(&format!("' Pseudo: m_raw = {}", call));
     } else {
         // Constructor returns Long (a pointer) or void.
-        builder.line(&format!("Dim ret_ As Long"));
+        builder.line(&"Dim ret_ As Long".to_string());
         builder.line(&format!("ret_ = {}", call));
         builder.line("If ret_ <> 0 Then");
         builder.indent();

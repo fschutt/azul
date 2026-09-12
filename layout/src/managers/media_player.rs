@@ -36,14 +36,12 @@
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
+pub use azul_core::media_player::{OptionPlaybackState, PlaybackState};
 use azul_core::{
     dom::{DomId, DomNodeId},
-    events::{
-        EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
-    },
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
     task::Instant,
 };
-pub use azul_core::media_player::{OptionPlaybackState, PlaybackState};
 
 use super::{NodeIdMap, NodeIdRemap};
 
@@ -415,11 +413,10 @@ mod tests {
         mgr.toggle(n);
         mgr.toggle(n);
         mgr.toggle(n);
-        assert_eq!(kinds(&mgr), vec![
-            EventType::Play,
-            EventType::Pause,
-            EventType::Play
-        ]);
+        assert_eq!(
+            kinds(&mgr),
+            vec![EventType::Play, EventType::Pause, EventType::Play]
+        );
     }
 
     #[test]
@@ -437,7 +434,10 @@ mod tests {
             kinds(&mgr)
         );
         assert_eq!(
-            kinds(&mgr).iter().filter(|t| **t == EventType::Ended).count(),
+            kinds(&mgr)
+                .iter()
+                .filter(|t| **t == EventType::Ended)
+                .count(),
             1
         );
         let st = mgr.state(n).unwrap();
@@ -464,7 +464,10 @@ mod tests {
         assert_eq!(mgr.state(n).unwrap().position_s, 0.0, "play rewinds");
         mgr.advance(n, 10.0);
         assert_eq!(
-            kinds(&mgr).iter().filter(|t| **t == EventType::Ended).count(),
+            kinds(&mgr)
+                .iter()
+                .filter(|t| **t == EventType::Ended)
+                .count(),
             1
         );
     }
@@ -648,15 +651,18 @@ mod tests {
         assert_eq!(st.volume, 0.25);
         assert!(st.muted);
         assert!(!st.playing);
-        assert_eq!(kinds(&mgr), vec![
-            EventType::Play,
-            EventType::TimeUpdate, // the 1 s advance
-            EventType::TimeUpdate, // the seek
-            EventType::VolumeChange,
-            EventType::VolumeChange, // the mute
-            EventType::Pause,        // toggle, from playing
-            EventType::MediaError,
-        ]);
+        assert_eq!(
+            kinds(&mgr),
+            vec![
+                EventType::Play,
+                EventType::TimeUpdate, // the 1 s advance
+                EventType::TimeUpdate, // the seek
+                EventType::VolumeChange,
+                EventType::VolumeChange, // the mute
+                EventType::Pause,        // toggle, from playing
+                EventType::MediaError,
+            ]
+        );
     }
 
     #[test]

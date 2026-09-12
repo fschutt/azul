@@ -27,8 +27,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -93,8 +95,13 @@ azul_core::impl_managed_callback! {
 #[repr(C)]
 pub struct Pagination {
     pub pagination_state: PaginationStateWrapper,
-    /// Style for the row container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the row container, or `None` for "no opinion" — in which case
+    /// the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -339,10 +346,22 @@ impl Pagination {
                 },
                 ..Default::default()
             },
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                PAGINATION_CONTAINER_STYLE,
-            ),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The container CSS this pagination row renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(PAGINATION_CONTAINER_STYLE)
+            })
     }
 
     /// Sets the current (1-based) page, clamped into `[1, total_pages]`.
@@ -402,6 +421,8 @@ impl Pagination {
 
         let current = self.pagination_state.inner.current_page;
         let total = self.pagination_state.inner.total_pages;
+        // Resolved before `self.pagination_state` is moved out below.
+        let container_style = self.resolved_container_style();
 
         // One shared RefAny across every button's callback (RefAny::clone shares
         // the underlying state — same pattern as segmented/tabs/map).
@@ -460,7 +481,7 @@ impl Pagination {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(PAGINATION_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -1297,7 +1318,7 @@ mod autotest_generated {
             "create must not install a callback"
         );
         assert_eq!(
-            p.container_style.as_ref(),
+            p.resolved_container_style().as_ref(),
             PAGINATION_CONTAINER_STYLE,
             "create must reuse the const container style"
         );
@@ -1490,7 +1511,8 @@ mod autotest_generated {
             "installing a callback must not disturb the page state"
         );
         assert_eq!(
-            after.container_style, before.container_style,
+            after.resolved_container_style(),
+            before.resolved_container_style(),
             "installing a callback must not disturb the container style"
         );
 

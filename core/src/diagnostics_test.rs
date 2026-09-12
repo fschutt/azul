@@ -27,8 +27,8 @@ mod tests {
         assert_eq!(
             recorded().len(),
             CAPACITY,
-            "an every-frame lint must not grow without bound — the point is to \
-             catch churn, not become it"
+            "an every-frame lint must not grow without bound — the point is to catch churn, not \
+             become it"
         );
         assert!(
             !any_contains("msg 0"),

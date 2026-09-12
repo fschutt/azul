@@ -6,24 +6,25 @@
 //! are `LayoutWindow` methods with no platform in them. What no host test can
 //! show is a finger on a device.
 
-use azul_core::dom::{Dom, IdOrClass};
-use azul_core::geom::{LogicalPosition, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_core::selection::Selection;
-use azul_core::styled_dom::StyledDom;
-use azul_layout::managers::text_edit::{
-    SelectionHandleEnd, SELECTION_HANDLE_RADIUS, SELECTION_HANDLE_SLOP,
+use azul_core::{
+    dom::{Dom, IdOrClass},
+    geom::{LogicalPosition, LogicalSize},
+    resources::RendererResources,
+    selection::Selection,
+    styled_dom::StyledDom,
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks,
+    managers::text_edit::{SelectionHandleEnd, SELECTION_HANDLE_RADIUS, SELECTION_HANDLE_SLOP},
+    window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
 /// One paragraph of selectable text, laid out at 14px in an 800x600 window.
 fn paragraph() -> LayoutWindow {
-    let css_src = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .p { display: block; width: 600px; }";
+    let css_src = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .p { \
+                   display: block; width: 600px; }";
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
     let p = Dom::create_div().with_ids_and_classes(class).with_child(
         Dom::create_text_do_not_use_without_block_level_wrapper(
@@ -119,7 +120,10 @@ fn a_press_on_the_end_handle_drags_that_end_and_keeps_the_start() {
     let (start_b, end_b) = primary_range(&lw).unwrap();
     let [_, end] = lw.selection_handle_geometry().unwrap();
 
-    assert!(lw.begin_selection_handle_drag(end.center), "the press is on the handle");
+    assert!(
+        lw.begin_selection_handle_drag(end.center),
+        "the press is on the handle"
+    );
     assert!(lw.selection_handle_drag_active());
     // A handle drag is NOT a click: the range survived the press.
     assert_eq!(primary_range(&lw), Some((start_b, end_b)));
@@ -152,10 +156,16 @@ fn a_press_on_the_start_handle_keeps_the_end() {
     // start == old end, end == the new start. Document order is what the
     // handles are labelled by.
     assert_eq!(s2, end_b, "the end is the anchor and stayed");
-    assert!(e2 > start_b && e2 < end_b, "the start moved inward: {start_b} -> {e2}");
+    assert!(
+        e2 > start_b && e2 < end_b,
+        "the start moved inward: {start_b} -> {e2}"
+    );
     let [start_after, end_after] = lw.selection_handle_geometry().unwrap();
     assert!(start_after.center.x > start.center.x);
-    assert!(start_after.center.x < end_after.center.x, "still labelled by document order");
+    assert!(
+        start_after.center.x < end_after.center.x,
+        "still labelled by document order"
+    );
 }
 
 #[test]
@@ -167,7 +177,10 @@ fn dragging_a_handle_onto_the_anchor_does_not_collapse_the_selection() {
     let moved = lw.process_selection_handle_drag(LogicalPosition::new(start.center.x, 8.0));
     assert!(!moved);
     assert!(primary_range(&lw).is_some(), "still a range");
-    assert!(lw.selection_handle_geometry().is_some(), "still two handles");
+    assert!(
+        lw.selection_handle_geometry().is_some(),
+        "still two handles"
+    );
 }
 
 #[test]
@@ -188,7 +201,9 @@ fn handles_off_means_nothing_to_grab() {
     // iOS and desktop: the geometry is still answerable, but nothing arms.
     let mut lw = with_range();
     lw.text_edit_manager.selection_handles = false;
-    let [_, end] = lw.selection_handle_geometry().expect("geometry is platform-free");
+    let [_, end] = lw
+        .selection_handle_geometry()
+        .expect("geometry is platform-free");
     assert!(lw.selection_handle_at(end.center).is_none());
     assert!(!lw.begin_selection_handle_drag(end.center));
 }
@@ -223,21 +238,21 @@ fn the_display_list_paints_two_handles_only_when_enabled() {
     assert_eq!(count_selection_rects(&mut lw), 0);
 }
 
-
 // ─── Cross-block selections (U2-a-i) ────────────────────────────────────
 
 /// Three paragraphs, 14px, in an 800x600 window. Node layout: body=0,
 /// div1=1, text=2, div2=3, text=4, div3=5, text=6 - the `cross_block_selection`
 /// fixture, so the two suites agree on what a block is.
 fn three_paragraphs() -> LayoutWindow {
-    let css_src = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .p { display: block; }";
+    let css_src = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .p { \
+                   display: block; }";
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
     let para = |text: &str| {
         Dom::create_div()
             .with_ids_and_classes(class.clone())
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ))
     };
     let mut dom = Dom::create_body()
         .with_child(para("first paragraph"))
@@ -333,14 +348,25 @@ fn dragging_the_end_handle_of_a_cross_block_selection_moves_the_far_end() {
     // Into the MIDDLE paragraph: the line right under P1's.
     let p2_middle = LogicalPosition::new(30.0, start.center.y - SELECTION_HANDLE_RADIUS + 8.0);
     assert!(lw.process_selection_handle_drag(p2_middle));
-    assert_eq!(spanned_blocks(&lw), vec![P1, P2], "the far end moved from P3 to P2");
+    assert_eq!(
+        spanned_blocks(&lw),
+        vec![P1, P2],
+        "the far end moved from P3 to P2"
+    );
     let sel = lw.text_edit_manager.cross_block.as_ref().unwrap();
-    assert_eq!(sel.anchor.ifc_root_node_id.index(), P1, "the start is the anchor and stayed");
+    assert_eq!(
+        sel.anchor.ifc_root_node_id.index(),
+        P1,
+        "the start is the anchor and stayed"
+    );
     assert_eq!(sel.anchor.cursor.cluster_id.start_byte_in_run, 6);
     assert!(sel.is_forward);
     // The handles followed.
     let [_, end_after] = lw.selection_handle_geometry().unwrap();
-    assert!(end_after.center.y < end.center.y, "the end handle rose to P2's line");
+    assert!(
+        end_after.center.y < end.center.y,
+        "the end handle rose to P2's line"
+    );
     assert!(lw.end_selection_handle_drag());
 }
 
@@ -354,22 +380,45 @@ fn dragging_the_start_handle_of_a_cross_block_selection_re_anchors_at_the_end() 
     let [start, end] = lw.selection_handle_geometry().unwrap();
     assert!(lw.begin_selection_handle_drag(start.center));
     assert_eq!(
-        lw.text_edit_manager.get_editing_node_id().map(|n| n.index()),
+        lw.text_edit_manager
+            .get_editing_node_id()
+            .map(|n| n.index()),
         Some(P3),
         "the session re-anchored at the end's block"
     );
-    assert_eq!(spanned_blocks(&lw), vec![P1, P2, P3], "still painted until the first move");
+    assert_eq!(
+        spanned_blocks(&lw),
+        vec![P1, P2, P3],
+        "still painted until the first move"
+    );
 
     let p2_middle = LogicalPosition::new(30.0, end.center.y - SELECTION_HANDLE_RADIUS - 8.0 - 17.0);
     assert!(lw.process_selection_handle_drag(p2_middle));
-    assert_eq!(spanned_blocks(&lw), vec![P2, P3], "the near end moved from P1 to P2");
+    assert_eq!(
+        spanned_blocks(&lw),
+        vec![P2, P3],
+        "the near end moved from P1 to P2"
+    );
     let sel = lw.text_edit_manager.cross_block.as_ref().unwrap();
-    assert_eq!(sel.anchor.ifc_root_node_id.index(), P3, "the end is the anchor now");
-    assert_eq!(sel.anchor.cursor.cluster_id.start_byte_in_run, 5, "and kept its place");
+    assert_eq!(
+        sel.anchor.ifc_root_node_id.index(),
+        P3,
+        "the end is the anchor now"
+    );
+    assert_eq!(
+        sel.anchor.cursor.cluster_id.start_byte_in_run, 5,
+        "and kept its place"
+    );
     assert!(!sel.is_forward, "anchor after focus in document order");
     let [start_after, end_after] = lw.selection_handle_geometry().unwrap();
-    assert!(start_after.center.y > start.center.y, "the start handle dropped to P2's line");
-    assert!((end_after.center.y - end.center.y).abs() < 0.5, "the end handle did not move");
+    assert!(
+        start_after.center.y > start.center.y,
+        "the start handle dropped to P2's line"
+    );
+    assert!(
+        (end_after.center.y - end.center.y).abs() < 0.5,
+        "the end handle did not move"
+    );
 }
 
 #[test]
@@ -380,9 +429,15 @@ fn a_cross_block_handle_dragged_back_into_the_anchor_block_becomes_a_single_bloc
     // Back into P1, right of the start.
     let p1_line = LogicalPosition::new(start.center.x + 30.0, 6.0);
     assert!(lw.process_selection_handle_drag(p1_line));
-    assert!(lw.text_edit_manager.cross_block.is_none(), "collapsed to one block");
+    assert!(
+        lw.text_edit_manager.cross_block.is_none(),
+        "collapsed to one block"
+    );
     let (s, e) = primary_range(&lw).expect("a single-block range");
     assert_eq!(s, 6, "anchor kept");
     assert!(e > 6);
-    assert!(lw.selection_handle_geometry().is_some(), "and it still has handles");
+    assert!(
+        lw.selection_handle_geometry().is_some(),
+        "and it still has handles"
+    );
 }

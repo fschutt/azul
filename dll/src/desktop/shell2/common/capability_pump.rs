@@ -11,19 +11,15 @@
 //! The pump fixes both halves WITHOUT a thread (user constraint: single
 //! threaded so the identical code path works on WASM):
 //!
-//! - [`pump`] runs at the **top of every `process_window_events` pass**,
-//!   before event determination — drained state raises the managers'
-//!   pending-event flags, and the very same pass turns them into
-//!   `GamepadInput` / `SensorChanged` / `GeolocationFix` events. No +1-pass
-//!   latency.
-//! - While a capability source needs attention with no other input arriving
-//!   (a gamepad listener exists, a `GeolocationProbe` is mounted, …), a
-//!   recurring shell timer (`CAPABILITY_PUMP_TIMER_ID`) is kept armed by
-//!   `PlatformWindow::sync_capability_pump_timer`. Its tick wakes the
-//!   blocked platform loop through the ordinary timer machinery (timerfd /
-//!   SetTimer / NSTimer / headless tick) and `invoke_expired_timers` then
-//!   fires an event pass. No listeners → no timer → a fully idle app burns
-//!   zero CPU.
+//! - [`pump`] runs at the **top of every `process_window_events` pass**, before event determination
+//!   — drained state raises the managers' pending-event flags, and the very same pass turns them
+//!   into `GamepadInput` / `SensorChanged` / `GeolocationFix` events. No +1-pass latency.
+//! - While a capability source needs attention with no other input arriving (a gamepad listener
+//!   exists, a `GeolocationProbe` is mounted, …), a recurring shell timer
+//!   (`CAPABILITY_PUMP_TIMER_ID`) is kept armed by `PlatformWindow::sync_capability_pump_timer`.
+//!   Its tick wakes the blocked platform loop through the ordinary timer machinery (timerfd /
+//!   SetTimer / NSTimer / headless tick) and `invoke_expired_timers` then fires an event pass. No
+//!   listeners → no timer → a fully idle app burns zero CPU.
 //!
 //! `regenerate_layout` keeps only the genuinely layout-coupled halves: the
 //! DOM walks that diff probe nodes / listener registrations into the
@@ -232,10 +228,14 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
 /// `invoke_expired_timers` triggers whenever this timer expires.
 #[must_use]
 pub fn make_pump_timer(interval_ms: u64) -> azul_layout::timer::Timer {
-    use azul_core::refany::RefAny;
-    use azul_core::task::{Duration as AzulDuration, SystemTimeDiff};
-    use azul_layout::callbacks::ExternalSystemCallbacks;
-    use azul_layout::timer::{Timer, TimerCallbackType};
+    use azul_core::{
+        refany::RefAny,
+        task::{Duration as AzulDuration, SystemTimeDiff},
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        timer::{Timer, TimerCallbackType},
+    };
 
     let external = ExternalSystemCallbacks::rust_internal();
     Timer::create(
@@ -267,10 +267,14 @@ pub fn timer_interval_ms(timer: &azul_layout::timer::Timer) -> Option<u64> {
 /// then self-terminates via its callback.
 #[must_use]
 pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
-    use azul_core::refany::RefAny;
-    use azul_core::task::{Duration as AzulDuration, SystemTimeDiff};
-    use azul_layout::callbacks::ExternalSystemCallbacks;
-    use azul_layout::timer::{Timer, TimerCallbackType};
+    use azul_core::{
+        refany::RefAny,
+        task::{Duration as AzulDuration, SystemTimeDiff},
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        timer::{Timer, TimerCallbackType},
+    };
 
     let external = ExternalSystemCallbacks::rust_internal();
     Timer::create(

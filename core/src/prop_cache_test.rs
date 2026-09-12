@@ -91,6 +91,7 @@ mod autotest_generated {
             state,
             prop_type: property.get_type(),
             property,
+            ua_origin: false,
         }
     }
 
@@ -1519,6 +1520,147 @@ mod autotest_generated {
         );
     }
 
+    /// The same twin on a DOM CREATED under the dark context — the app's
+    /// path (`style_user_dom_for` → `create_with_context`), not one that
+    /// had the context set after the fact. The restyle's inheritance walk
+    /// materializes the parent's inline declarations into the children's
+    /// cascaded props; it used to admit only pseudo-state conditions, so the
+    /// light value went down as the child's OWN declaration and beat the
+    /// inherited twin. The other path only came out right because the prune
+    /// had emptied the cascaded props before the recascade.
+    #[test]
+    fn a_dom_created_under_the_dark_context_inherits_the_twin() {
+        use azul_css::{
+            dynamic_selector::{
+                CssPropertyWithConditions, CssPropertyWithConditionsVec, ThemeCondition,
+            },
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let light = ColorU::rgb(33, 37, 41);
+        let dark = ColorU::rgb(232, 232, 232);
+        let build = |ctx: Option<DynamicSelectorContext>| {
+            let mut dom = Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        CssPropertyWithConditions::simple(CssProperty::const_text_color(
+                            StyleTextColor { inner: light },
+                        )),
+                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                            StyleTextColor { inner: dark },
+                        )),
+                    ]))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("label"),
+                    )),
+            );
+            StyledDom::create_with_context(&mut dom, azul_css::css::Css::empty(), ctx)
+        };
+        // body(0) > div(1) > p(2) > text(3)
+        let colour_of = |sd: &StyledDom, i: usize| {
+            let node_data = sd.node_data.as_container();
+            let n = NodeId::new(i);
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("node"), &n, &normal())
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
+        let sd = build(Some(ctx));
+        assert_eq!(colour_of(&sd, 1), Some(dark), "the container's own twin");
+        assert_eq!(
+            colour_of(&sd, 2),
+            Some(dark),
+            "the p inherits the twin, not the light value the restyle walk used to hand it"
+        );
+        assert_eq!(colour_of(&sd, 3), Some(dark), "…and so does the text");
+
+        let light_ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
+        let sd = build(Some(light_ctx));
+        assert_eq!(
+            colour_of(&sd, 3),
+            Some(light),
+            "under a light window the twin stays out"
+        );
+    }
+
+    /// A container's conditional declaration is inherited by its children
+    /// when the condition holds — `dark_theme(color: ..)` on a button reaches
+    /// the label's text under a dark window, and stays out of the way under a
+    /// light one.
+    #[test]
+    fn conditional_inline_declarations_take_part_in_inheritance() {
+        use azul_css::{
+            dynamic_selector::{
+                CssPropertyWithConditions, CssPropertyWithConditionsVec, ThemeCondition,
+            },
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let light = ColorU::rgb(33, 37, 41);
+        let dark = ColorU::rgb(232, 232, 232);
+        let build = || {
+            let mut dom = Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        CssPropertyWithConditions::simple(CssProperty::const_text_color(
+                            StyleTextColor { inner: light },
+                        )),
+                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                            StyleTextColor { inner: dark },
+                        )),
+                    ]))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("label"),
+                    )),
+            );
+            StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        };
+        // body(0) > div(1) > p(2) > text(3)
+        let text_colour = |sd: &StyledDom| {
+            let node_data = sd.node_data.as_container();
+            let n = NodeId::new(3);
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("text node"), &n, &normal())
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+
+        let mut sd = build();
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
+        sd.set_dynamic_selector_context(ctx);
+        assert_eq!(
+            text_colour(&sd),
+            Some(light),
+            "light window: the unconditional value"
+        );
+
+        let mut sd = build();
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
+        sd.set_dynamic_selector_context(ctx);
+        assert_eq!(
+            text_colour(&sd),
+            Some(dark),
+            "dark window: the twin, inherited"
+        );
+    }
+
     #[test]
     fn check_properties_changed_only_fires_when_a_condition_flips() {
         let plain = DynamicSelectorContext::default();
@@ -1640,14 +1782,16 @@ mod autotest_generated {
         let mut c = CssPropertyCache::empty(1);
         c.apply_ua_css(&nodes);
 
-        let props = c.cascaded_props.build_get(0).expect("build phase");
+        // The pass leaves the store sorted + flattened (read phase).
+        assert!(c.cascaded_props.is_flattened());
+        let props = c.cascaded_props.get_slice(0);
         assert!(
-            props
-                .iter()
-                .any(|p| p.prop_type == CssPropertyType::Display
-                    && p.state == PseudoStateType::Normal),
-            "UA `div {{ display: block }}` must land in the cascade"
+            props.iter().any(|p| p.prop_type == CssPropertyType::Display
+                && p.state == PseudoStateType::Normal
+                && p.ua_origin),
+            "UA `div {{ display: block }}` must land in the cascade, tagged as UA-origin"
         );
+        assert!(c.ua_applied);
     }
 
     #[test]
@@ -1658,7 +1802,7 @@ mod autotest_generated {
         let mut c = CssPropertyCache::empty(1);
         c.apply_ua_css(&nodes);
 
-        let props = c.cascaded_props.build_get(0).expect("build phase");
+        let props = c.cascaded_props.get_slice(0);
         assert!(
             !props
                 .iter()
@@ -1806,7 +1950,10 @@ mod autotest_generated {
         assert!(close(font_size_parts(&v.property).unwrap().1, 20.0));
 
         // the parent's own value keeps the Own origin
-        assert_eq!(c.computed_values.values_for(0)[0].1.origin, CssPropertyOrigin::Own);
+        assert_eq!(
+            c.computed_values.values_for(0)[0].1.origin,
+            CssPropertyOrigin::Own
+        );
     }
 
     #[test]

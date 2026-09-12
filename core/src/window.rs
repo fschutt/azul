@@ -8,8 +8,8 @@
 //! - **Monitor/display info**: [`Monitor`], [`MonitorId`], [`VideoMode`]
 //! - **Virtual key codes**: [`VirtualKeyCode`], [`ScanCode`]
 //! - **Window icons**: [`WindowIcon`], [`TaskBarIcon`]
-//! - **Platform options**: [`WindowsWindowOptions`], [`LinuxWindowOptions`],
-//!   [`MacWindowOptions`], [`WasmWindowOptions`]
+//! - **Platform options**: [`WindowsWindowOptions`], [`LinuxWindowOptions`], [`MacWindowOptions`],
+//!   [`WasmWindowOptions`]
 //!
 //! These types are consumed by the platform shell backends in
 //! `dll/src/desktop/shell2/{windows,macos,linux}/` and by
@@ -364,36 +364,144 @@ pub enum PhysicalKey {
     // a first-person game binding "forward" wants the position, not the
     // letter, which is the whole reason this enum exists alongside
     // `VirtualKeyCode`.
-    KeyA, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ, KeyK, KeyL, KeyM,
-    KeyN, KeyO, KeyP, KeyQ, KeyR, KeyS, KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ,
+    KeyA,
+    KeyB,
+    KeyC,
+    KeyD,
+    KeyE,
+    KeyF,
+    KeyG,
+    KeyH,
+    KeyI,
+    KeyJ,
+    KeyK,
+    KeyL,
+    KeyM,
+    KeyN,
+    KeyO,
+    KeyP,
+    KeyQ,
+    KeyR,
+    KeyS,
+    KeyT,
+    KeyU,
+    KeyV,
+    KeyW,
+    KeyX,
+    KeyY,
+    KeyZ,
     // Number row.
-    Digit0, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
     // Punctuation, by position on the US ANSI board.
-    Backquote, Minus, Equal, BracketLeft, BracketRight, Backslash,
-    Semicolon, Quote, Comma, Period, Slash,
+    Backquote,
+    Minus,
+    Equal,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Quote,
+    Comma,
+    Period,
+    Slash,
     // Whitespace and editing.
-    Enter, Tab, Space, Backspace, Escape, CapsLock,
+    Enter,
+    Tab,
+    Space,
+    Backspace,
+    Escape,
+    CapsLock,
     // Modifiers, LEFT and RIGHT distinguished — which `VirtualKeyCode` can do
     // but `KeyModifiers` deliberately cannot, since a shortcut cares that
     // Shift is down and a game may care which one.
-    ShiftLeft, ShiftRight, ControlLeft, ControlRight,
-    AltLeft, AltRight, MetaLeft, MetaRight, ContextMenu,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    ControlRight,
+    AltLeft,
+    AltRight,
+    MetaLeft,
+    MetaRight,
+    ContextMenu,
     // Navigation.
-    Insert, Delete, Home, End, PageUp, PageDown,
-    ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
     // Function row.
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
     // System.
-    PrintScreen, ScrollLock, Pause,
+    PrintScreen,
+    ScrollLock,
+    Pause,
     // Numpad — always positional, and distinct from the number row even when
     // both produce the same character.
-    NumLock, NumpadDivide, NumpadMultiply, NumpadSubtract, NumpadAdd,
-    NumpadEnter, NumpadDecimal, NumpadComma, NumpadEqual,
-    Numpad0, Numpad1, Numpad2, Numpad3, Numpad4,
-    Numpad5, Numpad6, Numpad7, Numpad8, Numpad9,
+    NumLock,
+    NumpadDivide,
+    NumpadMultiply,
+    NumpadSubtract,
+    NumpadAdd,
+    NumpadEnter,
+    NumpadDecimal,
+    NumpadComma,
+    NumpadEqual,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
     // ISO/JIS keys that ANSI boards do not have.
-    IntlBackslash, IntlRo, IntlYen, Lang1, Lang2, Convert, NonConvert, KanaMode,
+    IntlBackslash,
+    IntlRo,
+    IntlYen,
+    Lang1,
+    Lang2,
+    Convert,
+    NonConvert,
+    KanaMode,
 }
 
 /// Determines which keys are pressed currently (modifiers, etc.)
@@ -628,7 +736,6 @@ pub struct MouseState {
     /// testing bits by hand.
     pub other_down: u8,
 }
-
 
 impl MouseState {
     /// Whether the thumb "back" button is held.
@@ -1380,7 +1487,8 @@ pub enum WindowPosition {
     RelativeToParentWindow(PhysicalPositionI32),
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 /// IME composition window rectangle (cursor position + height)
@@ -1431,8 +1539,8 @@ pub struct WindowFlags {
     /// macOS, _`NET_WM_STATE_ABOVE` on X11, `zwlr_layer_shell` on Wayland
     pub is_top_level: bool,
     /// Prevent system from sleeping while window is open
-    /// Platform-specific: Uses `SetThreadExecutionState` on Windows, `IOPMAssertionCreateWithName` on
-    /// macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
+    /// Platform-specific: Uses `SetThreadExecutionState` on Windows, `IOPMAssertionCreateWithName`
+    /// on macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
     pub prevent_system_sleep: bool,
     /// Desired fullscreen-transition style.
     ///
@@ -1657,7 +1765,8 @@ pub struct PlatformSpecificOptions {
 // SAFETY: PlatformSpecificOptions contains raw pointers (X11Visual) that are
 // opaque platform handles, not dereferenced across threads.
 unsafe impl Sync for PlatformSpecificOptions {}
-#[allow(clippy::non_send_fields_in_send_ty)] // opaque platform handles, not dereferenced across threads (see note above)
+#[allow(clippy::non_send_fields_in_send_ty)] // opaque platform handles, not dereferenced across
+                                             // threads (see note above)
 unsafe impl Send for PlatformSpecificOptions {}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]

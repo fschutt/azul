@@ -4,10 +4,9 @@
 //! The generated `azul.js` is **CommonJS by default** and supports three
 //! JavaScript runtimes via a small detection prelude:
 //!
-//! 1. **Node.js (>= 16)** via [`koffi`](https://koffi.dev/) — a pure-JS
-//!    libffi-based loader. This is the *primary* path: koffi works on
-//!    every Node.js LTS, ships prebuilt binaries for every common
-//!    platform, and accepts plain C-decl strings for type registration.
+//! 1. **Node.js (>= 16)** via [`koffi`](https://koffi.dev/) — a pure-JS libffi-based loader. This
+//!    is the *primary* path: koffi works on every Node.js LTS, ships prebuilt binaries for every
+//!    common platform, and accepts plain C-decl strings for type registration.
 //! 2. **Bun** via the built-in `bun:ffi` module.
 //! 3. **Deno** via `Deno.dlopen`.
 //!
@@ -19,15 +18,13 @@
 //!
 //! Why a single file (rather than three siblings):
 //!
-//! - The **wrapper layer** — ES6 classes with `FinalizationRegistry` for
-//!   automatic disposal — is identical across all three runtimes. A
-//!   sibling-file split would duplicate it three times.
-//! - The runtime-specific code is small and constrained to the
-//!   `loadLib()` adapter at the top of the file. Once the lib handle is
-//!   normalised into a uniform `dispatch(name, args)` shape, the
+//! - The **wrapper layer** — ES6 classes with `FinalizationRegistry` for automatic disposal — is
+//!   identical across all three runtimes. A sibling-file split would duplicate it three times.
+//! - The runtime-specific code is small and constrained to the `loadLib()` adapter at the top of
+//!   the file. Once the lib handle is normalised into a uniform `dispatch(name, args)` shape, the
 //!   wrappers do not care which engine is hosting them.
-//! - Single-file consumers can drop the binding into a project without
-//!   any build-tool reconfiguration.
+//! - Single-file consumers can drop the binding into a project without any build-tool
+//!   reconfiguration.
 //!
 //! ## Layout of the emitted `azul.js`
 //!
@@ -51,9 +48,8 @@
 //! - `TypeCategory::Boxed`            (internal heap wrappers)
 //! - `TypeCategory::GenericTemplate`  (parameterised shells)
 //! - `TypeCategory::DestructorOrClone`(internal callback typedefs)
-//! - `TypeCategory::CallbackTypedef`  (function-pointer typedefs;
-//!   user-facing CallbackDataPair wrappers ARE emitted, and consumers
-//!   wrap their JS callbacks via `koffi.proto(...)`)
+//! - `TypeCategory::CallbackTypedef`  (function-pointer typedefs; user-facing CallbackDataPair
+//!   wrappers ARE emitted, and consumers wrap their JS callbacks via `koffi.proto(...)`)
 //!
 //! Emitted with full wrapper treatment:
 //!
@@ -83,9 +79,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// File-marker header for multi-file output. Orchestrator splits on
 /// lines beginning with this prefix. The marker is a syntactically
@@ -475,7 +469,10 @@ fn emit_value_helpers(b: &mut CodeBuilder) {
     b.line("if (tag === 0) return res.Ok.payload;");
     b.line("var name = label || 'Result';");
     b.line("var errPayload = res.Err && res.Err.payload;");
-    b.line("throw new Error(name + ' unwrap on Err: ' + (errPayload && errPayload.toString ? errPayload.toString() : JSON.stringify(errPayload)));");
+    b.line(
+        "throw new Error(name + ' unwrap on Err: ' + (errPayload && errPayload.toString ? \
+         errPayload.toString() : JSON.stringify(errPayload)));",
+    );
     b.dedent();
     b.line("}");
     b.blank();
@@ -526,7 +523,10 @@ fn emit_runtime_detection(b: &mut CodeBuilder) {
     b.blank();
     b.line("const isDeno = typeof globalThis.Deno !== 'undefined';");
     b.line("const isBun  = typeof globalThis.Bun  !== 'undefined';");
-    b.line("const isNode = !isDeno && !isBun && typeof process !== 'undefined' && !!process.versions && !!process.versions.node;");
+    b.line(
+        "const isNode = !isDeno && !isBun && typeof process !== 'undefined' && !!process.versions \
+         && !!process.versions.node;",
+    );
     b.blank();
     b.line("if (!isNode && !isBun && !isDeno) {");
     b.indent();
@@ -565,13 +565,13 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     // / `LD_LIBRARY_PATH` / `PATH` say. So we derive the platform filename
     // ourselves and probe the well-known locations, in order:
     //
-    //   1. `AZ_LIB`      — explicit path to the shared-library *file*
-    //                       (the AZ_E2E harness hook); used verbatim.
+    //   1. `AZ_LIB`      — explicit path to the shared-library *file* (the AZ_E2E harness hook);
+    //      used verbatim.
     //   2. next to azul.js (npm-style: drop the dylib beside the binding).
     //   3. `AZ_LIB_DIR`  — *directory* containing the shared library.
     //   4. the current working directory (the documented download-and-run flow).
-    //   5. the bare platform filename, so the system loader search path
-    //      (`LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` / rpath) still applies.
+    //   5. the bare platform filename, so the system loader search path (`LD_LIBRARY_PATH` /
+    //      `DYLD_LIBRARY_PATH` / `PATH` / rpath) still applies.
     b.line("// Derive the platform shared-library filename: azul -> azul.dll /");
     b.line("// libazul.so / libazul.dylib. dlopen does NOT do this mangling itself.");
     b.line("function _platformLibName(base) {");
@@ -579,8 +579,14 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("const os = (typeof process !== 'undefined' && process.platform)");
     b.indent();
     b.line("? process.platform");
-    b.line(": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'windows') ? 'win32'");
-    b.line(": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'darwin') ? 'darwin'");
+    b.line(
+        ": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'windows') ? \
+         'win32'",
+    );
+    b.line(
+        ": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'darwin') ? \
+         'darwin'",
+    );
     b.line(": 'linux';");
     b.dedent();
     b.line("if (os === 'win32') return base + '.dll';");

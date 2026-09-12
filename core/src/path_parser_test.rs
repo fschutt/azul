@@ -1,13 +1,14 @@
 #[allow(unused_imports)]
 pub use super::*;
 #[cfg(test)]
-#[allow(clippy::float_cmp)] // exact float equality is the point: the parser propagates values bit-for-bit
+#[allow(clippy::float_cmp)] // exact float equality is the point: the parser propagates values
+                            // bit-for-bit
 mod autotest_generated {
     use alloc::format;
 
+    use proptest::{prelude::*, proptest};
+
     use super::*;
-    use proptest::prelude::*;
-    use proptest::proptest;
 
     // ---------------------------------------------------------------- helpers
 
@@ -965,9 +966,8 @@ mod autotest_generated {
     /// element's start -- for every command type, including arcs and closepath.
     #[test]
     fn parse_path_rings_are_contiguous_chains() {
-        let d = "M0 0 L10 0 H20 V10 C25 15 30 20 35 20 S45 25 50 20 \
-                 Q55 15 60 20 T70 20 A5 5 0 1 1 80 30 Z \
-                 m100 100 l10 0 z";
+        let d = "M0 0 L10 0 H20 V10 C25 15 30 20 35 20 S45 25 50 20 Q55 15 60 20 T70 20 A5 5 0 1 \
+                 1 80 30 Z m100 100 l10 0 z";
         let mp = parse_svg_path_d(d).unwrap();
         assert!(mp.rings.as_ref().len() >= 2);
         for (i, ring) in mp.rings.as_ref().iter().enumerate() {

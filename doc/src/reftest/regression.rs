@@ -284,7 +284,8 @@ fn resolve_refs(config: &RegressionConfig) -> anyhow::Result<Vec<CommitInfo>> {
 
 /// Parse a git log line into CommitInfo
 fn parse_commit_line(line: &str) -> Option<CommitInfo> {
-    // Try new format with null separator first (6 parts: hash, short_hash, subject, body, date, author)
+    // Try new format with null separator first (6 parts: hash, short_hash, subject, body, date,
+    // author)
     let parts: Vec<&str> = line.splitn(6, '\0').collect();
     if parts.len() == 6 {
         return Some(CommitInfo {
@@ -780,7 +781,8 @@ fn generate_html_report(
                 let percentage = (*diff_chrome as f64 / (1920.0 * 1080.0)) * 100.0;
 
                 html.push_str(&format!(
-                    "            <tr><td><span class=\"commit-hash\">{}</span></td><td>{}</td><td class=\"{}\">{}px ({:.2}%)</td></tr>\n",
+                    "            <tr><td><span class=\"commit-hash\">{}</span></td><td>{}</td><td \
+                     class=\"{}\">{}px ({:.2}%)</td></tr>\n",
                     hash,
                     msg.chars().take(50).collect::<String>(),
                     diff_class,
@@ -864,7 +866,8 @@ fn generate_html_report(
 
         if let CommitStatus::BuildFailed(err) = status {
             html.push_str(&format!(
-                "        <details><summary>View Error</summary><div class=\"build-error\">{}</div></details>\n",
+                "        <details><summary>View Error</summary><div \
+                 class=\"build-error\">{}</div></details>\n",
                 err.replace('<', "&lt;").replace('>', "&gt;")
             ));
         }
@@ -928,7 +931,7 @@ fn calculate_worst_regressions(
             let total_delta: i64 = detailed
                 .iter()
                 .filter(|c| c.status == "REGRESSED" || c.status == "BROKE")
-                .map(|c| (c.curr_diff - c.prev_diff) as i64)
+                .map(|c| (c.curr_diff - c.prev_diff))
                 .sum();
 
             if total_delta > 0 {
@@ -1668,7 +1671,8 @@ pub fn run_statistics_send(
     Ok(())
 }
 
-/// Generate the full prompt as a String (used by both run_statistics_prompt and run_statistics_send)
+/// Generate the full prompt as a String (used by both run_statistics_prompt and
+/// run_statistics_send)
 fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
     let regression_dir = config.output_dir.join("regression");
     let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
@@ -1751,7 +1755,7 @@ fn generate_diff_report_string(
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
 
-    output.push_str(&format!("# Azul Layout Regression Analysis\n"));
+    output.push_str(&"# Azul Layout Regression Analysis\n".to_string());
     output.push_str(&format!(
         "# Generated: {}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
@@ -1781,7 +1785,7 @@ fn generate_diff_report_string(
             ));
             output.push_str(&format!("   Message: {}\n", message));
         }
-        output.push_str("\n");
+        output.push('\n');
     }
 
     output.push_str("## PART 1: Summary of Changes (sorted by date, oldest first)\n\n");
@@ -1840,7 +1844,7 @@ fn generate_diff_report_string(
                 for diff in &diffs {
                     output.push_str(&format!("{}\n", diff));
                 }
-                output.push_str("\n");
+                output.push('\n');
 
                 if !detailed.is_empty() {
                     all_detailed.push((prev_c.clone(), (*commit).clone(), detailed));
@@ -1877,7 +1881,10 @@ fn generate_diff_report_string(
                 "REGRESSION: {} -> {}\n",
                 prev_c.short_hash, curr_c.short_hash
             ));
-            output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+            output.push_str(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\
+                 n\n",
+            );
             output.push_str(&format!(
                 "BEFORE ({}, {}):\n",
                 prev_c.short_hash,

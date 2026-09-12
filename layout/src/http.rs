@@ -2,9 +2,7 @@
 //!
 //! Uses ureq for simple, blocking HTTP requests. Designed to be exposed via C API.
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
 use azul_css::{
@@ -637,7 +635,12 @@ pub struct HttpGetResult {
     pub result: ResultHttpResponseHttpError,
 }
 
-impl_option!(HttpGetResult, OptionHttpGetResult, copy = false, [Debug, Clone]);
+impl_option!(
+    HttpGetResult,
+    OptionHttpGetResult,
+    copy = false,
+    [Debug, Clone]
+);
 
 impl HttpGetResult {
     /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
@@ -711,7 +714,8 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
 #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
-/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is
+/// disabled).
 pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -984,7 +988,8 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
 #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
-/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is
+/// disabled).
 pub fn http_get_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<HttpResponse> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -1045,7 +1050,8 @@ pub fn download_bytes(url: &str) -> HttpResult<U8Vec> {
 #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
-/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is
+/// disabled).
 pub fn download_bytes(_url: &str) -> HttpResult<U8Vec> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -1077,7 +1083,8 @@ pub fn download_bytes_with_config(url: &str, config: &HttpRequestConfig) -> Http
 #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
 /// # Errors
 ///
-/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is disabled).
+/// Returns an `HttpError` if the request fails (network/status error, or the networking feature is
+/// disabled).
 pub fn download_bytes_with_config(_url: &str, _config: &HttpRequestConfig) -> HttpResult<U8Vec> {
     Err(HttpError::other("http feature not enabled".into()))
 }
@@ -1735,7 +1742,9 @@ mod autotest_generated {
             .with_max_size(0);
         for url in ["", "https://example.com", NASTY] {
             let u = AzString::from(url);
-            assert!(HttpRequestConfig::new().http_get_blocking(u.clone()).is_err());
+            assert!(HttpRequestConfig::new()
+                .http_get_blocking(u.clone())
+                .is_err());
             assert!(cfg.http_get_blocking(u.clone()).is_err());
             assert!(HttpRequestConfig::new()
                 .download_bytes_blocking(u.clone())
@@ -1782,7 +1791,9 @@ mod autotest_generated {
         let cfg = HttpRequestConfig::new().with_timeout(1);
         for url in ["", "not a url"] {
             let u = AzString::from(url);
-            assert!(HttpRequestConfig::new().http_get_blocking(u.clone()).is_err());
+            assert!(HttpRequestConfig::new()
+                .http_get_blocking(u.clone())
+                .is_err());
             assert!(cfg.http_get_blocking(u.clone()).is_err());
             assert!(HttpRequestConfig::new()
                 .download_bytes_blocking(u.clone())

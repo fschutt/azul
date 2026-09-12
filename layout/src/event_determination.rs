@@ -4,6 +4,8 @@
 //! events occurred in a frame. It combines window state changes
 //! with events from all managers (scroll, text input, etc.).
 
+use std::collections::BTreeSet;
+
 use azul_core::{
     dom::{DomId, DomNodeId},
     events::{
@@ -17,8 +19,6 @@ use azul_core::{
     task::{Instant, SystemTick},
     window::{CursorPosition, VirtualKeyCode, WindowPosition},
 };
-
-use std::collections::BTreeSet;
 
 use crate::window_state::FullWindowState;
 
@@ -244,7 +244,8 @@ fn get_all_hovered_nodes(
 /// - Mouse movement (`MouseOver`)
 /// - Keyboard events (VirtualKeyDown/Up)
 /// - Window state changes (resize, move, theme, focus)
-/// - Gesture events (`DragStart`, Drag, `DragEnd`, `DoubleClick`, `LongPress`, Swipe, Pinch, Rotate, Pen)
+/// - Gesture events (`DragStart`, Drag, `DragEnd`, `DoubleClick`, `LongPress`, Swipe, Pinch,
+///   Rotate, Pen)
 /// - File drop events (`HoveredFile`, `DroppedFile`)
 ///
 /// ## Arguments
@@ -344,7 +345,11 @@ fn pointer_seat_events(
     for (curr_down, prev_down, button) in [
         (current.left_down, previous.left_down, MouseButton::Left),
         (current.right_down, previous.right_down, MouseButton::Right),
-        (current.middle_down, previous.middle_down, MouseButton::Middle),
+        (
+            current.middle_down,
+            previous.middle_down,
+            MouseButton::Middle,
+        ),
         // The thumb pair. `MouseButton::Other(n)` and the shell routing for it
         // have both existed; what was missing was any state to diff, so a
         // press could never become an event.
@@ -464,8 +469,8 @@ fn pointer_seat_events(
                 .press_target_for(seat_id, MouseButton::Left)
                 .unwrap_or(target);
             let release_edge = !current.left_down && previous.left_down;
-            let moved = current.cursor_position.get_position()
-                != previous.cursor_position.get_position();
+            let moved =
+                current.cursor_position.get_position() != previous.cursor_position.get_position();
             if manager.seat_drag_started_now(seat_id) {
                 events.push(SyntheticEvent::new(
                     EventType::DragStart,
@@ -784,8 +789,9 @@ pub fn determine_all_events(
     // per-finger state off `GestureAndDragManager`, which does track sessions
     // individually.
     {
-        use crate::managers::hover::InputPointId;
         use azul_core::events::TouchEventData;
+
+        use crate::managers::hover::InputPointId;
 
         let previous_points = previous_state.touch_state.touch_points.as_ref();
         let current_points = current_state.touch_state.touch_points.as_ref();
@@ -795,9 +801,9 @@ pub fn determine_all_events(
             // two contacts, and the hover key is namespaced the same way.
             let target_of = |p: &azul_core::window::TouchPoint| {
                 hover_manager
-                    .hover_node_full_for(&InputPointId::Touch(
-                        azul_core::window::touch_point_key(p.seat_id, p.id),
-                    ))
+                    .hover_node_full_for(&InputPointId::Touch(azul_core::window::touch_point_key(
+                        p.seat_id, p.id,
+                    )))
                     .unwrap_or(mouse_target)
             };
             let same = |a: &azul_core::window::TouchPoint, b: &azul_core::window::TouchPoint| {
@@ -1085,9 +1091,7 @@ pub fn determine_all_events(
         let mut seen: Vec<u64> = Vec::new();
         for seat in current_state.keyboard_seats.as_ref() {
             seen.push(seat.seat_id);
-            let previous = previous_state
-                .keyboard_seat(seat.seat_id)
-                .unwrap_or(&empty);
+            let previous = previous_state.keyboard_seat(seat.seat_id).unwrap_or(&empty);
             keyboard_seat_events(
                 seat.seat_id,
                 &seat.state,
@@ -1699,8 +1703,9 @@ pub fn determine_all_events(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec};
+
+    use super::*;
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))
@@ -1812,7 +1817,11 @@ mod tests {
             })
             .collect();
         starts.sort_unstable();
-        assert_eq!(starts, vec![(0, 0), (seat, 0)], "two seats, two contacts, same raw id");
+        assert_eq!(
+            starts,
+            vec![(0, 0), (seat, 0)],
+            "two seats, two contacts, same raw id"
+        );
 
         // Seat 0 lifts; the other seat's finger 0 is untouched.
         let only_seat = state_with_seat_touch(&[(seat, 0, 30.0, 40.0)]);
@@ -3099,7 +3108,11 @@ mod autotest_generated {
         let events = run(&current, &previous, &hm, None, None);
 
         let down = only(&events, EventType::MouseDown);
-        assert_eq!(down.target, node(0, 9), "under the SECOND cursor, not node 3");
+        assert_eq!(
+            down.target,
+            node(0, 9),
+            "under the SECOND cursor, not node 3"
+        );
         assert_eq!(seat_of(&down), 7);
         match &down.data {
             EventData::Mouse(m) => assert_eq!(m.position, LogicalPosition::new(50.0, 50.0)),
@@ -3263,7 +3276,9 @@ mod autotest_generated {
         let events = run(&cursor_at(20.0, 20.0), &previous, &hm, None, None);
         assert_eq!(count(&events, EventType::Click), 1);
         assert_eq!(count(&events, EventType::MouseUp), 1);
-        assert!(events.iter().all(|e| !matches!(&e.data, EventData::Mouse(m) if m.seat_id != 0)));
+        assert!(events
+            .iter()
+            .all(|e| !matches!(&e.data, EventData::Mouse(m) if m.seat_id != 0)));
     }
 
     // ==================================================================
@@ -3508,7 +3523,10 @@ mod autotest_generated {
             "lost"
         );
         assert_eq!(
-            count(&run_plain(&locked, &locked.clone()), EventType::PointerLockChange),
+            count(
+                &run_plain(&locked, &locked.clone()),
+                EventType::PointerLockChange
+            ),
             0,
             "steady"
         );
@@ -3642,8 +3660,18 @@ mod autotest_generated {
         let mut fd = FileDropManager::new();
         fd.set_dropped_file(Some(AzString::from(String::from("/tmp/x"))));
         let providers: Vec<&dyn EventProvider> = Vec::new();
-        let events =
-            determine_all_events(&s, &s, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0));
+        let events = determine_all_events(
+            &s,
+            &s,
+            &hover,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(0),
+        );
         let drop = only(&events, EventType::FileDrop);
         assert_eq!(drop.target, node(1, 4));
     }
@@ -3664,8 +3692,7 @@ mod autotest_generated {
         for repeat in [false, true] {
             let previous = state();
             let mut current = state();
-            current.keyboard_state.current_virtual_keycode =
-                Some(VirtualKeyCode::A).into();
+            current.keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::A).into();
             current.keyboard_state.is_repeat = repeat;
 
             let events = run_plain(&current, &previous);
@@ -3729,7 +3756,16 @@ mod autotest_generated {
         );
 
         let events = determine_all_events(
-            &after, &before, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0),
+            &after,
+            &before,
+            &hover,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(0),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3739,7 +3775,16 @@ mod autotest_generated {
 
         // Holding it is not a change.
         let events = determine_all_events(
-            &after, &after, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(1),
+            &after,
+            &after,
+            &hover,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(1),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3749,7 +3794,16 @@ mod autotest_generated {
 
         // And releasing it moves back.
         let events = determine_all_events(
-            &before, &after, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(2),
+            &before,
+            &after,
+            &hover,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(2),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3782,7 +3836,16 @@ mod autotest_generated {
         );
         assert!(!after.keyboard_state.modifiers.shift);
         let events = determine_all_events(
-            &after, &before, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0),
+            &after,
+            &before,
+            &hover,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(0),
         );
         assert_eq!(count(&events, EventType::ModifiersChanged), 0);
     }

@@ -8,8 +8,6 @@ class WidgetShowcase:
         self.checkbox_checked = False
         self.text_input = ""
 
-CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
-
 def small(icon, label):
     return RibbonItem.SmallButton(RibbonButton.new(icon, label))
 
@@ -86,23 +84,31 @@ def ribbon(data):
             .dom())
 
 def layout(data, info):
-    button = (Dom.create_div()
-              .with_css("margin-bottom:10px;padding:10px;background:#4CAF50;"
-                        "color:white;cursor:pointer;")
-              .with_child(Dom.create_p_with_text("Click me!"))
-              .with_callback(CLICK, data, on_button_click))
+    # The widget theme, one constant for the whole showcase: the checkbox
+    # switches it (checked = Flora, unchecked = the default Flat), and the
+    # toggle's RefreshDom re-skins every widget built with it.
+    theme = UiTheme.Flora if data.checkbox_checked else UiTheme.Flat
+
+    button = (Button.create("Click me!")
+              .with_theme(theme)
+              .with_on_click(data, on_button_click)
+              .dom()
+              .with_css("margin-bottom:10px;"))
 
     checkbox = (CheckBox.create(data.checkbox_checked)
+                .with_theme(theme)
                 .with_on_toggle(data, on_checkbox_toggle)
                 .dom()
                 .with_css("margin-bottom:10px;"))
 
     progress = (ProgressBar.create(data.progress_value)
+                .with_theme(theme)
                 .dom()
                 .with_css("margin-bottom:10px;"))
 
     text_input = (TextInput.create()
                   .with_placeholder("Enter text here...")
+                  .with_theme(theme)
                   .dom()
                   .with_css("margin-bottom:10px;"))
 

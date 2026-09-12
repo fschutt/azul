@@ -20,8 +20,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -102,7 +104,9 @@ pub enum AlertKind {
 
 impl AlertKind {
     /// Returns the `(background, border, text)` colours for this alert kind.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
@@ -213,7 +217,13 @@ pub struct Alert {
     /// Whether to render the "x" close button (hides the alert on click).
     pub dismissible: bool,
     /// The computed inline style for the container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// The container's CSS, or `None` for "no opinion" — in which case the
+    /// style is derived from `kind` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at
+    /// all and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -374,21 +384,41 @@ impl Alert {
             message,
             kind,
             dismissible: false,
-            container_style: build_alert_style(kind),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the colour variant, recomputing the container style.
+    /// Sets the colour variant.
+    ///
+    /// Does not touch `container_style`: the derived style is resolved from
+    /// `kind` when the DOM is built, so changing the kind is enough. Writing it
+    /// here would also overwrite a caller's explicit style.
     #[inline]
-    pub fn set_kind(&mut self, kind: AlertKind) {
+    pub const fn set_kind(&mut self, kind: AlertKind) {
         self.kind = kind;
-        self.container_style = build_alert_style(kind);
+    }
+
+    /// Replace the container's CSS.
+    ///
+    /// Passing an empty vec is meaningful: it says "no properties", as opposed
+    /// to leaving this unset, which says "derive them from `kind`".
+    #[inline]
+    pub fn set_container_style(&mut self, css: CssPropertyWithConditionsVec) {
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(css);
+    }
+
+    /// Builder-style [`Self::set_container_style`].
+    #[inline]
+    #[must_use]
+    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+        self.set_container_style(css);
+        self
     }
 
     /// Builder-style setter for the colour variant.
     #[inline]
     #[must_use]
-    pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
+    pub const fn with_alert_kind(mut self, kind: AlertKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -490,7 +520,12 @@ impl Alert {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CONTAINER_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(
+                self.container_style
+                    .clone()
+                    .into_option()
+                    .unwrap_or_else(|| build_alert_style(self.kind)),
+            )
             .with_children(children.into())
     }
 }
@@ -557,6 +592,22 @@ mod autotest_generated {
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::system::SystemStyle;
+
+    /// The container CSS the widget actually renders with, resolving the
+    /// "no opinion" case the way `dom()` does.
+    ///
+    /// The tests used to read `alert.container_style` directly, back when the
+    /// constructor pre-filled it. It is `None` until somebody sets one, so the
+    /// question "does this alert carry its kind's style" is now asked of the
+    /// resolved value rather than of the field.
+    fn resolved_style(alert: &Alert) -> CssPropertyWithConditionsVec {
+        alert
+            .container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_alert_style(alert.kind))
+    }
+
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -1062,7 +1113,7 @@ mod autotest_generated {
         assert!(!alert.dismissible, "a fresh alert has no close button");
         assert!(alert.alert_state.inner.visible, "a fresh alert is visible");
         assert!(alert.alert_state.on_dismiss.is_none());
-        assert_eq!(alert.container_style, build_alert_style(AlertKind::Info));
+        assert_eq!(resolved_style(&alert), build_alert_style(AlertKind::Info));
     }
 
     #[test]
@@ -1119,7 +1170,7 @@ mod autotest_generated {
             assert!(alert.alert_state.on_dismiss.is_none());
             assert!(alert.alert_state.inner.visible);
             assert_eq!(
-                alert.container_style,
+                resolved_style(&alert),
                 build_alert_style(kind),
                 "{kind:?}: the container style must match the kind it was built with"
             );
@@ -1137,13 +1188,14 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             alert.set_kind(kind);
             assert_eq!(alert.kind, kind);
-            assert_eq!(alert.container_style, build_alert_style(kind));
+            assert_eq!(resolved_style(&alert), build_alert_style(kind));
 
             // applying the same kind twice must not append/duplicate anything
-            let before = alert.container_style.clone();
+            let before = resolved_style(&alert);
             alert.set_kind(kind);
             assert_eq!(
-                alert.container_style, before,
+                resolved_style(&alert),
+                before,
                 "{kind:?}: set_kind must be idempotent"
             );
         }
@@ -1195,7 +1247,10 @@ mod autotest_generated {
             .with_alert_kind(AlertKind::Danger)
             .with_alert_kind(AlertKind::Success);
         assert_eq!(alert.kind, AlertKind::Success);
-        assert_eq!(alert.container_style, build_alert_style(AlertKind::Success));
+        assert_eq!(
+            resolved_style(&alert),
+            build_alert_style(AlertKind::Success)
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1205,7 +1260,7 @@ mod autotest_generated {
     #[test]
     fn set_dismissible_last_write_wins_and_touches_nothing_else() {
         let mut alert = Alert::with_kind(AzString::from("m"), AlertKind::Warning);
-        let style_before = alert.container_style.clone();
+        let style_before = resolved_style(&alert);
 
         for flag in [true, true, false, true, false, false] {
             alert.set_dismissible(flag);
@@ -1215,7 +1270,8 @@ mod autotest_generated {
         assert_eq!(alert.kind, AlertKind::Warning);
         assert_eq!(alert.message.as_str(), "m");
         assert_eq!(
-            alert.container_style, style_before,
+            resolved_style(&alert),
+            style_before,
             "toggling must not restyle"
         );
         assert!(
@@ -1301,7 +1357,7 @@ mod autotest_generated {
 
         assert_eq!(alert.message.as_str(), "boom");
         assert_eq!(alert.kind, AlertKind::Danger);
-        assert_eq!(alert.container_style, build_alert_style(AlertKind::Danger));
+        assert_eq!(resolved_style(&alert), build_alert_style(AlertKind::Danger));
         assert!(alert.dismissible);
         assert!(alert.alert_state.on_dismiss.is_some());
     }
@@ -1387,7 +1443,7 @@ mod autotest_generated {
     #[test]
     fn dom_of_a_plain_alert_is_a_container_with_one_message_child() {
         let alert = Alert::create(AzString::from("hi"));
-        let style = alert.container_style.clone();
+        let style = resolved_style(&alert);
         let dom = alert.dom();
 
         assert!(dom.root.has_class("__azul-native-alert"));

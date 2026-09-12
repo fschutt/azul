@@ -2,8 +2,7 @@
 //!
 //! This module provides shared helper functions used by all C++ dialect generators.
 
-use super::super::config::*;
-use super::super::ir::*;
+use super::super::{config::*, ir::*};
 
 // ============================================================================
 // C++ Reserved Keywords
@@ -149,10 +148,14 @@ pub fn variant_to_snake(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 4);
     for (i, &c) in chars.iter().enumerate() {
         if c.is_ascii_uppercase() {
-            let prev_lower = i > 0 && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
+            let prev_lower =
+                i > 0 && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
             let acronym_end = i > 0
                 && chars[i - 1].is_ascii_uppercase()
-                && chars.get(i + 1).map(|n| n.is_ascii_lowercase()).unwrap_or(false);
+                && chars
+                    .get(i + 1)
+                    .map(|n| n.is_ascii_lowercase())
+                    .unwrap_or(false);
             if prev_lower || acronym_end {
                 out.push('_');
             }
@@ -657,7 +660,11 @@ pub fn generate_union_holder_extern(
 ) -> String {
     let enum_name = &enum_def.name;
     let c_type = config.apply_prefix(enum_name);
-    let member_kw = if is_cpp03 { "static const" } else { "static constexpr" };
+    let member_kw = if is_cpp03 {
+        "static const"
+    } else {
+        "static constexpr"
+    };
     let def_kw = if is_cpp03 { "const" } else { "constexpr" };
     let holder = format!("{}_consts_", enum_name);
 
@@ -733,7 +740,8 @@ pub fn generate_enum_wrapper_shared(
     }
     if enum_def.is_union {
         code.push_str(&format!(
-            "// {n} is a tagged union: ffi::{n} is the C type, {n}::Tag::V its discriminants, {n}::v(...) its variant constructors\r\n",
+            "// {n} is a tagged union: ffi::{n} is the C type, {n}::Tag::V its discriminants, \
+             {n}::v(...) its variant constructors\r\n",
             n = enum_def.name
         ));
         if standard >= CppStandard::Cpp17 {
@@ -840,22 +848,25 @@ pub fn generate_vec_from_std_vector_impl(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> String {
-    let (wrapper, c_elem, copy_from_ptr) = match vec_from_std_vector_parts(struct_def, ir, config)
-    {
+    let (wrapper, c_elem, copy_from_ptr) = match vec_from_std_vector_parts(struct_def, ir, config) {
         Some(p) => p,
         None => return String::new(),
     };
     let class_name = &struct_def.name;
     match wrapper {
         Some(elem) => format!(
-            "inline {cls} {cls}::from_std_vector(const std::vector<{elem}>& items) {{\r\n    std::vector<{celem}> raw;\r\n    raw.reserve(items.size());\r\n    for (const {elem}& item : items) raw.push_back(item.inner());\r\n    return {cls}({cfn}(raw.data(), raw.size()));\r\n}}\r\n\r\n",
+            "inline {cls} {cls}::from_std_vector(const std::vector<{elem}>& items) {{\r\n    \
+             std::vector<{celem}> raw;\r\n    raw.reserve(items.size());\r\n    for (const \
+             {elem}& item : items) raw.push_back(item.inner());\r\n    return \
+             {cls}({cfn}(raw.data(), raw.size()));\r\n}}\r\n\r\n",
             cls = class_name,
             elem = elem,
             celem = c_elem,
             cfn = copy_from_ptr,
         ),
         None => format!(
-            "inline {cls} {cls}::from_std_vector(const std::vector<{celem}>& items) {{\r\n    return {cls}({cfn}(items.data(), items.size()));\r\n}}\r\n\r\n",
+            "inline {cls} {cls}::from_std_vector(const std::vector<{celem}>& items) {{\r\n    \
+             return {cls}({cfn}(items.data(), items.size()));\r\n}}\r\n\r\n",
             cls = class_name,
             celem = c_elem,
             cfn = copy_from_ptr,
@@ -867,12 +878,12 @@ pub fn generate_vec_from_std_vector_impl(
 /// Option wrapper class (C++17 and later). When the payload has a
 /// non-prefixed wrapper class, the conversion yields
 /// `std::optional<Wrapper>` instead of the raw C payload struct:
-///   - Copy payloads: `const`-qualified, wraps a bitwise copy (the wrapper
-///     for a Copy type is itself copyable and owns nothing).
-///   - Non-copy payloads: `&&`-qualified (consuming) — ownership of the
-///     payload transfers into the wrapper and the Option resets to None,
-///     mirroring the C++23 `toStdExpected() &&` shape (no double free).
-/// Payloads without a wrapper class keep the historical raw-payload form.
+///   - Copy payloads: `const`-qualified, wraps a bitwise copy (the wrapper for a Copy type is
+///     itself copyable and owns nothing).
+///   - Non-copy payloads: `&&`-qualified (consuming) — ownership of the payload transfers into the
+///     wrapper and the Option resets to None, mirroring the C++23 `toStdExpected() &&` shape (no
+///     double free).
+///     Payloads without a wrapper class keep the historical raw-payload form.
 pub fn emit_option_to_std_optional(
     code: &mut String,
     inner_type: &str,
@@ -881,7 +892,8 @@ pub fn emit_option_to_std_optional(
 ) {
     if !type_has_wrapper(inner_type, ir) {
         code.push_str(&format!(
-            "    std::optional<{}> toStdOptional() const {{ return isSome() ? std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
+            "    std::optional<{}> toStdOptional() const {{ return isSome() ? \
+             std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
             c_inner_type, c_inner_type
         ));
         code.push_str(&format!(
@@ -896,7 +908,8 @@ pub fn emit_option_to_std_optional(
         .unwrap_or(false);
     if payload_is_copy {
         code.push_str(&format!(
-            "    std::optional<{w}> toStdOptional() const {{ return isSome() ? std::optional<{w}>({w}(inner_.Some.payload)) : std::nullopt; }}\r\n",
+            "    std::optional<{w}> toStdOptional() const {{ return isSome() ? \
+             std::optional<{w}>({w}(inner_.Some.payload)) : std::nullopt; }}\r\n",
             w = inner_type
         ));
         code.push_str(&format!(
@@ -905,12 +918,14 @@ pub fn emit_option_to_std_optional(
         ));
     } else {
         code.push_str(&format!(
-            "    std::optional<{w}> toStdOptional() && {{ if (!isSome()) return std::nullopt; {c} v = inner_.Some.payload; inner_ = {{}}; return std::optional<{w}>({w}(v)); }}\r\n",
+            "    std::optional<{w}> toStdOptional() && {{ if (!isSome()) return std::nullopt; {c} \
+             v = inner_.Some.payload; inner_ = {{}}; return std::optional<{w}>({w}(v)); }}\r\n",
             w = inner_type,
             c = c_inner_type
         ));
         code.push_str(&format!(
-            "    operator std::optional<{w}>() && {{ return std::move(*this).toStdOptional(); }}\r\n",
+            "    operator std::optional<{w}>() && {{ return std::move(*this).toStdOptional(); \
+             }}\r\n",
             w = inner_type
         ));
     }
@@ -996,7 +1011,9 @@ pub fn generate_module_partition(
         if !enum_def.is_union || !enum_gets_holder(enum_def, config) {
             continue;
         }
-        code.push_str(&generate_union_holder_namespace(enum_def, ir, config, "    "));
+        code.push_str(&generate_union_holder_namespace(
+            enum_def, ir, config, "    ",
+        ));
     }
     code.push_str("    namespace ffi {\r\n");
     for (name, c_name) in ffi_alias_pairs(ir, config) {
@@ -1059,12 +1076,14 @@ pub fn generate_structured_binding_specs(ir: &CodegenIR) -> String {
         ));
         code.push_str("    if constexpr (I == 0) {\r\n");
         code.push_str(&format!(
-            "        return r.isOk() ? std::optional<{ok}>(std::move(r).inner().Ok.payload) : std::optional<{ok}>{{}};\r\n",
+            "        return r.isOk() ? std::optional<{ok}>(std::move(r).inner().Ok.payload) : \
+             std::optional<{ok}>{{}};\r\n",
             ok = c_ok,
         ));
         code.push_str("    } else {\r\n");
         code.push_str(&format!(
-            "        return r.isErr() ? std::optional<{err}>(std::move(r).inner().Err.payload) : std::optional<{err}>{{}};\r\n",
+            "        return r.isErr() ? std::optional<{err}>(std::move(r).inner().Err.payload) : \
+             std::optional<{err}>{{}};\r\n",
             err = c_err,
         ));
         code.push_str("    }\r\n");
@@ -1090,15 +1109,18 @@ pub fn generate_structured_binding_specs(ir: &CodegenIR) -> String {
         };
         let class_name = &enum_def.name;
         code.push_str(&format!(
-            "template<> struct std::tuple_size<azul::{}> : std::integral_constant<size_t, 2> {{}};\r\n",
+            "template<> struct std::tuple_size<azul::{}> : std::integral_constant<size_t, 2> \
+             {{}};\r\n",
             class_name
         ));
         code.push_str(&format!(
-            "template<> struct std::tuple_element<0, azul::{}> {{ using type = std::optional<{}>; }};\r\n",
+            "template<> struct std::tuple_element<0, azul::{}> {{ using type = std::optional<{}>; \
+             }};\r\n",
             class_name, c_ok
         ));
         code.push_str(&format!(
-            "template<> struct std::tuple_element<1, azul::{}> {{ using type = std::optional<{}>; }};\r\n",
+            "template<> struct std::tuple_element<1, azul::{}> {{ using type = std::optional<{}>; \
+             }};\r\n",
             class_name, c_err
         ));
     }
@@ -1558,7 +1580,7 @@ pub fn generate_call_args_sv_overload(
                 ArgRefKind::Ptr | ArgRefKind::PtrMut | ArgRefKind::Ref | ArgRefKind::RefMut
             );
             if is_pointer {
-                result.push(format!("{}", escaped_name));
+                result.push(escaped_name.to_string());
             } else {
                 result.push(format!("std::move({})", escaped_name));
             }
@@ -1591,11 +1613,11 @@ pub fn generate_call_args_ex(
         // A callback-wrapper argument is exposed as the raw `...Type` fn-ptr in
         // the C++ signature (ergonomics). How it is forwarded to the C ABI must
         // mirror exactly what lang_c emits for that argument:
-        //   * `HOST_INVOKER_KINDS` wrappers get a raw fn-ptr C-ABI variant (the
-        //     M2.5 pair pattern in lang_c) — pass the pointer straight through.
-        //   * every other callback wrapper is taken by value as the wrapper
-        //     struct, so rebuild it from the fn-ptr via `az_detail_wrap_cb`
-        //     (the `FooCallbackType` typedef -> the `AzFooCallback` struct).
+        //   * `HOST_INVOKER_KINDS` wrappers get a raw fn-ptr C-ABI variant (the M2.5 pair pattern
+        //     in lang_c) — pass the pointer straight through.
+        //   * every other callback wrapper is taken by value as the wrapper struct, so rebuild it
+        //     from the fn-ptr via `az_detail_wrap_cb` (the `FooCallbackType` typedef -> the
+        //     `AzFooCallback` struct).
         if substitute_callbacks {
             if let Some(cb_typedef) = get_callback_typedef_name(&arg.type_name, ir) {
                 if super::super::managed_host_invoker::is_callback_wrapper(&arg.type_name) {
@@ -1662,9 +1684,14 @@ pub fn generate_header_comment(standard: CppStandard) -> String {
     code.push_str("// NAMES\r\n");
     code.push_str("//   azul::Dom, azul::RefAny ...      owning wrapper classes\r\n");
     code.push_str("//   azul::Update::RefreshDom         the values of a C enum\r\n");
-    code.push_str("//   azul::EventFilter::hover(..)     the variant constructors of a tagged union,\r\n");
+    code.push_str(
+        "//   azul::EventFilter::hover(..)     the variant constructors of a tagged union,\r\n",
+    );
     code.push_str("//   azul::EventFilter::Tag::Hover    and its discriminants\r\n");
-    code.push_str("//   azul::ffi::RefAny                the raw C type (AzRefAny), for callback signatures\r\n");
+    code.push_str(
+        "//   azul::ffi::RefAny                the raw C type (AzRefAny), for callback \
+         signatures\r\n",
+    );
     code.push_str("//\r\n");
 
     code
@@ -1791,7 +1818,10 @@ pub fn generate_includes(standard: CppStandard) -> String {
         // <expected> (C++23 library) may be absent even when the -std flag is
         // accepted; the toStdExpected()/operator std::expected members are
         // guarded by the same macro, so only pull the header when present.
-        code.push_str("#if defined(__has_include)\r\n#if __has_include(<expected>)\r\n#include <expected>\r\n#endif\r\n#endif\r\n");
+        code.push_str(
+            "#if defined(__has_include)\r\n#if __has_include(<expected>)\r\n#include \
+             <expected>\r\n#endif\r\n#endif\r\n",
+        );
     }
     if standard.has_std_function() {
         code.push_str("#include <functional>\r\n");
@@ -1806,7 +1836,8 @@ pub fn generate_includes(standard: CppStandard) -> String {
     // C++03 through C++23 (templates + value-init + member assignment) — note a
     // braced temporary (`W{f}`) is not a valid rvalue in C++03, hence the helper.
     code.push_str(
-        "template<class W, class F> inline W az_detail_wrap_cb(F f) { W w = W(); w.cb = f; return w; }\r\n\r\n",
+        "template<class W, class F> inline W az_detail_wrap_cb(F f) { W w = W(); w.cb = f; return \
+         w; }\r\n\r\n",
     );
 
     code
@@ -1820,7 +1851,10 @@ pub fn generate_az_string_from_literal_helper(standard: CppStandard) -> String {
     code.push_str("// Helper to create AzString from string literal\r\n");
     if standard.has_move_semantics() {
         code.push_str("inline AzString az_string_from_literal(const char* s) {\r\n");
-        code.push_str("    return AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s));\r\n");
+        code.push_str(
+            "    return AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, \
+             std::strlen(s));\r\n",
+        );
         code.push_str("}\r\n\r\n");
     } else {
         code.push_str("inline AzString az_string_from_literal(const char* s) {\r\n");
@@ -1847,14 +1881,23 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
         code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
         code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
-        code.push_str("    AZ_REFLECT_FULL(structName, reinterpret_cast<uintptr_t>(toJsonFn), reinterpret_cast<uintptr_t>(fromJsonFn))\r\n\r\n");
+        code.push_str(
+            "    AZ_REFLECT_FULL(structName, reinterpret_cast<uintptr_t>(toJsonFn), \
+             reinterpret_cast<uintptr_t>(fromJsonFn))\r\n\r\n",
+        );
         code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
         code.push_str("    namespace structName##_rtti { \\\r\n");
         code.push_str("        static const uint64_t type_id_storage = 0; \\\r\n");
-        code.push_str("        inline uint64_t type_id() { return reinterpret_cast<uint64_t>(&type_id_storage); } \\\r\n");
+        code.push_str(
+            "        inline uint64_t type_id() { return \
+             reinterpret_cast<uint64_t>(&type_id_storage); } \\\r\n",
+        );
         // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
         // which Rust deallocates itself after invoking this destructor.
-        code.push_str("        inline void destructor(void* ptr) { static_cast<structName*>(ptr)->~structName(); } \\\r\n");
+        code.push_str(
+            "        inline void destructor(void* ptr) { \
+             static_cast<structName*>(ptr)->~structName(); } \\\r\n",
+        );
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline azul::RefAny structName##_upcast(structName model) { \\\r\n",
@@ -1866,36 +1909,68 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str(
             "        alignas(structName) unsigned char storage_[sizeof(structName)]; \\\r\n",
         );
-        code.push_str("        structName* tmp = ::new (static_cast<void*>(storage_)) structName(std::move(model)); \\\r\n");
+        code.push_str(
+            "        structName* tmp = ::new (static_cast<void*>(storage_)) \
+             structName(std::move(model)); \\\r\n",
+        );
         code.push_str("        AzGlVoidPtrConst ptr = { tmp, true }; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
-        code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), alignof(structName), \\\r\n");
-        code.push_str("            structName##_rtti::type_id(), name, structName##_rtti::destructor, serializeFn, deserializeFn)); \\\r\n");
-        code.push_str("    } \\\r\n");
-        code.push_str("    static inline structName const* structName##_downcast_ref(azul::RefAny& data) { \\\r\n");
-        code.push_str("        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return nullptr; \\\r\n");
         code.push_str(
-            "        return static_cast<structName const*>(AzRefAny_getDataPtr(&data.inner())); \\\r\n",
+            "        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), \
+             alignof(structName), \\\r\n",
+        );
+        code.push_str(
+            "            structName##_rtti::type_id(), name, structName##_rtti::destructor, \
+             serializeFn, deserializeFn)); \\\r\n",
+        );
+        code.push_str("    } \\\r\n");
+        code.push_str(
+            "    static inline structName const* structName##_downcast_ref(azul::RefAny& data) { \
+             \\\r\n",
+        );
+        code.push_str(
+            "        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return \
+             nullptr; \\\r\n",
+        );
+        code.push_str(
+            "        return static_cast<structName const*>(AzRefAny_getDataPtr(&data.inner())); \
+             \\\r\n",
         );
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline structName* structName##_downcast_mut(azul::RefAny& data) { \\\r\n",
         );
-        code.push_str("        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return nullptr; \\\r\n");
-        code.push_str("        return static_cast<structName*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner()))); \\\r\n");
+        code.push_str(
+            "        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return \
+             nullptr; \\\r\n",
+        );
+        code.push_str(
+            "        return \
+             static_cast<structName*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner()))); \
+             \\\r\n",
+        );
         code.push_str("    }\r\n\r\n");
     } else {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
         code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
         code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
-        code.push_str("    AZ_REFLECT_FULL(structName, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))\r\n\r\n");
+        code.push_str(
+            "    AZ_REFLECT_FULL(structName, (uintptr_t)(toJsonFn), \
+             (uintptr_t)(fromJsonFn))\r\n\r\n",
+        );
         code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
         code.push_str("    static const uint64_t structName##_type_id_storage = 0; \\\r\n");
-        code.push_str("    static uint64_t structName##_type_id() { return (uint64_t)(&structName##_type_id_storage); } \\\r\n");
+        code.push_str(
+            "    static uint64_t structName##_type_id() { return \
+             (uint64_t)(&structName##_type_id_storage); } \\\r\n",
+        );
         // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
         // which Rust deallocates itself after invoking this destructor - a
         // `delete` here would free the same pointer twice, across allocators.
-        code.push_str("    static void structName##_destructor(void* ptr) { ((structName*)ptr)->~structName(); } \\\r\n");
+        code.push_str(
+            "    static void structName##_destructor(void* ptr) { \
+             ((structName*)ptr)->~structName(); } \\\r\n",
+        );
         // C++03 has no alignas/placement-new-into-stack idiom, so the value is
         // staged on the heap; AzRefAny_newC memcpys the bytes into a Rust-side
         // allocation that takes over ownership of the bits, after which the
@@ -1907,7 +1982,10 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("        AzGlVoidPtrConst ptr; ptr.ptr = heap; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        azul::RefAny result(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");
-        code.push_str("            AZ_ALIGNOF(structName), structName##_type_id(), name, structName##_destructor, serializeFn, deserializeFn)); \\\r\n");
+        code.push_str(
+            "            AZ_ALIGNOF(structName), structName##_type_id(), name, \
+             structName##_destructor, serializeFn, deserializeFn)); \\\r\n",
+        );
         code.push_str("        ::operator delete((void*)heap); \\\r\n");
         code.push_str("        return result; \\\r\n");
         code.push_str("    } \\\r\n");
@@ -2042,7 +2120,10 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
         code.push_str(&format!("{}\r\n", template_intro));
         if standard >= CppStandard::Cpp17 {
             // C++17 inline variable template - definition can live in-class.
-            code.push_str("    static inline const uint64_t type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
+            code.push_str(
+                "    static inline const uint64_t type_id_v = \
+                 reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n",
+            );
         } else {
             // C++14: declaration in-class, definition out-of-class (emitted
             // by `generate_refany_type_id_v_definition` after the class
@@ -2119,7 +2200,10 @@ pub fn generate_refany_type_id_v_definition(standard: CppStandard) -> String {
     }
     let mut code = String::new();
     code.push_str("template<class T>\r\n");
-    code.push_str("const uint64_t RefAny::type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
+    code.push_str(
+        "const uint64_t RefAny::type_id_v = \
+         reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n",
+    );
     code
 }
 
@@ -2155,13 +2239,19 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
     code.push_str("// otherwise one strong reference leaks per callback invocation.\r\n\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("inline const T* downcast_ref(const AzRefAny& data) noexcept {\r\n");
-    code.push_str("    const uint64_t tag = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str(
+        "    const uint64_t tag = \
+         reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n",
+    );
     code.push_str("    if (!AzRefAny_isType(&data, tag)) return nullptr;\r\n");
     code.push_str("    return static_cast<const T*>(AzRefAny_getDataPtr(&data));\r\n");
     code.push_str("}\r\n\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("inline T* downcast_mut(AzRefAny& data) noexcept {\r\n");
-    code.push_str("    const uint64_t tag = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str(
+        "    const uint64_t tag = \
+         reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n",
+    );
     code.push_str("    if (!AzRefAny_isType(&data, tag)) return nullptr;\r\n");
     code.push_str("    return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&data)));\r\n");
     code.push_str("}\r\n");
@@ -2192,15 +2282,13 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
 /// argument type, and NOT operator overloads. Two reasons, both about the fact
 /// that the types here are aliases of C types declared at GLOBAL scope:
 ///
-///   * ADL for `a == b` where both operands are `::AzAlertKind` searches the
-///     global namespace, not `azul`, so an `azul::operator==` would be found
-///     only by callers who wrote `using namespace azul;`. A named call
-///     `azul::partialEq(a, b)` always resolves.
-///   * For a FIELDLESS enum the built-in `==` / `<` already exist and mean the
-///     right thing (Rust derives them on the discriminant too), so an overload
-///     would compete with the built-in candidates for no gain. What is genuinely
-///     missing there is `toDbgString` (no way to get a variant NAME without the
-///     ABI) and `default_`.
+///   * ADL for `a == b` where both operands are `::AzAlertKind` searches the global namespace, not
+///     `azul`, so an `azul::operator==` would be found only by callers who wrote `using namespace
+///     azul;`. A named call `azul::partialEq(a, b)` always resolves.
+///   * For a FIELDLESS enum the built-in `==` / `<` already exist and mean the right thing (Rust
+///     derives them on the discriminant too), so an overload would compete with the built-in
+///     candidates for no gain. What is genuinely missing there is `toDbgString` (no way to get a
+///     variant NAME without the ABI) and `default_`.
 ///
 /// `defaultOf<T>()` is a template because `Default` takes no argument: plain
 /// overloading cannot distinguish `default_()` for two different types.
@@ -2265,7 +2353,9 @@ pub fn generate_freefn_trait_helpers(
     }
 
     let mut code = String::new();
-    code.push_str("// ---------------------------------------------------------------------------\r\n");
+    code.push_str(
+        "// ---------------------------------------------------------------------------\r\n",
+    );
     code.push_str("// Trait entry points for enums and tagged unions\r\n");
     code.push_str("//\r\n");
     code.push_str("// These types alias the raw C type and have no wrapper class to carry the\r\n");
@@ -2279,7 +2369,9 @@ pub fn generate_freefn_trait_helpers(
     code.push_str("//\r\n");
     code.push_str("// partialCmp/cmp return the ABI ordering byte: 0 = Less, 1 = Equal,\r\n");
     code.push_str("// 2 = Greater (and 3 = unordered, from partialCmp only).\r\n");
-    code.push_str("// ---------------------------------------------------------------------------\r\n\r\n");
+    code.push_str(
+        "// ---------------------------------------------------------------------------\r\n\r\n",
+    );
 
     // Primary template for the argument-less `Default`.
     let mut needs_default_template = false;
@@ -2289,8 +2381,12 @@ pub fn generate_freefn_trait_helpers(
         }
     }
     if needs_default_template {
-        code.push_str("// Declared, never defined: only the explicit specializations below exist,\r\n");
-        code.push_str("// so `defaultOf<T>()` for a type with no `Default` derive is a link-time\r\n");
+        code.push_str(
+            "// Declared, never defined: only the explicit specializations below exist,\r\n",
+        );
+        code.push_str(
+            "// so `defaultOf<T>()` for a type with no `Default` derive is a link-time\r\n",
+        );
         code.push_str("// error rather than a silently wrong value.\r\n");
         code.push_str("template <typename T> T defaultOf();\r\n\r\n");
     }
@@ -2302,12 +2398,14 @@ pub fn generate_freefn_trait_helpers(
             let c_fn = &f.c_name;
             match f.kind {
                 FunctionKind::PartialEq => code.push_str(&format!(
-                    "inline bool partialEq(const {t}& a, const {t}& b) {{ return {f}(&a, &b); }}\r\n",
+                    "inline bool partialEq(const {t}& a, const {t}& b) {{ return {f}(&a, &b); \
+                     }}\r\n",
                     t = c_type,
                     f = c_fn
                 )),
                 FunctionKind::PartialCmp => code.push_str(&format!(
-                    "inline uint8_t partialCmp(const {t}& a, const {t}& b) {{ return {f}(&a, &b); }}\r\n",
+                    "inline uint8_t partialCmp(const {t}& a, const {t}& b) {{ return {f}(&a, &b); \
+                     }}\r\n",
                     t = c_type,
                     f = c_fn
                 )),
@@ -2332,13 +2430,15 @@ pub fn generate_freefn_trait_helpers(
                     // the wrapper classes' own `toDbgString` emits.
                     if standard.has_move_semantics() {
                         code.push_str(&format!(
-                            "inline String toDbgString(const {t}& a) {{ return String({f}(&a)); }}\r\n",
+                            "inline String toDbgString(const {t}& a) {{ return String({f}(&a)); \
+                             }}\r\n",
                             t = c_type,
                             f = c_fn
                         ));
                     } else {
                         code.push_str(&format!(
-                            "inline String toDbgString(const {t}& a) {{ String::Proxy _p({f}(&a)); return _p; }}\r\n",
+                            "inline String toDbgString(const {t}& a) {{ String::Proxy \
+                             _p({f}(&a)); return _p; }}\r\n",
                             t = c_type,
                             f = c_fn
                         ));

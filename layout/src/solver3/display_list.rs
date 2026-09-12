@@ -13,7 +13,6 @@
 //! Coordinates are in **absolute window-logical pixels** ([`WindowLogicalRect`]).
 //! `HiDPI` scaling and scroll-offset conversion happen in the compositor.
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -70,7 +69,7 @@ use crate::{
             get_style_border_radius, get_visibility, get_z_index, is_forced_page_break, BorderInfo,
             CaretStyle, ComputedScrollbarStyle, SelectionStyle,
         },
-        layout_tree::{LayoutNode, LayoutNodeHot, LayoutNodeWarm, LayoutTree},
+        layout_tree::{LayoutNode, LayoutNodeHot, LayoutNodeId, LayoutNodeWarm, LayoutTree},
         positioning::get_position_type,
         scrollbar::{compute_scrollbar_geometry_with_button_size, ScrollbarRequirements},
         LayoutContext, LayoutError, Result,
@@ -151,9 +150,8 @@ pub struct BorderBoxRect(pub LogicalRect);
 ///
 /// * **Layout engine** produces `WindowLogicalRect` values.
 /// * **Compositor** converts via `resolve_rect()` → `WebRender` `LayoutRect`.
-/// * Passing a `WindowLogicalRect` directly to a `WebRender` push function is a
-///   **type error** (it wraps `LogicalRect`, not `LayoutRect`).
-///
+/// * Passing a `WindowLogicalRect` directly to a `WebRender` push function is a **type error** (it
+///   wraps `LogicalRect`, not `LayoutRect`).
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowLogicalRect(pub LogicalRect);
 
@@ -496,6 +494,7 @@ impl DisplayList {
     /// allocations owned (and counted) elsewhere → 0 here.
     const fn item_heap_bytes(item: &DisplayListItem, text_instances: &mut usize) -> usize {
         use core::mem::size_of;
+
         use DisplayListItem as I;
         match item {
             I::Text { glyphs, .. } => {
@@ -938,7 +937,7 @@ impl DisplayList {
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] 
+    #[must_use]
     pub fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
@@ -965,11 +964,26 @@ impl DisplayList {
                     writeln!(json, "      \"type\": \"PushClip\",").unwrap();
                     writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
-                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},", 
-                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
-                    writeln!(json, "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \"br\": {:.1} }},",
-                        border_radius.top_left, border_radius.top_right,
-                        border_radius.bottom_left, border_radius.bottom_right).unwrap();
+                    writeln!(
+                        json,
+                        "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }},",
+                        bounds.0.origin.x,
+                        bounds.0.origin.y,
+                        bounds.0.size.width,
+                        bounds.0.size.height
+                    )
+                    .unwrap();
+                    writeln!(
+                        json,
+                        "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \
+                         \"br\": {:.1} }},",
+                        border_radius.top_left,
+                        border_radius.top_right,
+                        border_radius.bottom_left,
+                        border_radius.bottom_right
+                    )
+                    .unwrap();
                     writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
                 }
@@ -993,9 +1007,16 @@ impl DisplayList {
                     writeln!(json, "      \"type\": \"PushScrollFrame\",").unwrap();
                     writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
-                    writeln!(json, "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        clip_bounds.0.origin.x, clip_bounds.0.origin.y,
-                        clip_bounds.0.size.width, clip_bounds.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \
+                         \"h\": {:.1} }},",
+                        clip_bounds.0.origin.x,
+                        clip_bounds.0.origin.y,
+                        clip_bounds.0.size.width,
+                        clip_bounds.0.size.height
+                    )
+                    .unwrap();
                     writeln!(
                         json,
                         "      \"content_size\": {{ \"w\": {:.1}, \"h\": {:.1} }},",
@@ -1022,8 +1043,16 @@ impl DisplayList {
                     writeln!(json, "      \"type\": \"PushStackingContext\",").unwrap();
                     writeln!(json, "      \"stacking_depth\": {stacking_depth},").unwrap();
                     writeln!(json, "      \"z_index\": {z_index},").unwrap();
-                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
-                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }}",
+                        bounds.0.origin.x,
+                        bounds.0.origin.y,
+                        bounds.0.size.width,
+                        bounds.0.size.height
+                    )
+                    .unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::PopStackingContext => {
@@ -1050,8 +1079,16 @@ impl DisplayList {
                     writeln!(json, "      \"type\": \"Rect\",").unwrap();
                     writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
-                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }},",
+                        bounds.0.origin.x,
+                        bounds.0.origin.y,
+                        bounds.0.size.width,
+                        bounds.0.size.height
+                    )
+                    .unwrap();
                     writeln!(
                         json,
                         "      \"color\": \"rgba({},{},{},{})\",",
@@ -1067,8 +1104,16 @@ impl DisplayList {
                     writeln!(json, "      \"type\": \"Border\",").unwrap();
                     writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
-                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }},",
+                        bounds.0.origin.x,
+                        bounds.0.origin.y,
+                        bounds.0.size.width,
+                        bounds.0.size.height
+                    )
+                    .unwrap();
                     writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
                 }
@@ -1079,9 +1124,16 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"orientation\": \"{:?}\",", info.orientation).unwrap();
-                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
-                        info.bounds.0.origin.x, info.bounds.0.origin.y,
-                        info.bounds.0.size.width, info.bounds.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }}",
+                        info.bounds.0.origin.x,
+                        info.bounds.0.origin.y,
+                        info.bounds.0.size.width,
+                        info.bounds.0.size.height
+                    )
+                    .unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::Text {
@@ -1098,9 +1150,16 @@ impl DisplayList {
                     writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"glyphs\": {},", glyphs.len()).unwrap();
                     writeln!(json, "      \"font_size_px\": {font_size_px},").unwrap();
-                    writeln!(json, "      \"clip_rect\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        clip_rect.0.origin.x, clip_rect.0.origin.y,
-                        clip_rect.0.size.width, clip_rect.0.size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"clip_rect\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": \
+                         {:.1} }},",
+                        clip_rect.0.origin.x,
+                        clip_rect.0.origin.y,
+                        clip_rect.0.size.width,
+                        clip_rect.0.size.height
+                    )
+                    .unwrap();
                     writeln!(json, "      \"source_node_index\": {source_node_index:?},").unwrap();
                     writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
@@ -1511,7 +1570,8 @@ impl DisplayListItem {
     #[allow(clippy::float_cmp)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[allow(clippy::match_same_arms)]
-    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that
+    // can't merge)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     /// Is this a structure-opening marker (clip / scroll frame / stacking
     /// context / text shadow / image mask)? Paired with [`Self::is_pop_marker`]
@@ -2122,7 +2182,8 @@ impl DisplayListItem {
     /// Return the bounding rect of this item, or None for push/pop commands
     /// that don't have their own visual bounds.
     #[allow(clippy::match_same_arms)]
-    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that
+    // can't merge)
     #[must_use]
     pub fn bounds(&self) -> Option<LogicalRect> {
         match self {
@@ -2159,7 +2220,8 @@ impl DisplayListItem {
             | Self::PushBackdropFilter { bounds, .. }
             | Self::PushOpacity { bounds, .. } => Some(*bounds.inner()),
             Self::ScrollBarStyled { info, .. } => Some(*info.bounds.inner()),
-            Self::PushTextShadow { .. } => None, // text shadow has no bounds, affects following text
+            Self::PushTextShadow { .. } => None, /* text shadow has no bounds, affects following
+                                                   * text */
             Self::PopClip
             | Self::PopImageMaskClip
             | Self::PopScrollFrame
@@ -2358,15 +2420,15 @@ impl DisplayListBuilder {
         // A TextLayout carrying `FontHash::invalid()` (0) describes text in a
         // font that does not exist. Verified before dropping it, because
         // "harmless metadata" is a claim that has to be checked:
-        //   * compositor2.rs   — explicit no-op, "handled elsewhere (via
-        //                        PushCachedTextRuns)"; the GPU path never draws it
-        //   * cpurender/raster — "TextLayout is metadata for PDF/accessibility -
-        //                        skip in CPU rendering"
+        //   * compositor2.rs   — explicit no-op, "handled elsewhere (via PushCachedTextRuns)"; the
+        //     GPU path never draws it
+        //   * cpurender/raster — "TextLayout is metadata for PDF/accessibility - skip in CPU
+        //     rendering"
         //   * hit-testing      — uses separate HitTestArea items
-        //   * selection        — uses get_selection_rects on the inline layout,
-        //                        not display-list items
-        //   * scan_used_fonts  — reads font_hash (fixed separately: 0 was being
-        //                        turned into a phantom FontKey and marked live)
+        //   * selection        — uses get_selection_rects on the inline layout, not display-list
+        //     items
+        //   * scan_used_fonts  — reads font_hash (fixed separately: 0 was being turned into a
+        //     phantom FontKey and marked live)
         //   * PDF export       — cannot render text in a font it cannot resolve
         // So nothing draws, hits, or selects it, and the one consumer that read
         // it was harmed by doing so.
@@ -2374,9 +2436,8 @@ impl DisplayListBuilder {
             if font_hash.font_hash == 0 {
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "[azul][displaylist] dropping a TextLayout with \
-                     FontHash::invalid() — its font never resolved, so no \
-                     renderer would have drawn it"
+                    "[azul][displaylist] dropping a TextLayout with FontHash::invalid() — its \
+                     font never resolved, so no renderer would have drawn it"
                 );
                 return;
             }
@@ -2386,9 +2447,8 @@ impl DisplayListBuilder {
             if unassigned(b.origin.x) || unassigned(b.origin.y) {
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "[azul][displaylist] dropping {item:?} at an unassigned \
-                     position ({}, {}) — its layout node never received a \
-                     computed position",
+                    "[azul][displaylist] dropping {item:?} at an unassigned position ({}, {}) — \
+                     its layout node never received a computed position",
                     b.origin.x, b.origin.y,
                 );
                 return;
@@ -3114,11 +3174,10 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     let debug_enabled = generator.ctx.debug_messages.is_some();
     let mut builder = DisplayListBuilder::with_debug(debug_enabled);
 
-    // 0. Canvas background propagation (CSS 2.1 § 14.2):
-    //    "The background of the root element becomes the background of the canvas."
-    //    If the root (html) has a transparent background, propagate from <body>.
-    //    The canvas background fills the ENTIRE viewport, not just the root's content box.
-    //    This is critical when <html> doesn't have height:100% — without this,
+    // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
+    //    becomes the background of the canvas." If the root (html) has a transparent background,
+    //    propagate from <body>. The canvas background fills the ENTIRE viewport, not just the
+    //    root's content box. This is critical when <html> doesn't have height:100% — without this,
     //    the body's background only covers the body's content area, not the viewport.
     {
         let root_node = tree.get(LayoutNodeId::new(tree.root));
@@ -3147,10 +3206,12 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
         }
     }
 
-    // +spec:stacking-contexts:33d435 - CSS 2.2 painting order: build stacking context tree then traverse in z-order
-    // +spec:stacking-contexts:887766 - CSS2 §9.9 stacking contexts, z-index layering, and painting order
+    // +spec:stacking-contexts:33d435 - CSS 2.2 painting order: build stacking context tree then
+    // traverse in z-order +spec:stacking-contexts:887766 - CSS2 §9.9 stacking contexts, z-index
+    // layering, and painting order
     // 1. Build a tree of stacking contexts, which defines the global paint order.
-    // +spec:display-property:9a419c - root element always forms a stacking context (it's the tree root)
+    // +spec:display-property:9a419c - root element always forms a stacking context (it's the tree
+    // root)
     let stacking_context_tree = {
         let _p = crate::probe::Probe::span("dl_collect_stacking");
         generator.collect_stacking_contexts(tree.root)?
@@ -3510,7 +3571,8 @@ impl<'a> PatchState<'a> {
     }
 }
 
-// +spec:stacking-contexts:9e85a3 - Stacking context tree: hierarchical, nested, atomic painting order
+// +spec:stacking-contexts:9e85a3 - Stacking context tree: hierarchical, nested, atomic painting
+// order
 /// Represents a node in the CSS stacking context tree, not the DOM tree.
 #[derive(Debug)]
 struct StackingContext {
@@ -3690,7 +3752,8 @@ where
 
     /// Gets the cursor type for a text node from its CSS properties.
     /// Defaults to Text (I-beam) cursor if no explicit cursor is set.
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input
+                                      // variant (or cross-type bindings that can't merge)
     fn get_cursor_type_for_text_node(&self, node_id: NodeId) -> CursorType {
         use azul_css::props::style::effects::StyleCursor;
 
@@ -4028,7 +4091,8 @@ where
     /// An editable with NO text gets the strut caret of
     /// [`empty_editable_caret_rect`].
     /// Preedit underline is only rendered for the primary (last) cursor.
-    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker
+                                          // cast
     fn paint_cursor(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
         // NOTE: we deliberately do NOT early-return in the blink-off phase. Emitting the
         // caret item every frame — with alpha forced to 0 when invisible (see caret_color
@@ -4112,9 +4176,7 @@ where
             }
 
             // Check this node contains the cursor
-            if dom_id != location.node
-                && !self.ifc_root_owns_dom_node(node_index, location.node)
-            {
+            if dom_id != location.node && !self.ifc_root_owns_dom_node(node_index, location.node) {
                 continue;
             }
 
@@ -4264,7 +4326,8 @@ where
     /// Emits drawing commands for selection and cursor.
     /// Delegates to `paint_selections()` and `paint_cursor()`.
     /// Recursively builds the tree of stacking contexts starting from a given layout node.
-    // +spec:writing-modes:a86a28 - preorder depth-first traversal of the rendering tree in logical order
+    // +spec:writing-modes:a86a28 - preorder depth-first traversal of the rendering tree in logical
+    // order
     fn collect_stacking_contexts(&mut self, node_index: usize) -> Result<StackingContext> {
         let node = self
             .positioned_tree
@@ -4324,20 +4387,27 @@ where
         Ok(())
     }
 
-    // +spec:box-model:de94ab - stacking context painting order (negative z, in-flow, z=0, positive z)
-    // +spec:display-property:337069 - CSS 2.2 E.2 painting order: stacking contexts sorted by z-index, in-flow children in tree order
-    // +spec:display-property:7b0a87 - CSS 2.2 E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
+    // +spec:box-model:de94ab - stacking context painting order (negative z, in-flow, z=0, positive
+    // z) +spec:display-property:337069 - CSS 2.2 E.2 painting order: stacking contexts sorted
+    // by z-index, in-flow children in tree order +spec:display-property:7b0a87 - CSS 2.2 E.2
+    // painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
     // +spec:stacking-contexts:5cbdfb - full CSS painting order (bg, neg-z, in-flow, z0, pos-z)
-    // +spec:stacking-contexts:3ded3a - CSS 2.2 Appendix E painting order: definitions and tree order traversal
-    // +spec:stacking-contexts:973368 - CSS 2.2 Appendix E.2 painting order: bg/border, negative z, in-flow, zero z, positive z
-    // +spec:stacking-contexts:464bb7 - CSS 2.2 §9.9.1 painting order: negative z-index, in-flow, z-index 0, positive z-index (recursive)
+    // +spec:stacking-contexts:3ded3a - CSS 2.2 Appendix E painting order: definitions and tree
+    // order traversal +spec:stacking-contexts:973368 - CSS 2.2 Appendix E.2 painting order:
+    // bg/border, negative z, in-flow, zero z, positive z +spec:stacking-contexts:464bb7 - CSS
+    // 2.2 §9.9.1 painting order: negative z-index, in-flow, z-index 0, positive z-index (recursive)
     /// Recursively traverses the stacking context tree, emitting drawing commands to the builder
     /// according to the CSS Painting Algorithm specification.
-    // +spec:display-property:39e879 - CSS 2.2 E.2 painting order for block-level and inline-level elements
-    // +spec:display-property:de4c66 - CSS 2.2 E.2 stacking context paint order (canvas bg, negative z, in-flow, floats, inline, positive z)
-    // +spec:overflow:6e48b4 - CSS 2.2 Appendix E painting order: bg/border, negative z-index, in-flow, floats, z-index 0/auto, positive z-index
-    // +spec:stacking-contexts:55ca96 - CSS 2.2 E.2 painting order: backgrounds, negative z-index, in-flow, z-index 0/auto, positive z-index
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    // +spec:display-property:39e879 - CSS 2.2 E.2 painting order for block-level and inline-level
+    // elements +spec:display-property:de4c66 - CSS 2.2 E.2 stacking context paint order (canvas
+    // bg, negative z, in-flow, floats, inline, positive z) +spec:overflow:6e48b4 - CSS 2.2
+    // Appendix E painting order: bg/border, negative z-index, in-flow, floats, z-index 0/auto,
+    // positive z-index +spec:stacking-contexts:55ca96 - CSS 2.2 E.2 painting order:
+    // backgrounds, negative z-index, in-flow, z-index 0/auto, positive z-index
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     fn generate_for_stacking_context(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -4503,11 +4573,13 @@ where
         // This wraps background, border, and all children so the SVG mask clips everything.
         let did_push_image_mask = self.push_image_mask_clip(builder, context.node_index);
 
-        // +spec:box-model:84b238 - CSS 2.2 E.2 painting order: bg/border, negative z, in-flow, z=0, positive z
+        // +spec:box-model:84b238 - CSS 2.2 E.2 painting order: bg/border, negative z, in-flow, z=0,
+        // positive z
         // 1. Paint background and borders for the context's root element.
         // This must be BEFORE push_node_clips so the container background
         // is rendered in parent space (stationary), not scroll space.
-        // +spec:overflow:40052b - backgrounds paint at border-box, scrollbars overlay on top (scrollbar-extended background positioning area)
+        // +spec:overflow:40052b - backgrounds paint at border-box, scrollbars overlay on top
+        // (scrollbar-extended background positioning area)
         self.paint_node_background_and_border(builder, context.node_index)?;
 
         // 1b. For scrollable containers, push the hit-test area BEFORE the scroll frame
@@ -4537,7 +4609,8 @@ where
         // The containing_block_index field on LayoutNode is set for this purpose.
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node);
 
-        // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
+        // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index
+        // 0/auto, positive z-index
         // 3. Paint child stacking contexts with negative z-indices.
         let mut negative_z_children: Vec<_> = context
             .child_contexts
@@ -4552,13 +4625,15 @@ where
         // 4. Paint the in-flow descendants of the context root.
         self.paint_in_flow_descendants(builder, context.node_index, &context.in_flow_children)?;
 
-        // +spec:stacking-contexts:9a4eb3 - z-index:auto/0 positioned descendants painted in tree order
+        // +spec:stacking-contexts:9a4eb3 - z-index:auto/0 positioned descendants painted in tree
+        // order
         // 5. Paint child stacking contexts with z-index: 0 / auto.
         for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
             self.generate_for_stacking_context(builder, child)?;
         }
 
-        // +spec:stacking-contexts:198fa4 - positive z-index stacking contexts painted in z-index order then tree order
+        // +spec:stacking-contexts:198fa4 - positive z-index stacking contexts painted in z-index
+        // order then tree order
         // 6. Paint child stacking contexts with positive z-indices.
         let mut positive_z_children: Vec<_> = context
             .child_contexts
@@ -4632,7 +4707,10 @@ where
     }
 
     /// Paints the content and non-stacking-context children.
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     fn paint_in_flow_descendants(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -4655,8 +4733,9 @@ where
         // the last typed glyph's box vanished (2026-08-31).
         self.paint_cursor(builder, node_index)?;
 
-        // +spec:display-property:86a3de - inline-level boxes painted in document order; z-index does not apply
-        // +spec:floats:b8c494 - E.2 painting order: non-positioned floats painted after block-level descendants, in tree order
+        // +spec:display-property:86a3de - inline-level boxes painted in document order; z-index
+        // does not apply +spec:floats:b8c494 - E.2 painting order: non-positioned floats
+        // painted after block-level descendants, in tree order
         // 4. Recursively paint the in-flow children in correct CSS painting order:
         //    - First: Non-float, non-dragging block-level children
         //    - Then: Float, non-dragging children (so they appear on top)
@@ -4809,8 +4888,9 @@ where
             }
         }
 
-        // +spec:positioning:1bcbb5 - floats rendered in front of non-positioned in-flow blocks, but behind in-flow inlines
-        // Paint float children AFTER non-floats (so they appear on top)
+        // +spec:positioning:1bcbb5 - floats rendered in front of non-positioned in-flow blocks, but
+        // behind in-flow inlines Paint float children AFTER non-floats (so they appear on
+        // top)
         for child_index in float_children {
             let child_node = self
                 .positioned_tree
@@ -5086,11 +5166,15 @@ where
                 min_y,
                 width,
                 height,
-            }) = node_data.get(id).and_then(azul_core::dom::NodeData::get_svg_data)
+            }) = node_data
+                .get(id)
+                .and_then(azul_core::dom::NodeData::get_svg_data)
             {
                 return Some((*min_x, *min_y, *width, *height));
             }
-            cursor = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            cursor = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -5141,8 +5225,8 @@ where
                 static ANNOUNCE: std::sync::Once = std::sync::Once::new();
                 ANNOUNCE.call_once(|| {
                     eprintln!(
-                        "[azul][svg] an SVG clip-path is present, but this build has \
-                         no `cpurender` feature — SVG clips will NOT clip"
+                        "[azul][svg] an SVG clip-path is present, but this build has no \
+                         `cpurender` feature — SVG clips will NOT clip"
                     );
                 });
                 false
@@ -5153,8 +5237,9 @@ where
         }
     }
 
-    // +spec:overflow:531bd2 - ancestor clips accumulate via push_clip/pop_clip stack (cumulative intersection)
-    // +spec:overflow:8098ec - overflow clipping/scrolling; abs-pos elements with containing block outside scroller are not scrolled
+    // +spec:overflow:531bd2 - ancestor clips accumulate via push_clip/pop_clip stack (cumulative
+    // intersection) +spec:overflow:8098ec - overflow clipping/scrolling; abs-pos elements with
+    // containing block outside scroller are not scrolled
     /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
     /// Returns true if any command was pushed.
     ///
@@ -5225,8 +5310,9 @@ where
                     }
                 });
 
-        // +spec:overflow:6890f2 - text-overflow: clip inline content at end line box edge when overflow != visible
-        // +spec:overflow:77d7ce - clipping region defines visible portion of border box; default is not clipped
+        // +spec:overflow:6890f2 - text-overflow: clip inline content at end line box edge when
+        // overflow != visible +spec:overflow:77d7ce - clipping region defines visible
+        // portion of border box; default is not clipped
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         if !needs_clip {
@@ -5234,9 +5320,10 @@ where
         }
 
         // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
-        // +spec:overflow:913b23 - when both axes are clip, region is rounded per overflow-clip-margin
-        // +spec:overflow:449d69 - when one axis is clip and the other is visible, clipping region is not rounded
-        // +spec:overflow:449d69 - when one axis is clip and the other is visible, clipping region is not rounded
+        // +spec:overflow:913b23 - when both axes are clip, region is rounded per
+        // overflow-clip-margin +spec:overflow:449d69 - when one axis is clip and the other
+        // is visible, clipping region is not rounded +spec:overflow:449d69 - when one axis
+        // is clip and the other is visible, clipping region is not rounded
         let ox_clip =
             overflow_x.is_clipped() && !overflow_x.is_scroll() && !overflow_x.is_auto_overflow();
         let oy_clip =
@@ -5263,12 +5350,13 @@ where
             .unwrap_or_default();
 
         // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
-        // +spec:overflow:9207bc - clip rect computed from border-box edges (analogous to CSS 2.2 clip: rect() offsets)
-        // +spec:overflow:3d5b53 - overflow clips to padding edge, scroll mechanism for scroll/auto
-        // The clip rect for content should exclude the scrollbar area
-        // Scrollbars are drawn inside the border-box, on the right/bottom edges
-        // +spec:overflow:a825a6 - TODO: abs-pos elements with containing block outside this
-        // element should not be clipped (currently all DOM children are clipped)
+        // +spec:overflow:9207bc - clip rect computed from border-box edges (analogous to CSS 2.2
+        // clip: rect() offsets) +spec:overflow:3d5b53 - overflow clips to padding edge,
+        // scroll mechanism for scroll/auto The clip rect for content should exclude the
+        // scrollbar area Scrollbars are drawn inside the border-box, on the right/bottom
+        // edges +spec:overflow:a825a6 - TODO: abs-pos elements with containing block
+        // outside this element should not be clipped (currently all DOM children are
+        // clipped)
         let mut clip_rect = LogicalRect {
             origin: LogicalPosition {
                 x: paint_rect.origin.x + border.left,
@@ -5304,8 +5392,8 @@ where
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
         // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
-        // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate system
-        // Every clipped node pushes a clip (scrollable, hidden, or clip alike).
+        // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate
+        // system Every clipped node pushes a clip (scrollable, hidden, or clip alike).
         builder.push_clip(clip_rect, border_radius);
         // Regular scrollable nodes ALSO push a scroll frame: WebRender's APZ
         // manages the offset via define_scroll_frame, CPU renderers translate
@@ -5414,8 +5502,8 @@ where
     ///
     /// - Origin: Top-left corner of the window
     /// - Units: Logical pixels (`HiDPI` scaling happens in compositor2.rs)
-    /// - Scroll: NOT applied here - `WebRender` scroll frames handle scroll offset
-    ///   transformation internally via `define_scroll_frame()`
+    /// - Scroll: NOT applied here - `WebRender` scroll frames handle scroll offset transformation
+    ///   internally via `define_scroll_frame()`
     ///
     /// ## Important
     ///
@@ -5457,13 +5545,12 @@ where
     ///
     /// Two kinds of parent do NOT build inline shapes:
     ///
-    ///  * a **flex or grid container**, which treats an inline-level child as a
-    ///    flex/grid item and lays it out directly;
-    ///  * a **replaced element** (`<img>`, `<video>`, `<canvas>`, …), whose own
-    ///    content is the replaced object. azul lets a replaced element carry
-    ///    children as an overlay (the frontpage `opengl` example composits a
-    ///    `Button` over its canvas); they are laid out by an interior run and
-    ///    painted by the ordinary node walk, never as inline shapes.
+    ///  * a **flex or grid container**, which treats an inline-level child as a flex/grid item and
+    ///    lays it out directly;
+    ///  * a **replaced element** (`<img>`, `<video>`, `<canvas>`, …), whose own content is the
+    ///    replaced object. azul lets a replaced element carry children as an overlay (the frontpage
+    ///    `opengl` example composits a `Button` over its canvas); they are laid out by an interior
+    ///    run and painted by the ordinary node walk, never as inline shapes.
     ///
     /// Both were previously handled by asking only "is the parent flex or grid?",
     /// which silently answered "yes, the parent paints it" for a replaced element
@@ -5597,7 +5684,8 @@ where
             if is_atomic_inline || display == LayoutDisplay::Inline {
                 debug_info!(
                     self.ctx,
-                    "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, parent_paints_me_as_an_inline_shape={}",
+                    "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, \
+                     parent_paints_me_as_an_inline_shape={}",
                     node_index,
                     display,
                     warm.and_then(|w| w.parent_formatting_context.as_ref()),
@@ -5703,10 +5791,11 @@ where
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
-            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not affecting layout
-            // Check all four sides for box-shadow (azul stores them per-side).
-            // Routed through `super::getters::*` so the compact-cache has_box_shadow
-            // fast path fires — most nodes have no shadow and skip 4 cascade walks.
+            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not
+            // affecting layout Check all four sides for box-shadow (azul stores them
+            // per-side). Routed through `super::getters::*` so the compact-cache
+            // has_box_shadow fast path fires — most nodes have no shadow and skip 4
+            // cascade walks.
             for shadow in [
                 super::getters::get_box_shadow_left(self.ctx.styled_dom, dom_id, node_state),
                 super::getters::get_box_shadow_right(self.ctx.styled_dom, dom_id, node_state),
@@ -5773,7 +5862,9 @@ where
                     .ctx
                     .seat_focus_rings
                     .iter()
-                    .filter(|(n, _)| n.dom == dom_id && n.node.into_crate_internal() == Some(dom_node))
+                    .filter(|(n, _)| {
+                        n.dom == dom_id && n.node.into_crate_internal() == Some(dom_node)
+                    })
                     .map(|(_, c)| *c)
                     .collect();
                 for (i, color) in colors.into_iter().enumerate() {
@@ -5812,10 +5903,11 @@ where
     }
 
     //   backgrounds are invisible, allowing table background to show through
-    // +spec:box-model:124815 - Table layer background painting order (6 layers: table, col-group, col, row-group, row, cell)
-    // +spec:positioning:702985 - Table background painting in 6 layers (17.5.1)
-    // +spec:table-layout:7370dc - Table layers and transparency: 6-layer background painting order
-    // +spec:table-layout:7a5909 - table layers: 6-layer background paint order (table/colgroup/col/rowgroup/row/cell)
+    // +spec:box-model:124815 - Table layer background painting order (6 layers: table, col-group,
+    // col, row-group, row, cell) +spec:positioning:702985 - Table background painting in 6
+    // layers (17.5.1) +spec:table-layout:7370dc - Table layers and transparency: 6-layer
+    // background painting order +spec:table-layout:7a5909 - table layers: 6-layer background
+    // paint order (table/colgroup/col/rowgroup/row/cell)
     /// CSS 2.2 Section 17.5.1: Table background painting in 6 layers
     ///
     /// Implements the CSS 2.2 specification for table background painting order.
@@ -5989,10 +6081,11 @@ where
     /// participate, and non-solid winners (dashed/dotted/double) paint as a
     /// solid strip of the winning color.
     fn paint_collapsed_table_borders(&self, builder: &mut DisplayListBuilder, table_index: usize) {
+        use azul_css::props::style::border::BorderStyle;
+
         use crate::solver3::fc::{
             get_border_info as collapsed_border_info, BorderInfo as CollapsedBorder, BorderSource,
         };
-        use azul_css::props::style::border::BorderStyle;
 
         // (cell layout-tree index, paint rect, owning row index) per row
         let mut rows: Vec<(usize, Vec<(usize, LogicalRect)>)> = Vec::new();
@@ -6248,7 +6341,8 @@ where
     }
 
     /// Emits drawing commands for the foreground content, including hit-test areas and scrollbars.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn paint_node_content(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6332,9 +6426,10 @@ where
 
             // Push hit-test area for this node ONLY if it's not a scrollable container.
             // Scrollable containers already have their hit-test area pushed BEFORE the scroll frame
-            // in generate_for_stacking_context, ensuring the hit-test stays stationary in parent space
-            // while content scrolls. Pushing it again here would create a duplicate that scrolls
-            // with content, causing hit-test failures when scrolled to the bottom.
+            // in generate_for_stacking_context, ensuring the hit-test stays stationary in parent
+            // space while content scrolls. Pushing it again here would create a
+            // duplicate that scrolls with content, causing hit-test failures when
+            // scrolled to the bottom.
             if !is_scrollable {
                 builder.push_hit_test_area(paint_rect, tag_id);
             }
@@ -6458,11 +6553,11 @@ where
                 builder.push_item(DisplayListItem::PopTextShadow);
             }
         } else if let Some(dom_id) = node.dom_node_id {
-            // +spec:replaced-elements:edd21b - block-level replaced element painted atomically per E.2
-            // +spec:replaced-elements:516b2a - replaced content painted atomically in painting order
-            // This node might be a simple replaced element, like an <img> tag.
-            // Content resolves overlay→DOM: a runtime-swapped image or produced
-            // callback frame (overlay) wins over the immutable DOM's ImageRef.
+            // +spec:replaced-elements:edd21b - block-level replaced element painted atomically per
+            // E.2 +spec:replaced-elements:516b2a - replaced content painted atomically
+            // in painting order This node might be a simple replaced element, like an
+            // <img> tag. Content resolves overlay→DOM: a runtime-swapped image or
+            // produced callback frame (overlay) wins over the immutable DOM's ImageRef.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if matches!(node_data.get_node_type(), NodeType::Image(_)) {
                 if let Some(image_ref) = self.ctx.resolved_content().image_for_paint(dom_id) {
@@ -6549,7 +6644,10 @@ where
         let host = {
             let mut h = dom_id;
             loop {
-                if node_data.get(h).is_some_and(azul_core::dom::NodeData::is_contenteditable) {
+                if node_data
+                    .get(h)
+                    .is_some_and(azul_core::dom::NodeData::is_contenteditable)
+                {
                     break h;
                 }
                 match hierarchy
@@ -6600,7 +6698,6 @@ where
         {
             return;
         }
-
 
         let bp = node.box_props.unpack();
         let content_box = BorderBoxRect(*paint_rect)
@@ -6690,7 +6787,9 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 builder.push_text_run(
                     core::mem::take(&mut run),
-                    FontHash { font_hash: run_hash },
+                    FontHash {
+                        font_hash: run_hash,
+                    },
                     style.font_size_px,
                     color,
                     content_box,
@@ -6712,7 +6811,9 @@ where
         if !run.is_empty() {
             builder.push_text_run(
                 run,
-                FontHash { font_hash: run_hash },
+                FontHash {
+                    font_hash: run_hash,
+                },
                 style.font_size_px,
                 color,
                 content_box,
@@ -6733,7 +6834,8 @@ where
 
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
     /// clip so scrollbars appear on top of content and are not clipped.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
         // but their layout space is preserved (already handled by layout).
@@ -6787,7 +6889,8 @@ where
                     .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
             {
                 eprintln!(
-                    "[vv-bar] nid={nid:?} offsets_hit={} n_offsets={} reqs_before={scrollbar_info:?}",
+                    "[vv-bar] nid={nid:?} offsets_hit={} n_offsets={} \
+                     reqs_before={scrollbar_info:?}",
                     self.scroll_offsets.contains_key(&nid),
                     self.scroll_offsets.len(),
                 );
@@ -6808,7 +6911,8 @@ where
                 );
                 if std::env::var("AZ_VV_BAR_TRACE").is_ok() {
                     eprintln!(
-                        "[vv-bar] nid={nid:?} raised={raised} virt={:?} padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
+                        "[vv-bar] nid={nid:?} raised={raised} virt={:?} \
+                         padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
                         pos.children_rect.size,
                     );
                 }
@@ -6952,8 +7056,9 @@ where
         // Get content size for thumb proportional sizing
         // Use the node's get_content_size() method which returns the actual content size
         // from overflow_content_size (set during layout) or computes it from text/children.
-        // For VirtualView nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
-        // is more accurate than the layout-computed content size.
+        // For VirtualView nodes, the virtual_scroll_size (propagated through
+        // ScrollPosition.children_rect) is more accurate than the layout-computed content
+        // size.
         let content_size = node_id
             .and_then(|nid| self.scroll_offsets.get(&nid))
             .map_or_else(
@@ -7204,7 +7309,8 @@ where
 
     /// Converts the rich layout information from `text3` into drawing commands.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn paint_inline_content(
         &self,
         builder: &mut DisplayListBuilder,
@@ -7219,15 +7325,16 @@ where
         let _p = crate::probe::Probe::span("dl_inline_text");
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
-        // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list
-        // TODO: Text shadows not yet implemented
+        // NOTE: Text decorations (underline, strikethrough, overline) are handled in
+        // push_text_layout_to_display_list TODO: Text shadows not yet implemented
         // NOTE: Text-overflow ellipsis is handled via apply_text_overflow_ellipsis()
         // which can be called as a post-processing step on the display list when
         // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
-        // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left, LTR clips right); not yet implemented
-        // +spec:overflow:bbf9c1 - text-overflow ellipsis should only truncate content
-        // that is actually clipped; as content scrolls into view, show it instead of ellipsis
-        // TODO: Handle text overflowing (based on container_rect and overflow behavior)
+        // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left,
+        // LTR clips right); not yet implemented +spec:overflow:bbf9c1 - text-overflow
+        // ellipsis should only truncate content that is actually clipped; as content
+        // scrolls into view, show it instead of ellipsis TODO: Handle text overflowing
+        // (based on container_rect and overflow behavior)
 
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
@@ -7502,21 +7609,37 @@ where
                     let node_state = &styled_nodes[nid].styled_node_state;
                     // No declared `color` anywhere up the chain: the UA default
                     // applies, and that default depends on the theme. Black is
-                    // right on a light window and invisible on a dark one, and
-                    // the window background already follows the system theme —
-                    // so the text has to as well or a dark-mode app renders
-                    // black-on-black until it styles every node itself.
+                    // right on a light window and invisible on a dark one. The
+                    // themed default is CASCADED (the root's `cascaded_props`,
+                    // every descendant's `computed_values`, the compact text
+                    // tier), so on a cascaded DOM `get_text_color` answers it
+                    // here; the fallback below re-derives it from the context
+                    // only for a DOM no UA pass has run on, and asserts that.
                     Some(
                         cache
                             .get_text_color(&node_data[nid], &nid, node_state)
                             .and_then(|c| c.get_property().copied())
                             .unwrap_or_else(|| {
-                                let ctx = self.ctx.system_style.as_ref().map_or_else(
-                                    azul_css::dynamic_selector::DynamicSelectorContext::default,
-                                    |s| {
-                                        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
-                                    },
+                                debug_assert!(
+                                    !cache.ua_applied,
+                                    "live_color: node {} has no `color` in its resolved style \
+                                     although the UA pass ran — the themed root default did \
+                                     not reach it (theme-chain analysis 2026-09-12, R1)",
+                                    nid.index()
                                 );
+                                // The SAME context the cascade evaluated this
+                                // DOM against — which carries the window's own
+                                // theme — not a fresh system-only one: the two
+                                // used to disagree after an in-app theme switch,
+                                // leaving the widgets dark and the text black.
+                                let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_else(|| {
+                                    self.ctx.system_style.as_ref().map_or_else(
+                                        azul_css::dynamic_selector::DynamicSelectorContext::default,
+                                        |s| {
+                                            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
+                                        },
+                                    )
+                                });
                                 azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
                             })
                             .inner,
@@ -7763,7 +7886,8 @@ where
         }
     }
 
-    // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per E.2
+    // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per
+    // E.2
     /// Paints an inline shape (inline-block background and border)
     fn paint_inline_shape(
         &self,
@@ -7868,10 +7992,12 @@ where
 
     // +spec:overflow:d1d5f6 - CSS 2.2 §9.9.1 stacking context creation and 7-layer paint order
     /// Determines if a node establishes a new stacking context based on CSS rules.
-    // +spec:overflow:47b791 - z-index applies to positioned boxes; z-index:auto does not establish stacking context
-    // +spec:positioning:8c6efd - Stacking contexts: positioned elements with z-index != auto establish new stacking context
-    // +spec:positioning:b84cfa - z-index stacking context creation: integer z-index on positioned elements creates SC; auto on fixed/root creates SC
-    // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking context but are painted as if they did
+    // +spec:overflow:47b791 - z-index applies to positioned boxes; z-index:auto does not establish
+    // stacking context +spec:positioning:8c6efd - Stacking contexts: positioned elements with
+    // z-index != auto establish new stacking context +spec:positioning:b84cfa - z-index
+    // stacking context creation: integer z-index on positioned elements creates SC; auto on
+    // fixed/root creates SC +spec:positioning:d06368 - relative/absolute with z-index:auto do
+    // not form stacking context but are painted as if they did
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return false;
@@ -7888,8 +8014,8 @@ where
             return true;
         }
 
-        // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking context
-        // z-index:auto on position:absolute does NOT establish stacking context
+        // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
+        // context z-index:auto on position:absolute does NOT establish stacking context
         if position == LayoutPosition::Absolute {
             return !z_auto;
         }
@@ -7936,11 +8062,14 @@ pub struct PositionedTree<'a> {
     pub calculated_positions: &'a super::PositionVec,
 }
 
-/// Expands `clip_rect` outward by the `overflow-clip-margin` value on axes that use `overflow: clip`.
+/// Expands `clip_rect` outward by the `overflow-clip-margin` value on axes that use `overflow:
+/// clip`.
 ///
 /// Per CSS Overflow 3 §3.2, `overflow-clip-margin` only applies to `overflow: clip` —
 /// it has no effect on `overflow: hidden`, `scroll`, or `auto`.
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn apply_overflow_clip_margin(
     clip_rect: &mut LogicalRect,
     overflow_x: &super::getters::MultiValue<LayoutOverflow>,
@@ -8081,7 +8210,8 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
 ///
 /// `target_size` is the object's logical box size, used only to size the raster
 /// when rasterizing an SVG source.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/
+                                                                   // fixed-point/debug-marker cast
 fn get_image_ref_for_image_source(
     source: &ImageSource,
     image_cache: &azul_core::resources::ImageCache,
@@ -8122,9 +8252,9 @@ fn get_image_ref_for_image_source(
                 static ANNOUNCE: std::sync::Once = std::sync::Once::new();
                 ANNOUNCE.call_once(|| {
                     eprintln!(
-                        "[azul][image] encoded image data present, but this build \
-                         lacks the `image_decoding` (+`std`) feature — images from \
-                         encoded bytes will NOT appear"
+                        "[azul][image] encoded image data present, but this build lacks the \
+                         `image_decoding` (+`std`) feature — images from encoded bytes will NOT \
+                         appear"
                     );
                 });
                 let _ = bytes;
@@ -8147,8 +8277,8 @@ fn get_image_ref_for_image_source(
                 static ANNOUNCE: std::sync::Once = std::sync::Once::new();
                 ANNOUNCE.call_once(|| {
                     eprintln!(
-                        "[azul][svg] an SVG image source is present, but this build \
-                         has no `cpurender` feature — SVG images will NOT appear"
+                        "[azul][svg] an SVG image source is present, but this build has no \
+                         `cpurender` feature — SVG images will NOT appear"
                     );
                 });
                 let _ = (svg, target_size);
@@ -8170,8 +8300,10 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> 
 /// Clip a display list item to page bounds and offset to page-relative coordinates.
 /// Returns None if the item is completely outside the page bounds.
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn clip_and_offset_display_item(
     item: &DisplayListItem,
     page_top: f32,
@@ -8971,8 +9103,9 @@ fn paint_selection_handles(
     content_box_offset_y: f32,
     selection_color: ColorU,
 ) {
-    use crate::managers::text_edit::{SelectionHandleEnd, SelectionHandleGeometry};
     use azul_core::selection::SelectionRange;
+
+    use crate::managers::text_edit::{SelectionHandleEnd, SelectionHandleGeometry};
 
     let primary = SelectionRange {
         start: text_selection.anchor.cursor,
@@ -9025,7 +9158,7 @@ pub const REMOTE_SELECTION_ALPHA: u8 = 0x66;
 /// `REMOTE_SELECTION_ALPHA` outright: an app that deliberately picked a faint
 /// colour for a participant asked for it to be faint, and this must not make
 /// it louder.
-#[must_use] 
+#[must_use]
 pub fn remote_selection_tint(owner_color: ColorU) -> ColorU {
     ColorU {
         a: owner_color.a.min(REMOTE_SELECTION_ALPHA),
@@ -9054,9 +9187,11 @@ fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
 
 use azul_css::props::layout::fragmentation::{BreakInside, PageBreak};
 
-use crate::solver3::page_breaks::{self, BreakPolicy};
-use crate::solver3::pagination::{
-    HeaderFooterConfig, MarginBoxContent, PageInfo, TableHeaderInfo, TableHeaderTracker,
+use crate::solver3::{
+    page_breaks::{self, BreakPolicy},
+    pagination::{
+        HeaderFooterConfig, MarginBoxContent, PageInfo, TableHeaderInfo, TableHeaderTracker,
+    },
 };
 
 /// Configuration for the slicer-based pagination.
@@ -9253,7 +9388,8 @@ pub fn paginate_single_page(
     Ok(pages.pop().unwrap_or_default())
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn paginate_pages_impl(
     full_display_list: DisplayList,
     config: &SlicerConfig,
@@ -9691,7 +9827,8 @@ enum TextAlignment {
 }
 
 /// Helper to offset all Y coordinates of a display item.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
     if y_offset == 0.0 {
         return item.clone();
@@ -10165,18 +10302,19 @@ struct BreakProperties {
 /// - `_ellipsis`: The ellipsis string (currently unused; U+2026 glyph index is used)
 ///
 /// # Algorithm
-/// 1. For each Text item in the display list, check if any glyphs extend
-///    past the container's right edge (inline-end in LTR).
-/// 2. If so, find the last glyph that fits entirely within the container,
-///    accounting for the width of the ellipsis character.
+/// 1. For each Text item in the display list, check if any glyphs extend past the container's right
+///    edge (inline-end in LTR).
+/// 2. If so, find the last glyph that fits entirely within the container, accounting for the width
+///    of the ellipsis character.
 /// 3. Remove all glyphs after that point.
-/// 4. Append an ellipsis glyph (U+2026 = glyph index 0x2026 as a fallback;
-///    proper glyph lookup requires font metrics not available here).
+/// 4. Append an ellipsis glyph (U+2026 = glyph index 0x2026 as a fallback; proper glyph lookup
+///    requires font metrics not available here).
 ///
 /// Note: This is a best-effort implementation. A pixel-perfect version would
 /// need access to font metrics to measure the exact ellipsis glyph width and
 /// to look up the correct glyph index for the ellipsis in each font.
-// +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden for ellipsis
+// +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden
+// for ellipsis
 pub(crate) fn apply_text_overflow_ellipsis(
     display_list: &mut DisplayList,
     container_bounds: LogicalRect,
@@ -10284,8 +10422,7 @@ pub(crate) fn resolve_clip_path(
     clip_path: &azul_css::props::layout::shape::ClipPath,
     node_bounds: LogicalRect,
 ) -> Option<(LogicalRect, f32)> {
-    use azul_css::props::layout::shape::ClipPath;
-    use azul_css::shape::CssShape;
+    use azul_css::{props::layout::shape::ClipPath, shape::CssShape};
 
     match clip_path {
         ClipPath::None => None,
@@ -10578,38 +10715,21 @@ fn rasterize_svg_clip_to_r8(
             match item {
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
-                        path.move_to(
-                            mx(l.start.x),
-                            my(l.start.y),
-                        );
+                        path.move_to(mx(l.start.x), my(l.start.y));
                         first = false;
                     }
-                    path.line_to(
-                        mx(l.end.x),
-                        my(l.end.y),
-                    );
+                    path.line_to(mx(l.end.x), my(l.end.y));
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
-                        path.move_to(
-                            mx(q.start.x),
-                            my(q.start.y),
-                        );
+                        path.move_to(mx(q.start.x), my(q.start.y));
                         first = false;
                     }
-                    path.curve3(
-                        mx(q.ctrl.x),
-                        my(q.ctrl.y),
-                        mx(q.end.x),
-                        my(q.end.y),
-                    );
+                    path.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
-                        path.move_to(
-                            mx(c.start.x),
-                            my(c.start.y),
-                        );
+                        path.move_to(mx(c.start.x), my(c.start.y));
                         first = false;
                     }
                     path.curve4(
@@ -10668,9 +10788,10 @@ fn rasterize_svg_clip_to_r8(
 
 #[cfg(test)]
 mod pagination_text_tests {
+    use azul_core::resources::{FontKey, IdNamespace};
+
     use super::*;
     use crate::font::parsed::ParsedFont;
-    use azul_core::resources::{FontKey, IdNamespace};
 
     /// Loads a system font for testing, retaining source bytes so advances work.
     fn load_test_font() -> Option<ParsedFont> {
@@ -11196,7 +11317,8 @@ mod autotest_generated {
                 bounds: WindowLogicalRect::zero(),
                 color: opaque(),
             },
-            // HitTestArea paints nothing but is NOT a stack command — it must not be forced through.
+            // HitTestArea paints nothing but is NOT a stack command — it must not be forced
+            // through.
             DisplayListItem::HitTestArea {
                 bounds: WindowLogicalRect::zero(),
                 tag: (0, TAG_TYPE_DOM_NODE),
@@ -11982,9 +12104,8 @@ mod autotest_generated {
         assert_eq!(
             dl.items.len(),
             15,
-            "expected the NaN-origin stacking context and the f32::MIN-origin \
-             clip to be dropped as unassigned positions; everything else is \
-             real geometry and must survive"
+            "expected the NaN-origin stacking context and the f32::MIN-origin clip to be dropped \
+             as unassigned positions; everything else is real geometry and must survive"
         );
         assert_eq!(dl.items.len(), dl.node_mapping.len());
         // The mapping must stay in lockstep — dropping an item without dropping
@@ -13224,7 +13345,8 @@ mod autotest_generated {
     #[test]
     fn item_center_on_page_uses_the_item_midpoint_half_open() {
         let item = positioned(0, 0.0, 0.0, 10.0, 20.0); // height 20 => center at +10
-                                                        // layout_origin_y 90 => absolute y 90, center 100 == page_top => on page.
+                                                        // layout_origin_y 90 => absolute y 90,
+                                                        // center 100 == page_top => on page.
         assert!(item_center_on_page(&item, 90.0, 100.0, 200.0));
         // center 99.99 => just above the page.
         assert!(!item_center_on_page(&item, 89.99, 100.0, 200.0));
@@ -13867,8 +13989,8 @@ mod autotest_generated {
         assert_eq!(
             item_y(row_b),
             30.0,
-            "B's row below B's 30px thead only - the old max() collapse \
-             shifted both by 30 and overlapped A"
+            "B's row below B's 30px thead only - the old max() collapse shifted both by 30 and \
+             overlapped A"
         );
 
         // Content below BOTH tables shifts by the SUM (matches the break
@@ -14034,14 +14156,17 @@ mod autotest_generated {
 
 #[cfg(test)]
 mod dense_scroll_extent_tests {
-    use super::*;
-    use crate::text3::cache::{
-        BidiDirection, ClusterFlags, ContentIndex, GraphemeClusterId, LayoutFontMetrics,
-        OverflowInfo, Point, PositionedItem, ShapedCluster, ShapedGlyph, ShapedItem,
-        StyleProperties, UnifiedLayout,
-    };
-    use crate::text3::dense::DenseText;
     use alloc::sync::Arc;
+
+    use super::*;
+    use crate::text3::{
+        cache::{
+            BidiDirection, ClusterFlags, ContentIndex, GraphemeClusterId, LayoutFontMetrics,
+            OverflowInfo, Point, PositionedItem, ShapedCluster, ShapedGlyph, ShapedItem,
+            StyleProperties, UnifiedLayout,
+        },
+        dense::DenseText,
+    };
 
     /// One real cluster with real metrics so the dense extent is NON-zero
     /// and the sparse-vs-dense A/B is meaningful (an empty layout passes

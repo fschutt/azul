@@ -18,10 +18,10 @@
 //! ```
 //!
 //! * `LIBCLANG_PATH` lets ext-php-rs's build script find libclang.
-//! * `DYLD_FALLBACK_LIBRARY_PATH` lets dyld resolve `@rpath/libclang.dylib`
-//!   for the build-script binary at runtime.
-//! * `RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup"`
-//!   defers `zend_*` symbol resolution to extension-load time.
+//! * `DYLD_FALLBACK_LIBRARY_PATH` lets dyld resolve `@rpath/libclang.dylib` for the build-script
+//!   binary at runtime.
+//! * `RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup"` defers `zend_*` symbol
+//!   resolution to extension-load time.
 //!
 //! Linux equivalent: swap the macOS dynamic_lookup flag for
 //! `RUSTFLAGS="-C link-arg=-Wl,--unresolved-symbols=ignore-in-object-files"`.

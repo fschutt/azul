@@ -154,7 +154,8 @@ pub mod backstage;
 pub mod badge;
 /// Breadcrumb widget.
 ///
-/// A horizontal trail of clickable crumb links separated by "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
+/// A horizontal trail of clickable crumb links separated by "/", ending in the current
+/// (non-clickable) page; see `breadcrumb.rs`.
 pub mod breadcrumb;
 /// Button widget
 pub mod button;
@@ -178,17 +179,22 @@ pub mod card;
 pub mod check_box;
 /// Chip / tag widget.
 ///
-/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors
+/// alert's dismiss); see `chip.rs`.
 pub mod chip;
 /// Box displaying a color with a callback for value changes
 pub mod color_input;
 /// Combobox widget.
 ///
-/// An editable text field with a click-toggled drop-down list of options (drop_down's select + text_input's editable field); see `combobox.rs`.
+/// An editable text field with a click-toggled drop-down list of options (drop_down's select +
+/// text_input's editable field); see `combobox.rs`.
 pub mod combobox;
 /// Calendar date picker widget.
 ///
-/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid in-widget (prominent module TODO2); see `date_picker.rs`.
+/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from
+/// real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day
+/// number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid
+/// in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
 /// Divider / separator rule widget (horizontal or vertical).
 ///
@@ -224,7 +230,8 @@ pub mod menubar;
 pub mod microphone;
 /// Modal / dialog widget.
 ///
-/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state toggle; see `modal.rs`.
+/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state
+/// toggle; see `modal.rs`.
 pub mod modal;
 /// Node graph widget
 pub mod node_graph;
@@ -232,11 +239,13 @@ pub mod node_graph;
 pub mod number_input;
 /// Pagination widget.
 ///
-/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style); see `pagination.rs`.
+/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style);
+/// see `pagination.rs`.
 pub mod pagination;
 /// Popover widget.
 ///
-/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
+/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the
+/// click-toggled sibling of tooltip); see `popover.rs`.
 pub mod popover;
 /// Progress bar widget
 pub mod progressbar;
@@ -247,7 +256,8 @@ pub mod progressbar;
 pub mod quick_access;
 /// Radio-group widget.
 ///
-/// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular indicator; see `radio_group.rs`.
+/// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular
+/// indicator; see `radio_group.rs`.
 pub mod radio_group;
 /// Ribbon widget
 pub mod ribbon;
@@ -266,18 +276,22 @@ pub mod segmented;
 pub mod slider;
 /// Spinner / activity widget.
 ///
-/// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
+/// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note);
+/// see `spinner.rs`.
 pub mod spinner;
 /// Split-pane / splitter widget.
 ///
-/// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine); see `split_pane.rs`.
+/// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes
+/// via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine);
+/// see `split_pane.rs`.
 pub mod split_pane;
 /// Office-style status bar: left text segments, view switcher, zoom cluster
 /// (embeds the `slider` widget). the Office-2013-era look look by default. See `statusbar.rs`.
 pub mod statusbar;
 /// Stepper / wizard widget.
 ///
-/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
+/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle
+/// on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
 pub mod stepper;
 /// Switch / toggle widget.
 ///
@@ -293,13 +307,17 @@ pub mod text_area;
 pub mod text_input;
 /// Time picker widget.
 ///
-/// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation); see `time_picker.rs`.
+/// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle
+/// for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation);
+/// see `time_picker.rs`.
 pub mod time_picker;
 /// Titlebar widget for custom window chrome
 pub mod titlebar;
 /// Toast / snackbar widget.
 ///
-/// A transient floating notification banner pinned to a corner, manually dismissed via "x" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
+/// A transient floating notification banner pinned to a corner, manually dismissed via "x"
+/// (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned
+/// as an overlay; see `toast.rs`.
 pub mod toast;
 /// Tooltip widget.
 ///
@@ -321,6 +339,76 @@ pub mod video;
 #[cfg(test)]
 pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::Dom)> {
     label_convention::every_widget_dom()
+}
+
+/// Reading a rendered node's inline style apart from the theme's contribution.
+///
+/// A widget resolves its own style; the theme module then appends the
+/// declarations only it can write — the dark twin of a colour, the hover and
+/// pressed faces — on top of that. So a test that compares a rendered node
+/// against the widget's own style cannot use raw equality: it has to say which
+/// half it is looking at. These two helpers are that distinction, shared so
+/// each widget's suite does not grow its own copy of the predicate.
+#[cfg(test)]
+pub(crate) mod theme_probe {
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition},
+        props::property::CssProperty,
+    };
+
+    /// True if a declaration is gated on a theme, i.e. it is one half of a
+    /// light/dark pair rather than something that applies in every mode.
+    fn is_theme_gated(conditions: &DynamicSelectorVec) -> bool {
+        conditions
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::Theme(_)))
+    }
+
+    /// The node's inline declarations that apply in EVERY theme, in declaration
+    /// order — what the widget itself resolved, with the theme's mode-specific
+    /// additions left out. Pair it with [`dark`] so skipping them here cannot
+    /// hide a theme that forgot its dark half.
+    pub(crate) fn unthemed(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| !is_theme_gated(c))
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// The node's inline declarations that apply in EVERY state and theme, in
+    /// declaration order — the widget's resting style.
+    ///
+    /// Distinct from [`unthemed`], which keeps `:hover`-style rules and drops only
+    /// the theme-gated ones. Phase 2 of the widget theme migration moves hover,
+    /// pressed and focus rules into the theme modules, so a rendered node now
+    /// carries conditional declarations the widget itself never declared; a test
+    /// comparing "what landed on this node" against a widget's style wants this.
+    pub(crate) fn unconditional(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// The node's inline declarations that apply only in dark mode.
+    pub(crate) fn dark(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                c.as_ref()
+                    .iter()
+                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+            })
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -398,14 +486,13 @@ pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_c
 ///
 /// Two warnings exist for accessibility and they are deliberately different:
 ///
-/// * **This one, from the widget.** A widget knows its own type and its own
-///   builder API, so it can name the exact call — "Slider has no accessible
-///   name; use `.with_accessibility_name(..)`". It fires at BUILD time, from
-///   inside the widget, and it can be specific in a way nothing downstream can.
-/// * **`dom_lint::warn_a11y_shape`, from the framework.** That one sees only
-///   nodes, long after any widget has finished, and speaks in terms of the DOM:
-///   "node 40 has role Slider and no value". It catches hand-built DOMs and
-///   third-party widgets the engine has never heard of.
+/// * **This one, from the widget.** A widget knows its own type and its own builder API, so it can
+///   name the exact call — "Slider has no accessible name; use `.with_accessibility_name(..)`". It
+///   fires at BUILD time, from inside the widget, and it can be specific in a way nothing
+///   downstream can.
+/// * **`dom_lint::warn_a11y_shape`, from the framework.** That one sees only nodes, long after any
+///   widget has finished, and speaks in terms of the DOM: "node 40 has role Slider and no value".
+///   It catches hand-built DOMs and third-party widgets the engine has never heard of.
 ///
 /// Neither subsumes the other. The widget's warning is actionable and narrow;
 /// the framework's is universal and structural.
@@ -418,14 +505,12 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
         return;
     }
     azul_core::diagnostics::emit(alloc::format!(
-        "[azul][a11y-widget] {widget_type} was built without an accessible name. \
-         It has no text of its own to derive one from, so a screen reader \
-         announces its ROLE and nothing else. Only the caller knows what this \
-         control is called — add it at the call site with \
-         `.with_accessibility_name(\"…\")`, which MERGES and leaves the \
-         {widget_type}'s own role, value and state intact, or point at an \
-         existing label with `.with_accessibility_labelled_by(node)`. \
-         (suppress with AZ_SUPPRESS=a11y_widget)"
+        "[azul][a11y-widget] {widget_type} was built without an accessible name. It has no text \
+         of its own to derive one from, so a screen reader announces its ROLE and nothing else. \
+         Only the caller knows what this control is called — add it at the call site with \
+         `.with_accessibility_name(\"…\")`, which MERGES and leaves the {widget_type}'s own role, \
+         value and state intact, or point at an existing label with \
+         `.with_accessibility_labelled_by(node)`. (suppress with AZ_SUPPRESS=a11y_widget)"
     ));
 }
 
@@ -495,8 +580,8 @@ mod ua_paragraph_margin {
                     })
                     .unwrap_or_default();
                 bad.push(format!(
-                    "{widget}: <p> at {path} ({text:?}) inherits the UA `margin: 1em 0` — build it \
-                     with widgets::widget_p_with_text / widget_p, or set margin-top AND \
+                    "{widget}: <p> at {path} ({text:?}) inherits the UA `margin: 1em 0` — build \
+                     it with widgets::widget_p_with_text / widget_p, or set margin-top AND \
                      margin-bottom inline"
                 ));
             }
@@ -565,9 +650,9 @@ mod label_convention {
     //! no hit area, and a dataset has no node to be found on.
     //!
     //! The canonical shape is `Dom::create_p_with_text(label)` (or
-    //! `create_p().with_children([create_text_do_not_use_without_block_level_wrapper(label)])`) with every property on
-    //! the `<p>`, or — where a dedicated styled `<div>` already is the box — a
-    //! bare `create_text` leaf with the properties on that `<div>`.
+    //! `create_p().with_children([create_text_do_not_use_without_block_level_wrapper(label)])`)
+    //! with every property on the `<p>`, or — where a dedicated styled `<div>` already is the
+    //! box — a bare `create_text` leaf with the properties on that `<div>`.
     //!
     //! This generalises `ribbon`'s per-widget invariant test to every widget in
     //! the crate. Widgets that emit no text at all are still instantiated, so
@@ -609,8 +694,8 @@ mod label_convention {
             let found = inert_state_on(node);
             if !found.is_empty() {
                 bad.push(format!(
-                    "{widget}: text node {:?} carries {} — move it onto a wrapping <p> \
-                     (or onto the styled <div> that already boxes it)",
+                    "{widget}: text node {:?} carries {} — move it onto a wrapping <p> (or onto \
+                     the styled <div> that already boxes it)",
                     text.as_ref().as_str(),
                     found.join(" + "),
                 ));
@@ -690,15 +775,14 @@ mod label_convention {
     /// its label paths (a widget with no labels proves nothing).
     ///
     /// NOT in this list, and why:
-    /// * `camera` / `microphone` / `screencap` / `video` — each `dom()` emits a
-    ///   single replaced `<img>` (or nothing) fed by a background worker and
-    ///   needs a device/GL config to construct; they contain no text node at
-    ///   all, so there is nothing for this convention to govern.
-    /// * `menubar` — a free function over a window `Menu`, not a `dom()` widget;
-    ///   its bar items are already `div > bare text`.
-    /// * `map`'s tile labels — emitted from the `VirtualView` render callback,
-    ///   not from `dom()`, so the walk cannot reach them; they were converted by
-    ///   hand and are pinned by the map widget's own tests.
+    /// * `camera` / `microphone` / `screencap` / `video` — each `dom()` emits a single replaced
+    ///   `<img>` (or nothing) fed by a background worker and needs a device/GL config to construct;
+    ///   they contain no text node at all, so there is nothing for this convention to govern.
+    /// * `menubar` — a free function over a window `Menu`, not a `dom()` widget; its bar items are
+    ///   already `div > bare text`.
+    /// * `map`'s tile labels — emitted from the `VirtualView` render callback, not from `dom()`, so
+    ///   the walk cannot reach them; they were converted by hand and are pinned by the map widget's
+    ///   own tests.
     pub(super) fn every_widget_dom() -> Vec<(&'static str, Dom)> {
         use super::{
             accordion::{Accordion, AccordionSection, AccordionSectionVec},
@@ -954,3 +1038,208 @@ mod label_convention {
         assert!(bad[0].contains("tab_index"), "{}", bad[0]);
     }
 }
+#[cfg(test)]
+mod theme_pairs {
+    //! Workspace-level guard for invariant I8 of the theme-chain analysis
+    //! (2026-09-12): a dark twin never ships without its light half, and
+    //! never BEFORE it.
+    //!
+    //! Inline declarations resolve last-match-wins (`prop_cache.rs`,
+    //! `get_property_slow`), and the widgets rely on that ordering: the
+    //! widget declares its light face, the theme module appends the
+    //! `dark_theme(..)` twins after it. Two things can go wrong by hand and
+    //! nothing else catches either: a twin whose light counterpart was
+    //! never declared (the light window gets the UA default, the dark one a
+    //! widget colour — the halves come from different files), and a twin
+    //! pushed before its light value (dead under the dark theme: the later
+    //! unconditional value wins there too). Build pairs with
+    //! `CssPropertyWithConditions::themed*` and neither can happen; this
+    //! walk catches whatever is still built by hand.
+    //!
+    //! Scope, mechanically: every node of every widget `dom()` in the lint
+    //! manifest (`label_convention::every_widget_dom`), its inline
+    //! declarations only (the theme module writes them there). For each
+    //! declaration carrying a `Theme(Dark)` condition, there must be an
+    //! EARLIER declaration of the same property type whose conditions are the
+    //! same pseudo-states (in the same order) and no `Theme(Dark)` — the
+    //! unconditional light value, the `light_theme(..)` value, or the
+    //! `on_hover(..)` to a `dark_on_hover(..)`. The "vice versa" (a light
+    //! colour with no twin) is NOT a violation: a surface that is its own
+    //! colour keeps it in dark mode by design (see `hover_bg_both`).
+    use azul_core::dom::Dom;
+    use azul_css::dynamic_selector::CssPropertyWithConditions;
+
+    /// Sites the walk flags that are KNOWN and being fixed elsewhere: one
+    /// `(widget name, message prefix, reason)` per entry. Empty means every
+    /// widget is clean; an entry masks every finding of that widget whose
+    /// message contains the prefix (`the_known_list_masks_only_live_findings`
+    /// rejects an entry that masks nothing).
+    const KNOWN_HALF_PAIRS: &[(&str, &str, &str)] = &[
+        // A dark text twin with NO light half is the migration's "no opinion"
+        // shape: the light window takes the UA default on purpose (and since
+        // the UA text colour is themed and cascaded, the twin is belt and
+        // braces). Listed rather than paired, because inventing a light value
+        // here would be exactly the "light value moved" the migration forbids.
+        (
+            "list_view",
+            "node root declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+        (
+            "tree_view",
+            "node root/1/0/1 declares a dark twin for color (states [])",
+            "light text = the UA default by design; the dark twin predates the themed UA colour",
+        ),
+    ];
+
+    /// Every half-pair in one node's inline declarations, as messages. The
+    /// ONE message builder: the walk, the self-test and the known-list
+    /// staleness check all read these, so a prefix that matched a reported
+    /// finding matches here too.
+    fn findings(props: &[CssPropertyWithConditions], widget: &str, path: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (i, twin) in props.iter().enumerate() {
+            if !twin.is_dark_twin() {
+                continue;
+            }
+            let ty = twin.property.get_type();
+            let states = twin.pseudo_state_conditions();
+            let counterpart_at = props.iter().position(|p| {
+                p.property.get_type() == ty
+                    && p.is_light_half()
+                    && p.pseudo_state_conditions() == states
+            });
+            match counterpart_at {
+                None => out.push(format!(
+                    "{widget}: node {path} declares a dark twin for {ty:?} (states {states:?}) \
+                     with NO light counterpart — the light window gets the UA default here"
+                )),
+                Some(j) if j > i => out.push(format!(
+                    "{widget}: node {path} pushes the dark twin for {ty:?} (states {states:?}) \
+                     at #{i}, BEFORE its light value at #{j} — dead under the dark theme \
+                     (last match wins)"
+                )),
+                Some(_) => {}
+            }
+        }
+        out
+    }
+
+    fn is_known(widget: &str, msg: &str) -> bool {
+        KNOWN_HALF_PAIRS
+            .iter()
+            .any(|(w, prefix, _)| *w == widget && msg.contains(prefix))
+    }
+
+    fn inline_props(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, conds)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: conds.clone(),
+            })
+            .collect()
+    }
+
+    /// Every finding in the widget's tree, known ones included.
+    fn walk_raw(node: &Dom, widget: &str, path: &str, out: &mut Vec<String>) {
+        out.extend(findings(&inline_props(node), widget, path));
+        for (i, child) in node.children.as_ref().iter().enumerate() {
+            walk_raw(child, widget, &format!("{path}/{i}"), out);
+        }
+    }
+
+    /// The findings of every widget in the manifest, known ones included.
+    fn all_raw_findings() -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            let mut raw = Vec::new();
+            walk_raw(&dom, widget, "root", &mut raw);
+            out.extend(raw.into_iter().map(|m| (widget, m)));
+        }
+        out
+    }
+
+    #[test]
+    fn every_widget_dark_twin_has_a_light_half_declared_before_it() {
+        let bad: Vec<String> = all_raw_findings()
+            .into_iter()
+            .filter(|(widget, msg)| !is_known(widget, msg))
+            .map(|(_, msg)| msg)
+            .collect();
+        assert!(
+            bad.is_empty(),
+            "{} half-pair(s) in the widget styles:\n  {}\n\nBuild the pair with \
+             CssPropertyWithConditions::themed / themed_on_hover / themed_on_active (light \
+             value first), or list the site in KNOWN_HALF_PAIRS with the reason.",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// A guard on the guard: the walk must SEE both failure shapes, and the
+    /// builder's shape must be clean.
+    #[test]
+    fn the_walk_reports_a_missing_half_and_a_reversed_pair() {
+        use azul_css::props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor};
+        let c = |v: u8| {
+            CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(v, v, v),
+            })
+        };
+        // Missing half.
+        let bad = findings(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root");
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].contains("NO light counterpart"), "{}", bad[0]);
+        // Reversed pair.
+        let bad = findings(
+            &[
+                CssPropertyWithConditions::dark_theme(c(1)),
+                CssPropertyWithConditions::simple(c(2)),
+            ],
+            "fixture",
+            "root",
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].contains("BEFORE its light value"), "{}", bad[0]);
+        // The builder's shape is clean, in every state.
+        let mut props: Vec<_> = CssPropertyWithConditions::themed(c(1), c(2)).into();
+        props.extend(CssPropertyWithConditions::themed_on_hover(c(3), c(4)));
+        props.extend(CssPropertyWithConditions::themed_on_active(c(5), c(6)));
+        let bad = findings(&props, "fixture", "root");
+        assert!(bad.is_empty(), "{bad:?}");
+        // A hover twin is NOT paired by a resting light value.
+        let bad = findings(
+            &[
+                CssPropertyWithConditions::simple(c(1)),
+                CssPropertyWithConditions::dark_on_hover(c(2)),
+            ],
+            "fixture",
+            "root",
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+    }
+
+    /// An entry in `KNOWN_HALF_PAIRS` that masks nothing is stale and must
+    /// go: the finding it parked was fixed, so the parking is now hiding
+    /// whatever appears next under the same prefix.
+    #[test]
+    fn the_known_list_masks_only_live_findings() {
+        let raw = all_raw_findings();
+        for (w, prefix, reason) in KNOWN_HALF_PAIRS {
+            assert!(
+                raw.iter().any(|(widget, msg)| widget == w && msg.contains(prefix)),
+                "KNOWN_HALF_PAIRS entry ({w}, {prefix:?}) masks nothing any more — delete it \
+                 (reason on file: {reason})"
+            );
+        }
+    }
+}
+
+pub mod themes;

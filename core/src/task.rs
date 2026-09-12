@@ -986,11 +986,10 @@ impl Duration {
     /// Three behaviours changed, all in the safe direction:
     ///
     /// 1. Cross-unit comparisons now answer, instead of always `false`.
-    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false`
-    ///    (there was no `StdDuration` to defer to); it now compares properly.
-    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows
-    ///    `u64` used to panic inside `StdDuration::new`; `u128` nanoseconds
-    ///    cannot overflow.
+    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false` (there was no
+    ///    `StdDuration` to defer to); it now compares properly.
+    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows `u64` used to panic
+    ///    inside `StdDuration::new`; `u128` nanoseconds cannot overflow.
     #[must_use]
     pub const fn greater_than(&self, other: &Self) -> bool {
         self.as_nanos() > other.as_nanos()
@@ -1186,7 +1185,8 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Message that can be sent from the main thread to the Thread using the `ThreadId`.
 ///
 /// The thread can ignore the event.

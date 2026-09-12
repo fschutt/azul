@@ -11,9 +11,10 @@ use azul_layout::window_state::WindowCreateOptions;
 use super::dlopen::{
     constants::*, encode_wide, Win32Libraries, HDC, HGLRC, HINSTANCE, HWND, POINT, RECT, WNDCLASSW,
 };
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::desktop::shell2::common::WindowError;
-use crate::{log_debug, log_error, log_trace, log_warn};
+use crate::{
+    desktop::shell2::common::{debug_server::LogCategory, WindowError},
+    log_debug, log_error, log_trace, log_warn,
+};
 
 /// Win32 window class name
 pub const CLASS_NAME: &str = "AzulWindowClass";
@@ -122,11 +123,12 @@ pub fn create_hwnd(
         };
 
         // Window style - based on decorations option
+        use azul_core::window::WindowDecorations;
+
         use super::dlopen::constants::{
             WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
             WS_THICKFRAME,
         };
-        use azul_core::window::WindowDecorations;
 
         let style = match options.window_state.flags.decorations {
             WindowDecorations::Normal => {
@@ -526,8 +528,7 @@ pub fn create_gl_context(
 
         // Query and log OpenGL info
         log_trace!(LogCategory::Rendering, "[GL] querying OpenGL info");
-        use winapi::um::libloaderapi::GetProcAddress;
-        use winapi::um::wingdi::wglGetProcAddress;
+        use winapi::um::{libloaderapi::GetProcAddress, wingdi::wglGetProcAddress};
 
         // Get glGetString and glGetIntegerv
         let opengl32 = winapi::um::libloaderapi::GetModuleHandleA(b"opengl32.dll\0".as_ptr() as _);

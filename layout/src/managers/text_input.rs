@@ -15,9 +15,9 @@
 //!
 //! 1. **Record Phase**: When text input occurs, record what changed (`old_text` + `inserted_text`)
 //!
-//!    - Append to `pending_changesets`, a FIFO queue — several edits can be
-//!      recorded before the pass that applies them runs, and they may target
-//!      different nodes and come from different sources
+//!    - Append to `pending_changesets`, a FIFO queue — several edits can be recorded before the
+//!      pass that applies them runs, and they may target different nodes and come from different
+//!      sources
 //!    - Do NOT modify any caches yet
 //!    - Return affected nodes so callbacks can be invoked
 //!
@@ -69,7 +69,8 @@ impl PendingTextEdit {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// C-compatible Option type for `PendingTextEdit`
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
@@ -404,7 +405,8 @@ impl Default for TextInputManager {
 }
 
 /// The `EventSource` an edit recorded from `source` is dispatched with.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn event_source_of(source: TextInputSource) -> CoreEventSource {
     match source {
         TextInputSource::Keyboard | TextInputSource::Ime => CoreEventSource::User,

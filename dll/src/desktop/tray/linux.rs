@@ -9,55 +9,55 @@
 //!
 //! # Deliberately not here yet
 //!
-//! * **`com.canonical.dbusmenu`** — the panel-drawn context menu. SNI's `Menu`
-//!   property points at a *dbusmenu* object: a recursive `(id, a{sv}, av)`
-//!   tree served through `GetLayout`, which is a different protocol from the
-//!   `org.gtk.Menus` scheme in `linux/gnome_menu/` (that one is roughly 30%
-//!   reusable, and it is the boring 30%). Until it exists the `Menu` property
-//!   answers the root path `/` — hosts that find no dbusmenu there fall back
-//!   to calling `ContextMenu()`, which arrives as
-//!   [`TrayEventType::ContextMenu`], so an app can still react.
-//! * **Watcher restarts.** The panel restarting (plasmashell/waybar do this
-//!   routinely) tears down the registration; re-registering needs a
-//!   `NameOwnerChanged` match + filter, which needs `dbus_bus_add_match` /
-//!   `dbus_connection_add_filter` in the dlopen wrapper. Until then a panel
+//! * **`com.canonical.dbusmenu`** — the panel-drawn context menu. SNI's `Menu` property points at a
+//!   *dbusmenu* object: a recursive `(id, a{sv}, av)` tree served through `GetLayout`, which is a
+//!   different protocol from the `org.gtk.Menus` scheme in `linux/gnome_menu/` (that one is roughly
+//!   30% reusable, and it is the boring 30%). Until it exists the `Menu` property answers the root
+//!   path `/` — hosts that find no dbusmenu there fall back to calling `ContextMenu()`, which
+//!   arrives as [`TrayEventType::ContextMenu`], so an app can still react.
+//! * **Watcher restarts.** The panel restarting (plasmashell/waybar do this routinely) tears down
+//!   the registration; re-registering needs a `NameOwnerChanged` match + filter, which needs
+//!   `dbus_bus_add_match` / `dbus_connection_add_filter` in the dlopen wrapper. Until then a panel
 //!   restart loses the icon until the app restarts.
 //!
 //! # The registration rules (measured conventions, not the published spec)
 //!
-//! * The bus name is `org.kde.StatusNotifierItem-<pid>-<n>` — **`org.kde.*`,
-//!   not `org.freedesktop.*`**: the published fd.o text says the latter, but
-//!   the reference implementation and the entire KDE stack use the former
-//!   (Electron 43 broke Waybar by switching — Waybar#5240).
+//! * The bus name is `org.kde.StatusNotifierItem-<pid>-<n>` — **`org.kde.*`, not
+//!   `org.freedesktop.*`**: the published fd.o text says the latter, but the reference
+//!   implementation and the entire KDE stack use the former (Electron 43 broke Waybar by switching
+//!   — Waybar#5240).
 //! * `is_available()` checks that the watcher name is owned **AND** that
-//!   `IsStatusNotifierHostRegistered` is true — a watcher with no host is a
-//!   real state, because the watcher can win the startup race against the
-//!   panel (cinnamon#13740). On a vanilla GNOME there is no watcher at all;
-//!   that is not a bug to work around.
+//!   `IsStatusNotifierHostRegistered` is true — a watcher with no host is a real state, because the
+//!   watcher can win the startup race against the panel (cinnamon#13740). On a vanilla GNOME there
+//!   is no watcher at all; that is not a bug to work around.
 //! * Icons go as `IconPixmap` (`a(iiay)`, ARGB32 **big-endian** —
-//!   [`azul_core::tray::TrayIconImage::to_argb32_be`] exists for exactly
-//!   this). Named icons are rasterized through the icon registry instead of
-//!   being passed as theme names the panel may not have.
-//! * Hosts only re-read a property after the matching `New*` signal, which is
-//!   why `update()` emits them (and why `dbus_message_new_signal` is in the
-//!   dlopen wrapper).
+//!   [`azul_core::tray::TrayIconImage::to_argb32_be`] exists for exactly this). Named icons are
+//!   rasterized through the icon registry instead of being passed as theme names the panel may not
+//!   have.
+//! * Hosts only re-read a property after the matching `New*` signal, which is why `update()` emits
+//!   them (and why `dbus_message_new_signal` is in the dlopen wrapper).
 
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_uint, c_void};
-use std::sync::Arc;
+use std::{
+    ffi::{CStr, CString},
+    os::raw::{c_char, c_int, c_uint, c_void},
+    sync::Arc,
+};
 
 use azul_core::tray::{
     TrayEvent, TrayEventType, TrayIconData, TrayIconSource, TrayScrollAxis, TrayStatus,
 };
 
 use super::{queue_tray_event, render_named_icon, TrayError};
-use crate::desktop::shell2::linux::dbus::{
-    DBusConnection, DBusError, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
-    DBUS_BUS_SESSION, DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
-    DBUS_TYPE_ARRAY, DBUS_TYPE_BOOLEAN, DBUS_TYPE_BYTE, DBUS_TYPE_DICT_ENTRY, DBUS_TYPE_INT32,
-    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_UINT32, DBUS_TYPE_VARIANT,
+use crate::desktop::shell2::linux::{
+    dbus::{
+        DBusConnection, DBusError, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
+        DBUS_BUS_SESSION, DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
+        DBUS_TYPE_ARRAY, DBUS_TYPE_BOOLEAN, DBUS_TYPE_BYTE, DBUS_TYPE_DICT_ENTRY, DBUS_TYPE_INT32,
+        DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_UINT32,
+        DBUS_TYPE_VARIANT,
+    },
+    gnome_menu::get_shared_dbus_lib,
 };
-use crate::desktop::shell2::linux::gnome_menu::get_shared_dbus_lib;
 
 const SNI_IFACE: &str = "org.kde.StatusNotifierItem";
 const SNI_PATH: &str = "/StatusNotifierItem";

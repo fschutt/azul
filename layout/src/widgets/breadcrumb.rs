@@ -25,8 +25,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize, StyleFontWeight},
@@ -87,8 +89,13 @@ pub struct Breadcrumb {
     pub breadcrumb_state: BreadcrumbStateWrapper,
     /// The crumb labels, in order (the last is the current, non-clickable page).
     pub labels: StringVec,
-    /// Style for the row container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the row container, or `None` for "no opinion" — in which case
+    /// the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -185,10 +192,22 @@ impl Breadcrumb {
         Self {
             breadcrumb_state: BreadcrumbStateWrapper::default(),
             labels,
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                BREADCRUMB_CONTAINER_STYLE,
-            ),
+            container_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The container CSS this breadcrumb renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(BREADCRUMB_CONTAINER_STYLE)
+            })
     }
 
     #[inline]
@@ -232,6 +251,8 @@ impl Breadcrumb {
         };
 
         let count = self.labels.as_ref().len();
+        // Resolved before `self.breadcrumb_state` is moved out below.
+        let container_style = self.resolved_container_style();
 
         // One shared RefAny across every crumb callback (RefAny::clone shares the
         // underlying state — same pattern as segmented/tabs/map).
@@ -295,7 +316,7 @@ impl Breadcrumb {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -610,7 +631,7 @@ mod autotest_generated {
                 "create must not install a callback"
             );
             assert_eq!(
-                bc.container_style.as_ref(),
+                bc.resolved_container_style().as_ref(),
                 BREADCRUMB_CONTAINER_STYLE,
                 "create must use the shared const container style"
             );
@@ -750,7 +771,8 @@ mod autotest_generated {
             "installing a callback must not disturb the labels"
         );
         assert_eq!(
-            after.container_style, before.container_style,
+            after.resolved_container_style(),
+            before.resolved_container_style(),
             "installing a callback must not disturb the container style"
         );
         assert_eq!(after.breadcrumb_state.inner.selected_index, 0);
@@ -1002,7 +1024,10 @@ mod autotest_generated {
     #[test]
     fn dom_carries_the_container_style_through() {
         let bc = Breadcrumb::create(labels(&["a", "b"]));
-        assert_eq!(bc.container_style.as_ref(), BREADCRUMB_CONTAINER_STYLE);
+        assert_eq!(
+            bc.resolved_container_style().as_ref(),
+            BREADCRUMB_CONTAINER_STYLE
+        );
 
         let dom = bc.dom();
         assert!(dom.root.has_class("__azul-native-breadcrumb"));

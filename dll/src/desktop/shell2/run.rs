@@ -57,18 +57,17 @@ use std::{
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::common::debug_server;
-use super::common::debug_server::LogCategory;
-use super::common::event::PlatformWindow;
-use super::common::event::SharedUndoManager;
-use crate::{log_debug, log_error, log_info, log_trace};
-
-use super::common::WindowError;
+use super::common::{
+    debug_server,
+    debug_server::LogCategory,
+    event::{PlatformWindow, SharedUndoManager},
+    WindowError,
+};
 #[cfg(target_os = "macos")]
 use super::macos::MacOSWindow;
+use crate::{log_debug, log_error, log_info, log_trace};
 
 /// Resolve the rendering backend from env vars and config.
 fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
@@ -193,8 +192,8 @@ pub(crate) fn warn_about_inert_env_knobs() {
     for (var, compiled, feature, how) in gated {
         if !compiled && std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
             eprintln!(
-                "[azul] {var} is set but this build has no `{feature}` feature, so it \
-                 does NOTHING. Rebuild with: {how}"
+                "[azul] {var} is set but this build has no `{feature}` feature, so it does \
+                 NOTHING. Rebuild with: {how}"
             );
         }
     }
@@ -336,16 +335,19 @@ fn setup_e2e_runner(test_file: &str) {
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     eprintln!(
-                        "\nerror: E2E run ended before the tests reported — the window \
-                         closed (lost display connection, protocol error, or a panic in \
-                         the event loop). This is NOT a timeout; nothing waited."
+                        "\nerror: E2E run ended before the tests reported — the window closed \
+                         (lost display connection, protocol error, or a panic in the event loop). \
+                         This is NOT a timeout; nothing waited."
                     );
                     std::process::exit(1);
                 }
             };
 
             let results = match response {
-                DebugResponseData::Ok { data: Some(ResponseData::E2eResults(r)), .. } => r.results,
+                DebugResponseData::Ok {
+                    data: Some(ResponseData::E2eResults(r)),
+                    ..
+                } => r.results,
                 DebugResponseData::Ok { .. } => {
                     eprintln!("\nerror: unexpected response (no E2eResults)");
                     std::process::exit(1);
@@ -370,28 +372,39 @@ fn setup_e2e_runner(test_file: &str) {
             let mut gate_failures = Vec::new(); // things that fail the gate (FAIL + XPASS)
 
             for result in &results {
-                let expects_fail = expect_map
-                    .get(&result.name)
-                    .and_then(|e| e.as_deref())
-                    == Some("fail");
+                let expects_fail =
+                    expect_map.get(&result.name).and_then(|e| e.as_deref()) == Some("fail");
                 let raw_pass = result.status == "pass";
 
                 match (raw_pass, expects_fail) {
                     (true, false) => {
-                        eprintln!("test {} ... \x1b[32mPASS\x1b[0m ({} ms)", result.name, result.duration_ms);
+                        eprintln!(
+                            "test {} ... \x1b[32mPASS\x1b[0m ({} ms)",
+                            result.name, result.duration_ms
+                        );
                         passed += 1;
                     }
                     (false, false) => {
-                        eprintln!("test {} ... \x1b[31mFAIL\x1b[0m ({} ms)", result.name, result.duration_ms);
+                        eprintln!(
+                            "test {} ... \x1b[31mFAIL\x1b[0m ({} ms)",
+                            result.name, result.duration_ms
+                        );
                         failed += 1;
                         gate_failures.push((result, "FAIL"));
                     }
                     (false, true) => {
-                        eprintln!("test {} ... \x1b[33mXFAIL\x1b[0m ({} ms) (expected failure)", result.name, result.duration_ms);
+                        eprintln!(
+                            "test {} ... \x1b[33mXFAIL\x1b[0m ({} ms) (expected failure)",
+                            result.name, result.duration_ms
+                        );
                         xfail += 1;
                     }
                     (true, true) => {
-                        eprintln!("test {} ... \x1b[31mXPASS\x1b[0m ({} ms) (unexpectedly passed — remove the \"expect\":\"fail\" marker)", result.name, result.duration_ms);
+                        eprintln!(
+                            "test {} ... \x1b[31mXPASS\x1b[0m ({} ms) (unexpectedly passed — \
+                             remove the \"expect\":\"fail\" marker)",
+                            result.name, result.duration_ms
+                        );
                         xpass += 1;
                         gate_failures.push((result, "XPASS"));
                     }
@@ -405,7 +418,10 @@ fn setup_e2e_runner(test_file: &str) {
                 for (f, verdict) in &gate_failures {
                     eprintln!("---- {} ({}) ----", f.name, verdict);
                     if *verdict == "XPASS" {
-                        eprintln!("  test passed but is marked \"expect\":\"fail\" — the bug it guards is fixed; remove the marker");
+                        eprintln!(
+                            "  test passed but is marked \"expect\":\"fail\" — the bug it guards \
+                             is fixed; remove the marker"
+                        );
                     }
                     for step in &f.steps {
                         if step.status == "fail" {
@@ -427,9 +443,14 @@ fn setup_e2e_runner(test_file: &str) {
             }
 
             let gate_failed = failed + xpass > 0;
-            let word = if gate_failed { "\x1b[31mFAILED\x1b[0m" } else { "\x1b[32mok\x1b[0m" };
+            let word = if gate_failed {
+                "\x1b[31mFAILED\x1b[0m"
+            } else {
+                "\x1b[32mok\x1b[0m"
+            };
             eprintln!(
-                "test result: {}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 measured; 0 filtered out\n",
+                "test result: {}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 \
+                 measured; 0 filtered out\n",
                 word, passed, failed, xfail, xpass
             );
 
@@ -458,16 +479,18 @@ fn run_headless(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
-    use super::headless::HeadlessWindow;
-    use azul_core::icon::SharedIconProvider;
     use std::cell::RefCell;
+
+    use azul_core::icon::SharedIconProvider;
+
+    use super::headless::HeadlessWindow;
 
     log_info!(
         LogCategory::EventLoop,
@@ -596,13 +619,14 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
-        "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
+        "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, \
+         AZ_LOG=trace for everything)",
         std::env::var("AZ_BACKEND").ok()
     );
 
@@ -664,14 +688,13 @@ pub fn run(
         );
     }
 
-    use azul_core::icon::SharedIconProvider;
-    use azul_core::resources::AppTerminationBehavior;
+    use azul_core::{icon::SharedIconProvider, resources::AppTerminationBehavior};
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
 
     debug_server::log(
         debug_server::LogLevel::Info,
-        debug_server::LogCategory::EventLoop,
+        LogCategory::EventLoop,
         "Starting macOS event loop setup",
         None,
     );
@@ -691,7 +714,7 @@ pub fn run(
 
         debug_server::log(
             debug_server::LogLevel::Debug,
-            debug_server::LogCategory::EventLoop,
+            LogCategory::EventLoop,
             "Got MainThreadMarker",
             None,
         );
@@ -727,7 +750,7 @@ pub fn run(
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
             debug_server::LogLevel::Info,
-            debug_server::LogCategory::Window,
+            LogCategory::Window,
             "Creating MacOSWindow...",
             None,
         );
@@ -745,7 +768,7 @@ pub fn run(
         )?;
         debug_server::log(
             debug_server::LogLevel::Info,
-            debug_server::LogCategory::Window,
+            LogCategory::Window,
             "MacOSWindow created successfully",
             None,
         );
@@ -754,14 +777,13 @@ pub fn run(
         //
         // AFTER the first window, not before, for two reasons that both bit:
         //
-        // 1. It needs the app's real `FontManager`, and that lives on the
-        //    window's `LayoutWindow`. Building a fresh one here means a second,
-        //    disconnected font universe (see `tray_icon::render_icon_to_rgba`).
-        // 2. The font registry scans in a BACKGROUND thread, and `fc_cache` is
-        //    only snapshotted from it at layout time. Rendering an icon before
-        //    the first layout therefore shapes against an empty/partial font
-        //    set, which comes out as a `.notdef` tofu box rather than as a
-        //    visible failure.
+        // 1. It needs the app's real `FontManager`, and that lives on the window's `LayoutWindow`.
+        //    Building a fresh one here means a second, disconnected font universe (see
+        //    `tray_icon::render_icon_to_rgba`).
+        // 2. The font registry scans in a BACKGROUND thread, and `fc_cache` is only snapshotted
+        //    from it at layout time. Rendering an icon before the first layout therefore shapes
+        //    against an empty/partial font set, which comes out as a `.notdef` tofu box rather than
+        //    as a visible failure.
         //
         // By this point the window has laid out once, so the manager is warm.
         // The app/Dock icon uses the SAME resolved manager as the tray, for the
@@ -782,7 +804,7 @@ pub fn run(
                     fm,
                 );
                 log_debug!(
-                    debug_server::LogCategory::Resources,
+                    LogCategory::Resources,
                     "[app-icon] {:?} -> {:?}",
                     spec.as_str(),
                     outcome
@@ -827,7 +849,7 @@ pub fn run(
                 }
                 None => {
                     log_debug!(
-                        debug_server::LogCategory::Resources,
+                        LogCategory::Resources,
                         "[tray] no font manager available; tray not installed"
                     );
                 }
@@ -879,7 +901,7 @@ pub fn run(
                 // This blocks until the app is explicitly terminated (Cmd+Q or quit menu)
                 debug_server::log(
                     debug_server::LogLevel::Info,
-                    debug_server::LogCategory::EventLoop,
+                    LogCategory::EventLoop,
                     "Using NSApplication.run() - app will stay in dock when windows close",
                     None,
                 );
@@ -922,7 +944,7 @@ pub fn run(
                             window.process_accessibility_actions();
 
                             while let Some(pending_create) = window.pending_window_creates.pop() {
-                                match super::macos::MacOSWindow::new_with_fc_cache(
+                                match MacOSWindow::new_with_fc_cache(
                                     pending_create,
                                     app_data.clone(),
                                     undo_manager.clone(),
@@ -951,7 +973,7 @@ pub fn run(
                                     },
                                     Err(e) => {
                                         log_error!(
-                                            debug_server::LogCategory::Window,
+                                            LogCategory::Window,
                                             "[macOS] Failed to create window: {:?}",
                                             e
                                         );
@@ -991,7 +1013,7 @@ pub fn run(
                 {
                     debug_server::log(
                         debug_server::LogLevel::Info,
-                        debug_server::LogCategory::EventLoop,
+                        LogCategory::EventLoop,
                         "Using manual event loop - will return to main() when all windows close",
                         None,
                     );
@@ -999,7 +1021,7 @@ pub fn run(
                 } else {
                     debug_server::log(
                         debug_server::LogLevel::Info,
-                        debug_server::LogCategory::EventLoop,
+                        LogCategory::EventLoop,
                         "Using manual event loop - will exit process when all windows close",
                         None,
                     );
@@ -1014,7 +1036,8 @@ pub fn run(
                         pump_tray_into_windows();
 
                         // --- Drain pending native events (non-blocking) ---
-                        // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
+                        // We need to dispatch events BOTH to the system (sendEvent) and to our
+                        // handlers
                         loop {
                             let event = unsafe {
                                 app.nextEventMatchingMask_untilDate_inMode_dequeue(
@@ -1026,8 +1049,9 @@ pub fn run(
                             };
 
                             if let Some(event) = event {
-                                // First, dispatch to our window handlers for scroll wheel, gestures, etc.
-                                // Find the target window and dispatch the event
+                                // First, dispatch to our window handlers for scroll wheel,
+                                // gestures, etc. Find the target
+                                // window and dispatch the event
                                 let window_ptrs = super::macos::registry::get_all_window_ptrs();
                                 for wptr in &window_ptrs {
                                     unsafe {
@@ -1062,14 +1086,14 @@ pub fn run(
                             match config.termination_behavior {
                                 AppTerminationBehavior::ReturnToMain => {
                                     log_info!(
-                                        debug_server::LogCategory::EventLoop,
+                                        LogCategory::EventLoop,
                                         "[macOS] All windows closed, returning to main()"
                                     );
                                     return;
                                 }
                                 AppTerminationBehavior::EndProcess => {
                                     log_info!(
-                                        debug_server::LogCategory::EventLoop,
+                                        LogCategory::EventLoop,
                                         "[macOS] All windows closed, terminating process"
                                     );
                                     std::process::exit(0);
@@ -1102,7 +1126,7 @@ pub fn run(
                                 while let Some(pending_create) = window.pending_window_creates.pop()
                                 {
                                     log_debug!(
-                                        debug_server::LogCategory::Window,
+                                        LogCategory::Window,
                                         "[macOS] Creating new window from queue (type: {:?})",
                                         pending_create.window_state.flags.window_type
                                     );
@@ -1141,11 +1165,15 @@ pub fn run(
                                             // Request initial redraw
                                             (*new_window_ptr).request_redraw();
 
-                                            log_debug!(debug_server::LogCategory::Window, "[macOS] Successfully created and registered new window");
+                                            log_debug!(
+                                                LogCategory::Window,
+                                                "[macOS] Successfully created and registered new \
+                                                 window"
+                                            );
                                         }
                                         Err(e) => {
                                             log_error!(
-                                                debug_server::LogCategory::Window,
+                                                LogCategory::Window,
                                                 "[macOS] Failed to create window: {:?}",
                                                 e
                                             );
@@ -1466,7 +1494,8 @@ pub fn run(
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
-        "[Windows] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
+        "[Windows] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, \
+         AZ_LOG=trace for everything)",
         std::env::var("AZ_BACKEND").ok()
     );
     use std::cell::RefCell;
@@ -1632,15 +1661,13 @@ pub fn run(
 
         // --- Drain the THREAD queue (hwnd filter = NULL) ---
         // The per-window peeks above cannot see two whole classes of message:
-        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which is
-        //     associated with no window at all — the `msg.message == WM_QUIT`
-        //     test above could therefore never be true, so a PostQuitMessage
-        //     from user or library code never terminated this loop (masked
-        //     only because exit normally happens via registry::is_empty()).
-        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL),
-        //     which stayed in the queue forever and, being "available", also
-        //     defeat the WaitMessage() below — a spin at the bottom of the
-        //     loop rather than a block.
+        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which is associated with no
+        //     window at all — the `msg.message == WM_QUIT` test above could therefore never be
+        //     true, so a PostQuitMessage from user or library code never terminated this loop
+        //     (masked only because exit normally happens via registry::is_empty()).
+        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL), which stayed in the
+        //     queue forever and, being "available", also defeat the WaitMessage() below — a spin at
+        //     the bottom of the loop rather than a block.
         // An hwnd filter of NULL retrieves messages for any window on this
         // thread PLUS thread messages, which is exactly the remainder.
         //
@@ -1919,7 +1946,8 @@ pub fn run(
     // "just exits": which display server we'll try, and whether the session
     // env even points at one. Routes to stderr via the default logger.
     crate::plog_info!(
-        "[Linux] run() entry — AZ_BACKEND={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} XDG_SESSION_TYPE={:?}",
+        "[Linux] run() entry — AZ_BACKEND={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} \
+         XDG_SESSION_TYPE={:?}",
         std::env::var("AZ_BACKEND").ok(),
         std::env::var("WAYLAND_DISPLAY").ok(),
         std::env::var("DISPLAY").ok(),
@@ -2121,8 +2149,9 @@ pub fn run(
         {
             let tray_callbacks = crate::desktop::tray::pump_tray();
             if !tray_callbacks.is_empty() {
-                use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
                 use azul_core::events::ProcessEventResult;
+
+                use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
                 if let Some(win_ptr) = window_ids
                     .first()
                     .and_then(|wid| unsafe { registry::get_window(*wid) })
@@ -2253,7 +2282,12 @@ pub fn run(
                                         registry::register_window(new_window_id, new_window_ptr);
                                     }
 
-                                    log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new X11 window (ID: {})", new_window_id);
+                                    log_debug!(
+                                        debug_server::LogCategory::Window,
+                                        "[Linux] Successfully created and registered new X11 \
+                                         window (ID: {})",
+                                        new_window_id
+                                    );
 
                                     // Request initial redraw
                                     unsafe {
@@ -2336,7 +2370,12 @@ pub fn run(
                                         registry::register_window(new_window_id, new_window_ptr);
                                     }
 
-                                    log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new Wayland window (ID: {})", new_window_id);
+                                    log_debug!(
+                                        debug_server::LogCategory::Window,
+                                        "[Linux] Successfully created and registered new Wayland \
+                                         window (ID: {})",
+                                        new_window_id
+                                    );
 
                                     // Request initial redraw
                                     unsafe {
@@ -2509,8 +2548,9 @@ fn pump_tray_into_windows() {
         return;
     }
 
-    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
     use azul_core::events::ProcessEventResult;
+
+    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
 
     let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
     match window_ptrs.first() {
@@ -2525,7 +2565,7 @@ fn pump_tray_into_windows() {
             // than dropping a user's callback in silence; `run_tray_only` uses
             // a HeadlessWindow instead and never reaches this branch.
             log_debug!(
-                debug_server::LogCategory::Callbacks,
+                LogCategory::Callbacks,
                 "[tray] {} menu callback(s) had no window to run against",
                 tray_callbacks.len()
             );
@@ -2548,12 +2588,13 @@ fn pump_tray_into_windows() {
 /// so the decision belongs to the caller.
 #[cfg(target_os = "macos")]
 #[must_use]
-fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindow>(
+fn invoke_tray_callbacks<W: PlatformWindow>(
     window: &mut W,
     callbacks: Vec<azul_core::menu::CoreMenuCallback>,
 ) -> bool {
-    use crate::desktop::shell2::common::event::MenuInvocation;
     use azul_core::events::ProcessEventResult;
+
+    use crate::desktop::shell2::common::event::MenuInvocation;
 
     let mut needs_redraw = false;
     for cb in callbacks {
@@ -2580,17 +2621,15 @@ fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindo
 ///
 /// Two things make a windowless app work:
 ///
-/// * **`NSApplicationActivationPolicy::Accessory`** - the runtime equivalent of
-///   `LSUIElement` in an Info.plist. No Dock tile, no application menu bar. A
-///   `Regular` app with no windows is a worse experience than a window: it owns
-///   the menu bar and shows a Dock icon that does nothing. (This also means an
-///   app icon set via `set_app_icon` has nowhere to appear - there is no Dock
-///   tile to draw it on.)
-/// * **A `HeadlessWindow` as the callback context.** A `CallbackInfo` is built
-///   from a window, so a tray menu callback needs one even though the click came
-///   from an item belonging to no window. The headless stub provides the
-///   `LayoutWindow` and state without creating an OS window, and it shares the
-///   app-level font pools like every other consumer.
+/// * **`NSApplicationActivationPolicy::Accessory`** - the runtime equivalent of `LSUIElement` in an
+///   Info.plist. No Dock tile, no application menu bar. A `Regular` app with no windows is a worse
+///   experience than a window: it owns the menu bar and shows a Dock icon that does nothing. (This
+///   also means an app icon set via `set_app_icon` has nowhere to appear - there is no Dock tile to
+///   draw it on.)
+/// * **A `HeadlessWindow` as the callback context.** A `CallbackInfo` is built from a window, so a
+///   tray menu callback needs one even though the click came from an item belonging to no window.
+///   The headless stub provides the `LayoutWindow` and state without creating an OS window, and it
+///   shares the app-level font pools like every other consumer.
 ///
 /// The event loop is `NSApplication::run`, which does not require any window;
 /// a repeating timer drains tray clicks, exactly as the windowed path does.
@@ -2603,7 +2642,7 @@ pub fn run_tray_only(
     font_registry: Option<Arc<FcFontRegistry>>,
     tray: azul_core::tray::TrayIconData,
     font_manager: Option<
-        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;

@@ -12,26 +12,25 @@
 //! write, no full `layout()`, no DOM diff - in three steps:
 //!
 //! 1. The app stamps a MARKER string on the widget's root during `layout()`
-//!    (`ProgressBar::dom().with_marker(...)`) and keeps the same string in the
-//!    RefAny of the callback that wants to drive the bar.
-//! 2. The callback resolves the marker to the node:
-//!    `CallbackInfo::get_node_id_by_marker`.
-//! 3. It calls [`ProgressBar::update_progress`] with that node id - which
-//!    downcasts the widget's PRIVATE dataset (the caller never sees the type),
-//!    stores the new percentage, and triggers
-//!    `CallbackInfo::trigger_virtual_view_rerender` on the node. The framework
-//!    re-invokes ONLY this widget's `VirtualView` callback in place; the
-//!    resulting DOM is restyled/relaid out inside the existing bounds and the
-//!    damage rect covers just the bar.
+//!    (`ProgressBar::dom().with_marker(...)`) and keeps the same string in the RefAny of the
+//!    callback that wants to drive the bar.
+//! 2. The callback resolves the marker to the node: `CallbackInfo::get_node_id_by_marker`.
+//! 3. It calls [`ProgressBar::update_progress`] with that node id - which downcasts the widget's
+//!    PRIVATE dataset (the caller never sees the type), stores the new percentage, and triggers
+//!    `CallbackInfo::trigger_virtual_view_rerender` on the node. The framework re-invokes ONLY this
+//!    widget's `VirtualView` callback in place; the resulting DOM is restyled/relaid out inside the
+//!    existing bounds and the damage rect covers just the bar.
 //!
 //! The heavy path stays valid: store the value in the app data model, return
 //! `Update::RefreshDom`, and the full `layout()` + DOM diff repaints the bar
 //! like any other widget.
 
-use azul_core::callbacks::{VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{Dom, DomNodeId, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_core::geom::{LogicalPosition, LogicalRect};
-use azul_core::refany::RefAny;
+use azul_core::{
+    callbacks::{VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{Dom, DomNodeId, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    geom::{LogicalPosition, LogicalRect},
+    refany::RefAny,
+};
 use azul_css::css::BoxOrStatic;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -48,7 +47,7 @@ use azul_css::{
 
 use crate::callbacks::CallbackInfo;
 
-const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
+pub const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -59,7 +58,7 @@ const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundConte
             LINEAR_COLOR_STOP_12009347504665939_ITEMS,
         ),
     })];
-const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
+pub const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -70,7 +69,7 @@ const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundCont
             LINEAR_COLOR_STOP_3104396762583413726_ITEMS,
         ),
     })];
-const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
+pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
@@ -135,7 +134,7 @@ const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = 
         }),
     },
 ];
-const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
+pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
@@ -209,6 +208,7 @@ pub struct ProgressBar {
     pub height: PixelValue,
     pub bar_background: StyleBackgroundContentVec,
     pub container_background: StyleBackgroundContentVec,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Internal state for a [`ProgressBar`], tracking completion percentage.
@@ -225,8 +225,8 @@ pub struct ProgressBarState {
 /// API - the "`RefAny` datasets are private to the widget module" rule from
 /// `architecture.md`.
 #[derive(Debug)]
-struct ProgressBarLocalDataset {
-    bar: ProgressBar,
+pub struct ProgressBarLocalDataset {
+    pub bar: ProgressBar,
 }
 
 impl ProgressBar {
@@ -245,6 +245,9 @@ impl ProgressBar {
             ),
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
+            ),
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
             ),
         }
     }
@@ -293,57 +296,34 @@ impl ProgressBar {
     /// (`Self::render_bar`) into the node's bounds. The node carries the
     /// widget's private dataset so [`update_progress`](Self::update_progress)
     /// can find and mutate it later - see the module docs for the fast path.
-    #[must_use]
-    pub fn dom(self) -> Dom {
-        // The VV node itself must have a DEFINITE height: the callback's DOM
-        // is laid out INSIDE the node's bounds, it can never size the node.
-        let height = self.height;
-        let dataset = RefAny::new(ProgressBarLocalDataset { bar: self });
-        Dom::create_virtual_view(
-            dataset.clone(),
-            azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
-        )
-            .with_dataset(Some(dataset).into())
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight::Px(height),
-                ))),
-                // A VirtualView lays out like a REPLACED element: without an
-                // explicit width it takes the 300px intrinsic default instead
-                // of stretching to its parent (found 2026-08-29: a 140px-wide
-                // meter rendered a 300px bar, clipped at the window edge, so
-                // 50% read as ~93%). 100% = fill whatever box the app gives.
-                CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-                    LayoutWidth::Px(PixelValue::percent(100.0)),
-                ))),
-                // materialized == bounds, so nothing ever overflows - this
-                // just guarantees the VirtualView machinery never decides to
-                // show a scrollbar on a progress bar.
-                CssPropertyWithConditions::simple(CssProperty::OverflowX(
-                    LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::OverflowY(
-                    LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
-                )),
-            ]))
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
 
-    /// Update the percentage of the progress bar at `node_id` - the WIDGET
-    /// half of the inter-widget fast path (module docs).
-    ///
-    /// `node_id` is the widget's root node, typically resolved from another
-    /// callback via `CallbackInfo::get_node_id_by_marker`. The bar's private
-    /// dataset is downcast INSIDE this function, the new value stored, and the
-    /// node's `VirtualView` re-render queued
-    /// (`CallbackInfo::trigger_virtual_view_rerender`) - so only this widget
-    /// re-renders, inside its existing bounds, with a damage rect of just the
-    /// bar. No full `layout()`, no DOM diff, no app-data-model round trip.
-    ///
-    /// Returns `false` (and changes nothing) when `node_id` does not name a
-    /// live progress-bar node: no layout result, no dataset, or a dataset of
-    /// some other widget's type. The value is stored raw like
-    /// [`create`](Self::create) does; `dom()`-side clamping applies when the
-    /// bar renders.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+        self
+    }
+
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        let theme = self
+            .theme
+            .into_option()
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+        match theme {
+            crate::widgets::themes::UiTheme::Flat => {
+                crate::widgets::themes::flat::progressbar(self)
+            }
+            crate::widgets::themes::UiTheme::Flora => {
+                crate::widgets::themes::flora::progressbar(self)
+            }
+        }
+    }
+
     pub fn update_progress(info: &mut CallbackInfo, node_id: DomNodeId, percent_done: f32) -> bool {
         let Some(mut dataset) = info.get_dataset(node_id) else {
             return false;
@@ -372,471 +352,19 @@ impl ProgressBar {
     /// embedding in a context that manages its own updates.
     #[must_use]
     pub fn render_bar(self) -> Dom {
-        render_bar_impl(self, None)
-    }
-}
-
-/// The render core behind [`ProgressBar::render_bar`] (percentage widths,
-/// `bounds_px: None`) and the `VirtualView` callback (absolute pixel sizes
-/// computed from the node's known bounds, `Some((width, height))`).
-///
-/// The split exists because the two contexts size differently. Percentages
-/// inside a `VirtualView` DO resolve correctly against the view's bounds
-/// (the child DOM lays out against its own viewport - it briefly resolved
-/// against the WINDOW, fixed 2026-08-29, pinned by
-/// `a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window`),
-/// but the bounds mode stays PIXEL-based for what percentages cannot
-/// express: the container is sized to `bounds - 2px borders` so its 1px
-/// border ring lands INSIDE the box - with the normal-flow sizing (content
-/// height + borders) the ring overflowed the VV node and was clipped away
-/// at the right and bottom ("oddly cut off", user report 2026-08-29) - and
-/// the fill is an exact device-pixel split of the known content width.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use]
-fn render_bar_impl(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
-    {
-        use azul_core::dom::DomVec;
-
-        let this = bar;
-        let percent_done = this.progressbar_state.percent_done.clamp(0.0, 100.0);
-        // Sizes resolved per context (see fn docs). The bounds branch
-        // subtracts the container's 1px border ring so children + borders
-        // exactly fill the VV box.
-        let (bar_width, remaining_width) = match bounds_px {
-            Some((w, _)) => {
-                let inner = (w - 2.0).max(0.0);
-                let filled = inner * percent_done / 100.0;
-                (PixelValue::px(filled), PixelValue::px(inner - filled))
+        let theme = self
+            .theme
+            .into_option()
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+        match theme {
+            crate::widgets::themes::UiTheme::Flat => {
+                crate::widgets::themes::flat::progressbar_render_bar_impl(self, None)
             }
-            None => (
-                PixelValue::percent(percent_done),
-                PixelValue::percent(100.0 - percent_done),
-            ),
-        };
-        let container_height = match bounds_px {
-            Some((_, h)) => PixelValue::px((h - 2.0).max(0.0)),
-            None => this.height,
-        };
-
-        let mut container_props = vec![
-                // .__azul-native-progress-bar-container
-                CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight::Px(container_height),
-                ))),
-                // `display: flex` is LOAD-BEARING: azul's default display is
-                // BLOCK, so `flex-direction: row` alone stacks the two
-                // children as full-width, zero-height block boxes - the fill
-                // never painted anywhere the widget was used (found 2026-08-29
-                // via the azpaint pressure meter; also the real culprit behind
-                // the "inline-width meter never repaints" ledger entry).
-                CssPropertyWithConditions::simple(CssProperty::Display(
-                    LayoutDisplayValue::Exact(LayoutDisplay::Flex),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::FlexDirection(
-                    LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        offset_y: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        color: ColorU {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 9,
-                        },
-                        blur_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(15),
-                        },
-                        spread_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(2),
-                        },
-                        clip_mode: BoxShadowClipMode::Inset,
-                    })),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        offset_y: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        color: ColorU {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 9,
-                        },
-                        blur_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(15),
-                        },
-                        spread_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(2),
-                        },
-                        clip_mode: BoxShadowClipMode::Inset,
-                    })),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        offset_y: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        color: ColorU {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 9,
-                        },
-                        blur_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(15),
-                        },
-                        spread_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(2),
-                        },
-                        clip_mode: BoxShadowClipMode::Inset,
-                    })),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                    StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        offset_y: PixelValueNoPercent {
-                            inner: PixelValue::const_px(0),
-                        },
-                        color: ColorU {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 9,
-                        },
-                        blur_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(15),
-                        },
-                        spread_radius: PixelValueNoPercent {
-                            inner: PixelValue::const_px(2),
-                        },
-                        clip_mode: BoxShadowClipMode::Inset,
-                    })),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-                    StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-                    StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-                    StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-                    StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-                        inner: PixelValue::const_px(3),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-                    LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-                    LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-                    LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-                    LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                        inner: PixelValue::const_px(1),
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-                    StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-                    StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-                    StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-                    StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                        inner: BorderStyle::Solid,
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-                    StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-                    StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-                    StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-                    StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                        inner: ColorU {
-                            r: 178,
-                            g: 178,
-                            b: 178,
-                            a: 255,
-                        },
-                    }),
-                )),
-                CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                    StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
-                )),
-        ];
-        if let Some((w, _)) = bounds_px {
-            container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
-                LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px((w - 2.0).max(0.0)))),
-            )));
+            crate::widgets::themes::UiTheme::Flora => {
+                crate::widgets::themes::flora::progressbar_render_bar_impl(self, None)
+            }
         }
-
-        Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(container_props))
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_10874511710181900075: &[IdOrClass] = &[Class(
-                    AzString::from_const_str("__azul-native-progress-bar-container"),
-                )];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10874511710181900075)
-            })
-            // For a progress bar the VALUE is the content: two coloured divs
-            // say nothing to a screen reader, "75%" says everything. Published
-            // on every build so it tracks the bar; a callback that moves the
-            // bar live without a rebuild keeps it current with
-            // `CallbackInfo::set_accessibility_value` on this node.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::ProgressBar,
-                accessibility_value: Some(AzString::from(alloc::format!(
-                    "{:.0}%",
-                    // NaN clamps to NaN and would read "NaN%"; an unknown
-                    // value announces as empty, like the bar it draws.
-                    if percent_done.is_finite() { percent_done } else { 0.0 }
-                )))
-                .into(),
-                ..Default::default()
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-progress-bar-bar
-                        // Use percentage width instead of flex-grow hack
-                        CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(bar_width)),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-                            StyleBorderBottomRightRadiusValue::Exact(
-                                StyleBorderBottomRightRadius {
-                                    inner: PixelValue::const_px(1),
-                                },
-                            ),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-                            StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-                            StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-                            StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                            StyleBackgroundContentVecValue::Exact(this.bar_background),
-                        )),
-                    ]))
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_16512648314570682783: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-progress-bar-bar"),
-                        )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16512648314570682783)
-                    }),
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-progress-bar-remaining
-                        // Use percentage width for the remaining space
-                        CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(remaining_width)),
-                        )),
-                    ]))
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2492405364126620395: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-progress-bar-remaining"),
-                        )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2492405364126620395)
-                    }),
-            ]))
     }
-}
-
-/// The widget's `VirtualView` callback: render the CURRENT state of the bar
-/// into the node's bounds. Invoked on mount and again every time
-/// [`ProgressBar::update_progress`] queues a re-render.
-///
-/// The bar is not scrollable content, so all three rects collapse to one:
-/// `materialized` == `virtual_rect` == the container's box at origin zero.
-extern "C" fn progressbar_render_virtual_view(
-    mut data: RefAny,
-    info: VirtualViewCallbackInfo,
-) -> VirtualViewReturn {
-    let Some(state) = data.downcast_ref::<ProgressBarLocalDataset>() else {
-        // Foreign payload: render nothing rather than lying about bounds.
-        return VirtualViewReturn::default();
-    };
-    let size = info.bounds.get_logical_size();
-    let rect = LogicalRect::new(LogicalPosition::zero(), size);
-    // Clone-per-render is two enum copies + an `AzString`-less state copy; the
-    // backgrounds are either `&'static` (shared, no alloc) or a caller-owned
-    // heap vec that must be preserved for the NEXT render anyway. Pixel
-    // widths, not percentages: the callback knows its bounds (see
-    // `render_bar_impl`).
-    VirtualViewReturn::with_dom(
-        render_bar_impl(state.bar.clone(), Some((size.width, size.height))),
-        rect,
-        rect,
-    )
 }
 
 #[cfg(test)]
@@ -1773,9 +1301,12 @@ mod autotest_generated {
             .with_bar_background(solid(1))
             .render_bar();
 
+        // `render_bar()` is the percentage-sized entry point (`bounds_px: None`),
+        // so the container declares no `width` — the VirtualView path, which
+        // sizes in absolute pixels from known bounds, declares one more.
         assert_eq!(
             inline_props(&dom).len(),
-            24,
+            20,
             "the container style block drifted"
         );
         assert_eq!(
@@ -1931,10 +1462,12 @@ mod autotest_generated {
         h: f32,
         f: impl FnOnce(VirtualViewCallbackInfo) -> R,
     ) -> R {
-        use azul_core::callbacks::{HidpiAdjustedBounds, VirtualViewCallbackReason};
-        use azul_core::geom::LogicalSize;
-        use azul_core::resources::{DpiScaleFactor, ImageCache};
-        use azul_core::window::WindowTheme;
+        use azul_core::{
+            callbacks::{HidpiAdjustedBounds, VirtualViewCallbackReason},
+            geom::LogicalSize,
+            resources::{DpiScaleFactor, ImageCache},
+            window::WindowTheme,
+        };
         use rust_fontconfig::FcFontCache;
 
         let fonts = FcFontCache::default();
@@ -1963,13 +1496,13 @@ mod autotest_generated {
 
         assert!(
             dom.root.is_virtual_view_node(),
-            "dom() must mount the bar as a VirtualView, or update_progress has \
-             nothing to re-render"
+            "dom() must mount the bar as a VirtualView, or update_progress has nothing to \
+             re-render"
         );
         assert!(
             kids(&dom).is_empty(),
-            "the wrapper is a LEAF - the bar's tree comes from the VV callback, \
-             never from the outer DOM"
+            "the wrapper is a LEAF - the bar's tree comes from the VV callback, never from the \
+             outer DOM"
         );
 
         let mut ds = dom
@@ -2017,8 +1550,9 @@ mod autotest_generated {
             .expect("a VirtualView node stores its callback + refany");
         let payload = vv.refany.clone();
 
-        let ret =
-            with_virtual_view_info(200.0, 15.0, |info| progressbar_render_virtual_view(payload, info));
+        let ret = with_virtual_view_info(200.0, 15.0, |info| {
+            crate::widgets::themes::flat::progressbar_render_virtual_view(payload, info)
+        });
 
         let rendered = match &ret.dom {
             azul_core::dom::OptionDom::Some(d) => d,
@@ -2066,8 +1600,9 @@ mod autotest_generated {
             .expect("vv node")
             .refany
             .clone();
-        let ret =
-            with_virtual_view_info(100.0, 15.0, |info| progressbar_render_virtual_view(payload, info));
+        let ret = with_virtual_view_info(100.0, 15.0, |info| {
+            crate::widgets::themes::flat::progressbar_render_virtual_view(payload, info)
+        });
 
         let rendered = match &ret.dom {
             azul_core::dom::OptionDom::Some(d) => d,
@@ -2084,7 +1619,7 @@ mod autotest_generated {
     #[test]
     fn virtual_view_callback_rejects_a_foreign_payload() {
         let ret = with_virtual_view_info(100.0, 15.0, |info| {
-            progressbar_render_virtual_view(RefAny::new(0_u8), info)
+            crate::widgets::themes::flat::progressbar_render_virtual_view(RefAny::new(0_u8), info)
         });
         assert!(
             matches!(ret.dom, azul_core::dom::OptionDom::None),

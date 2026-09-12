@@ -11,14 +11,15 @@
 //!
 //! Key types: [`Slider`], [`SliderState`], [`SliderOnValueChange`].
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -36,7 +37,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    solver3::layout_tree::LayoutNodeId,
+};
 
 static SLIDER_TRACK_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-slider"))];
@@ -71,11 +75,25 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Slider {
+    pub theme: crate::widgets::themes::OptionUiTheme,
     pub slider_state: SliderStateWrapper,
     /// Style for the slider track (the horizontal rail).
-    pub track_style: CssPropertyWithConditionsVec,
+    /// Style for the track, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub track_style: OptionCssPropertyWithConditionsVec,
     /// Style for the draggable thumb.
-    pub thumb_style: CssPropertyWithConditionsVec,
+    /// Style for the thumb, or `None` for "no opinion" — in which case the
+    /// geometry (including the `margin-left` that positions it) is derived from
+    /// the current value at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub thumb_style: OptionCssPropertyWithConditionsVec,
     /// What this slider is CALLED, for assistive technology.
     ///
     /// The widget carries it rather than the caller patching the finished
@@ -192,7 +210,8 @@ fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
 
 /// Builds the thumb style; the `margin-left` is the only position-dependent
 /// property and slides the thumb between the left (`min`) and right (`max`) ends.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render
+                                                                        // numeric cast
 fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
     // `fraction` is a bare `f32` with no type-level guard. Its only caller feeds
     // it `value_to_fraction`'s already-clamped output, but the helper must be
@@ -274,26 +293,64 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
+            ),
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
             },
-            track_style: CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE),
-            thumb_style: build_thumb_style(value_to_fraction(value, min, max)),
+            track_style: OptionCssPropertyWithConditionsVec::None,
+            thumb_style: OptionCssPropertyWithConditionsVec::None,
             // Unnamed by default; the caller supplies it with
             // `.with_accessibility_name(..)`, and the widget warns if nobody does.
             accessibility_name: azul_css::OptionString::None,
         }
     }
 
-    /// Sets the current value (clamped to the range), recomputing the thumb position.
+    /// The track CSS this slider renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_track_style(&self) -> CssPropertyWithConditionsVec {
+        self.track_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE))
+    }
+
+    /// The thumb CSS this slider renders with, including the `margin-left` that
+    /// puts the thumb at the current value.
+    ///
+    /// `None` means no opinion, so the value decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_value` no longer rebuilds a style: the thumb's position was cached
+    /// beside the value it is computed from, so a setter that updated one and
+    /// not the other drew the thumb at the wrong place.
+    #[must_use]
+    pub fn resolved_thumb_style(&self) -> CssPropertyWithConditionsVec {
+        self.thumb_style.clone().into_option().unwrap_or_else(|| {
+            let inner = &self.slider_state.inner;
+            build_thumb_style(value_to_fraction(inner.value, inner.min, inner.max))
+        })
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// Sets the current value (clamped to the range).
+    ///
+    /// Does not touch `thumb_style`: the thumb's `margin-left` is resolved from
+    /// the value when the DOM is built.
     #[inline]
     pub fn set_value(&mut self, value: f32) {
         let min = self.slider_state.inner.min;
         let max = self.slider_state.inner.max;
-        let value = clamp_to_range(value, min, max);
-        self.slider_state.inner.value = value;
-        self.thumb_style = build_thumb_style(value_to_fraction(value, min, max));
+        self.slider_state.inner.value = clamp_to_range(value, min, max);
     }
 
     /// Builder-style setter for the current value.
@@ -338,106 +395,22 @@ impl Slider {
 
     #[inline]
     #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+        self
+    }
+
+    #[must_use]
     pub fn dom(self) -> Dom {
-        // Read the value BEFORE the fields are moved into the DOM below.
-        let value_now = self.slider_state.inner.value;
-
-        // The widget KNOWS here whether it was named, because the name is one
-        // of its own fields — so this warning cannot fire on a slider the
-        // caller did name. That is precisely why the field lives on Slider and
-        // not only as a Dom-level patch applied afterwards.
-        let a11y_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name("Slider", a11y_name.is_some());
-
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
-        };
-
-        // One shared RefAny across all pointer callbacks so the transient
-        // `dragging` flag set on press is visible to the move/release handlers
-        // (RefAny::clone shares the underlying data — same pattern as map.rs).
-        let state = RefAny::new(self.slider_state);
-        let mk = |event: EventFilter, cb: usize| CoreCallbackData {
-            event,
-            callback: CoreCallback {
-                cb,
-                ctx: OptionRefAny::None,
-            },
-            refany: state.clone(),
-        };
-        let callbacks = vec![
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseDown),
-                on_slider_pointer_down as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseMove),
-                on_slider_pointer_move as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                on_slider_pointer_up as usize,
-            ),
-            mk(
-                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
-                on_slider_key as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_slider_pointer_leave as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchStart),
-                on_slider_pointer_down as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchMove),
-                on_slider_pointer_move as usize,
-            ),
-            mk(
-                EventFilter::Hover(HoverEventFilter::TouchEnd),
-                on_slider_pointer_up as usize,
-            ),
-        ];
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_TRACK_CLASS))
-            .with_css_props(self.track_style)
-            .with_callbacks(callbacks.into())
-            // The same RefAny as the callbacks' (one allocation), so the
-            // reconciler can carry the interaction state across a parent
-            // rebuild and re-point the fresh callbacks at the merged state —
-            // see `merge_slider_state` for what that saves.
-            .with_dataset(OptionRefAny::Some(state))
-            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
-                merge_slider_state,
-            ))
-            .with_tab_index(TabIndex::Auto)
-            // For a slider the VALUE is the content. Without it a screen reader
-            // announces "slider" and never where the thumb sits, which is the
-            // one thing the control exists to communicate. Published on every
-            // build so it tracks the thumb rather than freezing at construction.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Slider,
-                accessibility_name: a11y_name,
-                // NOTE: no name here on purpose — a slider is a track and a
-                // thumb, with no text to derive one from. The warning below
-                // asks the caller for it.
-
-                accessibility_value: Some(AzString::from(
-                    alloc::format!("{value_now}"),
-                ))
-                .into(),
-                ..Default::default()
-            })
-            .with_children(
-                vec![Dom::create_div()
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_THUMB_CLASS))
-                    .with_css_props(self.thumb_style)]
-                .into(),
-            )
+        match self.theme {
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
+                crate::widgets::themes::flat::slider(self)
+            }
+            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
+                crate::widgets::themes::flora::slider(self)
+            }
+            _ => Dom::create_div(),
+        }
     }
 }
 
@@ -449,7 +422,8 @@ impl Default for Slider {
 
 /// Shared logic for press + drag: compute the value from the cursor's X position
 /// relative to the track, slide the thumb live, and invoke the user callback.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render
+                                                                        // numeric cast
 fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) -> Update {
     let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
         return Update::DoNothing;
@@ -494,12 +468,13 @@ fn commit_value(
     }
 }
 
+#[must_use]
 /// Arrow-key control, so a slider is usable without a mouse: Left/Down step
 /// DOWN and Right/Up step UP, by 1% of the range - or 10% with Ctrl (Cmd on
 /// macOS), the same fine/coarse pair the colour picker uses.
 ///
 /// Commits through `commit_value`, exactly like a drag.
-extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
@@ -541,8 +516,9 @@ extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
     commit_value(&mut slider, &mut info, fraction, width)
 }
 
+#[must_use]
 /// Pointer down → begin a drag and set the value from the press position.
-extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -550,8 +526,9 @@ extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -
     apply_cursor_value(&mut slider, &mut info)
 }
 
+#[must_use]
 /// Pointer move → if a drag is active, track the value to the cursor.
-extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -561,14 +538,16 @@ extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -
     apply_cursor_value(&mut slider, &mut info)
 }
 
+#[must_use]
 /// Pointer up → end the drag.
-extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
     }
     Update::DoNothing
 }
 
+#[must_use]
 /// Pointer leave → end the drag, but only when the pointer left the TRACK.
 ///
 /// Every event bubbles here (`W3C` `mouseleave` does not), so the thumb's own
@@ -579,7 +558,7 @@ extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upd
 /// The callback sees its own node (the track), not the event's origin, so
 /// the cursor decides: still inside the track's rect means the pointer only
 /// left a child.
-extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
         info.get_hit_node_rect(),
@@ -598,6 +577,7 @@ extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> U
     Update::DoNothing
 }
 
+#[must_use]
 /// Carry the interaction state across a parent rebuild.
 ///
 /// A callback that returns `RefreshDom` — the `AzWidgets` demo does, on every
@@ -615,7 +595,7 @@ extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> U
 /// the pointer is up the app's value is the truth again, as for any
 /// controlled widget. The `on_value_change` hook is taken from the FRESH
 /// build so a rebuilt closure/data is honoured.
-extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+pub extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SliderStateWrapper>();
         let old_guard = old_data.downcast_ref::<SliderStateWrapper>();
@@ -687,6 +667,7 @@ mod autotest_generated {
             geometry::PackedBoxProps,
             layout_tree::{LayoutNodeHot, LayoutTree},
         },
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -805,7 +786,7 @@ mod autotest_generated {
 
     /// The thumb offset a freshly built widget declares.
     fn thumb_margin(s: &Slider) -> f32 {
-        margin_left(&s.thumb_style).expect("the thumb style must declare a margin-left")
+        margin_left(&s.resolved_thumb_style()).expect("the thumb style must declare a margin-left")
     }
 
     fn classes(dom: &Dom) -> Vec<String> {
@@ -1406,8 +1387,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "build_thumb_style overflows the isize fixed-point encoding and panics \
-             instead of saturating for: {panicked:?}",
+            "build_thumb_style overflows the isize fixed-point encoding and panics instead of \
+             saturating for: {panicked:?}",
         );
     }
 
@@ -1462,7 +1443,7 @@ mod autotest_generated {
                     max,
                 )));
                 assert_eq!(
-                    margin_left(&s.thumb_style),
+                    margin_left(&s.resolved_thumb_style()),
                     expected,
                     "create({value}, {min}, {max}) put the thumb in the wrong place",
                 );
@@ -1547,8 +1528,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "Slider::create panics (f32::clamp asserts min <= max) instead of \
-             normalising these ranges: {panicked:?}",
+            "Slider::create panics (f32::clamp asserts min <= max) instead of normalising these \
+             ranges: {panicked:?}",
         );
     }
 
@@ -1586,10 +1567,10 @@ mod autotest_generated {
     fn create_track_style_is_shared_and_value_independent() {
         // The rail is parameter-free, so every slider must hand out the very same
         // const table — a per-instance copy would allocate on every rebuild.
-        let reference = properties(&Slider::create(0.0, 0.0, 100.0).track_style);
+        let reference = properties(&Slider::create(0.0, 0.0, 100.0).resolved_track_style());
         for (min, max) in SANE_RANGES {
             assert_eq!(
-                properties(&Slider::create(max, min, max).track_style),
+                properties(&Slider::create(max, min, max).resolved_track_style()),
                 reference,
                 "the track style leaked a dependency on [{min}, {max}]",
             );
@@ -1600,11 +1581,14 @@ mod autotest_generated {
     #[test]
     fn create_track_geometry_is_absolute_px_and_declared_once() {
         let s = Slider::create(50.0, 0.0, 100.0);
-        assert_eq!(width_px(&s.track_style), Some(DESIGN_WIDTH));
-        assert_eq!(height_px(&s.track_style), Some(TRACK_HEIGHT as f32));
-        assert_eq!(background(&s.track_style), Some(RAIL_COLOR));
+        assert_eq!(width_px(&s.resolved_track_style()), Some(DESIGN_WIDTH));
+        assert_eq!(
+            height_px(&s.resolved_track_style()),
+            Some(TRACK_HEIGHT as f32)
+        );
+        assert_eq!(background(&s.resolved_track_style()), Some(RAIL_COLOR));
 
-        let props = properties(&s.track_style);
+        let props = properties(&s.resolved_track_style());
         let mut seen = Vec::new();
         for p in &props {
             let d = discriminant(p);
@@ -1633,6 +1617,11 @@ mod autotest_generated {
 
     #[test]
     fn set_value_clamps_and_moves_the_thumb_together() {
+        // The thumb's `margin-left` used to be cached in `thumb_style` and
+        // rebuilt by `set_value`, so the position and the value it is computed
+        // from were two facts that could disagree. It is resolved from the value
+        // now — `thumb_margin` asks the resolver — which is why this still reads
+        // as one assertion about two things.
         let mut s = Slider::create(0.0, 0.0, 100.0);
         for (input, expected_value) in [
             (50.0_f32, 50.0_f32),
@@ -1693,6 +1682,27 @@ mod autotest_generated {
     }
 
     #[test]
+    fn an_explicit_thumb_style_outranks_the_value() {
+        // `Some` is the caller's answer: a slider handed its own thumb style
+        // keeps it when the value moves, which is the distinction a pre-filled
+        // field could not express.
+        let mut s = Slider::create(0.0, 0.0, 100.0);
+        s.thumb_style = OptionCssPropertyWithConditionsVec::Some(build_thumb_style(0.5));
+        let pinned = margin_left(&build_thumb_style(0.5)).expect("margin");
+
+        s.set_value(100.0);
+        assert_eq!(
+            s.slider_state.inner.value, 100.0,
+            "the value must still move"
+        );
+        assert_eq!(
+            thumb_margin(&s),
+            pinned,
+            "an explicit thumb style must not be recomputed from the value",
+        );
+    }
+
+    #[test]
     fn set_value_is_idempotent() {
         let mut s = Slider::create(0.0, 0.0, 100.0);
         s.set_value(37.5);
@@ -1731,8 +1741,8 @@ mod autotest_generated {
             .collect();
         assert!(
             panicked.is_empty(),
-            "Slider::set_value panics (f32::clamp asserts min <= max) on these \
-             externally-set ranges: {panicked:?}",
+            "Slider::set_value panics (f32::clamp asserts min <= max) on these externally-set \
+             ranges: {panicked:?}",
         );
     }
 
@@ -1891,8 +1901,8 @@ mod autotest_generated {
             record_value as SliderOnValueChangeCallbackType,
         );
         assert_eq!(after.slider_state.inner, before.slider_state.inner);
-        assert_eq!(after.track_style, before.track_style);
-        assert_eq!(after.thumb_style, before.thumb_style);
+        assert_eq!(after.resolved_track_style(), before.resolved_track_style());
+        assert_eq!(after.resolved_thumb_style(), before.resolved_thumb_style());
     }
 
     #[test]
@@ -2064,8 +2074,8 @@ mod autotest_generated {
         let cb_state = &dom.root.callbacks.as_ref()[0].refany;
         assert_eq!(
             dataset.sharing_info.ptr as usize, cb_state.sharing_info.ptr as usize,
-            "dataset and callbacks must share ONE allocation, or the reconciler cannot \
-             re-point the fresh callbacks at the merged state"
+            "dataset and callbacks must share ONE allocation, or the reconciler cannot re-point \
+             the fresh callbacks at the merged state"
         );
         assert!(
             dom.root.get_merge_callback().is_some(),
@@ -2244,11 +2254,36 @@ mod autotest_generated {
 
     #[test]
     fn dom_inlines_the_track_and_thumb_styles_verbatim() {
+        // "Verbatim" up to the theme: on top of what the widget declares, the
+        // theme appends the declarations only it can write — here a dark fill
+        // for each of the two nodes, asserted by the test below. Comparing the
+        // theme-independent half is what isolates the widget's own styling.
         let s = Slider::create(75.0, 0.0, 100.0);
-        let (track_props, thumb_props) = (properties(&s.track_style), properties(&s.thumb_style));
+        let (track_props, thumb_props) = (
+            properties(&s.resolved_track_style()),
+            properties(&s.resolved_thumb_style()),
+        );
         let dom = s.dom();
-        assert_eq!(inline_properties(&dom), track_props);
-        assert_eq!(inline_properties(&dom.children.as_ref()[0]), thumb_props);
+        assert_eq!(theme_probe::unthemed(&dom), track_props);
+        assert_eq!(
+            theme_probe::unthemed(&dom.children.as_ref()[0]),
+            thumb_props
+        );
+    }
+
+    #[test]
+    fn dom_gives_the_track_and_the_thumb_a_dark_mode_fill() {
+        // Without these the slider paints its light grey track and white thumb
+        // straight onto a dark surface.
+        let dom = Slider::create(75.0, 0.0, 100.0).dom();
+        for (what, node) in [("track", &dom), ("thumb", &dom.children.as_ref()[0])] {
+            assert!(
+                theme_probe::dark(node)
+                    .iter()
+                    .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+                "the {what} has no dark fill, so it keeps its light one",
+            );
+        }
     }
 
     #[test]
@@ -2810,5 +2845,4 @@ mod autotest_generated {
         assert!((step(100.0, 0.0, 100.0, 1.0, true) - 100.0).abs() < 1e-4);
         assert!((step(0.0, 0.0, 100.0, -1.0, true) - 0.0).abs() < 1e-4);
     }
-
 }

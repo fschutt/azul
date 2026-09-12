@@ -1,12 +1,12 @@
 //! CSS properties for border style, width, and color.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
 use crate::{
+    corety::AzString,
     css::PrintAsCssValue,
     props::{
         basic::{
@@ -23,7 +23,8 @@ use crate::{
 /// Style of a `border`: solid, double, dash, ridge, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
-// +spec:box-model:28fad6 - Border style variants including groove/ridge/inset/outset for separated/collapsing border models
+// +spec:box-model:28fad6 - Border style variants including groove/ridge/inset/outset for
+// separated/collapsing border models
 #[derive(Default)]
 pub enum BorderStyle {
     #[default]
@@ -115,16 +116,16 @@ macro_rules! define_border_side_property {
                 }
             }
         }
-    }; // NOTE: no separate `PixelValue` specialization arm — the generic
-       // `($struct_name, $inner_type:ty, $default)` arm above already matches
-       // `define_border_side_property!(.., PixelValue, ..)` (PixelValue is a `:ty`),
-       // so a 3-arg PixelValue arm here would be unreachable (unused_macro_rules).
+    }; /* NOTE: no separate `PixelValue` specialization arm — the generic
+        * `($struct_name, $inner_type:ty, $default)` arm above already matches
+        * `define_border_side_property!(.., PixelValue, ..)` (PixelValue is a `:ty`),
+        * so a 3-arg PixelValue arm here would be unreachable (unused_macro_rules). */
 }
 
 // --- Individual Property Structs ---
 
-// +spec:box-model:8c49fe - Border style properties (none, solid, double, dashed, etc.) and border color defaulting to element's color
-// Border Style (border-*-style)
+// +spec:box-model:8c49fe - Border style properties (none, solid, double, dashed, etc.) and border
+// color defaulting to element's color Border Style (border-*-style)
 /// CSS `border-top-style` property (e.g. `solid`, `dashed`, `none`).
 define_border_side_property!(StyleBorderTopStyle, BorderStyle, BorderStyle::None);
 /// CSS `border-right-style` property (e.g. `solid`, `dashed`, `none`).

@@ -23,22 +23,18 @@
 //!
 //! Conventions:
 //!
-//! * The wrapper struct uses the **unprefixed** type name (`App`, not
-//!   `AzApp`). The raw C type stays reachable via `C.AzApp` for users
-//!   who need it.
-//! * Heap-owning types get `pub fn deinit(self: *Self) void`. Users
-//!   write `defer thing.deinit();` at the call site (we don't insert
-//!   `defer` inside the wrapper itself — that would be wrong).
-//! * Constructors / static factories become `pub fn <name>(...) Self`.
-//!   The api.json `"new"` method is renamed to `create` to align with
-//!   common Zig idiom.
-//! * Instance methods take `self: *Self` and call the C function with
-//!   `&self.inner`. We don't try to distinguish `&self` from `&mut self`
-//!   at the Zig level — every method takes a pointer because the C ABI
-//!   does.
-//! * Anything Zig can already see for free through `@cImport` (POD
-//!   structs without `_delete`, plain enums, callback typedefs, etc.) is
-//!   **not** re-emitted — the user accesses it as `C.AzWhatever`.
+//! * The wrapper struct uses the **unprefixed** type name (`App`, not `AzApp`). The raw C type
+//!   stays reachable via `C.AzApp` for users who need it.
+//! * Heap-owning types get `pub fn deinit(self: *Self) void`. Users write `defer thing.deinit();`
+//!   at the call site (we don't insert `defer` inside the wrapper itself — that would be wrong).
+//! * Constructors / static factories become `pub fn <name>(...) Self`. The api.json `"new"` method
+//!   is renamed to `create` to align with common Zig idiom.
+//! * Instance methods take `self: *Self` and call the C function with `&self.inner`. We don't try
+//!   to distinguish `&self` from `&mut self` at the Zig level — every method takes a pointer
+//!   because the C ABI does.
+//! * Anything Zig can already see for free through `@cImport` (POD structs without `_delete`, plain
+//!   enums, callback typedefs, etc.) is **not** re-emitted — the user accesses it as
+//!   `C.AzWhatever`.
 //!
 //! # Skipped categories
 //!
@@ -49,8 +45,8 @@
 //! * `TypeCategory::Boxed`            — internal heap wrappers.
 //! * `TypeCategory::GenericTemplate`  — generic shells, not instantiable.
 //! * `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! * `TypeCategory::CallbackTypedef`  — raw fn-pointer typedefs (visible
-//!   to users via `C.*`; no wrapper makes sense).
+//! * `TypeCategory::CallbackTypedef`  — raw fn-pointer typedefs (visible to users via `C.*`; no
+//!   wrapper makes sense).
 //!
 //! Tagged-union enum payload accessors are intentionally NOT emitted as
 //! Zig `union(enum)` shadow types: the C-side layout already matches
@@ -60,10 +56,12 @@
 //! enum that exposes the C-ABI `_Tag_*` discriminator constants and
 //! every variant constructor as `pub fn <variant>(...)`.
 
-use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::{
+    super::ir::{
+        ArgRefKind, CodegenIR, EnumDef, FunctionDef, FunctionKind, StructDef, TypeCategory,
+    },
+    ffi_type_name, sanitize_identifier,
 };
-use super::{ffi_type_name, sanitize_identifier};
 
 /// Generate the full wrapper section as a single Zig source string.
 ///
@@ -273,7 +271,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
                 let zig_method = sanitize_identifier(&idiomatic_method_name(&f.method_name));
                 if !seen.insert(zig_method.clone()) {
                     out.push_str(&format!(
-                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another factory mapping to the same Zig method name (calls C.{}).\n",
+                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another factory \
+                         mapping to the same Zig method name (calls C.{}).\n",
                         zig_method, f.c_name
                     ));
                     continue;
@@ -296,7 +295,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
                 let zig_method = sanitize_identifier(&method_label);
                 if !seen.insert(zig_method.clone()) {
                     out.push_str(&format!(
-                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another method mapping to the same Zig method name (calls C.{}).\n",
+                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another method \
+                         mapping to the same Zig method name (calls C.{}).\n",
                         zig_method, f.c_name
                     ));
                     continue;
@@ -414,9 +414,9 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
             FunctionKind::PartialEq => (
                 "eql",
                 format!(
-                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    \
-                     pub fn eql({pa}: *const Raw, {pb}: *const Raw) bool {{\n        \
-                     return C.{ffi_name}_partialEq({pa}, {pb});\n    }}\n"
+                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    pub fn \
+                     eql({pa}: *const Raw, {pb}: *const Raw) bool {{\n        return \
+                     C.{ffi_name}_partialEq({pa}, {pb});\n    }}\n"
                 ),
             ),
             FunctionKind::Cmp => (
@@ -431,35 +431,32 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
             FunctionKind::PartialCmp => (
                 "partialOrder",
                 format!(
-                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    \
-                     /// Same encoding as `order`.\n    \
-                     pub fn partialOrder({pa}: *const Raw, {pb}: *const Raw) u8 {{\n        \
-                     return C.{ffi_name}_partialCmp({pa}, {pb});\n    }}\n"
+                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    /// Same \
+                     encoding as `order`.\n    pub fn partialOrder({pa}: *const Raw, {pb}: *const \
+                     Raw) u8 {{\n        return C.{ffi_name}_partialCmp({pa}, {pb});\n    }}\n"
                 ),
             ),
             FunctionKind::Hash => (
                 "hash",
                 format!(
-                    "    /// The Rust `Hash`, as a 64-bit digest.\n    \
-                     pub fn hash({pv}: *const Raw) u64 {{\n        \
-                     return C.{ffi_name}_hash({pv});\n    }}\n"
+                    "    /// The Rust `Hash`, as a 64-bit digest.\n    pub fn hash({pv}: *const \
+                     Raw) u64 {{\n        return C.{ffi_name}_hash({pv});\n    }}\n"
                 ),
             ),
             FunctionKind::DebugToString => (
                 "toDbgString",
                 format!(
                     "    /// The Rust `{{:#?}}` rendering. The returned `AzString` owns its\n    \
-                     /// buffer — free it with `C.AzString_delete` when done.\n    \
-                     pub fn toDbgString({pv}: *const Raw) C.AzString {{\n        \
-                     return C.{ffi_name}_toDbgString({pv});\n    }}\n"
+                     /// buffer — free it with `C.AzString_delete` when done.\n    pub fn \
+                     toDbgString({pv}: *const Raw) C.AzString {{\n        return \
+                     C.{ffi_name}_toDbgString({pv});\n    }}\n"
                 ),
             ),
             FunctionKind::DeepCopy => (
                 "clone",
                 format!(
-                    "    /// A deep copy, delegating to the Rust `Clone`.\n    \
-                     pub fn clone({pv}: *const Raw) Raw {{\n        \
-                     return C.{ffi_name}_clone({pv});\n    }}\n"
+                    "    /// A deep copy, delegating to the Rust `Clone`.\n    pub fn clone({pv}: \
+                     *const Raw) Raw {{\n        return C.{ffi_name}_clone({pv});\n    }}\n"
                 ),
             ),
             _ => continue,
@@ -494,51 +491,51 @@ fn emit_trait_methods(
             FunctionKind::PartialEq => (
                 "eql",
                 format!(
-                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    \
-                     pub fn eql(self: *const Self, other: *const Self) bool {{\n        \
-                     return C.{ffi_name}_partialEq(&self.inner, &other.inner);\n    }}\n"
+                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    pub fn \
+                     eql(self: *const Self, other: *const Self) bool {{\n        return \
+                     C.{ffi_name}_partialEq(&self.inner, &other.inner);\n    }}\n"
                 ),
             ),
             FunctionKind::Cmp => (
                 "order",
                 format!(
-                    "    /// Total order, delegating to the Rust `Ord`.\n    \
-                     /// The C ABI answers 0 = less, 1 = equal, 2 = greater.\n    \
-                     pub fn order(self: *const Self, other: *const Self) u8 {{\n        \
-                     return C.{ffi_name}_cmp(&self.inner, &other.inner);\n    }}\n"
+                    "    /// Total order, delegating to the Rust `Ord`.\n    /// The C ABI \
+                     answers 0 = less, 1 = equal, 2 = greater.\n    pub fn order(self: *const \
+                     Self, other: *const Self) u8 {{\n        return \
+                     C.{ffi_name}_cmp(&self.inner, &other.inner);\n    }}\n"
                 ),
             ),
             FunctionKind::PartialCmp => (
                 "partialOrder",
                 format!(
-                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    \
-                     /// Same encoding as `order`.\n    \
-                     pub fn partialOrder(self: *const Self, other: *const Self) u8 {{\n        \
-                     return C.{ffi_name}_partialCmp(&self.inner, &other.inner);\n    }}\n"
+                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    /// Same \
+                     encoding as `order`.\n    pub fn partialOrder(self: *const Self, other: \
+                     *const Self) u8 {{\n        return C.{ffi_name}_partialCmp(&self.inner, \
+                     &other.inner);\n    }}\n"
                 ),
             ),
             FunctionKind::Hash => (
                 "hash",
                 format!(
-                    "    /// The Rust `Hash`, as a 64-bit digest.\n    \
-                     pub fn hash(self: *const Self) u64 {{\n        \
-                     return C.{ffi_name}_hash(&self.inner);\n    }}\n"
+                    "    /// The Rust `Hash`, as a 64-bit digest.\n    pub fn hash(self: *const \
+                     Self) u64 {{\n        return C.{ffi_name}_hash(&self.inner);\n    }}\n"
                 ),
             ),
             FunctionKind::DebugToString => (
                 "toDbgString",
                 format!(
                     "    /// The Rust `{{:#?}}` rendering. The returned `AzString` owns its\n    \
-                     /// buffer — free it with `C.AzString_delete` when done.\n    \
-                     pub fn toDbgString(self: *const Self) C.AzString {{\n        \
-                     return C.{ffi_name}_toDbgString(&self.inner);\n    }}\n"
+                     /// buffer — free it with `C.AzString_delete` when done.\n    pub fn \
+                     toDbgString(self: *const Self) C.AzString {{\n        return \
+                     C.{ffi_name}_toDbgString(&self.inner);\n    }}\n"
                 ),
             ),
             _ => continue,
         };
         if !seen.insert(name.to_string()) {
             out.push_str(&format!(
-                "    // SKIPPED: `pub fn {name}` — the class already emits a method of that name.\n"
+                "    // SKIPPED: `pub fn {name}` — the class already emits a method of that \
+                 name.\n"
             ));
             continue;
         }
@@ -743,9 +740,7 @@ fn emit_union_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     }
 
     out.push_str(&format!("pub const {} = struct {{\n", zig_name));
-    out.push_str(&format!(
-        "    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n"
-    ));
+    out.push_str(&"    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n".to_string());
     out.push_str(&format!("    pub const Raw = C.{};\n", ffi_name));
     out.push('\n');
 
@@ -1029,8 +1024,8 @@ fn primitive_to_zig(name: &str) -> Option<&'static str> {
 ///
 /// * `new` → `create` (`new` is reserved for namespacing on Zig types).
 /// * `default` stays as-is.
-/// * Other camelCase / snake_case names are passed through verbatim;
-///   Zig identifiers tolerate both styles.
+/// * Other camelCase / snake_case names are passed through verbatim; Zig identifiers tolerate both
+///   styles.
 fn idiomatic_method_name(method_name: &str) -> String {
     match method_name {
         "new" => "create".to_string(),

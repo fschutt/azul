@@ -32,12 +32,11 @@
 //! editor.
 
 use azul_core::{
-    media_session::{MediaPlaybackState, NowPlayingInfo},
+    media_session::{MediaControlKind, MediaControlRequest, MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_control};
+use azul_layout::managers::media_keys::{push_media_control, push_media_key};
 use windows::{
     core::{Interface, HSTRING},
     Media::{
@@ -84,8 +83,10 @@ pub fn start(hwnd: isize) {
     }
 
     let built = (|| -> windows::core::Result<SystemMediaTransportControls> {
-        let interop: ISystemMediaTransportControlsInterop =
-            windows::core::factory::<SystemMediaTransportControls, ISystemMediaTransportControlsInterop>()?;
+        let interop: ISystemMediaTransportControlsInterop = windows::core::factory::<
+            SystemMediaTransportControls,
+            ISystemMediaTransportControlsInterop,
+        >()?;
         let controls: SystemMediaTransportControls =
             unsafe { interop.GetForWindow(HWND(hwnd as *mut core::ffi::c_void))? };
 
@@ -166,8 +167,9 @@ pub fn start(hwnd: isize) {
 /// nothing rather than to a wrong key.
 fn button_to_key(button: SystemMediaTransportControlsButton) -> Option<VirtualKeyCode> {
     Some(match button {
-        SystemMediaTransportControlsButton::Play
-        | SystemMediaTransportControlsButton::Pause => VirtualKeyCode::PlayPause,
+        SystemMediaTransportControlsButton::Play | SystemMediaTransportControlsButton::Pause => {
+            VirtualKeyCode::PlayPause
+        }
         SystemMediaTransportControlsButton::Stop => VirtualKeyCode::MediaStop,
         SystemMediaTransportControlsButton::Next => VirtualKeyCode::NextTrack,
         SystemMediaTransportControlsButton::Previous => VirtualKeyCode::PrevTrack,
@@ -205,9 +207,9 @@ pub fn publish(info: &NowPlayingInfo) {
         // (9h-i-a-i-e). A URI that does not parse is skipped rather than
         // failing the whole update: a missing cover must not cost the title.
         if !info.artwork_url.as_str().is_empty() {
-            if let Ok(uri) = windows::Foundation::Uri::CreateUri(&HSTRING::from(
-                info.artwork_url.as_str(),
-            )) {
+            if let Ok(uri) =
+                windows::Foundation::Uri::CreateUri(&HSTRING::from(info.artwork_url.as_str()))
+            {
                 if let Ok(stream) =
                     windows::Storage::Streams::RandomAccessStreamReference::CreateFromUri(&uri)
                 {

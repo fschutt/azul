@@ -2,21 +2,19 @@
 //!
 //! Two ways to pick a pixel, chosen per platform by what the OS allows:
 //!
-//! - **The system sampler** where one exists: macOS's `NSColorSampler`
-//!   shows the familiar magnifier loupe and needs no screen-recording
-//!   permission (`macos.rs`). The OS owns the UI; we only get the answer.
+//! - **The system sampler** where one exists: macOS's `NSColorSampler` shows the familiar magnifier
+//!   loupe and needs no screen-recording permission (`macos.rs`). The OS owns the UI; we only get
+//!   the answer.
 //!
-//! - **A screenshot shown in a fullscreen loupe window** everywhere else
-//!   ([`loupe_window`]). The screen is read ONCE - freely on X11 (`XGetImage`
-//!   of the root) and Windows (`BitBlt` of the screen DC); on Wayland through
-//!   the desktop portal's `Screenshot` call, which is where the user is asked
-//!   for permission (the compositor shows its dialog; a refusal cancels the
-//!   pick). The frozen frame fills a borderless fullscreen window that
-//!   therefore receives every pointer move and the click - the one way to
-//!   track the pointer on a display server that never reports it outside
-//!   your own surfaces. A magnifier (`MAGNIFY`x, `LOUPE_CELLS`x`LOUPE_CELLS`
-//!   source pixels) follows the pointer with the hex value; a click picks the
-//!   pixel under it, Escape / right-click cancels.
+//! - **A screenshot shown in a fullscreen loupe window** everywhere else ([`loupe_window`]). The
+//!   screen is read ONCE - freely on X11 (`XGetImage` of the root) and Windows (`BitBlt` of the
+//!   screen DC); on Wayland through the desktop portal's `Screenshot` call, which is where the user
+//!   is asked for permission (the compositor shows its dialog; a refusal cancels the pick). The
+//!   frozen frame fills a borderless fullscreen window that therefore receives every pointer move
+//!   and the click - the one way to track the pointer on a display server that never reports it
+//!   outside your own surfaces. A magnifier (`MAGNIFY`x, `LOUPE_CELLS`x`LOUPE_CELLS` source pixels)
+//!   follows the pointer with the hex value; a click picks the pixel under it, Escape / right-click
+//!   cancels.
 //!
 //! The answer travels back through `azul_layout::managers::eyedropper`
 //! (routed by request id to the window that asked) and surfaces there as
@@ -165,6 +163,8 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id: 0,
+        background_color_light: azul_css::props::basic::OptionColorU::None,
+        background_color_dark: azul_css::props::basic::OptionColorU::None,
     })
 }
 
@@ -286,8 +286,8 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
     let frame = Dom::create_from_data(frame);
 
     let mut body = Dom::create_body().with_css(&format!(
-        "position: relative; width: {}px; height: {}px; margin: 0px; padding: 0px; \
-         cursor: crosshair; overflow: hidden; background: #000000;",
+        "position: relative; width: {}px; height: {}px; margin: 0px; padding: 0px; cursor: \
+         crosshair; overflow: hidden; background: #000000;",
         size.width, size.height
     ));
     for (event, data, cb) in [
@@ -332,9 +332,9 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
             ));
             let label = Dom::create_div()
                 .with_css(&format!(
-                    "display: flex; flex-direction: row; align-items: center; gap: 6px; height: 24px; \
-                     padding: 0px 6px; background: #202020; color: #ffffff; font-size: 12px; \
-                     font-family: monospace;"
+                    "display: flex; flex-direction: row; align-items: center; gap: 6px; height: \
+                     24px; padding: 0px 6px; background: #202020; color: #ffffff; font-size: \
+                     12px; font-family: monospace;"
                 ))
                 .with_child(Dom::create_div().with_css(&format!(
                     "width: 12px; height: 12px; border: 1px solid #ffffff; background: {};",
@@ -343,9 +343,9 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(Dom::create_span_with_text(hex(colour)));
             let magnifier = Dom::create_div()
                 .with_css(&format!(
-                    "position: absolute; left: {}px; top: {}px; width: {LOUPE_PX}px; \
-                     border: 1px solid #ffffff; box-shadow: 0px 2px 12px rgba(0, 0, 0, 0.6); \
-                     background: #202020;",
+                    "position: absolute; left: {}px; top: {}px; width: {LOUPE_PX}px; border: 1px \
+                     solid #ffffff; box-shadow: 0px 2px 12px rgba(0, 0, 0, 0.6); background: \
+                     #202020;",
                     at.x, at.y
                 ))
                 .with_child(Dom::create_from_data(img))

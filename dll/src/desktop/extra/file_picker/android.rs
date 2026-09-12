@@ -2,20 +2,19 @@
 //!
 //! Flow:
 //!
-//! 1. `dispatch_open_file` registers the caller's `FilePickerHandle` in
-//!    `PENDING_PICKERS` keyed by a fresh request ID.
-//! 2. We use the `jni` crate to attach the current thread to the
-//!    JavaVM* published by `shell2::android::publish_jni_context`,
-//!    find the `com.azul.picker.AzulFilePicker` class, and invoke
-//!    `pickDocument(activity, requestId, mimeTypes, allowMultiple)`.
-//!    The Java side fires `Intent.ACTION_OPEN_DOCUMENT`.
+//! 1. `dispatch_open_file` registers the caller's `FilePickerHandle` in `PENDING_PICKERS` keyed by
+//!    a fresh request ID.
+//! 2. We use the `jni` crate to attach the current thread to the JavaVM* published by
+//!    `shell2::android::publish_jni_context`, find the `com.azul.picker.AzulFilePicker` class, and
+//!    invoke `pickDocument(activity, requestId, mimeTypes, allowMultiple)`. The Java side fires
+//!    `Intent.ACTION_OPEN_DOCUMENT`.
 //! 3. `AzulActivity.onActivityResult` routes the result back to
 //!    `AzulFilePicker.onActivityResultProxy`, which reads each
 //!    `content://` URI, copies it into the app's cache dir (so the
 //!    caller gets a regular `file://`-style path), and calls
 //!    `nativeOnResult(requestId, paths, errorOrNull)`.
-//! 4. The `nativeOnResult` JNI symbol below pops the handle out of
-//!    `PENDING_PICKERS` and writes the resulting status.
+//! 4. The `nativeOnResult` JNI symbol below pops the handle out of `PENDING_PICKERS` and writes the
+//!    resulting status.
 //!
 //! Permissions: SAF intents grant per-URI read permission via the
 //! intent flags — no `READ_EXTERNAL_STORAGE` / `READ_MEDIA_*` is

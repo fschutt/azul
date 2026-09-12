@@ -4,11 +4,9 @@
 //! `wrappers.rs`). This file holds the small remainder:
 //!
 //! 1. Free constants exported from api.json (e.g. `GL_TRUE`).
-//! 2. Free functions that aren't attached to any class — currently the
-//!    IR doesn't surface any (every C-ABI function belongs to some
-//!    class), so we emit only a header section and an explicit
-//!    `// SKIPPED:` marker per category that intentionally produces
-//!    nothing.
+//! 2. Free functions that aren't attached to any class — currently the IR doesn't surface any
+//!    (every C-ABI function belongs to some class), so we emit only a header section and an
+//!    explicit `// SKIPPED:` marker per category that intentionally produces nothing.
 //!
 //! Keeping this file in the manifest (instead of inlining into
 //! `wrappers.go`) preserves the conventional Go layout: one logical
@@ -17,9 +15,7 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
+use super::super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Generate the contents of `functions.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {

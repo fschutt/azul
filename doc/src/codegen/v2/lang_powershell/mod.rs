@@ -38,20 +38,18 @@
 //!
 //! ### What's exposed
 //!
-//! - Every `[StructLayout]` struct, `enum : uint`, and `[DllImport]` the
-//!   C# layer produced (compiled at import time).
+//! - Every `[StructLayout]` struct, `enum : uint`, and `[DllImport]` the C# layer produced
+//!   (compiled at import time).
 //! - Every `IDisposable` wrapper class (`Azul.App`, `Azul.Dom`, …).
-//! - Verb-Noun shims (`New-AzulApp`, `Invoke-AzulAppRun`, …) that
-//!   delegate to the wrapper classes — see `cmdlets.rs`.
+//! - Verb-Noun shims (`New-AzulApp`, `Invoke-AzulAppRun`, …) that delegate to the wrapper classes —
+//!   see `cmdlets.rs`.
 
 pub mod cmdlets;
 pub mod manifest;
 
 use anyhow::{anyhow, Result};
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Public entry point. Returns the full `Azul.psm1` source as a String.
 ///
@@ -63,14 +61,12 @@ use super::ir::CodegenIR;
 /// obtain the embedded C# source. Any breakage in the C# generator
 /// surfaces here.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    // 1. Generate the embedded C# source by reusing the production C#
-    //    generator. Any change to the C# layout (e.g. namespace rename)
-    //    flows through to PowerShell automatically.
+    // 1. Generate the embedded C# source by reusing the production C# generator. Any change to the
+    //    C# layout (e.g. namespace rename) flows through to PowerShell automatically.
     let csharp_source = super::lang_csharp::generate(ir, config)?;
 
-    // 2. Validate the embedded C# does not contain the literal
-    //    here-string terminator `'@` at the start of a line, which would
-    //    truncate the embed inside the .psm1. We reject rather than
+    // 2. Validate the embedded C# does not contain the literal here-string terminator `'@` at the
+    //    start of a line, which would truncate the embed inside the .psm1. We reject rather than
     //    silently emit broken PowerShell.
     validate_no_literal_terminator(&csharp_source)?;
 
@@ -240,10 +236,10 @@ fn validate_no_literal_terminator(csharp: &str) -> Result<()> {
         // formatter normalises the file. Be strict.
         if line.trim_start().starts_with("'@") {
             return Err(anyhow!(
-                "Embedded C# contains the PowerShell literal here-string terminator `'@` at line {} — \
-                 the .psm1 cannot embed this source as-is. \
-                 Adjust the C# generator to avoid emitting `'@` at the start of a line, \
-                 or extend lang_powershell::mod.rs to use a different delimiter strategy.",
+                "Embedded C# contains the PowerShell literal here-string terminator `'@` at line \
+                 {} — the .psm1 cannot embed this source as-is. Adjust the C# generator to avoid \
+                 emitting `'@` at the start of a line, or extend lang_powershell::mod.rs to use a \
+                 different delimiter strategy.",
                 idx + 1
             ));
         }

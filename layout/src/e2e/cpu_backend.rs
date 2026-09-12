@@ -14,18 +14,23 @@
 //! reports `FrameDamage::None` forever, so every damage assertion fails with
 //! "nothing was repainted (stale screen)" no matter what the engine did.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
-use azul_core::dom::DomId;
-use azul_core::geom::{LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
+use azul_core::{
+    dom::DomId,
+    geom::{LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    cpurender,
+    solver3::display_list::DisplayList,
+    window::{FrameDamage, LayoutWindow},
+};
 
-use azul_layout::cpurender;
-use azul_layout::solver3::display_list::DisplayList;
-use azul_layout::window::{FrameDamage, LayoutWindow};
-
-/// CPU rendering backend (the headless replacement for WebRender).
+/// CPU rendering backend (the headless replacement for `WebRender`).
 ///
 /// Holds the retained compositor state, the previous frame's display list /
 /// scroll offsets / GPU values — everything the frame-to-frame damage diff
@@ -59,7 +64,7 @@ pub(super) struct CpuBackend {
     /// zombie contribution to damage is `previous ∪ current`: restore the
     /// live pixels where an exit was, paint it where it is — the reap frame
     /// (zombies gone, previous non-empty) erases the leftovers the same way.
-    pub(super) previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
+    pub(super) previous_zombie_rects: Vec<LogicalRect>,
     /// Previous frame's `VirtualView` child-DOM display lists.
     pub(super) previous_vview_dls: BTreeMap<DomId, Arc<DisplayList>>,
     /// GPU-animated values of the previous frame, for the frame-to-frame diff.
@@ -214,7 +219,8 @@ impl CpuBackend {
                 .map(|(k, v)| (*k, *v))
                 .collect();
             eprintln!(
-                "[GPUDMG] prev_t={} cur_t={} prev_o={} cur_o={} changed_t={td:?} changed_o={od:?} rects={:?}",
+                "[GPUDMG] prev_t={} cur_t={} prev_o={} cur_o={} changed_t={td:?} changed_o={od:?} \
+                 rects={:?}",
                 self.previous_gpu_transforms.len(),
                 gpu_transforms.len(),
                 self.previous_gpu_opacities.len(),
@@ -234,7 +240,7 @@ impl CpuBackend {
         } else {
             Vec::new()
         };
-        let zombie_damage: Vec<azul_core::geom::LogicalRect> = self
+        let zombie_damage: Vec<LogicalRect> = self
             .previous_zombie_rects
             .iter()
             .chain(zombie_rects.iter())
@@ -252,7 +258,7 @@ impl CpuBackend {
         // the harness executes the SAME blit path a device does (it used to
         // have no notion of a TranslateHint at all — every mover-blit bug was
         // structurally untestable here).
-        let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         let patch_hint = cpurender::translate_hint_for_patch(
             layout_window.layout_cache.last_patch_move.as_ref(),
             dpi_factor,
@@ -271,7 +277,7 @@ impl CpuBackend {
             Some(old_dl)
                 if can_reuse_previous_frame
                     && !gpu_damage.needs_full
-                    && std::sync::Arc::ptr_eq(old_dl, display_list) =>
+                    && Arc::ptr_eq(old_dl, display_list) =>
             {
                 Some(Vec::new())
             }
@@ -399,8 +405,9 @@ impl CpuBackend {
         };
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!(
-                "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} gpu_rects={} zombie={}",
-                dl_damage.as_ref().map(|r| r.len()),
+                "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} \
+                 gpu_rects={} zombie={}",
+                dl_damage.as_ref().map(Vec::len),
                 diff_path_ran,
                 layout_window.layout_cache.last_build_was_patched,
                 resize_damage.len(),
@@ -616,7 +623,6 @@ impl CpuBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::{
         dom::{Dom, DomId, NodeId},
         geom::LogicalSize,
@@ -625,6 +631,8 @@ mod tests {
     };
     use azul_css::AzString;
     use rust_fontconfig::FcFontCache;
+
+    use super::*;
 
     /// `::placeholder` is REAL CSS: an author rule restyles the prompt the
     /// engine paints, through the same cascade every other property uses.
@@ -671,8 +679,8 @@ mod tests {
                 .collect()
         };
 
-        const BASE: &str = "body { width: 400px; height: 100px; } \
-                            .ed { width: 300px; height: 40px; font-size: 16px; color: black; }";
+        const BASE: &str = "body { width: 400px; height: 100px; } .ed { width: 300px; height: \
+                            40px; font-size: 16px; color: black; }";
 
         let unstyled = prompt_pixels(BASE);
         assert_eq!(unstyled.len(), 1, "exactly one prompt run: {unstyled:?}");
@@ -685,10 +693,7 @@ mod tests {
             vec![(255, 0, 0)],
             "a ::placeholder rule must restyle the prompt (unstyled was {unstyled:?})"
         );
-        assert_ne!(
-            styled, unstyled,
-            "the rule must actually change something"
-        );
+        assert_ne!(styled, unstyled, "the rule must actually change something");
     }
 
     /// ENGINE-LEVEL PLACEHOLDER: the `placeholder` ATTRIBUTE on a
@@ -702,9 +707,7 @@ mod tests {
 
         let ink_rows = |with_attr: bool, focused: bool, value: &str| -> usize {
             let mut ed = Dom::create_div()
-                .with_ids_and_classes(
-                    vec![azul_core::dom::IdOrClass::Class("ed".into())].into(),
-                )
+                .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("ed".into())].into())
                 .with_attribute(AttributeType::ContentEditable(true));
             if with_attr {
                 ed = ed.with_attribute(AttributeType::Placeholder("Hint me".into()));
@@ -722,8 +725,8 @@ mod tests {
             }
             let mut dom = Dom::create_body().with_child(ed);
             let (css, _) = azul_css::parser2::new_from_str(
-                "body { width: 400px; height: 100px; } \
-                 .ed { width: 300px; height: 40px; font-size: 16px; }",
+                "body { width: 400px; height: 100px; } .ed { width: 300px; height: 40px; \
+                 font-size: 16px; }",
             );
             let styled_dom = StyledDom::create(&mut dom, css);
             let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -756,24 +759,23 @@ mod tests {
             let lr = lw.get_layout_result(&DomId::ROOT_ID).unwrap();
             let mut gc = crate::glyph_cache::GlyphCache::new();
             let frame = crate::cpurender::render_with_font_manager(
-            &lr.display_list,
-            &resources,
-            &lw.font_manager,
-            crate::cpurender::RenderOptions {
-                width: 400.0,
-                height: 100.0,
-                dpi_factor: 1.0,
-            },
-            &mut gc,
-        )
-        .unwrap();
+                &lr.display_list,
+                &resources,
+                &lw.font_manager,
+                crate::cpurender::RenderOptions {
+                    width: 400.0,
+                    height: 100.0,
+                    dpi_factor: 1.0,
+                },
+                &mut gc,
+            )
+            .unwrap();
             let (w, data) = (frame.width() as usize, frame.data());
             (0..40usize)
                 .filter(|y| {
                     (0..300usize).any(|x| {
                         let i = ((y * w + x) * 4).min(data.len().saturating_sub(4));
-                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
-                            < 690
+                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2])) < 690
                     })
                 })
                 .count()
@@ -792,8 +794,8 @@ mod tests {
         assert_eq!(
             ink_rows(true, true, ""),
             0,
-            "a FOCUSED host hides its prompt (2026-08-31 ruling) - recomputed \
-             per build, no latch to stick"
+            "a FOCUSED host hides its prompt (2026-08-31 ruling) - recomputed per build, no latch \
+             to stick"
         );
 
         // THE DEVICE REGRESSION (2026-08-31): a DEFOCUSED host that HAS text
@@ -805,8 +807,8 @@ mod tests {
         let filled_control = ink_rows(false, false, "typed");
         assert_eq!(
             filled_with_prompt, filled_control,
-            "a defocused FILLED host must paint no prompt: {filled_with_prompt} \
-             ink rows with the attribute vs {filled_control} without it"
+            "a defocused FILLED host must paint no prompt: {filled_with_prompt} ink rows with the \
+             attribute vs {filled_control} without it"
         );
     }
 
@@ -821,12 +823,10 @@ mod tests {
                 .with_placeholder("Type something".into())
                 .dom(),
         );
-        let (css, _) =
-            azul_css::parser2::new_from_str("body { width: 640px; height: 480px; }");
+        let (css, _) = azul_css::parser2::new_from_str("body { width: 640px; height: 480px; }");
         let styled_dom = StyledDom::create(&mut dom, css);
         let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
-        lw.system_animations_override =
-            Some(azul_core::resources::SystemAnimations::disabled());
+        lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
         let mut ws = crate::window_state::FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(640.0, 480.0);
         lw.current_window_state = ws.clone();
@@ -857,15 +857,16 @@ mod tests {
             let (w, data) = (frame.width() as usize, frame.data());
             let x0 = ((pos.x + 4.0) * dpi) as usize;
             let x1 = ((pos.x + size.width - 4.0) * dpi) as usize;
-            let rows: Vec<usize> = (0..frame.height() as usize)
-                .filter(|y| {
-                    (x0..x1).any(|x| {
-                        let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
-                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
-                            < 690 // engine prompt = host colour at half alpha (~#A6A6A6)
+            let rows: Vec<usize> =
+                (0..frame.height() as usize)
+                    .filter(|y| {
+                        (x0..x1).any(|x| {
+                            let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
+                            (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
+                                < 690 // engine prompt = host colour at half alpha (~#A6A6A6)
+                        })
                     })
-                })
-                .collect();
+                    .collect();
             let y0 = ((pos.y + 2.0) * dpi) as usize;
             let y1 = ((pos.y + size.height - 2.0) * dpi) as usize;
             let inside = rows.iter().filter(|y| (y0..y1).contains(y)).count();
@@ -890,12 +891,19 @@ mod tests {
         .unwrap();
         let (inside_f, rows_f) = ink(&flat);
         eprintln!(
-            "[repro] dpi={dpi} field_y_dev={:?} backend: inside={inside_b} all_ink_rows={:?} | flat: inside={inside_f} all_ink_rows={:?}",
-            (((pos.y + 2.0) * dpi) as usize, ((pos.y + size.height - 2.0) * dpi) as usize),
+            "[repro] dpi={dpi} field_y_dev={:?} backend: inside={inside_b} all_ink_rows={:?} | \
+             flat: inside={inside_f} all_ink_rows={:?}",
+            (
+                ((pos.y + 2.0) * dpi) as usize,
+                ((pos.y + size.height - 2.0) * dpi) as usize
+            ),
             &rows_b[..rows_b.len().min(30)],
             &rows_f[..rows_f.len().min(30)]
         );
-        assert!(inside_b >= 8, "flat control: got {inside_b} ink rows (backend)");
+        assert!(
+            inside_b >= 8,
+            "flat control: got {inside_b} ink rows (backend)"
+        );
     }
 
     /// DEVICE 2026-08-31: on the first frames, every 11px placeholder inside
@@ -919,12 +927,12 @@ mod tests {
             ),
         );
         let (css, _) = azul_css::parser2::new_from_str(
-            "body { width: 640px; height: 480px; }              .col { overflow-y: auto; width: 100%; height: 100%; }              .filler { height: 2000px; }",
+            "body { width: 640px; height: 480px; }              .col { overflow-y: auto; width: \
+             100%; height: 100%; }              .filler { height: 2000px; }",
         );
         let styled_dom = StyledDom::create(&mut dom, css);
         let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
-        lw.system_animations_override =
-            Some(azul_core::resources::SystemAnimations::disabled());
+        lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
         let mut ws = crate::window_state::FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(640.0, 480.0);
         lw.current_window_state = ws.clone();
@@ -974,7 +982,9 @@ mod tests {
         let ink_rows = (y0..y1)
             .filter(|y| {
                 (x0..x1).any(|x| {
-                    let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
+                    let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can
+                                                                                 // overflow the
+                                                                                 // window row
                     let (r, g, b) = (data[i], data[i + 1], data[i + 2]);
                     // darker than the border grey - real glyph ink
                     // engine prompt = host colour at half alpha (~#A6A6A6)
@@ -984,8 +994,9 @@ mod tests {
             .count();
         assert!(
             ink_rows >= 8,
-            "the placeholder must paint a full text line in the first layered              frame; got {ink_rows} ink rows in y {y0}..{y1} (the device strip              was <= 5 rows). Field at {pos:?} {size:?}"
+            "the placeholder must paint a full text line in the first layered              frame; \
+             got {ink_rows} ink rows in y {y0}..{y1} (the device strip              was <= 5 \
+             rows). Field at {pos:?} {size:?}"
         );
     }
 }
-

@@ -103,7 +103,8 @@ fn read_consent_value(root: Hkey, subkey: &str) -> Option<String> {
         unsafe { lib.get(b"RegGetValueW\0") }.ok()?;
 
     let path = format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\{subkey}"
+        "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\\
+         {subkey}"
     );
     let path_w: Vec<u16> = path.encode_utf16().chain(core::iter::once(0)).collect();
     let value_w: Vec<u16> = "Value".encode_utf16().chain(core::iter::once(0)).collect();

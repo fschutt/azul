@@ -22,11 +22,11 @@ pub fn generate_cpanfile() -> String {
     s.push_str("#\n");
     s.push_str("# Install with `cpanm --installdeps .` (or `carton install`).\n");
     s.push_str("# The bindings are pure-Perl; FFI::Platypus loads libazul at runtime.\n");
-    s.push_str("\n");
+    s.push('\n');
     s.push_str("requires 'perl', '5.014';\n");
     s.push_str("requires 'FFI::Platypus', '>= 2.00';\n");
     s.push_str("requires 'FFI::CheckLib', '>= 0.28';\n");
-    s.push_str("\n");
+    s.push('\n');
     s.push_str("on 'test' => sub {\n");
     s.push_str("    requires 'Test::More', '>= 0.98';\n");
     s.push_str("};\n");

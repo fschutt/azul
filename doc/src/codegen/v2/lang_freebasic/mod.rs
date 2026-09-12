@@ -5,32 +5,27 @@
 //!
 //! The output has four sections, top-to-bottom:
 //!
-//! 1. `#inclib "azul"` plus banner comment — instructs `fbc` to link
-//!    against the shared library.
-//! 2. POD `Type ... End Type` records, integer-backed `Enum ... End Enum`
-//!    declarations, and tagged-union types (`Type` containing a `Union`).
-//! 3. `Extern "C" Lib "azul" ... End Extern` block declaring every C-ABI
-//!    function with `Alias "az_..."` so the case-insensitive FreeBASIC
-//!    name resolution does not mangle the symbol the linker looks for.
-//! 4. Idiomatic `Type ... End Type` wrappers inside `Namespace Azul ...
-//!    End Namespace` whose `Constructor` invokes the matching `_create`
-//!    / `_new` C function and whose `Destructor` calls `_delete`.
-//!    User-facing names drop the `Az` prefix (e.g. `Azul.App`,
-//!    `Azul.Dom`).
+//! 1. `#inclib "azul"` plus banner comment — instructs `fbc` to link against the shared library.
+//! 2. POD `Type ... End Type` records, integer-backed `Enum ... End Enum` declarations, and
+//!    tagged-union types (`Type` containing a `Union`).
+//! 3. `Extern "C" Lib "azul" ... End Extern` block declaring every C-ABI function with `Alias
+//!    "az_..."` so the case-insensitive FreeBASIC name resolution does not mangle the symbol the
+//!    linker looks for.
+//! 4. Idiomatic `Type ... End Type` wrappers inside `Namespace Azul ... End Namespace` whose
+//!    `Constructor` invokes the matching `_create` / `_new` C function and whose `Destructor` calls
+//!    `_delete`. User-facing names drop the `Az` prefix (e.g. `Azul.App`, `Azul.Dom`).
 //!
 //! # FreeBASIC quirks
 //!
-//! - `fbc` is case-INSENSITIVE for identifiers: `App` and `APP` and `app`
-//!   are the same symbol. Only the link-name in `Alias "..."` is
-//!   case-sensitive — that string is the one the dynamic loader matches.
-//! - `Field = 1` on a `Type` block forces 1-byte packed C-compatible
-//!   struct layout, matching Rust's `#[repr(C, packed)]`. We use plain
-//!   `Type` (default natural alignment) because Rust's `extern "C"`
-//!   structs use natural alignment, not packed.
-//! - FreeBASIC's `Integer` is platform-width (32-bit on x86, 64-bit on
-//!   x86_64). For C-ABI portability we use the explicit-size aliases
-//!   `LongInt` (32-bit), `LongLong` (64-bit), `Single` (f32),
-//!   `Double` (f64), `UByte` (u8), etc.
+//! - `fbc` is case-INSENSITIVE for identifiers: `App` and `APP` and `app` are the same symbol. Only
+//!   the link-name in `Alias "..."` is case-sensitive — that string is the one the dynamic loader
+//!   matches.
+//! - `Field = 1` on a `Type` block forces 1-byte packed C-compatible struct layout, matching Rust's
+//!   `#[repr(C, packed)]`. We use plain `Type` (default natural alignment) because Rust's `extern
+//!   "C"` structs use natural alignment, not packed.
+//! - FreeBASIC's `Integer` is platform-width (32-bit on x86, 64-bit on x86_64). For C-ABI
+//!   portability we use the explicit-size aliases `LongInt` (32-bit), `LongLong` (64-bit), `Single`
+//!   (f32), `Double` (f64), `UByte` (u8), etc.
 //! - String pointers from C use `ZString Ptr` (null-terminated UTF-8).
 //! - `Any Ptr` is the FreeBASIC equivalent of `void*`.
 //!
@@ -43,9 +38,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod types;
@@ -117,11 +110,10 @@ pub fn ffi_type_name(name: &str) -> String {
 
 /// Map an IR / Rust type name to the corresponding FreeBASIC type token.
 ///
-/// - Pointers / references collapse to `<inner> Ptr` when the inner is a
-///   known IR type, `ZString Ptr` for `c_char` / `char` strings, and
-///   `Any Ptr` (void*) otherwise.
-/// - Primitives map to the explicit-width FreeBASIC aliases so the
-///   binding is correct on both 32- and 64-bit hosts.
+/// - Pointers / references collapse to `<inner> Ptr` when the inner is a known IR type, `ZString
+///   Ptr` for `c_char` / `char` strings, and `Any Ptr` (void*) otherwise.
+/// - Primitives map to the explicit-width FreeBASIC aliases so the binding is correct on both 32-
+///   and 64-bit hosts.
 pub fn map_type_to_fb(rust_type: &str, ir: &CodegenIR) -> String {
     let trimmed = rust_type.trim();
 
@@ -353,5 +345,5 @@ pub fn to_pascal_case(s: &str) -> String {
 /// `'` line comment. We collapse newlines into spaces — `'` only
 /// terminates at end-of-line so apostrophes are fine inside.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

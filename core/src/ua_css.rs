@@ -407,6 +407,18 @@ static BORDER_TOP_COLOR_GRAY: CssProperty =
         },
     }));
 
+/// border-top-color for hr on a DARK window: a subtle divider, like the
+/// platforms' own separators on dark (#5a5a5a), where the light rule's mid
+/// grey would read as a bright bar.
+static BORDER_TOP_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: ColorU {
+            r: 90,
+            g: 90,
+            b: 90,
+            a: 255,
+        },
+    }));
 /// height: 0 (for hr - the line comes from the border, not height)
 static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(
     PixelValue::const_px(0),
@@ -441,8 +453,8 @@ static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoi
 ///
 /// 1. `::marker` pseudo-elements are children of <li>, not <ul>/<ol>
 /// 2. The marker needs to be positioned relative to the list item's content box
-/// 3. Padding on <li> creates space between the marker and the text content
-///    TODO: Change to `PaddingInlineStart` once logical property resolution is implemented
+/// 3. Padding on <li> creates space between the marker and the text content TODO: Change to
+///    `PaddingInlineStart` once logical property resolution is implemented
 static PADDING_INLINE_START_40PX: CssProperty =
     CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
         inner: PixelValue::const_px(40),
@@ -494,6 +506,30 @@ static BUTTON_BORDER_COLOR: ColorU = ColorU {
     a: 255,
 };
 
+/// Border color for a native button on a DARK window: #5a5a5a. The light
+/// rule's #c8c8c8 is chosen for a white surface and glares on a dark one.
+static BUTTON_BORDER_COLOR_DARK: ColorU = ColorU {
+    r: 90,
+    g: 90,
+    b: 90,
+    a: 255,
+};
+static BUTTON_BORDER_TOP_COLOR_DARK: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_BOTTOM_COLOR_DARK: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_LEFT_COLOR_DARK: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
+static BUTTON_BORDER_RIGHT_COLOR_DARK: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: BUTTON_BORDER_COLOR_DARK,
+    }));
 static BUTTON_BORDER_TOP_COLOR: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
         inner: BUTTON_BORDER_COLOR,
@@ -909,6 +945,190 @@ pub fn get_ua_property(
     }
 }
 
+/// Every property type the UA sheet can answer.
+///
+/// For the cascade passes that walk the table per node:
+/// `CssPropertyCache::apply_ua_css` (the `cascaded_props` / `computed_values`
+/// reader) and the compact-cache builder (`apply_ua_css_to_compact`, the
+/// layout fast path).
+///
+/// ONE list for both, on purpose. Each pass used to carry its own copy with
+/// the instruction to keep them in sync, and they were not: the compact list
+/// had the three non-top button border edges and `TextColor`, the cascaded
+/// list had `FontFamily` and the heading `break-*` defaults, and neither had
+/// everything — so the two readers disagreed about a node's computed value
+/// depending on which one a getter happened to ask (the `VirtualView` overflow
+/// default was the first instance found). A type only one pass can store is
+/// harmless in the other: `apply_css_property_to_compact` ignores what has no
+/// compact slot, and a cascaded entry nothing reads costs one push.
+pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
+    // Tier1 enum properties
+    CssPropertyType::Display,
+    CssPropertyType::Position,
+    CssPropertyType::Float,
+    CssPropertyType::Clear,
+    CssPropertyType::OverflowX,
+    CssPropertyType::OverflowY,
+    CssPropertyType::BoxSizing,
+    CssPropertyType::FlexDirection,
+    CssPropertyType::FlexWrap,
+    CssPropertyType::JustifyContent,
+    CssPropertyType::AlignItems,
+    CssPropertyType::AlignContent,
+    CssPropertyType::WritingMode,
+    CssPropertyType::FontWeight,
+    CssPropertyType::FontStyle,
+    CssPropertyType::TextAlign,
+    CssPropertyType::Visibility,
+    CssPropertyType::WhiteSpace,
+    CssPropertyType::Direction,
+    CssPropertyType::VerticalAlign,
+    CssPropertyType::BorderCollapse,
+    // Tier2 dimension properties
+    CssPropertyType::Width,
+    CssPropertyType::Height,
+    CssPropertyType::FontSize,
+    CssPropertyType::FontFamily,
+    CssPropertyType::MarginTop,
+    CssPropertyType::MarginBottom,
+    CssPropertyType::MarginLeft,
+    CssPropertyType::MarginRight,
+    CssPropertyType::PaddingTop,
+    CssPropertyType::PaddingBottom,
+    CssPropertyType::PaddingLeft,
+    CssPropertyType::PaddingRight,
+    CssPropertyType::BorderTopWidth,
+    CssPropertyType::BorderTopStyle,
+    CssPropertyType::BorderTopColor,
+    CssPropertyType::BorderRightWidth,
+    CssPropertyType::BorderRightStyle,
+    CssPropertyType::BorderRightColor,
+    CssPropertyType::BorderBottomWidth,
+    CssPropertyType::BorderBottomStyle,
+    CssPropertyType::BorderBottomColor,
+    CssPropertyType::BorderLeftWidth,
+    CssPropertyType::BorderLeftStyle,
+    CssPropertyType::BorderLeftColor,
+    // Fragmentation (headings avoid breaks)
+    CssPropertyType::BreakInside,
+    CssPropertyType::BreakAfter,
+    CssPropertyType::BreakBefore,
+    // Text properties
+    CssPropertyType::TextColor,
+    CssPropertyType::LineHeight,
+    CssPropertyType::LetterSpacing,
+    CssPropertyType::WordSpacing,
+    CssPropertyType::TextDecoration,
+    CssPropertyType::Cursor,
+    CssPropertyType::ListStyleType,
+    // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
+    // restarts numbering. Without these here the has_counter fast-path bit
+    // stays unset for list containers, compute_counters skips the reset, and
+    // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
+    // 3,4 instead of restarting at 1).
+    CssPropertyType::CounterReset,
+    CssPropertyType::CounterIncrement,
+];
+
+/// The UA defaults of the DOCUMENT ROOT (the node at index 0), themed.
+///
+/// These are the defaults that hold for the whole document and reach every
+/// node by inheritance rather than by node type — today that is the inherited
+/// text colour, `color`, from [`UA_ROOT_TEXT_COLOR_CSS`]: black on a light
+/// window, near-white on a dark one. Keyed on the root's POSITION, not on
+/// `<body>`/`<html>`: a body-rooted subtree appended under another document
+/// must keep inheriting its new parent's colour, and a document rooted in a
+/// `<div>` (tests, popups) needs the default as much as one rooted in
+/// `<body>`.
+///
+/// Consumed by the same three readers as [`get_ua_property_themed`], so the
+/// default is IN the resolved style (`cascaded_props` on the root,
+/// `computed_values` below it, the compact text tier everywhere) and no
+/// paint-time reader has to invent it. `None` for the context answers the
+/// light table, like the per-type resolver.
+#[must_use]
+pub fn get_ua_root_property_themed(
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    if property_type != CssPropertyType::TextColor {
+        return None;
+    }
+    UA_ROOT_TEXT_COLOR_CSS
+        .iter()
+        // No window yet: only the unconditional entry applies.
+        .find(|prop| ctx.map_or_else(|| !prop.is_conditional(), |c| prop.matches(c)))
+        .map(|prop| &prop.property)
+}
+
+/// THE UA default for one node and one property: the per-type table
+/// ([`get_ua_property_themed`]) or, on the document root, the document-wide
+/// table ([`get_ua_root_property_themed`]).
+///
+/// The one lookup all three readers share — `CssPropertyCache::apply_ua_css`,
+/// the compact-cache builder and `get_property_slow`'s last-resort fallback —
+/// so they cannot disagree about a default. `is_root` is "node index 0".
+#[must_use]
+pub fn get_ua_default(
+    node_type: &NodeType,
+    is_root: bool,
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    get_ua_property_themed(node_type, property_type, ctx).or_else(|| {
+        if is_root {
+            get_ua_root_property_themed(property_type, ctx)
+        } else {
+            None
+        }
+    })
+}
+
+/// [`get_ua_property`], with the theme taken into account.
+///
+/// The UA sheet is a static table, which is what keeps the property cache a
+/// pure function of node type — but a handful of its defaults are COLOURS, and
+/// a colour default cannot be one constant: a button border or an `<hr>` rule
+/// chosen for a white window is wrong on a dark one. Those few resolve through
+/// here: with a dark context they answer their dark twin, otherwise the plain
+/// table. The inherited text colour has the same shape in
+/// [`UA_ROOT_TEXT_COLOR_CSS`], answered by [`get_ua_root_property_themed`].
+///
+/// This pair is THE themed UA table. All three readers go through it —
+/// `apply_ua_css` (cascaded/computed values), the compact-cache builder (the
+/// layout fast path) and `get_property_slow`'s last-resort fallback — so a
+/// theme flip changes the same answer everywhere, and a getter that asks the
+/// compact tier gets what the slow path would have said.
+///
+/// `None` for the context means "no window yet" and falls back to the light
+/// table, which is what every caller did before this existed.
+#[must_use]
+pub fn get_ua_property_themed(
+    node_type: &NodeType,
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    use CssPropertyType as PT;
+
+    use crate::dom::NodeType as NT;
+
+    let dark = ctx.is_some_and(|c| c.theme == ThemeCondition::Dark);
+    if dark {
+        let twin = match (node_type, property_type) {
+            (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY_DARK),
+            (NT::Button, PT::BorderTopColor) => Some(&BUTTON_BORDER_TOP_COLOR_DARK),
+            (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR_DARK),
+            (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR_DARK),
+            (NT::Button, PT::BorderRightColor) => Some(&BUTTON_BORDER_RIGHT_COLOR_DARK),
+            _ => None,
+        };
+        if twin.is_some() {
+            return twin;
+        }
+    }
+    get_ua_property(node_type, property_type)
+}
+
 // ============================================================================
 // UA Scrollbar Defaults — individual CssPropertyWithConditions
 // ============================================================================
@@ -1268,14 +1488,16 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
     // Dark window background -> near-white text, matching the platform's own
     // "label" colour rather than pure white, which glares.
     CssPropertyWithConditions::with_single_condition(
-        CssProperty::TextColor(CssPropertyValue::Exact(azul_css::props::style::text::StyleTextColor {
-            inner: ColorU {
-                r: 0xe8,
-                g: 0xe8,
-                b: 0xe8,
-                a: 255,
+        CssProperty::TextColor(CssPropertyValue::Exact(
+            azul_css::props::style::text::StyleTextColor {
+                inner: ColorU {
+                    r: 0xe8,
+                    g: 0xe8,
+                    b: 0xe8,
+                    a: 255,
+                },
             },
-        })),
+        )),
         &[DynamicSelector::Theme(ThemeCondition::Dark)],
     ),
     // default -> opaque black, the CSS initial value.
@@ -1284,23 +1506,22 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
     ))),
 ];
 
-/// The inherited-text-colour default for `ctx`'s theme.
+/// The inherited-text-colour default for `ctx`'s theme, as a value.
 ///
-/// Falls back to the CSS initial value if the table somehow matches nothing,
-/// so this can never return "no colour".
+/// The cascade consumes the same table through
+/// [`get_ua_root_property_themed`], so after a cascade has run this answer is
+/// already in every node's resolved style; the remaining callers are the
+/// `debug_assert!`-guarded paint-time fallbacks, which should never be
+/// reached on a cascaded DOM. Falls back to the CSS initial value if the
+/// table somehow matches nothing, so this can never return "no colour".
 #[must_use]
 pub fn evaluate_ua_root_text_color(
     ctx: &DynamicSelectorContext,
 ) -> azul_css::props::style::text::StyleTextColor {
-    for prop in UA_ROOT_TEXT_COLOR_CSS {
-        if !prop.matches(ctx) {
-            continue;
-        }
-        if let CssProperty::TextColor(CssPropertyValue::Exact(c)) = &prop.property {
-            return *c;
-        }
+    match get_ua_root_property_themed(CssPropertyType::TextColor, Some(ctx)) {
+        Some(CssProperty::TextColor(CssPropertyValue::Exact(c))) => *c,
+        _ => azul_css::defaults::DEFAULT_TEXT_COLOR,
     }
-    azul_css::defaults::DEFAULT_TEXT_COLOR
 }
 
 #[must_use]

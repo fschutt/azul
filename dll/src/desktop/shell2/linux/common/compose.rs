@@ -24,8 +24,7 @@
 
 use std::ffi::{c_char, CString};
 
-use super::super::super::common::debug_server::LogCategory;
-use super::super::x11::defines::xkb_context;
+use super::super::{super::common::debug_server::LogCategory, x11::defines::xkb_context};
 use crate::{log_debug, log_warn};
 
 /// Opaque `struct xkb_compose_table`.
@@ -135,8 +134,8 @@ impl ComposeSequencer {
         if table.is_null() {
             log_warn!(
                 LogCategory::Platform,
-                "[xkb] no compose table for locale '{}' — dead keys will type their raw \
-                 accent instead of composing",
+                "[xkb] no compose table for locale '{}' — dead keys will type their raw accent \
+                 instead of composing",
                 locale
             );
             unsafe { (fns.context_unref)(context) };

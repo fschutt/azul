@@ -24,12 +24,13 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt::Write;
-use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use core::{
+    fmt::Write,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
 use std::sync::Mutex;
 
 use azul_css::AzString;
-
 // ICU4X-only imports (not used in the macOS Foundation backend)
 #[cfg(all(
     feature = "icu",
@@ -123,24 +124,26 @@ pub enum IcuResult {
 
 impl IcuResult {
     pub fn ok(s: impl Into<String>) -> Self {
-        IcuResult::Ok(AzString::from(s.into()))
+        Self::Ok(AzString::from(s.into()))
     }
 
     pub fn err(msg: impl Into<String>) -> Self {
-        IcuResult::Err(IcuError::new(msg))
+        Self::Err(IcuError::new(msg))
     }
 
+    #[must_use] 
     pub fn into_option(self) -> Option<AzString> {
         match self {
-            IcuResult::Ok(s) => Some(s),
-            IcuResult::Err(_) => None,
+            Self::Ok(s) => Some(s),
+            Self::Err(_) => None,
         }
     }
 
+    #[must_use] 
     pub fn unwrap_or(self, default: AzString) -> AzString {
         match self {
-            IcuResult::Ok(s) => s,
-            IcuResult::Err(_) => default,
+            Self::Ok(s) => s,
+            Self::Err(_) => default,
         }
     }
 }
@@ -201,7 +204,7 @@ pub(crate) fn decimal_string(integer_part: i64, decimal_places: i16) -> alloc::s
 
     let dp = decimal_places as usize;
     let negative = integer_part < 0;
-    let abs_val = (integer_part as i128).unsigned_abs();
+    let abs_val = i128::from(integer_part).unsigned_abs();
     let abs_str = alloc::format!("{abs_val}");
 
     let body = if abs_str.len() <= dp {
@@ -501,7 +504,8 @@ pub struct IcuDateTime {
 }
 
 impl IcuDate {
-    /// Create a new IcuDate from year, month, day.
+    /// Create a new `IcuDate` from year, month, day.
+    #[must_use] 
     pub const fn new(year: i32, month: u8, day: u8) -> Self {
         Self { year, month, day }
     }
@@ -532,7 +536,8 @@ impl IcuDate {
 }
 
 impl IcuTime {
-    /// Create a new IcuTime from hour, minute, second.
+    /// Create a new `IcuTime` from hour, minute, second.
+    #[must_use] 
     pub const fn new(hour: u8, minute: u8, second: u8) -> Self {
         Self {
             hour,
@@ -567,7 +572,8 @@ impl IcuTime {
 }
 
 impl IcuDateTime {
-    /// Create a new IcuDateTime from date and time.
+    /// Create a new `IcuDateTime` from date and time.
+    #[must_use] 
     pub const fn new(date: IcuDate, time: IcuTime) -> Self {
         Self { date, time }
     }
@@ -636,7 +642,6 @@ impl IcuDateTime {
 // When building for macOS with `icu_macos` feature, use Foundation formatters.
 #[cfg(all(target_os = "macos", feature = "icu_macos"))]
 pub use icu_macos::IcuLocalizer;
-
 // ─── Windows NLS backend ──────────────────────────────────────────────────────
 // When building for Windows with `icu_windows` feature, use Win32 NLS functions.
 #[cfg(all(target_os = "windows", feature = "icu_windows"))]
@@ -991,9 +996,7 @@ impl IcuLocalizer {
     /// - de-DE Medium: "15.01.2025"
     /// - de-DE Long: "15. Januar 2025"
     pub fn format_date(&mut self, date: IcuDate, length: FormatLength) -> IcuResult {
-        use icu::datetime::fieldsets::YMD;
-        use icu::datetime::input::Date;
-        use icu::datetime::DateTimeFormatter;
+        use icu::datetime::{fieldsets::YMD, input::Date, DateTimeFormatter};
 
         let icu_date = match Date::try_new_iso(date.year, date.month, date.day) {
             Ok(d) => d,
@@ -1025,9 +1028,7 @@ impl IcuLocalizer {
     /// - en-US: "4:30 PM" or "4:30:45 PM"
     /// - de-DE: "16:30" or "16:30:45"
     pub fn format_time(&mut self, time: IcuTime, include_seconds: bool) -> IcuResult {
-        use icu::datetime::fieldsets;
-        use icu::datetime::input::Time;
-        use icu::datetime::NoCalendarFormatter;
+        use icu::datetime::{fieldsets, input::Time, NoCalendarFormatter};
 
         let icu_time = match Time::try_new(time.hour, time.minute, time.second, 0) {
             Ok(t) => t,
@@ -1061,9 +1062,11 @@ impl IcuLocalizer {
 
     /// Format a date and time according to the current locale.
     pub fn format_datetime(&mut self, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
-        use icu::datetime::fieldsets::YMD;
-        use icu::datetime::input::{Date, DateTime, Time};
-        use icu::datetime::DateTimeFormatter;
+        use icu::datetime::{
+            fieldsets::YMD,
+            input::{Date, DateTime, Time},
+            DateTimeFormatter,
+        };
 
         let icu_date =
             match Date::try_new_iso(datetime.date.year, datetime.date.month, datetime.date.day) {
@@ -1232,9 +1235,9 @@ pub struct IcuLocalizerInner {
 /// A thread-safe cache of ICU localizers for multiple locales.
 ///
 /// This is passed to callbacks via `CallbackInfo` and `LayoutCallbackInfo`.
-/// It uses manual reference counting (raw pointer + AtomicUsize) for FFI safety.
+/// It uses manual reference counting (raw pointer + `AtomicUsize`) for FFI safety.
 ///
-/// Each locale's IcuLocalizer is lazily created and cached on first use.
+/// Each locale's `IcuLocalizer` is lazily created and cached on first use.
 /// All methods take a `locale: &str` parameter to specify which locale to use.
 #[repr(C)]
 pub struct IcuLocalizerHandle {
@@ -1280,8 +1283,8 @@ impl Drop for IcuLocalizerHandle {
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
-                let _ = Box::from_raw(self.ptr as *mut IcuLocalizerInner);
-                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+                let _ = Box::from_raw(self.ptr.cast_mut());
+                let _ = Box::from_raw(self.copies.cast_mut());
             }
         }
     }
@@ -1292,9 +1295,7 @@ impl core::fmt::Debug for IcuLocalizerHandle {
         let inner = unsafe { &*self.ptr };
         let default_locale = inner
             .default_locale
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| AzString::from(""));
+            .lock().map_or_else(|_| AzString::from(""), |g| g.clone());
         f.debug_struct("IcuLocalizerHandle")
             .field("default_locale", &default_locale)
             .finish()
@@ -1317,6 +1318,7 @@ impl Default for IcuLocalizerHandle {
 
 impl IcuLocalizerHandle {
     /// Create a new empty cache with a default locale.
+    #[must_use] 
     pub fn new(default_locale: &str) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(IcuLocalizerInner {
@@ -1331,22 +1333,22 @@ impl IcuLocalizerHandle {
 
     /// Get a reference to the inner data.
     #[inline]
-    fn inner(&self) -> &IcuLocalizerInner {
+    const fn inner(&self) -> &IcuLocalizerInner {
         unsafe { &*self.ptr }
     }
 
     /// Create a cache initialized with the system language.
+    #[must_use] 
     pub fn from_system_language(language: &AzString) -> Self {
         Self::new(language.as_str())
     }
 
     /// Get the default locale string.
+    #[must_use] 
     pub fn get_default_locale(&self) -> AzString {
         self.inner()
             .default_locale
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| AzString::from("en-US"))
+            .lock().map_or_else(|_| AzString::from("en-US"), |g| g.clone())
     }
 
     /// Set the default locale.
@@ -1356,7 +1358,7 @@ impl IcuLocalizerHandle {
         }
     }
 
-    /// Alias for set_default_locale for compatibility.
+    /// Alias for `set_default_locale` for compatibility.
     pub fn set_locale(&mut self, locale: &str) {
         self.set_default_locale(locale);
     }
@@ -1367,6 +1369,7 @@ impl IcuLocalizerHandle {
     /// This allows supporting locales that aren't compiled into the binary.
     ///
     /// Returns `true` if the data was successfully loaded.
+    #[must_use] 
     pub fn load_data_blob(&self, data: &[u8]) -> bool {
         let inner = self.inner();
         if let Ok(mut blob) = inner.data_blob.lock() {
@@ -1419,6 +1422,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get the language part of a locale (e.g., "en" from "en-US").
+    #[must_use] 
     pub fn get_language(&self, locale: &str) -> AzString {
         self.with_localizer(locale, |l| l.get_language())
     }
@@ -1430,6 +1434,7 @@ impl IcuLocalizerHandle {
     /// cache.format_integer("en-US", 1234567) // → "1,234,567"
     /// cache.format_integer("de-DE", 1234567) // → "1.234.567"
     /// ```
+    #[must_use] 
     pub fn format_integer(&self, locale: &str, value: i64) -> AzString {
         self.with_localizer(locale, |l| l.format_integer(value))
     }
@@ -1440,6 +1445,7 @@ impl IcuLocalizerHandle {
     /// * `locale` - BCP 47 locale string (e.g., "en-US", "de-DE")
     /// * `integer_part` - The full integer value (e.g., 123456 for 1234.56)
     /// * `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)
+    #[must_use] 
     pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
         self.with_localizer(locale, |l| l.format_decimal(integer_part, decimal_places))
     }
@@ -1451,6 +1457,7 @@ impl IcuLocalizerHandle {
     /// cache.get_plural_category("en", 1)  // → PluralCategory::One
     /// cache.get_plural_category("pl", 5)  // → PluralCategory::Many
     /// ```
+    #[must_use] 
     pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
         self.with_localizer(locale, |l| l.get_plural_category(value))
     }
@@ -1461,6 +1468,7 @@ impl IcuLocalizerHandle {
     /// * `locale` - BCP 47 locale string
     /// * `value` - The number to pluralize
     /// * `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category
+    #[must_use] 
     pub fn pluralize(
         &self,
         locale: &str,
@@ -1486,12 +1494,13 @@ impl IcuLocalizerHandle {
     /// cache.format_list("en-US", &items, ListType::And) // → "A, B, and C"
     /// cache.format_list("de-DE", &items, ListType::And) // → "A, B und C"
     /// ```
+    #[must_use] 
     pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
         self.with_localizer_or(
             locale,
             |l| l.format_list(items, list_type),
             || {
-                let strs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
+                let strs: Vec<&str> = items.iter().map(AzString::as_str).collect();
                 AzString::from(strs.join(", "))
             },
         )
@@ -1505,6 +1514,7 @@ impl IcuLocalizerHandle {
     /// cache.format_date("en-US", today, FormatLength::Medium) // → "Jan 15, 2025"
     /// cache.format_date("de-DE", today, FormatLength::Medium) // → "15.01.2025"
     /// ```
+    #[must_use] 
     pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
         self.with_localizer_or(
             locale,
@@ -1521,6 +1531,7 @@ impl IcuLocalizerHandle {
     /// cache.format_time("en-US", now, false) // → "4:30 PM"
     /// cache.format_time("de-DE", now, false) // → "16:30"
     /// ```
+    #[must_use] 
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
         self.with_localizer_or(
             locale,
@@ -1530,6 +1541,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Format a date and time according to the specified locale.
+    #[must_use] 
     pub fn format_datetime(
         &self,
         locale: &str,
@@ -1556,6 +1568,7 @@ impl IcuLocalizerHandle {
     /// cache.compare_strings("de-DE", "Äpfel", "Banane") // → -1 (Ä sorts with A)
     /// cache.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
     /// ```
+    #[must_use] 
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
         self.with_localizer(locale, |l| match l.compare(a, b) {
             core::cmp::Ordering::Less => -1,
@@ -1573,6 +1586,7 @@ impl IcuLocalizerHandle {
     /// let sorted = cache.sort_strings("de-DE", &["Österreich", "Andorra", "Ägypten"]);
     /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
     /// ```
+    #[must_use] 
     pub fn sort_strings(&self, locale: &str, strings: &[AzString]) -> IcuStringVec {
         self.with_localizer_or(
             locale,
@@ -1582,11 +1596,13 @@ impl IcuLocalizerHandle {
     }
 
     /// Check if two strings are equal according to locale collation rules.
+    #[must_use] 
     pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
         self.with_localizer_or(locale, |l| l.strings_equal(a, b), || a == b)
     }
 
     /// Get the sort key for a string (for efficient bulk sorting).
+    #[must_use] 
     pub fn get_sort_key(&self, locale: &str, s: &str) -> Vec<u8> {
         self.with_localizer(locale, |l| l.get_sort_key(s))
     }
@@ -1595,6 +1611,7 @@ impl IcuLocalizerHandle {
     ///
     /// This handles the common case of "{count} {item/items}" patterns.
     /// The `{}` placeholder in the template will be replaced with the formatted number.
+    #[must_use] 
     pub fn format_plural(
         &self,
         locale: &str,
@@ -1609,6 +1626,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Format a list of strings conveniently.
+    #[must_use] 
     pub fn format_list_strings(
         &self,
         locale: &str,
@@ -1627,6 +1645,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get the number of cached locales.
+    #[must_use] 
     pub fn cached_locale_count(&self) -> usize {
         self.inner()
             .cache
@@ -1636,6 +1655,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get a list of all cached locale strings.
+    #[must_use] 
     pub fn cached_locales(&self) -> Vec<AzString> {
         self.inner()
             .cache
@@ -1667,10 +1687,10 @@ azul_css::impl_vec_debug!(AzString, IcuStringVec);
 
 use azul_core::callbacks::LayoutCallbackInfo;
 
-/// Extension trait to add ICU internationalization methods to LayoutCallbackInfo.
+/// Extension trait to add ICU internationalization methods to `LayoutCallbackInfo`.
 ///
 /// This trait is implemented for `LayoutCallbackInfo` when the `icu` feature is enabled.
-/// Import this trait to use ICU methods on LayoutCallbackInfo in layout callbacks.
+/// Import this trait to use ICU methods on `LayoutCallbackInfo` in layout callbacks.
 ///
 /// # Example
 /// ```rust,ignore

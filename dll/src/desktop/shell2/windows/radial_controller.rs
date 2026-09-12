@@ -36,8 +36,7 @@ use windows::{
     },
 };
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 
 /// Keeps the controller alive for the window's lifetime.
 ///
@@ -60,8 +59,8 @@ fn emit_dial(hwnd: isize, delta_rad: f32, pressed: bool, contact: OptionLogicalP
     let window: &mut super::Win32Window = unsafe { &mut *window_ptr };
 
     if let Some(ref mut lw) = window.common.layout_window {
-        lw.gesture_drag_manager.update_dial_state(
-            azul_layout::managers::gesture::DialState {
+        lw.gesture_drag_manager
+            .update_dial_state(azul_layout::managers::gesture::DialState {
                 // Windows exposes no per-dial id; a machine pairs one Dial.
                 device_id: 0,
                 delta_rad,
@@ -72,8 +71,7 @@ fn emit_dial(hwnd: isize, delta_rad: f32, pressed: bool, contact: OptionLogicalP
                 detent_count: 0.0,
                 pressed,
                 contact_position: contact,
-            },
-        );
+            });
     }
     let result = super::PlatformWindow::process_window_events(window, 0);
     window.route_main_window_result(hwnd_t, result);
@@ -91,8 +89,7 @@ impl RadialControllerOwner {
         // step that turns a UWP-only API into a desktop-reachable one.
         let interop: IRadialControllerInterop =
             windows::core::factory::<RadialController, IRadialControllerInterop>().ok()?;
-        let controller: RadialController =
-            unsafe { interop.CreateForWindow(hwnd_t) }.ok()?;
+        let controller: RadialController = unsafe { interop.CreateForWindow(hwnd_t) }.ok()?;
 
         // Rotation. `RotationDeltaInDegrees` is a real angular delta, so this
         // is the one backend where `delta_rad` is honest rather than zero.

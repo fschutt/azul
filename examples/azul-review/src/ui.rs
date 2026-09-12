@@ -4,14 +4,14 @@
 //! look like the printouts it replaces, because that is the mental model that
 //! already works.
 
-use azul::callbacks::RenderImageCallbackInfo;
-use azul::dom::{AccessibilityInfo, IdOrClass, RenderImageCallback};
-use azul::image::{ImageRef, RawImageFormat};
-use azul::image::{RawImage, RawImageData};
-use azul::menu::{Menu, MenuItem, StringMenuItem};
-use azul::prelude::*;
-use azul::vec::U8VecRef;
-use azul::vec::{IdOrClassVec, MenuItemVec};
+use azul::{
+    callbacks::RenderImageCallbackInfo,
+    dom::{AccessibilityInfo, IdOrClass, RenderImageCallback},
+    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    menu::{Menu, MenuItem, StringMenuItem},
+    prelude::*,
+    vec::{IdOrClassVec, MenuItemVec, U8VecRef},
+};
 
 use crate::{code, ink, model::Semantic, AppState};
 
@@ -214,13 +214,12 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
         // column's height resolves to its CONTENT in the flex row, so it grows
         // past the window instead of overflowing, and `overflow-y` never has
         // anything to act on.
-        "display: flex; flex-direction: column; width: 260px; flex-shrink: 0; \
-         min-height: 0px; height: 100%; background: #f7f6f3; \
-         border-right: 1px solid #cfcbc4;",
+        "display: flex; flex-direction: column; width: 260px; flex-shrink: 0; min-height: 0px; \
+         height: 100%; background: #f7f6f3; border-right: 1px solid #cfcbc4;",
     );
     col.add_child(Dom::create_div_with_text("Name").with_css(
-        "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; \
-                 border-bottom: 1px solid #d8d4cd; background: #efede8;",
+        "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; border-bottom: 1px \
+         solid #d8d4cd; background: #efede8;",
     ));
 
     let mut list = Dom::create_div()
@@ -292,9 +291,8 @@ fn finder_row(
 ) -> Dom {
     let mut row = Dom::create_div().with_css(
         format!(
-            "display: flex; flex-direction: row; align-items: center; gap: 6px; \
-             padding: 3px 10px 3px {}px; font-size: 11px; flex-shrink: 0; \
-             background: {}; color: {};",
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px \
+             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};",
             10 + depth * 16,
             if selected { "#3478f6" } else { "transparent" },
             if selected { "#ffffff" } else { "#2b2b2b" },
@@ -328,17 +326,17 @@ fn finder_row(
 /// Semantic palette. Pad ExpressKeys select the same five, in this order.
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     let mut bar = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 8px; \
-         padding: 8px 12px; background: #f7f6f3; border-bottom: 1px solid #cfcbc4;",
+        "display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; \
+         background: #f7f6f3; border-bottom: 1px solid #cfcbc4;",
     );
     for (i, sem) in Semantic::ALL.iter().enumerate() {
         let c = sem.color();
         let selected = *sem == s.active;
         let mut swatch = Dom::create_div().with_css(
             format!(
-                "display: flex; flex-direction: row; align-items: center; gap: 5px; \
-                 padding: 5px 10px; font-size: 12px; border-radius: 4px; \
-                 background: rgba({},{},{},{}); color: {}; border: {};",
+                "display: flex; flex-direction: row; align-items: center; gap: 5px; padding: 5px \
+                 10px; font-size: 12px; border-radius: 4px; background: rgba({},{},{},{}); color: \
+                 {}; border: {};",
                 c.r,
                 c.g,
                 c.b,
@@ -377,9 +375,9 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     // clicking on the PAGE, so that the hand never leaves it. Showing it in the
     // toolbar anyway is the only way to know what a click just switched to.
     let mut nib = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
-         margin-left: 16px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-         background: #ffffff; color: #2b2b2b; border: 1px dashed #a9a49b;",
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 16px; \
+         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #ffffff; color: \
+         #2b2b2b; border: 1px dashed #a9a49b;",
     );
     nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
     nib.add_child(Dom::create_div_with_text(s.tool.label()));
@@ -390,13 +388,12 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         bar.add_child(meter(s));
     }
     let mut record = Dom::create_div().with_css(if rec {
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
-         margin-left: 10px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-         background: #d62d20; color: white;"
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 10px; \
+         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #d62d20; color: white;"
     } else {
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
-         margin-left: auto; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-         background: #ffffff; color: #2b2b2b; border: 1px solid #cfcbc4;"
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: auto; \
+         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #ffffff; color: \
+         #2b2b2b; border: 1px solid #cfcbc4;"
     });
     record.add_child(
         Dom::create_icon(if rec { "fiber_manual_record" } else { "mic" })
@@ -464,10 +461,9 @@ pub const STRIP_ID: &str = "sheet-strip";
 /// there is nothing here worth virtualising.
 fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let mut rail = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 3px; \
-         padding: 4px 12px; background: #efede8; border-bottom: 1px solid #cfcbc4; \
-         overflow-x: auto; overflow-y: hidden; flex-shrink: 0; \
-         width: 100%; box-sizing: border-box;",
+        "display: flex; flex-direction: row; align-items: center; gap: 3px; padding: 4px 12px; \
+         background: #efede8; border-bottom: 1px solid #cfcbc4; overflow-x: auto; overflow-y: \
+         hidden; flex-shrink: 0; width: 100%; box-sizing: border-box;",
     );
     let Some(file) = s.file() else { return rail };
     for page in 0..file.page_count() {
@@ -527,8 +523,8 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
         // `hidden`, not `auto`: the VirtualView node below IS the scroll
         // container. An `auto` wrapper would also claim a scroll id and eat the
         // wheel events the VirtualView needs to page.
-        "flex-grow: 1; min-height: 0px; background: #e9e7e2; display: flex; \
-         flex-direction: column; overflow: hidden; padding: 18px;",
+        "flex-grow: 1; min-height: 0px; background: #e9e7e2; display: flex; flex-direction: \
+         column; overflow: hidden; padding: 18px;",
     );
     if s.file().is_none() {
         area.add_child(
@@ -641,10 +637,9 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
-            "position: relative; width: {}px; height: {}px; background: #ffffff; \
-         border: 1px solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; \
-         margin-right: {}px; flex-shrink: 0; box-sizing: border-box; \
-         padding: {}px; overflow: hidden;",
+            "position: relative; width: {}px; height: {}px; background: #ffffff; border: 1px \
+             solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; margin-right: {}px; flex-shrink: \
+             0; box-sizing: border-box; padding: {}px; overflow: hidden;",
             PAGE_W as isize,
             page_h() as isize,
             PAGE_GAP as isize,
@@ -660,8 +655,8 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
     sheet.add_child(
         Dom::create_div().with_css(
             format!(
-                "position: absolute; top: {}px; bottom: {}px; left: {}px; width: 1px; \
-         background: #ece8e1;",
+                "position: absolute; top: {}px; bottom: {}px; left: {}px; width: 1px; background: \
+                 #ece8e1;",
                 PAGE_PAD as isize / 2,
                 PAGE_PAD as isize / 2,
                 (PAGE_W - MARGIN_GUTTER_W) as isize,
@@ -686,7 +681,7 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
             Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(
                 format!(
                     "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
-                 font-family: monospace; font-size: 11px; color: #b0aaa0;",
+                     font-family: monospace; font-size: 11px; color: #b0aaa0;",
                     GUTTER_W as isize - 10,
                 )
                 .as_str(),
@@ -801,9 +796,8 @@ fn status_bar(s: &AppState) -> Dom {
     let pages = s.file().map_or(0, code::SourceFile::page_count);
     let clips = s.clips.len() + usize::from(s.recording.is_some());
     let mut bar = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 16px; \
-         padding: 5px 12px; font-size: 11px; color: #55514a; background: #f7f6f3; \
-         border-top: 1px solid #cfcbc4;",
+        "display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 5px 12px; \
+         font-size: 11px; color: #55514a; background: #f7f6f3; border-top: 1px solid #cfcbc4;",
     );
     bar.add_child(Dom::create_div_with_text(
         format!(

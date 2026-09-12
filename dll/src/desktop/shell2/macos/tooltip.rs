@@ -37,7 +37,7 @@ const TEXT_FIELD_INSET_Y: f64 = 2.0;
 const FALLBACK_SCREEN_HEIGHT: f64 = 1080.0;
 
 /// Wrapper for a macOS tooltip panel
-pub struct TooltipWindow {
+pub(super) struct TooltipWindow {
     /// Tooltip panel (borderless utility window)
     panel: Retained<NSPanel>,
     /// Text field for displaying tooltip text
@@ -53,7 +53,7 @@ impl TooltipWindow {
     ///
     /// Creates an NSPanel with NSTextField for tooltip display.
     /// The panel is initially hidden and can be shown with `show()`.
-    pub fn new(mtm: MainThreadMarker) -> Result<Self, String> {
+    pub(super) fn new(mtm: MainThreadMarker) -> Result<Self, String> {
         unsafe {
             // Create panel with utility window style and no title bar
             let style_mask = NSBorderlessWindowMask.0 | NSUtilityWindowMask.0;
@@ -116,7 +116,7 @@ impl TooltipWindow {
     /// Position is in GLOBAL screen points with a TOP-LEFT origin (y-down,
     /// anchored to the primary screen's top edge) — the caller
     /// (`MacOSWindow::show_tooltip`) converts from window-local coordinates.
-    pub fn show(
+    pub(super) fn show(
         &mut self,
         text: &str,
         position: LogicalPosition,
@@ -181,7 +181,7 @@ impl TooltipWindow {
     ///
     /// Removes the tooltip panel from screen without destroying it.
     /// Can be shown again with `show()`.
-    pub fn hide(&mut self) -> Result<(), String> {
+    pub(super) fn hide(&mut self) -> Result<(), String> {
         if !self.is_visible {
             return Ok(());
         }
@@ -195,7 +195,7 @@ impl TooltipWindow {
     }
 
     /// Check if tooltip is currently visible
-    pub fn is_visible(&self) -> bool {
+    pub(super) fn is_visible(&self) -> bool {
         self.is_visible
     }
 }

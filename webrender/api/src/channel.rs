@@ -92,7 +92,7 @@ impl<T> MsgReceiver<T> {
     pub fn recv(&self) -> Result<T, Error> {
         self.rx
             .recv()
-            .map_err(|e| io::Error::new(ErrorKind::Other, e.to_string()))
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 
     pub fn to_crossbeam_receiver(self) -> Receiver<T> {
@@ -109,7 +109,7 @@ impl<T> MsgSender<T> {
     pub fn send(&self, data: T) -> Result<(), Error> {
         self.tx
             .send(data)
-            .map_err(|_| Error::new(ErrorKind::Other, "cannot send on closed channel"))
+            .map_err(|_| Error::other("cannot send on closed channel"))
     }
 }
 
@@ -130,7 +130,6 @@ pub fn msg_channel<T>() -> Result<(MsgSender<T>, MsgReceiver<T>), Error> {
 /// Senders or Receivers, so in theory these should never be
 /// called in the in-process config. If they are called,
 /// there may be a bug in the messages that the replay tool is writing.
-
 impl<T> Serialize for MsgSender<T> {
     fn serialize<S: Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
         unreachable!();

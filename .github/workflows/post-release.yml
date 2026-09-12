@@ -578,17 +578,28 @@ jobs:
 
           # APKs are offloaded to GitHub Releases because they breach GitHub Pages'
           # 1 GB artifact limit. Attempt x86_64 first (emulator native), fallback to arm64.
+          # AzWidgets replaced the deleted azul-self-test as the emulator APK;
+          # the old names stay as fallbacks so this job still verifies releases
+          # published before the rename.
           if gh release download "$VERSION" --repo "$GH_REPO" \
+               --pattern 'AzWidgets-android-x86_64.apk' --dir /tmp --clobber 2>/dev/null; then
+            mv /tmp/AzWidgets-android-x86_64.apk /tmp/azul.apk
+            echo "abi=x86_64" > /tmp/apk-abi.env
+          elif gh release download "$VERSION" --repo "$GH_REPO" \
                --pattern 'azul-self-test-android-x86_64.apk' --dir /tmp --clobber 2>/dev/null; then
             mv /tmp/azul-self-test-android-x86_64.apk /tmp/azul.apk
             echo "abi=x86_64" > /tmp/apk-abi.env
+          elif gh release download "$VERSION" --repo "$GH_REPO" \
+               --pattern 'AzWidgets-android.apk' --dir /tmp --clobber 2>/dev/null; then
+            mv /tmp/AzWidgets-android.apk /tmp/azul.apk
+            echo "abi=arm64-v8a" > /tmp/apk-abi.env
           elif gh release download "$VERSION" --repo "$GH_REPO" \
                --pattern 'azul-self-test-android.apk' --dir /tmp --clobber 2>/tmp/dl.log; then
             mv /tmp/azul-self-test-android.apk /tmp/azul.apk
             echo "abi=arm64-v8a" > /tmp/apk-abi.env
           else
             cat /tmp/dl.log >&2 || true
-            echo "::error::no azul-self-test-android*.apk on the $VERSION GitHub Release"
+            echo "::error::no Android emulator APK on the $VERSION GitHub Release"
             exit 1
           fi
           ls -l /tmp/azul.apk; cat /tmp/apk-abi.env

@@ -3,36 +3,29 @@
 //! For every IR struct that has a matching `<TypeName>_delete` C function,
 //! we emit a `T<TypeName> = class` (descended from `TObject`) that:
 //!
-//! 1. Holds the underlying FFI record (`TAzTypeName`) by value in a
-//!    private `FRaw` field.
-//! 2. Provides a `constructor Create(...)` per IR `FunctionKind::Constructor`
-//!    method on the type. When multiple constructors exist they are
-//!    overloaded via `overload;`. api.json constructor names that already
-//!    carry a `create_` / `new_` verb drop it before the Pascal `Create`
-//!    prefix is applied so `create_body` surfaces as `CreateBody`, not
-//!    `CreateCreateBody` (Delphi named-constructor idiom). A per-class
-//!    collision guard falls back to the unstripped spelling when stripping
-//!    would collide with a sibling constructor (Pascal identifiers are
-//!    case-insensitive), e.g. `ImageRef.new_rawimage` stays
-//!    `CreateNewRawimage` because `CreateRawImage` already exists.
-//! 3. Provides a `destructor Destroy; override;` that calls the
-//!    `<TypeName>_delete` external. Standard Pascal `obj.Free;` invokes
-//!    this destructor automatically.
-//! 4. Surfaces every non-trait method on `TypeName` as an idiomatic
-//!    instance / class method delegating to the underlying FFI symbol.
-//!    Wherever the IR return type has a wrapper class of its own, the
-//!    method returns that wrapper (`function WithChild(...): TDom`), built
-//!    via `T<Ret>.Wrap(...)`. Wherever a BY-VALUE (owned) argument's type
-//!    has a wrapper class, an additional `overload` variant accepting the
-//!    wrapper is emitted next to the raw-record variant; the wrapper
-//!    overload passes `arg.FRaw` and flips `arg.FOwned := False` because
-//!    libazul consumed the bytes (prevents a double-free in the arg's
-//!    destructor). Pointer-args keep their raw `PAz*` spelling in both
-//!    variants (they may be buffer/base pointers, e.g. `CopyFromPtr`).
-//! 5. Provides `function Release: TAz<TypeName>;` — detaches and returns
-//!    the raw record, transferring ownership to the caller (the destructor
-//!    will no longer call `_delete`). This is the bridge back into raw
-//!    FFI surfaces such as `PAzDom(out_ptr)^ := body.Release;`.
+//! 1. Holds the underlying FFI record (`TAzTypeName`) by value in a private `FRaw` field.
+//! 2. Provides a `constructor Create(...)` per IR `FunctionKind::Constructor` method on the type.
+//!    When multiple constructors exist they are overloaded via `overload;`. api.json constructor
+//!    names that already carry a `create_` / `new_` verb drop it before the Pascal `Create` prefix
+//!    is applied so `create_body` surfaces as `CreateBody`, not `CreateCreateBody` (Delphi
+//!    named-constructor idiom). A per-class collision guard falls back to the unstripped spelling
+//!    when stripping would collide with a sibling constructor (Pascal identifiers are
+//!    case-insensitive), e.g. `ImageRef.new_rawimage` stays `CreateNewRawimage` because
+//!    `CreateRawImage` already exists.
+//! 3. Provides a `destructor Destroy; override;` that calls the `<TypeName>_delete` external.
+//!    Standard Pascal `obj.Free;` invokes this destructor automatically.
+//! 4. Surfaces every non-trait method on `TypeName` as an idiomatic instance / class method
+//!    delegating to the underlying FFI symbol. Wherever the IR return type has a wrapper class of
+//!    its own, the method returns that wrapper (`function WithChild(...): TDom`), built via
+//!    `T<Ret>.Wrap(...)`. Wherever a BY-VALUE (owned) argument's type has a wrapper class, an
+//!    additional `overload` variant accepting the wrapper is emitted next to the raw-record
+//!    variant; the wrapper overload passes `arg.FRaw` and flips `arg.FOwned := False` because
+//!    libazul consumed the bytes (prevents a double-free in the arg's destructor). Pointer-args
+//!    keep their raw `PAz*` spelling in both variants (they may be buffer/base pointers, e.g.
+//!    `CopyFromPtr`).
+//! 5. Provides `function Release: TAz<TypeName>;` — detaches and returns the raw record,
+//!    transferring ownership to the caller (the destructor will no longer call `_delete`). This is
+//!    the bridge back into raw FFI surfaces such as `PAzDom(out_ptr)^ := body.Release;`.
 //!
 //! All wrapper classes are forward-declared (`TDom = class;`) at the top
 //! of the wrapper `type` section so methods may accept/return sibling
@@ -47,12 +40,14 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
-use super::types::ptr_type_for_arg;
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    },
     ffi_type_name, map_type_to_pascal, record_type_name, sanitize_identifier, to_pascal_case,
+    types::ptr_type_for_arg,
 };
 
 // ============================================================================
@@ -293,15 +288,13 @@ fn emit_method_decl(
                 prefix_kw, method_name, args_str, pas_ret, tail
             ));
         }
+    } else if args_str.is_empty() {
+        builder.line(&format!("{}procedure {};{}", prefix_kw, method_name, tail));
     } else {
-        if args_str.is_empty() {
-            builder.line(&format!("{}procedure {};{}", prefix_kw, method_name, tail));
-        } else {
-            builder.line(&format!(
-                "{}procedure {}({});{}",
-                prefix_kw, method_name, args_str, tail
-            ));
-        }
+        builder.line(&format!(
+            "{}procedure {}({});{}",
+            prefix_kw, method_name, args_str, tail
+        ));
     }
 }
 
@@ -505,15 +498,13 @@ fn emit_method_impl(
                 prefix_kw, class_name, method_name, args_str, pas_ret
             )
         }
+    } else if args_str.is_empty() {
+        format!("{}procedure {}.{};", prefix_kw, class_name, method_name)
     } else {
-        if args_str.is_empty() {
-            format!("{}procedure {}.{};", prefix_kw, class_name, method_name)
-        } else {
-            format!(
-                "{}procedure {}.{}({});",
-                prefix_kw, class_name, method_name, args_str
-            )
-        }
+        format!(
+            "{}procedure {}.{}({});",
+            prefix_kw, class_name, method_name, args_str
+        )
     };
 
     builder.line(&signature);
@@ -705,7 +696,6 @@ fn pascal_class_name(raw: &str) -> String {
 fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
     let ctors: Vec<&FunctionDef> = ir
         .functions_for_class(class_name)
-        .into_iter()
         .filter(|f| matches!(f.kind, FunctionKind::Constructor | FunctionKind::Default))
         .collect();
 
@@ -797,6 +787,5 @@ fn sanitize_comment(s: &str) -> String {
     // close Pascal block comments (matches lang_pascal/types.rs).
     s.replace('{', "(")
         .replace('}', ")")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
 }

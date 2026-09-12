@@ -1096,8 +1096,8 @@ mod autotest_generated {
                 .unwrap_or_else(|| panic!("flex-grow disappeared for input {v}"));
             assert!(
                 got.is_finite(),
-                "input {v} produced a non-finite flex-grow ({got}) — the layout solver would \
-                 NaN out",
+                "input {v} produced a non-finite flex-grow ({got}) — the layout solver would NaN \
+                 out",
             );
         }
     }
@@ -1425,8 +1425,8 @@ mod autotest_generated {
         );
         assert!(
             !after.contains(&CssPropertyType::Width),
-            "the right rule gained a width — the known before/after asymmetry was fixed, \
-             update this test",
+            "the right rule gained a width — the known before/after asymmetry was fixed, update \
+             this test",
         );
 
         // Mirrored side: left draws a left border, right draws a right border.

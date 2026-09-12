@@ -305,12 +305,18 @@ pub struct CodegenConfig {
 impl CodegenConfig {
     /// Transform an external path based on external_crate_replacement
     pub fn transform_external_path(&self, path: &str) -> String {
+        // NOTE: `::wasm_stub` no longer appears anywhere in api.json. This
+        // strip is kept because it is load-bearing for older api.json files
+        // the tooling still reads, but it is a blanket rewrite: a module
+        // genuinely named `wasm_stub` would be mangled by it. Narrow it to the
+        // paths that actually carried the stub if that ever happens.
+        let mut path_str = path.replace("::wasm_stub", "");
         if let Some((from, to)) = &self.external_crate_replacement {
-            if path.starts_with(from.as_str()) {
-                return path.replacen(from.as_str(), to.as_str(), 1);
+            if path_str.starts_with(from.as_str()) {
+                path_str = path_str.replacen(from.as_str(), to.as_str(), 1);
             }
         }
-        path.to_string()
+        path_str
     }
 
     /// Check if a type should be included based on filters
@@ -393,6 +399,9 @@ fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
     }
 
     // Handle Option<T>, Vec<T>, etc.
+    if name.starts_with("ManuallyDrop<Box<") {
+        return name.to_string();
+    }
     if let Some(angle_pos) = name.find('<') {
         if name.ends_with('>') {
             let outer = &name[..angle_pos];
@@ -456,8 +465,8 @@ impl CodegenConfig {
     /// DLL internal bindings API (replaces old dll_static + dll_build)
     ///
     /// Generates types + C-ABI function bodies (via transmute) + trait impls.
-    /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export", no_mangle)]`
-    /// so the same generated file works for both static linking and DLL export.
+    /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export",
+    /// no_mangle)]` so the same generated file works for both static linking and DLL export.
     ///
     /// Trait impls use `UsingCAPI` — they call the C-ABI wrapper functions
     /// (e.g. `AzDom_delete(self)`) instead of doing raw transmute. This ensures
@@ -478,6 +487,12 @@ impl CodegenConfig {
                 "use core::ffi::c_void;".into(),
                 "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
+                "use core::mem::ManuallyDrop;".into(),
+                "use alloc::rc::Rc;".into(),
+                "use alloc::boxed::Box;".into(),
+                "use azul_core::icon::IconProviderInner;".into(),
+                "use azul_core::prop_cache::CssPropertyCache;".into(),
+                "use azul_core::gl::GlContextPtrInner;".into(),
                 "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
             ],
             type_filter: None,
@@ -616,13 +631,12 @@ impl CodegenConfig {
     /// It used to be `UsingDerive` with `CAbiFunctionMode::None`, and that
     /// combination cannot work in either direction:
     ///
-    ///   * `None` emits no `extern "C"` block, while `generate_impl_blocks`
-    ///     emits `pub fn new(..) { unsafe { AzDom_new(..) } }` regardless. Every
-    ///     method body in the file called an undeclared function.
-    ///   * `UsingDerive` puts `#[derive(Clone)]` on the mirror, which requires
-    ///     every FIELD's mirror to be `Clone` too. The owning leaves (`String`,
-    ///     `*Vec`, `RefAny`) get their `Clone` from the ABI, not from a derive,
-    ///     so the cascade failed for ~400 types.
+    ///   * `None` emits no `extern "C"` block, while `generate_impl_blocks` emits `pub fn new(..) {
+    ///     unsafe { AzDom_new(..) } }` regardless. Every method body in the file called an
+    ///     undeclared function.
+    ///   * `UsingDerive` puts `#[derive(Clone)]` on the mirror, which requires every FIELD's mirror
+    ///     to be `Clone` too. The owning leaves (`String`, `*Vec`, `RefAny`) get their `Clone` from
+    ///     the ABI, not from a derive, so the cascade failed for ~400 types.
     ///
     /// `UsingCAPI` + `ExternalBindings` is the shape that is internally
     /// consistent — the same shape `dll_api_external.rs` uses — and it is what
@@ -703,6 +717,12 @@ impl CodegenConfig {
                 "use core::ffi::c_void;".into(),
                 "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
+                "use core::mem::ManuallyDrop;".into(),
+                "use alloc::rc::Rc;".into(),
+                "use alloc::boxed::Box;".into(),
+                "use azul_core::icon::IconProviderInner;".into(),
+                "use azul_core::prop_cache::CssPropertyCache;".into(),
+                "use azul_core::gl::GlContextPtrInner;".into(),
                 // memtest exercises SvgMultiPolygon::tessellate_fill/stroke, which
                 // are trait methods — the trait must be in scope (as dll_internal does).
                 "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),

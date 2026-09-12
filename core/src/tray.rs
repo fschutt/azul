@@ -8,36 +8,34 @@
 //! The three platforms share almost nothing below the "icon + retained menu
 //! tree" level, and two of their constraints leak into any honest API:
 //!
-//! 1. **On Linux the menu is not a popup  -  it is a remote model.** SNI's `Menu`
-//!    property points at a `com.canonical.dbusmenu` object, and the *panel*
-//!    draws the menu, calling back into us with `GetLayout` / `AboutToShow`.
-//!    So the menu must be a RETAINED tree with stable ids and a revision
-//!    counter. An API shaped as `show_context_menu_at(x, y)` cannot be
-//!    implemented on Linux and would have to be redone  -  hence
-//!    [`TrayIconData::menu`] is state, not a call.
+//! 1. **On Linux the menu is not a popup  -  it is a remote model.** SNI's `Menu` property points
+//!    at a `com.canonical.dbusmenu` object, and the *panel* draws the menu, calling back into us
+//!    with `GetLayout` / `AboutToShow`. So the menu must be a RETAINED tree with stable ids and a
+//!    revision counter. An API shaped as `show_context_menu_at(x, y)` cannot be implemented on
+//!    Linux and would have to be redone  -  hence [`TrayIconData::menu`] is state, not a call.
 //!
-//! 2. **`ContextMenu` is a REQUEST, not a command.** On Linux the panel may
-//!    open the menu itself and never tell us; on Windows and macOS we open it.
-//!    Callers must not assume their handler is the only thing that runs.
+//! 2. **`ContextMenu` is a REQUEST, not a command.** On Linux the panel may open the menu itself
+//!    and never tell us; on Windows and macOS we open it. Callers must not assume their handler is
+//!    the only thing that runs.
 //!
 //! Two more platform truths that the API deliberately does NOT hide:
 //!
 //! * **A tray may genuinely not exist.** On a vanilla GNOME there is no
-//!   `org.kde.StatusNotifierWatcher` at all: registration fails silently and no
-//!   icon ever appears. [`TrayIconData`] is therefore accepted on a best-effort
-//!   basis and the app must have a story for "no tray"  -  see
-//!   `App::tray_available()` in azul-dll.
-//! * **Click semantics differ.** The SNI spec does not say which gesture
-//!   activates an item; some desktops use single left click, some double. Never
-//!   document a precise gesture for [`TrayEventType::Activate`].
+//!   `org.kde.StatusNotifierWatcher` at all: registration fails silently and no icon ever appears.
+//!   [`TrayIconData`] is therefore accepted on a best-effort basis and the app must have a story
+//!   for "no tray"  -  see `App::tray_available()` in azul-dll.
+//! * **Click semantics differ.** The SNI spec does not say which gesture activates an item; some
+//!   desktops use single left click, some double. Never document a precise gesture for
+//!   [`TrayEventType::Activate`].
 
 use alloc::{string::String, vec::Vec};
+
+use azul_css::{corety::U8Vec, AzString, OptionString};
 
 use crate::{
     menu::{Menu, OptionMenu},
     window::IconKey,
 };
-use azul_css::{corety::U8Vec, AzString, OptionString};
 
 /// RGBA8 image for a tray icon, at one specific size.
 ///

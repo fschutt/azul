@@ -1,14 +1,16 @@
 extern crate alloc;
 
-use azul_core::diff::{
-    create_migration_map, reconcile_cursor_position, reconcile_dom, transfer_states, DiffResult,
-    NodeMove,
+use azul_core::{
+    diff::{
+        create_migration_map, reconcile_cursor_position, reconcile_dom, transfer_states,
+        DiffResult, NodeMove,
+    },
+    dom::{DomId, NodeData},
+    geom::LogicalRect,
+    id::NodeId,
+    task::Instant,
+    OrderedMap,
 };
-use azul_core::dom::{DomId, NodeData};
-use azul_core::geom::LogicalRect;
-use azul_core::id::NodeId;
-use azul_core::task::Instant;
-use azul_core::OrderedMap;
 
 // Flat-DOM test wrapper — these tests don't model parent/sibling pointers, so
 // `reconcile_dom` runs against empty hierarchy slices. The reconciliation-key
@@ -764,8 +766,10 @@ fn test_shuffle_three() {
 // MERGE CALLBACK / STATE MIGRATION TESTS
 // =========================================================================
 
-use azul_core::dom::DatasetMergeCallbackType;
-use azul_core::refany::{OptionRefAny, RefAny};
+use azul_core::{
+    dom::DatasetMergeCallbackType,
+    refany::{OptionRefAny, RefAny},
+};
 
 /// Test data simulating a video player with a heavy decoder handle
 struct VideoPlayerState {

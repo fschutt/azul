@@ -4,17 +4,14 @@
 //! Two bugs that surfaced on calc.c once it got `padding:14px` +
 //! `height:100%` on its flex root:
 //!
-//! 1. `constraints.available_size` (content-box) was fed into taffy's
-//!    `known_dimensions`, which taffy interprets as border-box. Net
-//!    effect: content area came out 2× padding too narrow ("asymmetric
-//!    padding on the right").
+//! 1. `constraints.available_size` (content-box) was fed into taffy's `known_dimensions`, which
+//!    taffy interprets as border-box. Net effect: content area came out 2× padding too narrow
+//!    ("asymmetric padding on the right").
 //!
-//! 2. `calculate_used_size_for_node` inflates CSS-default content-box
-//!    sizing to border-box by adding padding+border. For a root with
-//!    `height:100%`, this yields border-box = viewport + 2×padding,
-//!    so the root overflows the viewport vertically by the padding
-//!    sum (and the overlay-scrollbar logic reserves a right-side
-//!    gutter as a side effect).
+//! 2. `calculate_used_size_for_node` inflates CSS-default content-box sizing to border-box by
+//!    adding padding+border. For a root with `height:100%`, this yields border-box = viewport +
+//!    2×padding, so the root overflows the viewport vertically by the padding sum (and the
+//!    overlay-scrollbar logic reserves a right-side gutter as a side effect).
 //!
 //! Fix: auto-apply `box-sizing: border-box` for the root element
 //! (a CSS-reset pattern). Pull effective dimensions from
@@ -118,8 +115,8 @@ fn test_root_height_percent_plus_padding_does_not_overflow_viewport() {
     // the viewport vertically by 28px.
     assert!(
         (root_rect.size.height - vh).abs() < 1.0,
-        "Root height ({}) should match viewport ({}) — bug inflates it to \
-         viewport + 2*padding = {}.",
+        "Root height ({}) should match viewport ({}) — bug inflates it to viewport + 2*padding = \
+         {}.",
         root_rect.size.height,
         vh,
         vh + 28.0,
@@ -137,12 +134,11 @@ fn test_root_height_percent_plus_padding_does_not_overflow_viewport() {
 /// (vw - 2*padding, vh - 2*padding) at offset (padding, padding).
 ///
 /// Without the fix, two things go wrong:
-/// - The root overflows the viewport by 28px vertically (bug B above),
-///   so the child's bottom edge ends up at vh + padding, past the
-///   viewport.
-/// - The content area handed to taffy is 2× padding too narrow
-///   (bug A — `available_size` was content-box but fed in as border-box),
-///   so the child ends up (vw - 4*padding) wide instead of (vw - 2*padding).
+/// - The root overflows the viewport by 28px vertically (bug B above), so the child's bottom edge
+///   ends up at vh + padding, past the viewport.
+/// - The content area handed to taffy is 2× padding too narrow (bug A — `available_size` was
+///   content-box but fed in as border-box), so the child ends up (vw - 4*padding) wide instead of
+///   (vw - 2*padding).
 #[test]
 fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
     let dom = Dom::create_div()
@@ -177,9 +173,8 @@ fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
 
     assert!(
         (child_rect.size.width - expected_w).abs() < 1.0,
-        "Child width should be vw - 2*padding = {} (viewport {} minus 2×{} \
-         padding). Got {}. Bug A (content-box fed in as border-box) \
-         produces vw - 4*padding = {}.",
+        "Child width should be vw - 2*padding = {} (viewport {} minus 2×{} padding). Got {}. Bug \
+         A (content-box fed in as border-box) produces vw - 4*padding = {}.",
         expected_w,
         vw,
         pad,
@@ -188,9 +183,8 @@ fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
     );
     assert!(
         (child_rect.size.height - expected_h).abs() < 1.0,
-        "Child height should be vh - 2*padding = {}. Got {}. \
-         Bug B (root overflows viewport) would let the child extend to {} \
-         (viewport + padding).",
+        "Child height should be vh - 2*padding = {}. Got {}. Bug B (root overflows viewport) \
+         would let the child extend to {} (viewport + padding).",
         expected_h,
         child_rect.size.height,
         vh - pad,
@@ -201,8 +195,8 @@ fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
     let child_bottom = child_rect.origin.y + child_rect.size.height;
     assert!(
         child_bottom <= vh + 0.5,
-        "Child bottom ({child_bottom}) must not extend past viewport height ({vh}) — \
-         this is the calc.c y-overflow symptom.",
+        "Child bottom ({child_bottom}) must not extend past viewport height ({vh}) — this is the \
+         calc.c y-overflow symptom.",
     );
 }
 
@@ -249,8 +243,8 @@ fn test_flex_child_has_symmetric_horizontal_padding_gutters() {
     );
     assert!(
         (right_gutter - pad).abs() < 1.0,
-        "Right gutter should be padding ({pad}), got {right_gutter}. \
-         Asymmetric right gutter (> left) is the calc.c symptom.",
+        "Right gutter should be padding ({pad}), got {right_gutter}. Asymmetric right gutter (> \
+         left) is the calc.c symptom.",
     );
     assert!(
         (left_gutter - right_gutter).abs() < 1.0,
@@ -286,8 +280,8 @@ fn test_root_explicit_height_plus_padding_treated_as_border_box() {
     // Without the fix: 400 + 2*14 = 428.
     assert!(
         (root_rect.size.height - 400.0).abs() < 1.0,
-        "Explicit root height (400) should be treated as border-box. \
-         Got {}, bug inflates it to 400 + 2*padding = 428.",
+        "Explicit root height (400) should be treated as border-box. Got {}, bug inflates it to \
+         400 + 2*padding = 428.",
         root_rect.size.height,
     );
 }

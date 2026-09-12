@@ -5,13 +5,16 @@
 //! `Border` item in the tween post-pass. Suppressed while a text-editing
 //! session owns focus (there the caret is the indicator).
 
-use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, TabIndex};
-use azul_core::geom::{LogicalRect, LogicalSize};
-use azul_core::resources::{RendererResources, SystemAnimations};
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::solver3::display_list::DisplayListItem;
-use azul_layout::window::LayoutWindow;
-use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+    geom::{LogicalRect, LogicalSize},
+    resources::{RendererResources, SystemAnimations},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 const CSS: &str = r#"
@@ -201,7 +204,8 @@ fn ring_is_suppressed_while_a_text_editing_session_owns_focus() {
     rebuild(&mut lw);
     assert!(
         ring_rect(&lw).is_none(),
-        "no ring while a text-editing session is active (the caret is the          indicator) — the last item must not be the appended ring"
+        "no ring while a text-editing session is active (the caret is the          indicator) — \
+         the last item must not be the appended ring"
     );
 }
 
@@ -231,7 +235,7 @@ fn only_keyboard_focus_is_ringed() {
     );
     assert!(
         pointer.focus_manager.get_focused_node().is_some(),
-        "and the pointer-focused control is still genuinely FOCUSED - it \
-         types and activates, it just has no ring",
+        "and the pointer-focused control is still genuinely FOCUSED - it types and activates, it \
+         just has no ring",
     );
 }

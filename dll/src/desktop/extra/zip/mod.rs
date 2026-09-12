@@ -27,9 +27,9 @@ fn announce_zip_stub(what: &str) {
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][zip] {what} called, but this build has no `zip` feature - the \
-             archive cannot be compressed or parsed, so every result is EMPTY. \
-             Rebuild with: cargo build -p azul-dll --features build-dll,zip"
+            "[azul][zip] {what} called, but this build has no `zip` feature - the archive cannot \
+             be compressed or parsed, so every result is EMPTY. Rebuild with: cargo build -p \
+             azul-dll --features build-dll,zip"
         );
     });
 }

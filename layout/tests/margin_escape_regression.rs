@@ -275,16 +275,16 @@ fn test_nested_margin_escape() {
     //   </div>
     //
     // Expected (per CSS 2.2 §8.3.1 margin-through-flow collapsing):
-    //   - Node 1 (.box) has padding → its top margin (30) still escapes through Node 0
-    //     (chain stops at box's own padding — box's own top-margin is the collapsed value).
-    //   - Node 4 (.nested-box) has padding → its top margin (50) escapes through Node 3
-    //     to become Node 3's effective top margin (max(40, 50) = 50).
-    //   - Sibling collapse between Node 1 and Node 3 uses Node 3's ESCAPED top (50),
-    //     not its own (40): max(30, 50) = 50px gap.
+    //   - Node 1 (.box) has padding → its top margin (30) still escapes through Node 0 (chain stops
+    //     at box's own padding — box's own top-margin is the collapsed value).
+    //   - Node 4 (.nested-box) has padding → its top margin (50) escapes through Node 3 to become
+    //     Node 3's effective top margin (max(40, 50) = 50).
+    //   - Sibling collapse between Node 1 and Node 3 uses Node 3's ESCAPED top (50), not its own
+    //     (40): max(30, 50) = 50px gap.
     //   - Node 0 children extent = 140 (box) + 50 (gap) + 130 (nested-container) = 320
     //   - Root traps escaped margins (no grandparent): top 30 + bottom 40.
-    //   - Final height: 320 + 40 (bottom trap) = 360px.
-    //     (Top trap +30 is exactly offset by `total_escaped_top_margin` subtraction.)
+    //   - Final height: 320 + 40 (bottom trap) = 360px. (Top trap +30 is exactly offset by
+    //     `total_escaped_top_margin` subtraction.)
     //   - Node 3 height = 130px (just nested-box's border-box; escaped margins don't count).
 
     // The .container must NOT be the DOM root: the root-node arm folds an
@@ -396,8 +396,8 @@ fn test_nested_margin_escape() {
 
     assert!(
         (container_rect.size.height - 320.0).abs() < 1.0,
-        "Container should be ~320px per the Chrome oracle (140 box + 50 collapsed gap + \
-         130 nested-container; BOTH bottom margins collapse through and escape), got {}",
+        "Container should be ~320px per the Chrome oracle (140 box + 50 collapsed gap + 130 \
+         nested-container; BOTH bottom margins collapse through and escape), got {}",
         container_rect.size.height
     );
 

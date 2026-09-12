@@ -8,24 +8,20 @@
 //! the live frame count. So BOTH the moving box and the incrementing number
 //! demonstrate the animation loop is actually running.
 
-use azul::option::OptionRefAny;
-use azul::prelude::*;
-use azul::task::TerminateTimer;
+use azul::{option::OptionRefAny, prelude::*, task::TerminateTimer};
 
 /// The only state an animation needs here: how many timer ticks have elapsed.
 struct AnimState {
     frame: u64,
 }
 
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
-    align-items: center; justify-content: center; background: #0e0e14; \
-    font-family: sans-serif;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; align-items: center; \
+                    justify-content: center; background: #0e0e14; font-family: sans-serif;";
 const TITLE: &str = "color: #e6e6f0; font-size: 22px; margin-bottom: 6px;";
 const SUBTITLE: &str = "color: #6a7080; font-size: 13px; margin-bottom: 28px;";
 // The rail the bubble slides along.
-const TRACK: &str = "width: 320px; height: 72px; border-radius: 12px; \
-    border: 2px solid #2a2a3a; background: #16161f; display: flex; \
-    align-items: center; overflow: hidden;";
+const TRACK: &str = "width: 320px; height: 72px; border-radius: 12px; border: 2px solid #2a2a3a; \
+                     background: #16161f; display: flex; align-items: center; overflow: hidden;";
 const COUNTER: &str = "color: #4a90e2; font-size: 18px; margin-top: 26px;";
 
 /// Max horizontal travel (track width − bubble width − borders).
@@ -45,8 +41,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let x = (t * AMPLITUDE) as i32;
 
     let bubble_css = format!(
-        "width: 64px; height: 64px; border-radius: 32px; background: #39d98a; \
-         box-shadow: 0px 2px 10px rgba(0,0,0,0.55); margin-left: {}px;",
+        "width: 64px; height: 64px; border-radius: 32px; background: #39d98a; box-shadow: 0px 2px \
+         10px rgba(0,0,0,0.55); margin-left: {}px;",
         x
     );
 

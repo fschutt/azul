@@ -13,8 +13,7 @@
 //! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
 
 use alloc::{
-    collections::BTreeMap,
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     string::{String, ToString},
     vec::Vec,
 };
@@ -400,11 +399,10 @@ pub fn calculate_reconciliation_key(
     // this once per node. Walk upward instead, bounded by the node count.
     //
     // Collect the structural chain from `node_id` upward. The walk stops at:
-    //   - the root (a node with no parent) — structural base is just
-    //     `discriminant + classes`,
+    //   - the root (a node with no parent) — structural base is just `discriminant + classes`,
     //   - a terminal (explicit-key / CSS-ID) ancestor, whose key seeds the fold, or
-    //   - `n` iterations (a valid parent chain is at most `n` long, so exceeding
-    //     that means the hierarchy is cyclic/corrupt — stop).
+    //   - `n` iterations (a valid parent chain is at most `n` long, so exceeding that means the
+    //     hierarchy is cyclic/corrupt — stop).
     let mut chain: Vec<NodeId> = Vec::new();
     let mut seed_parent_key: Option<u64> = None;
     let mut cur = node_id;
@@ -560,8 +558,8 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
 ///
 /// # Arguments
 /// * `old_node_data` / `new_node_data` - Per-node data for each frame
-/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable;
-///   the structural-key branch of the reconciliation key degrades gracefully.
+/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable; the
+///   structural-key branch of the reconciliation key degrades gracefully.
 /// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
@@ -1177,25 +1175,22 @@ fn note_image_reinitialised(node_index: usize, carried: bool) {
 
     if carried {
         crate::diagnostics::emit(format!(
-            "[azul][image-churn] node {node_index} rebuilt its image as a \
-             PLACEHOLDER {rate}x in one second. The previous frame was carried \
-             forward each time, so nothing flickers — but a live image node is \
-             being reconstructed every frame. If this is not a capture widget, \
-             build the node once and update it through the image cache. \
-             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+            "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
+             one second. The previous frame was carried forward each time, so nothing flickers — \
+             but a live image node is being reconstructed every frame. If this is not a capture \
+             widget, build the node once and update it through the image cache. (suppress with \
+             AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
         ));
     } else {
         crate::diagnostics::emit(format!(
-            "[azul][image-churn] node {node_index} rebuilt its image as a \
-             PLACEHOLDER {rate}x in one second and the previous frame could NOT \
-             be carried forward: this node has NO DATASET + merge callback, so \
-             the reconciler cannot tell the rebuilt node is the same widget. The \
-             live image is discarded every frame and the node falls back to its \
-             placeholder until the next one arrives — a continuous flicker. If \
-             this is a video or camera node, it is almost certainly missing its \
-             dataset: attach one with a DatasetMergeCallback (see MapWidget / \
-             ScreenCaptureWidget). \
-             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+            "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
+             one second and the previous frame could NOT be carried forward: this node has NO \
+             DATASET + merge callback, so the reconciler cannot tell the rebuilt node is the same \
+             widget. The live image is discarded every frame and the node falls back to its \
+             placeholder until the next one arrives — a continuous flicker. If this is a video or \
+             camera node, it is almost certainly missing its dataset: attach one with a \
+             DatasetMergeCallback (see MapWidget / ScreenCaptureWidget). (suppress with \
+             AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
         ));
     }
 }
@@ -2054,8 +2049,8 @@ pub fn reconcile_dom_with_changes(
 ///
 /// Two-tier strategy:
 /// - **Tier 1** (this struct): O(1) per node, identifies which categories changed.
-/// - **Tier 2** (`compute_node_changes`): O(n) per changed field, does field-by-field
-///   comparison only for nodes that Tier 1 identified as changed.
+/// - **Tier 2** (`compute_node_changes`): O(n) per changed field, does field-by-field comparison
+///   only for nodes that Tier 1 identified as changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct NodeDataFingerprint {
     /// Hash of `node_type` (Text content, Image ref, Div, etc.)
@@ -2088,8 +2083,7 @@ impl NodeDataFingerprint {
     /// Compute a fingerprint from a node's data and styled state.
     #[must_use]
     pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
-        use core::hash::Hash;
-        use core::hash::Hasher;
+        use core::hash::{Hash, Hasher};
 
         // Content hash
         let content_hash = {
@@ -2268,15 +2262,13 @@ impl NodeDataFingerprint {
 /// first equivalence, because a stylesheet can only affect the subtree it
 /// is attached to:
 ///
-/// - **structure**: hierarchy shape + node content (`node_type`, ids/classes,
-///   attributes, callback EVENT types). NO css of any kind. If this tier is
-///   equal, the old tree, its shaped text and its intrinsic caches are all
-///   reusable — and if the style tier is ALSO equal, the previous CASCADE
+/// - **structure**: hierarchy shape + node content (`node_type`, ids/classes, attributes, callback
+///   EVENT types). NO css of any kind. If this tier is equal, the old tree, its shaped text and its
+///   intrinsic caches are all reusable — and if the style tier is ALSO equal, the previous CASCADE
 ///   is reusable wholesale (skip `create_from_dom` entirely).
-/// - **style**: per-node inline css + (at subtree roots that carry
-///   `.with_css()` sheets) the sheet content. A difference here with an
-///   equal structure tier means: keep the tree, re-cascade the affected
-///   subtree(s) only.
+/// - **style**: per-node inline css + (at subtree roots that carry `.with_css()` sheets) the sheet
+///   content. A difference here with an equal structure tier means: keep the tree, re-cascade the
+///   affected subtree(s) only.
 ///
 /// The per-node arrays exist so a mismatch NAMES the changed nodes (the
 /// eventual dirty-set for scoped re-cascade / word-granular text relayout);
@@ -2334,9 +2326,9 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
     use core::hash::{Hash, Hasher};
 
     fn node_structure_hash(node: &NodeData, child_count: usize) -> u64 {
-        use crate::dom::NodeType;
-        use crate::resources::DecodedImage;
         use core::hash::{Hash, Hasher};
+
+        use crate::{dom::NodeType, resources::DecodedImage};
         let mut h = crate::hash::DefaultHasher::new();
 
         // node_type content — image-callback special case (see struct doc)
@@ -2426,8 +2418,7 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
     }
 
     fn walk(dom: &crate::dom::Dom, fp: &mut DomFingerprints, transfers: &mut PreCascadeTransfers) {
-        use crate::dom::NodeType;
-        use crate::resources::DecodedImage;
+        use crate::{dom::NodeType, resources::DecodedImage};
 
         let idx = fp.structure.len();
         fp.structure

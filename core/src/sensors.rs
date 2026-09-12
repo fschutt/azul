@@ -106,7 +106,6 @@ impl SensorKind {
     }
 }
 
-
 /// One `(x, y, z)` sample from a motion sensor. Units depend on
 /// [`SensorReading::kind`] (see [`SensorKind`]). All POD / `Copy`.
 #[repr(C)]

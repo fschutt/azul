@@ -6,10 +6,8 @@
 //! they need. The `build.zig` here:
 //!
 //! 1. declares an executable from `hello-world.zig`,
-//! 2. adds the current directory to the C include path so `@cImport`
-//!    can find `azul.h`,
-//! 3. adds the current directory to the library path and links
-//!    `azul` as a system library,
+//! 2. adds the current directory to the C include path so `@cImport` can find `azul.h`,
+//! 3. adds the current directory to the library path and links `azul` as a system library,
 //! 4. links `libc` (required by `@cImport`).
 //!
 //! The user is expected to drop `azul.h`, `azul.zig`, and the prebuilt

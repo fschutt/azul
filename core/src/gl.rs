@@ -83,15 +83,9 @@ impl Drop for GlVoidPtrConst {
 /// Because of Python, every object has to be clone-able,
 /// so yes there may exist more than one mutable reference
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct GlVoidPtrMut {
     pub ptr: *mut GLvoid,
-}
-
-impl Clone for GlVoidPtrMut {
-    fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
-    }
 }
 
 /// FFI-safe wrapper for `&str`.
@@ -858,7 +852,8 @@ static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> 
 /// the static as an auto-ref place. Callers must not hold two of these at once
 /// (they don't — every use is a single non-reentrant scope).
 #[inline]
-#[allow(clippy::deref_addrof)] // the `&raw mut` deref is deliberate: it avoids naming the static as an auto-ref place (edition-2024 `static_mut_refs`)
+#[allow(clippy::deref_addrof)] // the `&raw mut` deref is deliberate: it avoids naming the static as
+                               // an auto-ref place (edition-2024 `static_mut_refs`)
 fn active_gl_textures() -> &'static mut Option<OrderedMap<DocumentId, GlTextureStorage>> {
     // SAFETY: `&raw mut` avoids an intermediate `&mut ACTIVE_GL_TEXTURES`; the
     // static is valid for the whole program. Single-threaded access (GL thread).
@@ -943,7 +938,8 @@ pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
 }
 
 /// Destroys all textures, usually done before destroying the OpenGL context
-#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                      // types
 pub fn gl_textures_clear_opengl_cache() {
     *active_gl_textures() = None;
 }
@@ -1241,7 +1237,8 @@ void main() {
 /// its own status checks.)
 #[allow(dead_code)]
 #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
-#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                     // types
 fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
@@ -1257,7 +1254,8 @@ fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &
 /// Checks if a program linked successfully. Logs an error under `std`.
 #[allow(dead_code)]
 #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
-#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                     // types
 fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };
@@ -1390,13 +1388,16 @@ impl GlContextPtr {
                     break;
                 }
             }
-            chosen.map_or_else(|| {
+            chosen.map_or_else(
+                || {
                     eprintln!(
-                        "azul: GL context UNUSABLE -- no GLSL version ({gl_type:?}) compiled the SVG \
-                         shaders; the window should fall back to CPU rendering (is_gl_usable()=false)"
+                        "azul: GL context UNUSABLE -- no GLSL version ({gl_type:?}) compiled the \
+                         SVG shaders; the window should fall back to CPU rendering \
+                         (is_gl_usable()=false)"
                     );
                     (0, 0, 0, 0, AzString::from_const_str(""))
-                }, |ver| {
+                },
+                |ver| {
                     // "150" / "300 es": the directive minus "#version " and newline.
                     let ver_str: AzString = core::str::from_utf8(ver)
                         .unwrap_or("")
@@ -1409,18 +1410,32 @@ impl GlContextPtr {
                         gl_type
                     );
                     let mc = try_compile_program(
-                        &gl_context, SVG_MULTICOLOR_VERTEX_SHADER, SVG_MULTICOLOR_FRAGMENT_SHADER,
-                        ver, &[(0, "vAttrXY"), (1, "vColor")],
-                    ).unwrap_or(0);
+                        &gl_context,
+                        SVG_MULTICOLOR_VERTEX_SHADER,
+                        SVG_MULTICOLOR_FRAGMENT_SHADER,
+                        ver,
+                        &[(0, "vAttrXY"), (1, "vColor")],
+                    )
+                    .unwrap_or(0);
                     let fxaa = try_compile_program(
-                        &gl_context, FXAA_VERTEX_SHADER, FXAA_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
-                    ).unwrap_or(0);
+                        &gl_context,
+                        FXAA_VERTEX_SHADER,
+                        FXAA_FRAGMENT_SHADER,
+                        ver,
+                        &[(0, "vAttrXY")],
+                    )
+                    .unwrap_or(0);
                     let brush = try_compile_program(
-                        &gl_context, BRUSH_VERTEX_SHADER, BRUSH_FRAGMENT_SHADER, ver,
+                        &gl_context,
+                        BRUSH_VERTEX_SHADER,
+                        BRUSH_FRAGMENT_SHADER,
+                        ver,
                         &[(0, "aPos"), (1, "aUv")],
-                    ).unwrap_or(0);
+                    )
+                    .unwrap_or(0);
                     (svg, mc, fxaa, brush, ver_str)
-                })
+                },
+            )
         } else {
             (0, 0, 0, 0, AzString::from_const_str(""))
         };
@@ -3035,7 +3050,8 @@ pub struct Texture {
 }
 
 impl Clone for Texture {
-    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                     // types
     fn clone(&self) -> Self {
         unsafe {
             (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst);
@@ -3530,7 +3546,8 @@ impl VertexLayout {
     // OpenGL binding: vertex-attribute layout (locations, item counts, strides,
     // offsets) passed to the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                         // types
     pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         const VERTICES_ARE_NORMALIZED: bool = false;
 
@@ -3773,7 +3790,8 @@ impl VertexBuffer {
     // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
     // GLsizeiptr/GLint; values are GL-bounded.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts
+                                               // to GL* types
     pub fn new<T: VertexLayoutDescription>(
         gl_context: GlContextPtr,
         shader_program_id: GLuint,
@@ -4126,7 +4144,8 @@ impl GlShader {
     #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     /// # Errors
     ///
-    /// Returns an error if the OpenGL implementation has no shader compiler, or if the vertex/fragment shader fails to compile or link.
+    /// Returns an error if the OpenGL implementation has no shader compiler, or if the
+    /// vertex/fragment shader fails to compile or link.
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,
@@ -4212,7 +4231,8 @@ impl GlShader {
     ///
     /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     pub fn draw(
         // shader to use for drawing
         shader_program_id: GLuint,
@@ -4419,7 +4439,8 @@ impl GlShader {
     }
 }
 
-#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                     // types
 fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_shader_iv(shader_object, gl::COMPILE_STATUS, (&mut err[..]).into());
@@ -4431,7 +4452,8 @@ fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<
     }
 }
 
-#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
+                                     // types
 fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_program_iv(shader_object, gl::LINK_STATUS, (&mut err[..]).into());

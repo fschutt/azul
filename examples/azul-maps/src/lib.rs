@@ -8,13 +8,14 @@
 //! agnostic of location; the framework's permission-as-DOM plumbing
 //! routes the prompt automatically.
 
-use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
-use azul::option::OptionRefAny;
-use azul::prelude::*;
-use azul::sensor::SensorKind;
-use azul::task::TerminateTimer;
-use azul::widgets::MapViewportChangedCallback;
-use azul::widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget};
+use azul::{
+    dom::{GeolocationProbeConfig, MapPinTapCallback},
+    option::OptionRefAny,
+    prelude::*,
+    sensor::SensorKind,
+    task::TerminateTimer,
+    widgets::{MapLatLon, MapTileLayer, MapViewport, MapViewportChangedCallback, MapWidget},
+};
 
 struct MapState {
     viewport: MapViewport,
@@ -244,23 +245,20 @@ mod engine_feature_tests {
         let deps = azul_dll_dependency_lines();
         assert!(
             !deps.is_empty(),
-            "this manifest declares no azul-dll dependency at all — the selector \
-             below is stale, not the manifest"
+            "this manifest declares no azul-dll dependency at all — the selector below is stale, \
+             not the manifest"
         );
 
         for dep in &deps {
             assert!(
                 dep.contains("\"map-tiles\""),
-                "an azul-dll dependency of AzMaps does not enable `map-tiles`:\n  \
-                 {dep}\n\
-                 Without it `map_widget_dom` compiles its \
-                 `#[cfg(not(feature = \"map-tiles\"))]` half, which returns the \
-                 placeholder DOM and wires NO tile-fetch worker — the demo pans a \
-                 permanently empty grid. Enabling it here is what makes the demo \
-                 correct in BOTH link modes: it is harmless when the dylib supplies \
-                 the worker, and it is the only thing that supplies it when cargo \
-                 unifies `cabi_internal` in and the engine gets compiled into this \
-                 binary instead."
+                "an azul-dll dependency of AzMaps does not enable `map-tiles`:\n  {dep}\nWithout \
+                 it `map_widget_dom` compiles its `#[cfg(not(feature = \"map-tiles\"))]` half, \
+                 which returns the placeholder DOM and wires NO tile-fetch worker — the demo pans \
+                 a permanently empty grid. Enabling it here is what makes the demo correct in \
+                 BOTH link modes: it is harmless when the dylib supplies the worker, and it is \
+                 the only thing that supplies it when cargo unifies `cabi_internal` in and the \
+                 engine gets compiled into this binary instead."
             );
         }
     }
@@ -269,43 +267,36 @@ mod engine_feature_tests {
 // ───────── Styles ─────────────────────────────────────────────────────
 
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
-const HEADER: &str = "background: #2b2b2b; color: white; \
-    display: flex; padding: 10px 16px; flex-direction: row; align-items: center; \
-    justify-content: space-between; font-family: sans-serif; \
-    font-size: 14px; flex-shrink: 0;";
-const BTN: &str = "background: #4a90e2; color: white; \
-    padding: 6px 12px; border-radius: 4px; cursor: pointer; \
-    margin-left: 6px; font-size: 13px;";
-const BTN_ON: &str = "background: #d0021b; color: white; \
-    padding: 6px 12px; border-radius: 4px; cursor: pointer; \
-    margin-left: 6px; font-size: 13px;";
-const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
-    background: #cbd2d8; overflow: hidden;";
+const HEADER: &str = "background: #2b2b2b; color: white; display: flex; padding: 10px 16px; \
+                      flex-direction: row; align-items: center; justify-content: space-between; \
+                      font-family: sans-serif; font-size: 14px; flex-shrink: 0;";
+const BTN: &str = "background: #4a90e2; color: white; padding: 6px 12px; border-radius: 4px; \
+                   cursor: pointer; margin-left: 6px; font-size: 13px;";
+const BTN_ON: &str = "background: #d0021b; color: white; padding: 6px 12px; border-radius: 4px; \
+                      cursor: pointer; margin-left: 6px; font-size: 13px;";
+const MAP_CONTAINER: &str =
+    "flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;";
 // Compass rose badge (top-right) + its two-tone needle (red = north).
-const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; \
-    width: 56px; height: 56px; border-radius: 28px; \
-    background: rgba(20,20,28,0.85); border: 2px solid #6a7080; \
-    display: flex; align-items: center; justify-content: center; \
-    box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
-const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; \
-    border-radius: 4px 4px 0px 0px;";
-const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; \
-    border-radius: 0px 0px 4px 4px;";
-const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; \
-    background: rgba(255,255,255,0.85); padding: 3px 6px; \
-    font-size: 10px; color: #444; border-radius: 3px;";
+const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; width: 56px; height: \
+                             56px; border-radius: 28px; background: rgba(20,20,28,0.85); border: \
+                             2px solid #6a7080; display: flex; align-items: center; \
+                             justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
+const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
+const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
+const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; background: \
+                      rgba(255,255,255,0.85); padding: 3px 6px; font-size: 10px; color: #444; \
+                      border-radius: 3px;";
 // "You are here" marker at the map centre. `on_locate` recentres the
 // viewport on the fix, so the centre dot marks the user's position
 // without needing a per-pixel projection of lat/lon to the container.
-const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; \
-    width: 16px; height: 16px; margin-left: -8px; margin-top: -8px; \
-    background: #4285f4; border-radius: 8px; \
-    box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
+const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; \
+                            margin-left: -8px; margin-top: -8px; background: #4285f4; \
+                            border-radius: 8px; box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
 // Coordinate read-out for the live fix, top-centre over the map.
-const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; \
-    margin-left: -90px; width: 180px; text-align: center; \
-    background: rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
-    border-radius: 4px; font-size: 12px; font-family: sans-serif;";
+const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; margin-left: -90px; \
+                                width: 180px; text-align: center; background: \
+                                rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
+                                border-radius: 4px; font-size: 12px; font-family: sans-serif;";
 
 // ───────── Layout ─────────────────────────────────────────────────────
 
@@ -523,20 +514,18 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             );
             let (px, py) = (p.x, p.y);
             let style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; \
-                 width: 14px; height: 14px; margin-left: -7px; margin-top: -14px; \
-                 background: #d0021b; border-radius: 7px 7px 7px 0px; \
-                 transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
+                "position: absolute; left: {:.1}px; top: {:.1}px; width: 14px; height: 14px; \
+                 margin-left: -7px; margin-top: -14px; background: #d0021b; border-radius: 7px \
+                 7px 7px 0px; transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
                 px, py,
             );
             map_container = map_container.with_child(Dom::create_div().with_css(style.as_str()));
             // Callout: the pinned point's coordinates, beside the marker.
             let callout_style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; \
-                 background: rgba(255,255,255,0.95); color: #222; \
-                 padding: 2px 6px; border-radius: 4px; font-size: 11px; \
-                 font-family: sans-serif; white-space: nowrap; \
-                 box-shadow: 0px 1px 2px rgba(0,0,0,0.3);",
+                "position: absolute; left: {:.1}px; top: {:.1}px; background: \
+                 rgba(255,255,255,0.95); color: #222; padding: 2px 6px; border-radius: 4px; \
+                 font-size: 11px; font-family: sans-serif; white-space: nowrap; box-shadow: 0px \
+                 1px 2px rgba(0,0,0,0.3);",
                 px + 10.0,
                 py - 30.0,
             );
@@ -556,8 +545,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // through the (non-interactive) badge.
     if let Some(h) = heading {
         let needle = format!(
-            "width: 8px; height: 42px; display: flex; flex-direction: column; \
-             transform: rotate({:.1}deg);",
+            "width: 8px; height: 42px; display: flex; flex-direction: column; transform: \
+             rotate({:.1}deg);",
             -h,
         );
         map_container = map_container.with_child(

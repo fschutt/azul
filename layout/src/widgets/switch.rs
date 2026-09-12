@@ -11,8 +11,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, *},
@@ -31,11 +33,14 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{OptionUiTheme, UiTheme},
+};
 
-static SWITCH_TRACK_CLASS: &[IdOrClass] =
+pub static SWITCH_TRACK_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-switch"))];
-static SWITCH_KNOB_CLASS: &[IdOrClass] =
+pub static SWITCH_KNOB_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-switch-knob"))];
 
 /// Callback function type invoked when the switch is toggled.
@@ -66,9 +71,10 @@ azul_core::impl_managed_callback! {
 pub struct Switch {
     pub switch_state: SwitchStateWrapper,
     /// Style for the switch track (the pill-shaped container)
-    pub track_style: CssPropertyWithConditionsVec,
+    pub theme: OptionUiTheme,
+    pub track_style: OptionCssPropertyWithConditionsVec,
     /// Style for the sliding knob
-    pub knob_style: CssPropertyWithConditionsVec,
+    pub knob_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
@@ -167,7 +173,8 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
 /// Build the track (pill container) style. Background colour is the only
 /// state-dependent property, so the style is built at runtime per the recipe's
 /// "runtime vec if param-dependent" path.
-fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
+#[must_use]
+pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
     let bg = if checked { TRACK_ON_BG } else { TRACK_OFF_BG };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
@@ -217,7 +224,8 @@ fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
 
 /// Build the knob style. The knob's `margin-left` is the state-dependent
 /// property that slides it between the off (left) and on (right) positions.
-fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
+#[must_use]
+pub fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
     let margin = if checked { KNOB_TRAVEL } else { 0 };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         switch_animation("margin-left"),
@@ -261,14 +269,43 @@ impl Switch {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
+            theme: OptionUiTheme::None,
             switch_state: SwitchStateWrapper {
                 inner: SwitchState { checked },
                 ..Default::default()
             },
-            track_style: build_track_style(checked),
-            knob_style: build_knob_style(checked),
+            // No opinion: `resolved_track_style` / `resolved_knob_style`
+            // derive these from the checked flag when the DOM is built, so a
+            // toggle still styles itself and a caller who sets one is not
+            // overwritten by the next state change.
+            track_style: OptionCssPropertyWithConditionsVec::None,
+            knob_style: OptionCssPropertyWithConditionsVec::None,
+
             accessibility_name: OptionString::None,
         }
+    }
+
+    /// The track CSS this switch renders with.
+    ///
+    /// `None` means no opinion, so the default for the current checked state
+    /// applies. Resolved late rather than at construction because the default
+    /// depends on that state: writing it into the field on every toggle would
+    /// also clobber a caller's explicit style.
+    #[must_use]
+    pub fn resolved_track_style(&self) -> CssPropertyWithConditionsVec {
+        self.track_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_track_style(self.switch_state.inner.checked))
+    }
+
+    /// The knob CSS this switch renders with; see [`Self::resolved_track_style`].
+    #[must_use]
+    pub fn resolved_knob_style(&self) -> CssPropertyWithConditionsVec {
+        self.knob_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_knob_style(self.switch_state.inner.checked))
     }
 
     #[inline]
@@ -277,6 +314,19 @@ impl Switch {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[inline]
@@ -302,54 +352,14 @@ impl Switch {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        // Read before the widget's fields are moved into the DOM below.
-        let sw_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name("switch", sw_name.is_some());
-
-        // Read before the wrapper is moved into the callback below.
-        let switch_checked = self.switch_state.inner.checked;
-
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{Dom, EventFilter, HoverEventFilter},
+        let theme = match self.theme {
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => UiTheme::Flat,
         };
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from(SWITCH_TRACK_CLASS))
-            .with_css_props(self.track_style)
-            .with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb: input::default_on_switch_clicked as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(self.switch_state),
-                }]
-                .into(),
-            )
-            .with_tab_index(TabIndex::Auto)
-            // A switch announces as a checkbox with a state. Publishing it on
-            // every build (not once at construction) is what keeps the spoken
-            // state in step with the rendered one.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::CheckButton,
-                accessibility_name: sw_name,
-                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
-                    if switch_checked {
-                        azul_core::a11y::AccessibilityState::CheckedTrue
-                    } else {
-                        azul_core::a11y::AccessibilityState::CheckedFalse
-                    },
-                ]),
-                ..Default::default()
-            })
-            .with_children(
-                vec![Dom::create_div()
-                    .with_ids_and_classes(IdOrClassVec::from(SWITCH_KNOB_CLASS))
-                    .with_css_props(self.knob_style)]
-                .into(),
-            )
+        match theme {
+            UiTheme::Flat => crate::widgets::themes::flat::switch(self),
+            UiTheme::Flora => crate::widgets::themes::flora::switch(self),
+        }
     }
 }
 
@@ -360,7 +370,7 @@ impl Default for Switch {
 }
 
 // handle input events for the switch
-mod input {
+pub mod input {
 
     use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
@@ -368,7 +378,8 @@ mod input {
     use super::{SwitchOnToggle, SwitchStateWrapper, KNOB_TRAVEL, TRACK_OFF_BG, TRACK_ON_BG};
     use crate::callbacks::CallbackInfo;
 
-    pub(super) extern "C" fn default_on_switch_clicked(
+    #[must_use]
+    pub extern "C" fn default_on_switch_clicked(
         mut switch: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
@@ -404,11 +415,11 @@ mod input {
         // was then, and a screen reader would keep reporting the old position.
         info.set_accessibility_state(
             info.get_hit_node(),
-            azul_core::a11y::AccessibilityStateVec::from_vec(vec![if switch.inner.checked {
-                azul_core::a11y::AccessibilityState::CheckedTrue
+            azul_core::a11y::AccessibilityStateVec::from_const_slice(if switch.inner.checked {
+                &[azul_core::a11y::AccessibilityState::CheckedTrue]
             } else {
-                azul_core::a11y::AccessibilityState::CheckedFalse
-            }]),
+                &[azul_core::a11y::AccessibilityState::CheckedFalse]
+            }),
         );
 
         // CallbackInfo is Copy, so `info` is still usable after the call above.
@@ -1010,7 +1021,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn build_track_style_is_pure() {
+    pub fn build_track_style_is_pure() {
         for checked in [false, true] {
             assert_eq!(
                 properties(&build_track_style(checked)),
@@ -1021,7 +1032,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_differs_between_the_two_states_only_in_the_background() {
+    pub fn build_track_style_differs_between_the_two_states_only_in_the_background() {
         // Everything but the colour must be byte-for-byte identical: a track that
         // changed size or radius when flipped would reflow its neighbours mid-animation.
         let on = properties(&build_track_style(true));
@@ -1048,7 +1059,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_maps_on_to_green_and_off_to_grey() {
+    pub fn build_track_style_maps_on_to_green_and_off_to_grey() {
         // A swapped branch here yields a switch that reads as "on" when it is off —
         // which still type-checks and still animates.
         let on = background(&build_track_style(true)).expect("the on track has no background");
@@ -1090,7 +1101,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_geometry_is_absolute_px_in_both_states() {
+    pub fn build_track_style_geometry_is_absolute_px_in_both_states() {
         for checked in [false, true] {
             let v = build_track_style(checked);
             // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent
@@ -1119,7 +1130,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_declares_no_property_twice() {
+    pub fn build_track_style_declares_no_property_twice() {
         // A duplicate declaration means the later one silently wins — a latent
         // "why is my override ignored" bug that never surfaces as an error.
         for checked in [false, true] {
@@ -1137,7 +1148,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_marks_the_track_as_clickable_and_non_growing() {
+    pub fn build_track_style_marks_the_track_as_clickable_and_non_growing() {
         for checked in [false, true] {
             let v = build_track_style(checked);
             let cursor = find(&v, |p| match p {
@@ -1160,7 +1171,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_track_style_lays_the_knob_out_as_a_centred_row() {
+    pub fn build_track_style_lays_the_knob_out_as_a_centred_row() {
         // The knob is positioned by `margin-left` alone, which only behaves as a
         // left-anchored offset inside a row flex container.
         for checked in [false, true] {
@@ -1195,7 +1206,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn build_knob_style_is_pure() {
+    pub fn build_knob_style_is_pure() {
         for checked in [false, true] {
             assert_eq!(
                 properties(&build_knob_style(checked)),
@@ -1206,7 +1217,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_knob_style_differs_between_the_two_states_only_in_margin_left() {
+    pub fn build_knob_style_differs_between_the_two_states_only_in_margin_left() {
         let on = properties(&build_knob_style(true));
         let off = properties(&build_knob_style(false));
         assert_eq!(
@@ -1231,7 +1242,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_knob_style_parks_the_knob_left_when_off_and_right_when_on() {
+    pub fn build_knob_style_parks_the_knob_left_when_off_and_right_when_on() {
         assert_eq!(
             margin_left_px(&build_knob_style(false)),
             Some(0.0),
@@ -1245,7 +1256,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_knob_style_geometry_is_a_circle_in_absolute_px() {
+    pub fn build_knob_style_geometry_is_a_circle_in_absolute_px() {
         for checked in [false, true] {
             let v = build_knob_style(checked);
             assert_eq!(width_px(&v), Some(KNOB), "checked={checked}: knob width");
@@ -1269,7 +1280,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_knob_style_declares_no_property_twice() {
+    pub fn build_knob_style_declares_no_property_twice() {
         // Two `margin-left` declarations would make the knob's position depend on
         // declaration order rather than on `checked`.
         for checked in [false, true] {
@@ -1377,12 +1388,12 @@ mod autotest_generated {
         for checked in [false, true] {
             let s = Switch::create(checked);
             assert_eq!(
-                properties(&s.track_style),
+                properties(&s.resolved_track_style()),
                 properties(&build_track_style(checked)),
                 "create({checked}) did not build the track for state {checked}",
             );
             assert_eq!(
-                properties(&s.knob_style),
+                properties(&s.resolved_knob_style()),
                 properties(&build_knob_style(checked)),
                 "create({checked}) did not build the knob for state {checked}",
             );
@@ -1393,8 +1404,8 @@ mod autotest_generated {
     fn the_rendered_colour_and_the_knob_position_always_agree_with_the_stored_flag() {
         for checked in [false, true] {
             let s = Switch::create(checked);
-            let bg = background(&s.track_style).expect("no track background");
-            let margin = margin_left_px(&s.knob_style).expect("no knob margin");
+            let bg = background(&s.resolved_track_style()).expect("no track background");
+            let margin = margin_left_px(&s.resolved_knob_style()).expect("no knob margin");
 
             let (expected_color, expected_margin) = if s.switch_state.inner.checked {
                 (TRACK_ON_COLOR, TRAVEL)
@@ -1576,13 +1587,13 @@ mod autotest_generated {
                 "installing a callback flipped the switch",
             );
             assert_eq!(
-                properties(&s.track_style),
-                properties(&pristine.track_style),
+                properties(&s.resolved_track_style()),
+                properties(&pristine.resolved_track_style()),
                 "installing a callback rewrote the track style",
             );
             assert_eq!(
-                properties(&s.knob_style),
-                properties(&pristine.knob_style),
+                properties(&s.resolved_knob_style()),
+                properties(&pristine.resolved_knob_style()),
                 "installing a callback rewrote the knob style",
             );
         }
@@ -1603,12 +1614,12 @@ mod autotest_generated {
 
         assert_eq!(by_builder.switch_state.inner, by_setter.switch_state.inner);
         assert_eq!(
-            properties(&by_builder.track_style),
-            properties(&by_setter.track_style),
+            properties(&by_builder.resolved_track_style()),
+            properties(&by_setter.resolved_track_style()),
         );
         assert_eq!(
-            properties(&by_builder.knob_style),
-            properties(&by_setter.knob_style),
+            properties(&by_builder.resolved_knob_style()),
+            properties(&by_setter.resolved_knob_style()),
         );
 
         let a = by_builder
@@ -1704,8 +1715,8 @@ mod autotest_generated {
         // the widget would still render, just wrong.
         for checked in [false, true] {
             let s = Switch::create(checked);
-            let track = properties(&s.track_style);
-            let knob = properties(&s.knob_style);
+            let track = properties(&s.resolved_track_style());
+            let knob = properties(&s.resolved_knob_style());
 
             let dom = s.dom();
             assert_eq!(
@@ -1903,7 +1914,7 @@ mod autotest_generated {
                     .into_iter()
                     .map(|(_, b)| b)
                     .collect::<Vec<_>>(),
-                vec![background(&expected.track_style).expect("no background")],
+                vec![background(&expected.resolved_track_style()).expect("no background")],
                 "start={start}: the clicked track colour differs from a freshly built one",
             );
             assert_eq!(
@@ -1911,7 +1922,7 @@ mod autotest_generated {
                     .into_iter()
                     .map(|(_, m)| m)
                     .collect::<Vec<_>>(),
-                vec![margin_left_px(&expected.knob_style).expect("no margin")],
+                vec![margin_left_px(&expected.resolved_knob_style()).expect("no margin")],
                 "start={start}: the clicked knob offset differs from a freshly built one",
             );
         }

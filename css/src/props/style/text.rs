@@ -4,12 +4,12 @@
 //! (behind the `parser` feature) has a corresponding `parse_style_*` function
 //! with borrowed/owned error type pairs.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
 
 use crate::{
     codegen::format::FormatAsRustCode,
+    corety::AzString,
     props::{
         basic::{
             error::{InvalidValueErr, InvalidValueErrOwned},
@@ -339,7 +339,8 @@ pub enum StyleWordBreak {
     BreakAll,
     /// Forbid break opportunities within CJK character sequences.
     KeepAll,
-    // +spec:line-breaking:815882 - deprecated break-word keyword: same as normal + overflow-wrap: anywhere
+    // +spec:line-breaking:815882 - deprecated break-word keyword: same as normal + overflow-wrap:
+    // anywhere
     /// Deprecated: equivalent to word-break: normal and overflow-wrap: anywhere.
     BreakWord,
 }
@@ -1254,7 +1255,8 @@ impl_display! { StyleLineClampParseError<'a>, {
     ZeroValue => format!("line-clamp cannot be zero"),
 }}
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -2926,7 +2928,8 @@ pub fn parse_style_text_box_trim(
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum TextBoxEdgeOver {
-    // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as text
+    // +spec:line-height:cc03df - Auto uses line-fit-edge value, interpreting leading (initial) as
+    // text
     /// Use the line-fit-edge value (initial: text). `auto` is single-value
     /// only: it cannot be paired with an under keyword.
     #[default]
@@ -2964,7 +2967,8 @@ pub enum TextBoxEdgeUnder {
 ///
 /// Specifies the metrics used for determining the over/under edges of text
 /// for the purposes of `text-box-trim`.
-// +spec:writing-modes:daad86 - first value = over edge, second = under edge; single value applies to both (else "text" assumed for missing)
+// +spec:writing-modes:daad86 - first value = over edge, second = under edge; single value applies
+// to both (else "text" assumed for missing)
 ///
 /// Grammar: `auto | [ text | cap | ex | ideographic | ideographic-ink ]
 /// [ text | alphabetic | ideographic | ideographic-ink ]?`. With one value,
@@ -3257,9 +3261,11 @@ pub fn parse_style_dominant_baseline(
 
 // -- StyleAlignmentBaseline --
 
-// +spec:display-property:c90924 - alignment-baseline property: values, initial value, and applies-to per CSS Inline 3 §4.2.2
-// +spec:font-metrics:fa4489 - alignment-baseline property: specifies box's alignment baseline used before post-alignment shift
-// +spec:inline-block:939f05 - alignment-baseline property definition with all spec values (baseline, text-bottom, alphabetic, ideographic, middle, central, mathematical, text-top)
+// +spec:display-property:c90924 - alignment-baseline property: values, initial value, and
+// applies-to per CSS Inline 3 §4.2.2 +spec:font-metrics:fa4489 - alignment-baseline property:
+// specifies box's alignment baseline used before post-alignment shift +spec:inline-block:939f05 -
+// alignment-baseline property definition with all spec values (baseline, text-bottom, alphabetic,
+// ideographic, middle, central, mathematical, text-top)
 /// Represents the `alignment-baseline` CSS property.
 ///
 /// Specifies which baseline of the element is aligned with the dominant baseline.
@@ -3376,7 +3382,8 @@ pub fn parse_style_alignment_baseline(
 
 // -- StyleBaselineSource --
 
-// +spec:inline-block:939f05 - baseline-source longhand: auto | first | last (auto = last baseline for inline-block / IFC roots, first baseline otherwise)
+// +spec:inline-block:939f05 - baseline-source longhand: auto | first | last (auto = last baseline
+// for inline-block / IFC roots, first baseline otherwise)
 /// Represents the `baseline-source` CSS property.
 ///
 /// Selects which of the box's baselines is used as its baseline in the parent's
@@ -3473,8 +3480,9 @@ pub fn parse_style_baseline_source(
 
 // -- StyleLineFitEdge --
 
-// +spec:line-height:cc03df - line-fit-edge selects the over/under metrics that size a line box; initial `leading` uses the line-height leading model
-// +spec:box-model:0e75c1 - with line-fit-edge:leading (initial), margin/border/padding do not contribute to inline layout bounds
+// +spec:line-height:cc03df - line-fit-edge selects the over/under metrics that size a line box;
+// initial `leading` uses the line-height leading model +spec:box-model:0e75c1 - with
+// line-fit-edge:leading (initial), margin/border/padding do not contribute to inline layout bounds
 /// Represents the `line-fit-edge` CSS property.
 ///
 /// Selects which font metrics determine the over/under edges used when fitting an

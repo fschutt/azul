@@ -2,21 +2,21 @@
 
 // Off-wasm: re-export the real desktop type (zero behaviour change). Gated on
 // the same condition as `crate::desktop`.
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::extra::audio::*;
+use core::ffi::c_void;
 
+#[cfg(target_arch = "wasm32")]
+use azul_core::audio::{AudioConfig, AudioFrame};
 // wasm: stub with an identical `#[repr(C)]` layout (ptr + run_destructor) so
 // the C-ABI transmute to `AzAudioSink` stays valid. Defined directly in this
 // module so the path resolves to `azul_dll::unified::audio::AudioSink`.
 // Includes a `Drop` impl to match the real desktop type's `custom_impl(Drop)`.
 #[cfg(target_arch = "wasm32")]
 use azul_css::impl_option_inner;
-use core::ffi::c_void;
-
-#[cfg(target_arch = "wasm32")]
-use azul_core::audio::{AudioConfig, AudioFrame};
 #[cfg(target_arch = "wasm32")]
 use azul_css::StringVec;
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::extra::audio::*;
 
 /// wasm stub of the desktop `AudioSink` handle (no audio backend on wasm).
 #[cfg(target_arch = "wasm32")]

@@ -143,10 +143,7 @@ type SharedSpec = Arc<Mutex<String>>;
 extern "C" fn spec_view(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let spec = data.downcast_ref::<SharedSpec>().expect("spec").clone();
     let spec = spec.lock().unwrap().clone();
-    let rect = LogicalRect::new(
-        LogicalPosition::zero(),
-        LogicalSize::new(ICON_PX, ICON_PX),
-    );
+    let rect = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(ICON_PX, ICON_PX));
     VirtualViewReturn::with_dom(
         Dom::create_div()
             .with_css("display: block;")
@@ -194,7 +191,10 @@ fn re_rendering_a_virtual_view_resolves_the_new_icon() {
         .virtual_view_manager
         .get_nested_dom_id(DomId::ROOT_ID, NodeId::new(1))
         .expect("the virtual view mounted a nested dom");
-    assert_eq!(icons_and_resolved(&lw, nested).1, vec![String::from("home")]);
+    assert_eq!(
+        icons_and_resolved(&lw, nested).1,
+        vec![String::from("home")]
+    );
 
     *spec.lock().unwrap() = String::from("settings");
     rerender_views_in_place(&mut lw);

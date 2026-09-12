@@ -400,9 +400,8 @@ mod tests {
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact comparisons are the point: FloatValue is fixed-point
 mod autotest_generated {
-    use crate::props::basic::SizeMetric;
-
     use super::*;
+    use crate::props::basic::SizeMetric;
 
     // `FloatValue` stores millipixels in an `isize` (value * 1000, truncated via
     // `as`). `.number.number()` is that raw integer -- asserting on it keeps the

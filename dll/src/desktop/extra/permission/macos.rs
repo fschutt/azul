@@ -6,15 +6,13 @@
 //! backend (minus `ATTrackingManager`, which is iOS-only). Differences
 //! that matter later:
 //!
-//! - macOS adds the `TCC` (Transparency, Consent, Control) database; the
-//!   first prompt is OS-modal, subsequent reads come from the cache.
-//! - Grant is keyed to the *responsible process*: for a bundled app that's
-//!   the bundle ID; for a bare binary launched from a terminal it's the
-//!   terminal app — which CAN be granted camera/mic access, so unsigned
-//!   demo binaries still get a working prompt.
-//! - Screen capture has a macOS-only preflight
-//!   (`CGPreflightScreenCaptureAccess`), wired in `probe_status` via a
-//!   runtime `dlopen` of CoreGraphics.
+//! - macOS adds the `TCC` (Transparency, Consent, Control) database; the first prompt is OS-modal,
+//!   subsequent reads come from the cache.
+//! - Grant is keyed to the *responsible process*: for a bundled app that's the bundle ID; for a
+//!   bare binary launched from a terminal it's the terminal app — which CAN be granted camera/mic
+//!   access, so unsigned demo binaries still get a working prompt.
+//! - Screen capture has a macOS-only preflight (`CGPreflightScreenCaptureAccess`), wired in
+//!   `probe_status` via a runtime `dlopen` of CoreGraphics.
 //!
 //! The async request path (`handle_event`) needs ObjC completion blocks
 //! (`requestAccessForMediaType:completionHandler:`) which the old `objc`
@@ -27,7 +25,6 @@
 use azul_layout::managers::permission::{
     Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
-
 #[cfg(target_os = "macos")]
 use objc::runtime::{Class, Object};
 #[cfg(target_os = "macos")]
@@ -89,8 +86,8 @@ fn request_av_capture_access(video: bool) {
 #[cfg(not(all(target_os = "macos", feature = "objc2-av-foundation")))]
 fn request_av_capture_access(video: bool) {
     crate::plog_warn!(
-        "[permission] macos: no AVFoundation request path built in (feature \
-         objc2-av-foundation off) — cannot prompt for {} access",
+        "[permission] macos: no AVFoundation request path built in (feature objc2-av-foundation \
+         off) — cannot prompt for {} access",
         if video { "camera" } else { "microphone" }
     );
 }
@@ -124,7 +121,7 @@ fn input_monitoring_status() -> PermissionState {
     use crate::desktop::extra::hid::macos::InputMonitoringAccess;
     match crate::desktop::extra::hid::macos::input_monitoring_access() {
         InputMonitoringAccess::Granted => {
-            PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full)
+            PermissionState::Granted(PermissionQuality::Full)
         }
         InputMonitoringAccess::Denied => PermissionState::Denied,
         InputMonitoringAccess::Unknown => PermissionState::NotDetermined,
@@ -146,8 +143,8 @@ fn request_input_monitoring() {
 #[cfg(all(target_os = "macos", not(feature = "libloading")))]
 fn request_input_monitoring() {
     crate::plog_warn!(
-        "[permission] macos: no HID backend built in (feature libloading off) - \
-         cannot prompt for Input Monitoring"
+        "[permission] macos: no HID backend built in (feature libloading off) - cannot prompt for \
+         Input Monitoring"
     );
 }
 

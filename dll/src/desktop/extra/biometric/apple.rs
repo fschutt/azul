@@ -18,10 +18,8 @@
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
 use azul_layout::managers::biometric::push_biometric_result;
-
 use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2::runtime::Bool;
+use objc2::{rc::Retained, runtime::Bool};
 use objc2_foundation::{NSError, NSString};
 use objc2_local_authentication::{LAContext, LAPolicy};
 

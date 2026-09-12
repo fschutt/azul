@@ -24,8 +24,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::fmt::Write;
-use core::mem::ManuallyDrop;
+use core::{fmt::Write, mem::ManuallyDrop};
 
 use crate::dom::NodeType;
 
@@ -48,6 +47,9 @@ pub struct CssPropertyWithOrigin {
 
 use azul_css::{
     css::{Css, CssPath},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
+    },
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         layout::{LayoutDisplay, LayoutHeight, LayoutWidth},
@@ -78,7 +80,6 @@ use azul_css::{
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
             ShapeOutsideValue, StringSetValue, StyleAlignmentBaselineValue, StyleAppRegionValue,
-            StyleSpatialNavigationActionValue, StyleSpatialNavigationContainValue,
             StyleAspectRatioValue, StyleBackfaceVisibilityValue, StyleBackgroundContentValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBaselineSourceValue,
@@ -98,14 +99,14 @@ use azul_css::{
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
             StyleObjectFitValue, StyleObjectPositionValue, StyleOpacityValue,
             StyleOverflowClipMarginValue, StyleOverflowWrapValue, StylePerspectiveOriginValue,
-            StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleTabSizeValue,
-            StyleTextAlignLastValue, StyleTextAlignValue, StyleTextBoxEdgeValue,
-            StyleTextBoxTrimValue, StyleTextColorValue, StyleTextCombineUprightValue,
-            StyleTextDecorationValue, StyleTextIndentValue, StyleTextOrientationValue,
-            StyleTextOverflowValue, StyleTextTransformValue, StyleTransformOriginValue,
-            StyleTransformVecValue, StyleUnicodeBidiValue, StyleUserSelectValue,
-            StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
-            StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
+            StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleSpatialNavigationActionValue,
+            StyleSpatialNavigationContainValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleTextAlignValue, StyleTextBoxEdgeValue, StyleTextBoxTrimValue, StyleTextColorValue,
+            StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
+            StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
+            StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
+            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -120,10 +121,6 @@ use crate::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
-};
-
-use azul_css::dynamic_selector::{
-    CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
 };
 
 #[cfg(feature = "std")]
@@ -343,6 +340,43 @@ pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
     pub property: CssProperty,
+    /// `true` when this entry was pushed by [`CssPropertyCache::apply_ua_css`]
+    /// (a user-agent default), `false` for everything the author cascade and
+    /// the inheritance walk produced.
+    ///
+    /// The UA defaults are answered from the window's THEME (`<hr>` rule,
+    /// native button borders, the root text colour), so a theme flip has to
+    /// replace them. `apply_ua_css` guards duplicates with a per-node bitset
+    /// built from the entries already present — which made a second
+    /// application a no-op: the stale light entry marked the bit, the dark
+    /// twin was skipped, and the flip never reached `cascaded_props`. The
+    /// origin tag is what lets a re-application strip exactly its own
+    /// previous entries first (and nothing else).
+    pub ua_origin: bool,
+}
+
+/// One bit per `CssPropertyType` (fewer than 256 variants): "this node has
+/// a Normal-state value of this type from a layer that beats the UA sheet".
+type PropTypeBits = [u128; 2];
+
+#[inline]
+const fn prop_type_bit_set(bits: &mut PropTypeBits, prop_type: CssPropertyType) {
+    let d = prop_type as u16 as usize;
+    if d < 128 {
+        bits[0] |= 1u128 << d;
+    } else {
+        bits[1] |= 1u128 << (d - 128);
+    }
+}
+
+#[inline]
+const fn prop_type_bit_test(bits: &PropTypeBits, prop_type: CssPropertyType) -> bool {
+    let d = prop_type as u16 as usize;
+    if d < 128 {
+        (bits[0] & (1u128 << d)) != 0
+    } else {
+        (bits[1] & (1u128 << (d - 128))) != 0
+    }
 }
 
 // =============================================================================
@@ -547,9 +581,10 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs.iter().copied().find(|&(rs, rl)| {
-                rl == len && new_data[rs as usize..(rs + rl) as usize] == *run
-            });
+            let existing = runs
+                .iter()
+                .copied()
+                .find(|&(rs, rl)| rl == len && new_data[rs as usize..(rs + rl) as usize] == *run);
             if let Some((rs, rl)) = existing {
                 new_offsets.push((rs, rl));
                 continue;
@@ -778,7 +813,6 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
-
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
 /// value plus the nodes that resolve to it.
 ///
@@ -1003,6 +1037,39 @@ pub struct CssPropertyCache {
     /// this field.
     pub dynamic_context: Option<Box<DynamicSelectorContext>>,
 
+    /// Whether [`Self::apply_ua_css`] has run on this cache at least once.
+    ///
+    /// Read by the re-application path: the UA defaults it pushed last time
+    /// were answered under the context of THAT time (the theme, above all),
+    /// so a second application first strips every `ua_origin` entry and
+    /// re-answers them. Also what the paint-time fallbacks assert against: a
+    /// cache the UA pass has run on carries the inherited text colour in its
+    /// resolved style, so a reader falling back to a constant is a bug there
+    /// and merely "no cascade yet" here.
+    pub ua_applied: bool,
+
+    /// The CASCADE GENERATION: bumped by everything that changes what a node's
+    /// resolved style answers — a restyle, a UA/inheritance re-cascade, a
+    /// compact-cache rebuild, a context change (`set_dynamic_selector_context`),
+    /// a user override written through `restyle_user_property`, a DOM merge.
+    ///
+    /// Caches that serve PAINTED output key on it (the display-list cache via
+    /// `dl_input_fingerprint`, the per-pass `StyleCache`, the DL patch gate):
+    /// colour is deliberately excluded from the relayout hash, so without this
+    /// two cascades of one DOM under two themes (or before/after a `color`
+    /// override) hashed identically and the cache served the other one's
+    /// list. One monotonic counter replaces the three compensations that grew
+    /// for that (`paint_defaults_fingerprint`, the `last_dynamic_context`
+    /// equality gate, `reset_incremental` on a style change) — theme-chain
+    /// analysis 2026-09-12, R4/I5.
+    ///
+    /// NOT bumped by `set_user_property_override_fast`: that is the per-tick
+    /// animation channel, whose caller patches the display list with the
+    /// interpolated pixels itself; bumping there would miss the DL cache on
+    /// every tick of every transition. Only equality is ever compared, so
+    /// wrapping is fine.
+    pub cascade_epoch: u64,
+
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
     // Stored in a flat cache-friendly layout after sort_and_flatten().
@@ -1179,7 +1246,11 @@ impl CssPropertyCache {
                         }
                     }
                 }
-                eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
+                eprintln!(
+                    "[PRUNE] css_props: norm+compact={normal_compact} \
+                     norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: \
+                     total={casc_total} norm+compact={casc_normal_compact}"
+                );
             }
         }
 
@@ -1311,12 +1382,14 @@ impl CssPropertyCache {
 /// compact-encoded types (tier1 enums, colors, hashes, etc.) always round-trip
 /// through the compact encoding.
 fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
-    use azul_css::css::CssPropertyValue;
-    use azul_css::props::{
-        basic::length::SizeMetric,
-        layout::{
-            dimensions::{LayoutHeight, LayoutWidth},
-            flex::LayoutFlexBasis,
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::length::SizeMetric,
+            layout::{
+                dimensions::{LayoutHeight, LayoutWidth},
+                flex::LayoutFlexBasis,
+            },
         },
     };
 
@@ -1490,7 +1563,10 @@ impl CssPropertyCache {
     /// Returns tag IDs for hit-testing. If `compact_cache` is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -1501,7 +1577,9 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
-                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus},
+                CssPathPseudoSelector::{
+                    Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
+                },
                 CssPathSelector, CssRuleBlock,
             },
             dynamic_selector::{DynamicSelector, PseudoStateType},
@@ -1529,6 +1607,45 @@ impl CssPropertyCache {
                     .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
         };
 
+        // Re-enter build phase before repopulating. restyle() is not
+        // single-shot: StyledDom::create runs one restyle internally, and building
+        // the compact cache flattens these vecs — so on a later restyle both are in
+        // read phase, where the old reset `build_iter_mut().clear()` silently
+        // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
+        // below then indexed an emptied Vec and panicked.
+        //
+        // css_props is rebuilt from scratch each restyle (repopulated below,
+        // flattened at the end), so replace it with a fresh build-phase vec.
+        //
+        // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
+        // preserve-and-or_insert approach LEAKED properties of rules whose
+        // @-condition turned OFF — a color inherited under a min-width
+        // block survived in every descendant after crossing below it, so
+        // wide and narrow styling applied SIMULTANEOUSLY (the
+        // media_restyle_cost law pin caught it). Preservation is
+        // unnecessary: the inheritance walk is top-down (parents' fresh
+        // slices are written before children read them — the same
+        // ordering css_props relies on), so a fresh build-phase vec
+        // repopulates completely. The historical reason for preserving
+        // was a phase-bug in the old clear, not a data dependency.
+        //
+        // UNCONDITIONALLY, not only for a non-empty stylesheet: the
+        // inheritance walk below runs for every restyle and pushes into
+        // `cascaded_props` via `build_mut`, so a restyle with an EMPTY sheet
+        // on an already-built cache (a theme flip on an inline-styled DOM
+        // is exactly that) indexed the emptied build vec and panicked. The
+        // UA entries a previous `apply_ua_css` pushed go with the rest; the
+        // caller re-applies them.
+        let node_count = self.css_props.len();
+        self.css_props = FlatVecVec::new(node_count);
+        self.cascaded_props = FlatVecVec::new(node_count);
+        self.ua_applied = false;
+        // Collect global-only rule declarations ONCE (not per-node).
+        // These are stored in self.global_css_props and applied during
+        // build_compact_cache_with_inheritance for each node, avoiding
+        // 50K × N clones into per-node css_props Vecs.
+        self.global_css_props.clear();
+
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1550,36 +1667,6 @@ impl CssPropertyCache {
                 }
             }
 
-            // Re-enter build phase before repopulating. restyle() is not
-            // single-shot: StyledDom::create runs one restyle internally, and building
-            // the compact cache flattens these vecs — so on a later restyle both are in
-            // read phase, where the old reset `build_iter_mut().clear()` silently
-            // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
-            // below then indexed an emptied Vec and panicked.
-            //
-            // css_props is rebuilt from scratch each restyle (repopulated below,
-            // flattened at the end), so replace it with a fresh build-phase vec.
-            //
-            // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
-            // preserve-and-or_insert approach LEAKED properties of rules whose
-            // @-condition turned OFF — a color inherited under a min-width
-            // block survived in every descendant after crossing below it, so
-            // wide and narrow styling applied SIMULTANEOUSLY (the
-            // media_restyle_cost law pin caught it). Preservation is
-            // unnecessary: the inheritance walk is top-down (parents' fresh
-            // slices are written before children read them — the same
-            // ordering css_props relies on), so a fresh build-phase vec
-            // repopulates completely. The historical reason for preserving
-            // was a phase-bug in the old clear, not a data dependency.
-            let node_count = self.css_props.len();
-            self.css_props = FlatVecVec::new(node_count);
-            self.cascaded_props = FlatVecVec::new(node_count);
-
-            // Collect global-only rule declarations ONCE (not per-node).
-            // These are stored in self.global_css_props and applied during
-            // build_compact_cache_with_inheritance for each node, avoiding
-            // 50K × N clones into per-node css_props Vecs.
-            self.global_css_props.clear();
             for rule in &global_only_rules {
                 if !rule_applies(&rule.conditions) {
                     continue;
@@ -1697,6 +1784,7 @@ impl CssPropertyCache {
                                                 state: $state,
                                                 prop_type: prop.get_type(),
                                                 property: prop,
+                                                ua_origin: false,
                                             },
                                         );
                                     }
@@ -1710,11 +1798,7 @@ impl CssPropertyCache {
                 collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
                 collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
                 collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
-                collect_and_assign!(
-                    Some(SeatFocus),
-                    PseudoStateType::SeatFocus,
-                    has_seat_focus
-                );
+                collect_and_assign!(Some(SeatFocus), PseudoStateType::SeatFocus, has_seat_focus);
                 collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
                 collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
                 collect_and_assign!(
@@ -1744,28 +1828,55 @@ impl CssPropertyCache {
             ];
 
             for &state in &all_states {
-                // 1. Inherit inline CSS properties from parent for this pseudo-state
-                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data
-                    [parent_id]
-                    .style
-                    .iter_inline_properties()
-                    .filter(|(_prop, conds)| {
+                // 1. Inherit inline CSS properties from parent for this pseudo-state.
+                //
+                // A declaration belongs to the pseudo-state named in its
+                // conditions (none = Normal), and its OTHER conditions — the
+                // theme, the viewport, the OS — must hold under the dynamic
+                // context, exactly as `apply_cascade_properties` decides for
+                // the node itself. Last match wins per property, the way inline
+                // declarations resolve everywhere else. This used to keep only
+                // declarations whose every condition was a pseudo-state, so a
+                // `dark_theme(color)` twin never qualified and the child got
+                // the light value as a cascaded declaration of ITS OWN — which
+                // `compute_inherited_values` then preferred over the twin it
+                // had just inherited from the parent. Every widget label under
+                // a dark window (the button's, the tree view's, the ribbon's)
+                // was dark-on-dark on a DOM cascaded under the window's
+                // context from the start; a DOM that had the context set
+                // afterwards was recascaded after the prune and came out
+                // right by accident.
+                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = {
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for (prop, conds) in node_data[parent_id].style.iter_inline_properties() {
                         let conditions = conds.as_slice();
-                        if conditions.is_empty() {
-                            state == PseudoStateType::Normal
-                        } else {
-                            conditions.iter().all(
-                                |c| matches!(c, DynamicSelector::PseudoState(s) if *s == state),
-                            )
+                        let decl_state = conditions
+                            .iter()
+                            .find_map(|c| match c {
+                                DynamicSelector::PseudoState(s) => Some(*s),
+                                _ => None,
+                            })
+                            .unwrap_or(PseudoStateType::Normal);
+                        let applies = decl_state == state
+                            && conditions.iter().all(|c| match c {
+                                DynamicSelector::PseudoState(s) => *s == state,
+                                other => dyn_ctx.as_deref().is_some_and(|ctx| other.matches(ctx)),
+                            });
+                        let prop_type = prop.get_type();
+                        if !applies
+                            || !prop_type.is_inheritable()
+                            || is_resolved_parent_inherited(prop_type)
+                        {
+                            continue;
                         }
-                    })
-                    .map(|(prop, _)| prop)
-                    .filter(|prop| {
-                        prop.get_type().is_inheritable()
-                            && !is_resolved_parent_inherited(prop.get_type())
-                    })
-                    .map(|p| (p.get_type(), clone_inheritable_property(p)))
-                    .collect();
+                        let value = clone_inheritable_property(prop);
+                        match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((prop_type, value)),
+                        }
+                    }
+                    picked
+                };
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
@@ -1812,7 +1923,8 @@ impl CssPropertyCache {
                         .chain(parent_inheritable_css.iter())
                         .chain(parent_inheritable_cascaded.iter())
                     {
-                        // or_insert: only insert if child doesn't already have this (state, prop_type)
+                        // or_insert: only insert if child doesn't already have this (state,
+                        // prop_type)
                         if !child_vec
                             .iter()
                             .any(|p| p.state == state && p.prop_type == *prop_type)
@@ -1821,6 +1933,7 @@ impl CssPropertyCache {
                                 state,
                                 prop_type: *prop_type,
                                 property: prop_value.clone(),
+                                ua_origin: false,
                             });
                         }
                     }
@@ -2029,7 +2142,10 @@ impl CssPropertyCache {
         tag_ids
     }
 
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     pub fn get_computed_css_style_string(
         &self,
         node_data: &NodeData,
@@ -2357,6 +2473,8 @@ impl CssPropertyCache {
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
             dynamic_context: None,
+            ua_applied: false,
+            cascade_epoch: 0,
 
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
@@ -2385,6 +2503,9 @@ impl CssPropertyCache {
         if self.dynamic_context.is_none() {
             self.dynamic_context = other.dynamic_context.take();
         }
+        // The merged store carries UA entries as soon as either half did.
+        self.ua_applied |= other.ua_applied;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
         self.cascaded_props.extend_from(&mut other.cascaded_props);
         self.css_props.extend_from(&mut other.css_props);
         self.computed_values.append(&mut other.computed_values);
@@ -2495,7 +2616,22 @@ impl CssPropertyCache {
         use azul_css::defaults::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state)
             .and_then(|fs| fs.get_property().copied())
-            .unwrap_or(DEFAULT_TEXT_COLOR)
+            .unwrap_or_else(|| {
+                // On a cascaded DOM the UA root text colour is in every
+                // node's resolved style (root: `cascaded_props`; below it:
+                // `computed_values`), so reaching this constant means a
+                // reader lost the cascade's answer — the theme-blind seed
+                // the theme-chain analysis (2026-09-12, R1) traced the
+                // black-on-dark family to. Legitimate only for a cache no UA
+                // pass has run on.
+                debug_assert!(
+                    !self.ua_applied,
+                    "get_text_color_or_default: node {} has no `color` in its resolved style \
+                     although the UA pass ran — the themed root default did not reach it",
+                    node_id.index()
+                );
+                DEFAULT_TEXT_COLOR
+            })
     }
 
     /// Returns the font family of the node, or the default font family if none is set.
@@ -2617,7 +2753,8 @@ impl CssPropertyCache {
     }
 
     #[cfg(feature = "std")]
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct
@@ -2641,7 +2778,8 @@ impl CssPropertyCache {
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3035,14 +3173,27 @@ impl CssPropertyCache {
         // Check computed values cache for inherited properties
         // Sorted Vec with binary search
         if css_property_type.is_inheritable() {
-            if let Some(v) = self.computed_values.get(node_id.index(), *css_property_type) {
+            if let Some(v) = self
+                .computed_values
+                .get(node_id.index(), *css_property_type)
+            {
                 return Some(&v.property);
             }
         }
 
-        // User-agent stylesheet fallback (lowest precedence)
-        // Check if the node type has a default value for this property
-        crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
+        // User-agent stylesheet fallback (lowest precedence): the SAME themed
+        // table `apply_ua_css` and the compact builder consume. On a cascaded
+        // DOM every answer here is already in `cascaded_props` /
+        // `computed_values` above (the root's document-wide defaults
+        // included), so this is reached for caches no UA pass has run on and
+        // for the properties the cascade prunes back out
+        // (`prune_compact_normal_props`).
+        crate::ua_css::get_ua_default(
+            &node_data.node_type,
+            node_id.index() == 0,
+            *css_property_type,
+            self.dynamic_context.as_deref(),
+        )
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -3052,7 +3203,8 @@ impl CssPropertyCache {
     ///
     /// The evaluation follows "last wins" semantics - properties are evaluated
     /// in reverse order and the first matching property wins.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     pub(crate) fn get_property_with_context<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3502,7 +3654,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
     /// Method for getting grid-gap property
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
+                                                 // find_in_stateful)
     pub(crate) fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -4582,7 +4735,8 @@ impl CssPropertyCache {
             .unwrap_or(0.0)
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,
@@ -4753,80 +4907,135 @@ impl CssPropertyCache {
     /// must be in the cascade maps so they can be inherited by child text nodes.
     ///
     /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
-    #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
+    ///
+    /// Idempotent under a context change: the defaults are answered from
+    /// [`Self::dynamic_context`] (the theme picks the `<hr>` rule, the native
+    /// button border, the root text colour), and a second call — a theme
+    /// flip on a retained DOM — first removes the entries the previous call
+    /// pushed (`StatefulCssProperty::ua_origin`) and answers them again.
+    /// Leaves `cascaded_props` sorted and flattened.
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::dynamic_selector::PseudoStateType;
-        use azul_css::props::property::CssPropertyType;
 
         let node_count = node_data.len();
         if node_count == 0 {
             return;
         }
 
-        // Build a bitset per node: which CssPropertyType values are already set (Normal state).
-        // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
-        let mut prop_set: Vec<[u128; 2]> = vec![[0u128; 2]; node_count];
+        self.strip_ua_entries();
+        // `push_to` needs the build phase; a cache that has been through the
+        // compact build (or a prune) is flattened.
+        self.cascaded_props.ensure_build_phase();
 
-        // Mark properties from css_props (author CSS, Normal state)
+        let prop_set = self.normal_props_present(node_data);
+        let ctx = self.dynamic_context.as_deref();
+
+        // Apply UA CSS: only insert for property types not yet set (bitset
+        // check = O(1)). The ONE list both cascade passes walk (the compact
+        // builder reads the same const): a UA property present in one pass
+        // but not the other made the two readers disagree about a node's
+        // computed value. The document root additionally carries the
+        // document-wide defaults (the inherited text colour) — themed, and
+        // IN the cascade from here on, so `computed_values` inherits it down
+        // to every text node and no paint-time reader has to guess it.
+        for (node_index, node) in node_data.iter().enumerate() {
+            let is_root = node_index == 0;
+            let present = &prop_set[node_index];
+            for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
+                if prop_type_bit_test(present, *prop_type) {
+                    continue;
+                }
+                let Some(ua_prop) =
+                    crate::ua_css::get_ua_default(&node.node_type, is_root, *prop_type, ctx)
+                else {
+                    continue;
+                };
+                // No bitset write needed: `UA_PROPERTY_TYPES` has no
+                // duplicates (pinned by `one_themed_ua_table` tests), so one
+                // node sees each type once.
+                self.cascaded_props.push_to(
+                    node_index,
+                    StatefulCssProperty {
+                        state: PseudoStateType::Normal,
+                        prop_type: *prop_type,
+                        property: ua_prop.clone(),
+                        ua_origin: true,
+                    },
+                );
+            }
+        }
+
+        // Back to the read phase the rest of the pipeline expects
+        // (`append` merges two flattened stores; a build-phase half would
+        // drop the other's data). Sorted, so the slow path's binary search
+        // over `cascaded_props` stays valid after a re-application too.
+        self.sort_cascaded_props();
+        self.ua_applied = true;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
+    }
+
+    /// RE-APPLICATION of the UA pass: strip what the previous pass pushed
+    /// before answering again.
+    ///
+    /// The UA defaults depend on the context's theme, and the presence
+    /// bitset treats an existing entry of a type as "already set" — so
+    /// without this a theme flip found the stale light entry, skipped the
+    /// dark twin, and `cascaded_props` never moved (the non-idempotence the
+    /// theme-chain analysis of 2026-09-12 traces the whole black-text-on-dark
+    /// family back to). Only `ua_origin` entries go; everything the author
+    /// cascade and the inheritance walk produced stays, exactly as it was
+    /// when the first pass ran after them. A no-op before the first pass.
+    fn strip_ua_entries(&mut self) {
+        if !self.ua_applied {
+            return;
+        }
+        if self.cascaded_props.is_flattened() {
+            self.cascaded_props.retain(|p| !p.ua_origin);
+        } else {
+            for v in self.cascaded_props.build_iter_mut() {
+                v.retain(|p| !p.ua_origin);
+            }
+        }
+    }
+
+    /// Per node, which property types already have a Normal-state value from
+    /// a layer that beats the UA sheet: author css (`css_props`), the cascade
+    /// (`cascaded_props`, i.e. inherited values), unconditional inline
+    /// declarations, and the global `*` bucket.
+    ///
+    /// A `* { margin: 0 }` reset is author CSS and must beat UA defaults on
+    /// every ELEMENT (origin beats specificity), but it is stored once
+    /// globally rather than per node, so a per-node scan alone never saw it -
+    /// the UA body margin (8px) survived the classic reset and every page
+    /// using it rendered shifted against the browser reference. Text nodes
+    /// are exempt: `*` matches elements only (the compact builder makes the
+    /// same distinction), and UA defaults for text nodes must stay.
+    fn normal_props_present(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
+
         for (node_idx, props) in self.css_props.iter_node_slices() {
-            for p in props {
-                if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
-                }
+            for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
+                prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }
         }
-
-        // Mark properties from cascaded_props (Normal state)
         for (node_idx, props) in self.cascaded_props.iter_node_slices() {
-            for p in props {
-                if p.state == PseudoStateType::Normal {
-                    let d = p.prop_type as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
-                }
+            for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
+                prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }
         }
-
-        // Mark properties from inline CSS (NodeData.style, unconditional = Normal)
         for (node_idx, node) in node_data.iter().enumerate() {
             for (prop, conds) in node.style.iter_inline_properties() {
-                let is_normal = conds.as_slice().is_empty();
-                if is_normal {
-                    let d = prop.get_type() as u16 as usize;
-                    if d < 128 {
-                        prop_set[node_idx][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_idx][1] |= 1u128 << (d - 128);
-                    }
+                if conds.as_slice().is_empty() {
+                    prop_type_bit_set(&mut prop_set[node_idx], prop.get_type());
                 }
             }
         }
-
-        // Mark properties from the GLOBAL `*` bucket. A `* { margin: 0 }`
-        // reset is author CSS and must beat UA defaults on every ELEMENT
-        // (origin beats specificity), but it is stored once globally rather
-        // than per node, so the per-node marking above never saw it - the UA
-        // body margin (8px) survived the classic reset and every page using
-        // it rendered shifted against the browser reference. Text nodes are
-        // exempt: `*` matches elements only (the compact builder makes the
-        // same distinction), and UA defaults for text nodes must stay.
         if !self.global_css_props.is_empty() {
-            let mut global_bits = [0u128; 2];
+            let mut global_bits: PropTypeBits = [0u128; 2];
             for p in &self.global_css_props {
-                let d = p.get_type() as u16 as usize;
-                if d < 128 {
-                    global_bits[0] |= 1u128 << d;
-                } else {
-                    global_bits[1] |= 1u128 << (d - 128);
-                }
+                prop_type_bit_set(&mut global_bits, p.get_type());
             }
             for (node_idx, node) in node_data.iter().enumerate() {
                 if !node.is_text_node() {
@@ -4835,79 +5044,7 @@ impl CssPropertyCache {
                 }
             }
         }
-
-        // All UA property types that get_ua_property() may return Some for.
-        // MUST stay in sync with compact.rs::UA_PROPERTY_TYPES: a UA property
-        // present in one list but not the other makes the two cascade paths
-        // disagree about the computed value (this bit the VirtualView
-        // overflow default).
-        let property_types = [
-            CssPropertyType::Display,
-            CssPropertyType::OverflowX,
-            CssPropertyType::OverflowY,
-            CssPropertyType::Width,
-            CssPropertyType::Height,
-            CssPropertyType::FontSize,
-            CssPropertyType::FontWeight,
-            CssPropertyType::FontFamily,
-            CssPropertyType::MarginTop,
-            CssPropertyType::MarginBottom,
-            CssPropertyType::MarginLeft,
-            CssPropertyType::MarginRight,
-            CssPropertyType::PaddingTop,
-            CssPropertyType::PaddingBottom,
-            CssPropertyType::PaddingLeft,
-            CssPropertyType::PaddingRight,
-            CssPropertyType::BorderTopStyle,
-            CssPropertyType::BorderTopWidth,
-            CssPropertyType::BorderTopColor,
-            CssPropertyType::BreakInside,
-            CssPropertyType::BreakAfter,
-            CssPropertyType::ListStyleType,
-            CssPropertyType::CounterReset,
-            CssPropertyType::TextDecoration,
-            CssPropertyType::TextAlign,
-            CssPropertyType::VerticalAlign,
-            CssPropertyType::Cursor,
-        ];
-
-        // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
-        for (node_index, node) in node_data.iter().enumerate() {
-            let node_type = &node.node_type;
-
-            for prop_type in &property_types {
-                // Check bitset: if already set, skip entirely
-                let d = *prop_type as u16 as usize;
-                let has_prop = if d < 128 {
-                    (prop_set[node_index][0] & (1u128 << d)) != 0
-                } else {
-                    (prop_set[node_index][1] & (1u128 << (d - 128))) != 0
-                };
-
-                if has_prop {
-                    continue;
-                }
-
-                // Check if UA CSS defines this property for this node type
-                if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
-                    self.cascaded_props.push_to(
-                        node_index,
-                        StatefulCssProperty {
-                            state: PseudoStateType::Normal,
-                            prop_type: *prop_type,
-                            property: ua_prop.clone(),
-                        },
-                    );
-
-                    // Mark as set in the bitset (prevent duplicate insertion for same node)
-                    if d < 128 {
-                        prop_set[node_index][0] |= 1u128 << d;
-                    } else {
-                        prop_set[node_index][1] |= 1u128 << (d - 128);
-                    }
-                }
-            }
-        }
+        prop_set
     }
 
     /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.
@@ -5030,10 +5167,26 @@ impl CssPropertyCache {
             }
         }
 
-        // Step 4: Inline CSS properties
+        // Step 4: Inline CSS properties.
+        //
+        // Conditional declarations take part in inheritance exactly when they
+        // apply to the node's RESTING style under the window's context — the
+        // same test `get_property` makes for the node's own value, minus every
+        // pseudo-state (hover/focus/active are runtime overlays, never an
+        // inherited default). Skipping every conditional declaration, as this
+        // did, made a container's `dark_theme(color: ..)` twin invisible to
+        // its children: the label under a dark-mode button inherited the light
+        // value and painted dark-on-dark. Source order, last match wins, like
+        // the node's own resolution.
+        let dyn_ctx = self.dynamic_context.as_deref();
         for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
-            // Only apply unconditional (normal) properties
-            if conds.as_slice().is_empty() {
+            let applies = conds.as_slice().iter().all(|c| match c {
+                azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
+                    *s == azul_css::dynamic_selector::PseudoStateType::Normal
+                }
+                other => dyn_ctx.is_some_and(|ctx| other.matches(ctx)),
+            });
+            if applies {
                 Self::process_property(ctx, prop, parent_computed);
             }
         }
@@ -5213,11 +5366,7 @@ impl CssPropertyCache {
     /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
     /// properties are still answered by `cascaded_props` / `css_props` / the
     /// compact cache, which is where the layout path reads them from anyway.
-    fn store_if_changed(
-        &mut self,
-        ctx: &InheritanceContext,
-        previous: &InheritedValues,
-    ) -> bool {
+    fn store_if_changed(&mut self, ctx: &InheritanceContext, previous: &InheritedValues) -> bool {
         let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx
             .computed_values
             .iter()
@@ -5225,7 +5374,8 @@ impl CssPropertyCache {
             .cloned()
             .collect();
         let changed = previous.values_for(ctx.node_id.index()) != inheritable;
-        self.computed_values.set_node(ctx.node_id.index(), &inheritable);
+        self.computed_values
+            .set_node(ctx.node_id.index(), &inheritable);
         changed
     }
 }

@@ -12,6 +12,7 @@ use azul_core::{
     dom::Dom,
     refany::RefAny,
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -87,7 +88,13 @@ azul_core::impl_managed_callback! {
 pub struct NumberInput {
     pub number_input_state: NumberInputStateWrapper,
     pub text_input: TextInput,
-    pub style: CssPropertyWithConditionsVec,
+    /// The widget's own CSS, or `None` for "no opinion".
+    ///
+    /// A `NumberInput` draws nothing of its own — the [`TextInput`] it wraps carries
+    /// the container and label styling — so the resolved default here is empty.
+    /// The field exists so a caller can style the outer widget, and `None` keeps
+    /// that distinct from `Some(empty)`, which asks for no properties at all.
+    pub style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -136,6 +143,15 @@ impl NumberInput {
     pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
         self.accessibility_name = Some(name.into()).into();
         self
+    }
+
+    /// The CSS this widget renders with.
+    ///
+    /// Empty unless a caller set one: the styling a `NumberInput` shows comes from
+    /// its inner [`TextInput`], whose own resolvers answer for it.
+    #[must_use]
+    pub fn resolved_style(&self) -> CssPropertyWithConditionsVec {
+        self.style.clone().into_option().unwrap_or_default()
     }
 
     #[must_use]
@@ -189,7 +205,7 @@ impl NumberInput {
     }
 
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.text_input.container_style = style;
+        self.text_input.container_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -199,7 +215,7 @@ impl NumberInput {
     }
 
     pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.text_input.label_style = style;
+        self.text_input.label_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -638,8 +654,10 @@ mod autotest_generated {
     /// `n` properties lifted off the default container style — an easy way to mint
     /// style vectors that are pairwise distinct without hard-coding CSS.
     fn style(n: usize) -> CssPropertyWithConditionsVec {
-        let all: Vec<CssPropertyWithConditions> =
-            TextInput::default().container_style.as_ref().to_vec();
+        let all: Vec<CssPropertyWithConditions> = TextInput::default()
+            .resolved_container_style()
+            .as_slice()
+            .to_vec();
         assert!(n <= all.len(), "not enough default properties to slice");
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
@@ -1059,11 +1077,11 @@ mod autotest_generated {
             .with_container_style(container.clone())
             .with_label_style(label.clone());
 
-        assert_eq!(input.text_input.container_style, container);
-        assert_eq!(input.text_input.label_style, label);
+        assert_eq!(input.text_input.resolved_container_style(), container);
+        assert_eq!(input.text_input.resolved_label_style(), label);
         assert_eq!(
-            input.style,
-            NumberInput::default().style,
+            input.resolved_style(),
+            NumberInput::default().resolved_style(),
             "NumberInput::style is not a dumping ground for the TextInput styles",
         );
     }
@@ -1754,9 +1772,9 @@ mod autotest_generated {
 
         assert!(
             panicked.is_empty(),
-            "typing a digit into a NumberInput whose [min, max] range is inverted or \
-             NaN-bounded panics (f32::clamp asserts min <= max) instead of rejecting \
-             the input; offending ranges: {panicked:?}",
+            "typing a digit into a NumberInput whose [min, max] range is inverted or NaN-bounded \
+             panics (f32::clamp asserts min <= max) instead of rejecting the input; offending \
+             ranges: {panicked:?}",
         );
     }
 

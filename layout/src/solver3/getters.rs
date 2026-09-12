@@ -1,4 +1,5 @@
-// +spec:box-model:b3a79e - box assigned same styles as generating element; getters read from styled DOM per node
+// +spec:box-model:b3a79e - box assigned same styles as generating element; getters read from styled
+// DOM per node
 //! Centralized CSS property getters for the layout solver pipeline
 
 use azul_core::{
@@ -120,13 +121,11 @@ pub fn get_element_font_size(
 ///
 /// Preserves the original resolution order exactly:
 ///
-/// 1. `computed_values` binary search → if `FontSize` is pre-
-///    resolved to a px value, use that.
-/// 2. Full cascade via `cache.get_font_size(...)`; if an explicit
-///    value is present, resolve with context.
-/// 3. `DEFAULT_FONT_SIZE` fallback — NOT `parent_font_size`,
-///    because the `computed_values` short-circuit at step 1 is
-///    the cascade's inheritance channel (pre-populated for every
+/// 1. `computed_values` binary search → if `FontSize` is pre- resolved to a px value, use that.
+/// 2. Full cascade via `cache.get_font_size(...)`; if an explicit value is present, resolve with
+///    context.
+/// 3. `DEFAULT_FONT_SIZE` fallback — NOT `parent_font_size`, because the `computed_values`
+///    short-circuit at step 1 is the cascade's inheritance channel (pre-populated for every
 ///    inheriting node).
 fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
     use azul_css::props::{
@@ -151,10 +150,7 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
         // Step 1: computed_values short-circuit (matches original).
         // Keyed lookup straight into the transposed store — no per-node vec to
         // materialise, and the bucket scan is over a handful of entries.
-        if let Some(cv) = cache
-            .computed_values
-            .get(idx, CssPropertyType::FontSize)
-        {
+        if let Some(cv) = cache.computed_values.get(idx, CssPropertyType::FontSize) {
             {
                 if let CssProperty::FontSize(css_val) = &cv.property {
                     if let Some(fs) = css_val.get_property() {
@@ -492,7 +488,8 @@ impl MultiValue<LayoutOverflow> {
         )
     }
 
-    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
+    // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling
+    // still works
     /// Does this value establish a SCROLL CONTAINER (css-overflow-3 §3.1)?
     /// `hidden | scroll | auto` — an `overflow: hidden` box is
     /// programmatically scrollable even though its user scrolling is
@@ -625,7 +622,9 @@ impl MultiValue<LayoutFloat> {
 /// Returns the inner `PixelValue` wrapped in `MultiValue`
 macro_rules! get_css_property_pixel {
     // Variant WITH compact cache fast path for i16-encoded resolved px properties
-    ($fn_name:ident, $cache_method:ident, $ua_property:expr, compact_i16 = $compact_method:ident) => {
+    (
+        $fn_name:ident, $cache_method:ident, $ua_property:expr,compact_i16 = $compact_method:ident
+    ) => {
         #[must_use]
         pub fn $fn_name(
             styled_dom: &StyledDom,
@@ -917,9 +916,7 @@ impl ExtractPropertyValue<azul_css::props::style::transform::StyleAppRegion> for
 impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationAction>
     for CssProperty
 {
-    fn extract(
-        &self,
-    ) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationAction> {
+    fn extract(&self) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationAction> {
         match self {
             Self::SpatialNavigationAction(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
@@ -1361,7 +1358,8 @@ get_css_property!(
     compact = get_overflow_y
 );
 
-// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical overflow based on writing mode
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
+// overflow based on writing mode
 /// Physical `overflow-x`, with the css-overflow-3 logical fallback: when the
 /// physical property is unset, a declared `overflow-inline` (horizontal
 /// writing modes) or `overflow-block` (vertical) supplies the value. On the
@@ -1421,7 +1419,8 @@ pub fn get_overflow_y(
     }
 }
 
-// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical overflow based on writing mode
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
+// overflow based on writing mode
 get_css_property!(
     get_overflow_block,
     get_overflow_block,
@@ -1508,7 +1507,8 @@ get_css_property!(
     compact = get_white_space
 );
 
-// +spec:writing-modes:3af12f - unicode-bidi does not affect direction for layout; we use direction property directly
+// +spec:writing-modes:3af12f - unicode-bidi does not affect direction for layout; we use direction
+// property directly
 get_css_property!(
     get_direction_property,
     get_direction,
@@ -1517,9 +1517,10 @@ get_css_property!(
     compact = get_direction
 );
 
-// +spec:display-property:346799 - inline-level elements with unicode-bidi:normal have no effect on text ordering
-// +spec:writing-modes:3e2632 - unicode-bidi property resolves embedding level for bidi algorithm (LRE/RLE/PDF)
-// +spec:writing-modes:d2c94f - direction+unicode-bidi properties map to UAX#9 bidirectional algorithm
+// +spec:display-property:346799 - inline-level elements with unicode-bidi:normal have no effect on
+// text ordering +spec:writing-modes:3e2632 - unicode-bidi property resolves embedding level for
+// bidi algorithm (LRE/RLE/PDF) +spec:writing-modes:d2c94f - direction+unicode-bidi properties map
+// to UAX#9 bidirectional algorithm
 get_css_property!(
     get_unicode_bidi_property,
     get_unicode_bidi,
@@ -1527,8 +1528,9 @@ get_css_property!(
     CssPropertyType::UnicodeBidi
 );
 
-// +spec:display-property:db5125 - text-box-trim on inline boxes trims content box to text-box-edge metric
-// +spec:display-property:dceb24 - text-box-trim on inline boxes: content edges coincide with text baselines
+// +spec:display-property:db5125 - text-box-trim on inline boxes trims content box to text-box-edge
+// metric +spec:display-property:dceb24 - text-box-trim on inline boxes: content edges coincide with
+// text baselines
 get_css_property!(
     get_text_box_trim_property,
     get_text_box_trim,
@@ -1585,13 +1587,15 @@ get_css_property!(
     CssPropertyType::InitialLetterWrap
 );
 
-// +spec:overflow:5d15e2 - block-start/block-end scrollbar gutter follows same rules as inline gutters when auto
+// +spec:overflow:5d15e2 - block-start/block-end scrollbar gutter follows same rules as inline
+// gutters when auto
 //
 // Hand-rolled fast path: 99% of nodes don't set scrollbar-gutter, and the
 // default is `auto`. The compact cache stores the enum in 2 bits of
 // tier2_cold.hot_flags, so we can return the answer without a cascade walk.
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[must_use]
 pub fn get_scrollbar_gutter_property(
     styled_dom: &StyledDom,
@@ -1914,7 +1918,8 @@ pub fn get_border_radius(
 }
 
 // +spec:stacking-contexts:a93e62 - stack level from z-index for stacking context ordering
-// +spec:stacking-contexts:ae50ae - z-index specifies stack level; auto resolves to 0 (inherited from parent stacking context)
+// +spec:stacking-contexts:ae50ae - z-index specifies stack level; auto resolves to 0 (inherited
+// from parent stacking context)
 /// Get z-index for stacking context ordering.
 ///
 /// Returns the resolved integer z-index value:
@@ -2020,7 +2025,8 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
 /// has a transparent background with no image. If so, we look for a `<body>` child and use
 /// its background instead.
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[must_use]
 pub fn get_background_color(
     styled_dom: &StyledDom,
@@ -2191,19 +2197,23 @@ pub fn get_border_info(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> BorderInfo {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::{color::ColorU, pixel::PixelValue},
+            style::{
+                border::{
+                    BorderStyle, StyleBorderBottomColor, StyleBorderBottomStyle,
+                    StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
+                    StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
+                },
+                LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+                LayoutBorderTopWidth,
+            },
+        },
+    };
+
     use crate::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
-    use azul_css::css::CssPropertyValue;
-    use azul_css::props::basic::color::ColorU;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::props::style::border::{
-        BorderStyle, StyleBorderBottomColor, StyleBorderBottomStyle, StyleBorderLeftColor,
-        StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
-        StyleBorderTopStyle,
-    };
-    use azul_css::props::style::{
-        LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-        LayoutBorderTopWidth,
-    };
 
     // FAST PATH: compact cache for normal state
     if node_state.is_normal() {
@@ -2379,7 +2389,8 @@ pub fn get_border_info(
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
 /// that can be used during text rendering.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn get_inline_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -2575,7 +2586,8 @@ pub fn get_selection_style(
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &StyledNodeState::default();
 
-    // Try to get selection background from CSS, otherwise use system color, otherwise hard-coded default
+    // Try to get selection background from CSS, otherwise use system color, otherwise hard-coded
+    // default
     let default_bg = system_style
         .and_then(|ss| ss.colors.selection_background.as_option().copied())
         .unwrap_or(ColorU {
@@ -2775,7 +2787,8 @@ pub fn get_display_property(
 /// its computed display value may be "blockified" per the table in CSS Display 3 §2.7.
 /// This function returns the blockified display value without mutating any state.
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[must_use]
 pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
@@ -2808,16 +2821,18 @@ pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     }
 }
 
-// +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
+// +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root
+// elements
 /// Resolves the computed display value for an element, applying blockification
 /// rules per CSS Display Module Level 3 §2.7.
-// +spec:display-property:641ac5 - computed display value applies blockification/inlinification (not "as specified")
+// +spec:display-property:641ac5 - computed display value applies blockification/inlinification (not
+// "as specified")
 ///
 /// This centralizes the blockification decision so that all layout phases
 /// (`layout_tree`, sizing, positioning) use consistent display values.
 // +spec:floats:52aea6 - computed display blockified for floated/positioned/root elements
-// +spec:positioning:ce02a1 - out-of-flow boxes (floated or absolutely positioned) get blockified display
-// four independent layout-state flags drive the blockification decision; bundling them
+// +spec:positioning:ce02a1 - out-of-flow boxes (floated or absolutely positioned) get blockified
+// display four independent layout-state flags drive the blockification decision; bundling them
 // into a struct would add ceremony without clarifying this pure decision function.
 #[allow(clippy::fn_params_excessive_bools)]
 #[must_use]
@@ -2839,7 +2854,8 @@ pub fn get_computed_display(
     }
 }
 
-// +spec:font-metrics:f7affa - vertical-align shorthand: maps CSS vertical-align values to inline layout alignment
+// +spec:font-metrics:f7affa - vertical-align shorthand: maps CSS vertical-align values to inline
+// layout alignment
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
 // +spec:display-property:24c160 - vertical-align aligns inline-level box within the line
@@ -2862,7 +2878,8 @@ pub fn get_vertical_align_for_node(
         StyleVerticalAlign::Superscript => crate::text3::cache::VerticalAlign::Super,
         StyleVerticalAlign::TextTop => crate::text3::cache::VerticalAlign::TextTop,
         StyleVerticalAlign::TextBottom => crate::text3::cache::VerticalAlign::TextBottom,
-        // +spec:line-height:b41ee3 - percentage vertical-align: raise/lower by % of line-height, 0% = baseline
+        // +spec:line-height:b41ee3 - percentage vertical-align: raise/lower by % of line-height, 0%
+        // = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
             // Line-height uses the parser convention (see `get_line_height_value` /
@@ -2923,7 +2940,11 @@ pub fn get_vertical_align_for_node(
 /// does.
 #[derive(Default, Debug)]
 pub struct StyleCache {
-    by_node: HashMap<(u32, StyledNodeState, u32, u32), std::sync::Arc<StyleProperties>>,
+    /// Key: (node, pseudo-state, viewport w/h bits, cascade epoch). The epoch
+    /// (`CssPropertyCache::cascade_epoch`) makes a restyle, a context change
+    /// or a user override within one pass miss instead of serving the style
+    /// resolved before it.
+    by_node: HashMap<(u32, StyledNodeState, u32, u32, u64), std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
@@ -2952,6 +2973,7 @@ pub fn get_style_properties_cached(
         node_state,
         viewport_size.width.to_bits(),
         viewport_size.height.to_bits(),
+        styled_dom.get_css_property_cache().cascade_epoch,
     );
     if let Some(v) = cache.by_node.get(&key) {
         drop(crate::probe::Probe::span("style_props_memo_hit"));
@@ -2991,8 +3013,9 @@ pub fn get_style_properties_cached(
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///
-/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
-#[must_use] 
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family
+/// list).
+#[must_use]
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3014,7 +3037,8 @@ pub fn get_style_properties(
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///
-/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family
+/// list).
 pub fn get_style_properties_for_state(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3137,12 +3161,25 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    // CSS initial value for 'color' is UA-dependent but conventionally black.
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
     // Do NOT use system_style.colors.text here — that reflects the OS theme
     // (e.g. white on macOS dark mode) and would produce white text on
     // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
     // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or(ColorU::BLACK);
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {
@@ -3389,8 +3426,9 @@ pub fn get_style_properties_for_state(
         .get_text_transform(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().copied())
         .map(|t| {
-            use crate::text3::cache::TextTransform as T3;
             use azul_css::props::style::text::StyleTextTransform as Css;
+
+            use crate::text3::cache::TextTransform as T3;
             match t {
                 Css::None => T3::None,
                 Css::Uppercase => T3::Uppercase,
@@ -3804,8 +3842,7 @@ fn build_font_selector_stack_memo(
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
     use core::hash::{Hash, Hasher};
-    use std::cell::RefCell;
-    use std::collections::HashMap;
+    use std::{cell::RefCell, collections::HashMap};
 
     // Bounded so a pathological document (thousands of distinct
     // family/weight combinations) cannot grow the memo without limit; the
@@ -4495,17 +4532,14 @@ pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange
 /// Resolve font chains for a collected set of stacks.
 ///
 /// `scripts_hint`:
-/// - `None` keeps the original "all 7 default scripts" behaviour
-///   (Cyrillic / Arabic / Devanagari / Hiragana / Katakana / CJK /
-///   Hangul) — equivalent to passing
+/// - `None` keeps the original "all 7 default scripts" behaviour (Cyrillic / Arabic / Devanagari /
+///   Hiragana / Katakana / CJK / Hangul) — equivalent to passing
 ///   `Some(rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS)`.
-/// - `Some(&[])` attaches *no* Unicode fallbacks, suitable for
-///   ASCII-only documents. Combined with `prune_chain_to_used_chars`
-///   this is what eliminates Arial Unicode MS / CJK / Arabic font
-///   loads on Latin-only pages.
-/// - `Some(ranges)` attaches fallbacks only for the listed scripts.
-///   Production callers compute this via
-///   [`scripts_present_in_styled_dom`].
+/// - `Some(&[])` attaches *no* Unicode fallbacks, suitable for ASCII-only documents. Combined with
+///   `prune_chain_to_used_chars` this is what eliminates Arial Unicode MS / CJK / Arabic font loads
+///   on Latin-only pages.
+/// - `Some(ranges)` attaches fallbacks only for the listed scripts. Production callers compute this
+///   via [`scripts_present_in_styled_dom`].
 #[must_use]
 pub fn resolve_font_chains(
     collected: &CollectedFontStacks,
@@ -4781,8 +4815,8 @@ pub fn resolve_font_chains_with_registry(
     ensure_chains_nonempty(&mut out, fc_cache);
     if let Some(t0) = trace_t0 {
         eprintln!(
-            "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} \
-             unresolved family name(s), {} last-resort chain(s)",
+            "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} unresolved \
+             family name(s), {} last-resort chain(s)",
             t0.elapsed(),
             out.chains.len(),
             out.unresolved_families.len(),
@@ -4856,8 +4890,8 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
                 last_resort += 1;
                 if let FontChainKeyOrRef::Chain(k) = &key {
                     eprintln!(
-                        "[azul][font] LAST-RESORT fallback for font stack {:?}: nothing in \
-                         the stack matched, rendering in an arbitrary system font.",
+                        "[azul][font] LAST-RESORT fallback for font stack {:?}: nothing in the \
+                         stack matched, rendering in an arbitrary system font.",
                         k.font_families
                     );
                 }
@@ -4910,9 +4944,8 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     //
     // Falls back to the legacy pattern-map resolver when:
     //   - no registry is present (offline `FcFontCache` callers)
-    //   - the DOM has no text codepoints (no shaping to be done,
-    //     so cmap-probing has nothing to check and partial-cover
-    //     entries would be surprising)
+    //   - the DOM has no text codepoints (no shaping to be done, so cmap-probing has nothing to
+    //     check and partial-cover entries would be surprising)
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
@@ -4946,8 +4979,10 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     // AFTER the prune (the prune keeps faces for the chars the DOM uses; this
     // adds faces for the chars nothing in the chain covers — Hebrew, Thai,
     // anything outside the seven `scripts_present_in_styled_dom` blocks).
-    let used_chars: std::collections::BTreeSet<char> =
-        used_chars.iter().filter_map(|cp| char::from_u32(*cp)).collect();
+    let used_chars: std::collections::BTreeSet<char> = used_chars
+        .iter()
+        .filter_map(|cp| char::from_u32(*cp))
+        .collect();
     extend_chains_to_cover(
         &mut resolved,
         &used_chars,
@@ -5133,7 +5168,9 @@ fn extend_chains_to_cover(
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
 ) {
-    use crate::text3::cache::{append_coverage_faces, covering_font, faces_covering, needs_own_glyph};
+    use crate::text3::cache::{
+        append_coverage_faces, covering_font, faces_covering, needs_own_glyph,
+    };
 
     let wanted: Vec<char> = used_chars
         .iter()
@@ -5182,10 +5219,9 @@ fn report_unresolved_families(resolved: &ResolvedFontChains) {
             // app into `head` is enough), and a bare print is invisible to the
             // ring, so nothing could assert that a missing family was reported.
             azul_core::diagnostics::emit(alloc::format!(
-                "[azul][font] UNRESOLVED font-family {family:?}: no font file and no \
-                 registered in-memory font matches this family. Text that asks for it \
-                 renders in a FALLBACK font. Register it with \
-                 FontManager::register_named_font(), or install it."
+                "[azul][font] UNRESOLVED font-family {family:?}: no font file and no registered \
+                 in-memory font matches this family. Text that asks for it renders in a FALLBACK \
+                 font. Register it with FontManager::register_named_font(), or install it."
             ));
         }
     }
@@ -5292,7 +5328,8 @@ pub struct FontLoadResult<T> {
 ///
 /// # Returns
 /// A `FontLoadResult` containing successfully loaded fonts and any failures
-#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher
+                                  // HashMap/HashSet
 pub fn load_fonts_from_disk<T, F>(
     font_ids: &HashSet<FontId>,
     fc_cache: &FcFontCache,
@@ -5363,7 +5400,8 @@ where
 ///
 /// # Returns
 /// A tuple of (`ResolvedFontChains`, `FontLoadResult`)
-#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher
+                                  // HashMap/HashSet
 pub fn resolve_and_load_fonts<T, F>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
@@ -5562,8 +5600,8 @@ impl ComputedScrollbarStyle {
 /// Get the computed scrollbar style for a node.
 ///
 /// Resolution order (later wins):
-///   1. UA scrollbar CSS (`CssPropertyWithConditions` in `ua_css.rs`,
-///      evaluated via `@os` / `@theme` conditions)
+///   1. UA scrollbar CSS (`CssPropertyWithConditions` in `ua_css.rs`, evaluated via `@os` /
+///      `@theme` conditions)
 ///   2. CSS `-azul-scrollbar-style` (full `ScrollbarInfo` customisation)
 ///   3. CSS `scrollbar-width`  (overrides width only)
 ///   4. CSS `scrollbar-color`  (overrides thumb / track colours)
@@ -5583,11 +5621,22 @@ pub fn get_scrollbar_style(
 ) -> ComputedScrollbarStyle {
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
-    let ctx = system_style.map_or_else(
-        azul_css::dynamic_selector::DynamicSelectorContext::default,
-        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-    );
+    // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system —
+    // against the context the DOM was CASCADED under (it carries the
+    // window's own theme, viewport and OS), so the scrollbar follows an
+    // in-app theme switch like everything else does. A DOM no window has
+    // adopted yet falls back to a system-style-only context.
+    let ctx = styled_dom
+        .get_css_property_cache()
+        .dynamic_context
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| {
+            system_style.map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            )
+        });
     // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
     // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built
@@ -5603,7 +5652,11 @@ pub fn get_scrollbar_style(
         {
             std::eprintln!(
                 "[azul][scrollbar] system_style={} os={:?} visibility={:?} width={:?}",
-                if system_style.is_some() { "Some" } else { "NONE" },
+                if system_style.is_some() {
+                    "Some"
+                } else {
+                    "NONE"
+                },
                 ctx.os,
                 azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).visibility,
                 azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).width,
@@ -5891,21 +5944,22 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
 // Additional ExtractPropertyValue impls (not in compact cache tier 1/2)
 // =============================================================================
 
-use azul_css::props::layout::overflow::StyleTextOverflow;
-use azul_css::props::layout::table::{
-    LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
+use azul_css::props::{
+    layout::{
+        overflow::StyleTextOverflow,
+        table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells},
+        text::LayoutTextJustify,
+    },
+    style::{
+        effects::{
+            StyleAspectRatio, StyleCursor, StyleObjectFit, StyleObjectPosition,
+            StyleTextOrientation,
+        },
+        text::{
+            StyleHyphens, StyleLineBreak, StyleOverflowWrap, StyleTextAlignLast, StyleWordBreak,
+        },
+    },
 };
-use azul_css::props::layout::text::LayoutTextJustify;
-use azul_css::props::style::effects::StyleAspectRatio;
-use azul_css::props::style::effects::StyleCursor;
-use azul_css::props::style::effects::StyleObjectFit;
-use azul_css::props::style::effects::StyleObjectPosition;
-use azul_css::props::style::effects::StyleTextOrientation;
-use azul_css::props::style::text::StyleHyphens;
-use azul_css::props::style::text::StyleLineBreak;
-use azul_css::props::style::text::StyleOverflowWrap;
-use azul_css::props::style::text::StyleTextAlignLast;
-use azul_css::props::style::text::StyleWordBreak;
 
 impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
     fn extract(&self) -> Option<LayoutTextJustify> {
@@ -6746,13 +6800,6 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
     false
 }
 
-/// Whether the focused node is this node ITSELF or one of its ANCESTORS.
-///
-/// The engine placeholder's hide rule: widget focus lands on the editable
-/// CONTAINER above the prompt-carrying line, so "the host is focused" means
-/// "me or something above me is focused". Recomputed per display-list build,
-/// which makes the rule latch-free by construction (the 2026-08-31
-/// whack-a-mole class: imperative show/hide overrides stuck forever).
 /// Whether `host` or anything INSIDE it holds focus.
 ///
 /// The companion to [`is_focus_within_or_above`], and the other half of the
@@ -6796,6 +6843,15 @@ pub(crate) fn is_focus_within_subtree(styled_dom: &StyledDom, host: NodeId) -> b
     false
 }
 
+/// Whether the focused node is this node ITSELF or one of its ANCESTORS.
+///
+/// The engine placeholder's hide rule: widget focus lands on the editable
+/// CONTAINER above the prompt-carrying line, so "the host is focused" means
+/// "me or something above me is focused". Recomputed per display-list build,
+/// which makes the rule latch-free by construction (the 2026-08-31
+/// whack-a-mole class: imperative show/hide overrides stuck forever).
+///
+/// See [`is_focus_within_subtree`] for the downward half of the question.
 pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let styled = styled_dom.styled_nodes.as_container();
     if styled
@@ -6818,7 +6874,6 @@ pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) 
     }
     false
 }
-
 
 /// Find the contenteditable ancestor of a node.
 ///
@@ -8385,10 +8440,9 @@ mod autotest_generated {
         );
         assert!(
             (b - 29.0).abs() < 0.5,
-            "second document must resolve to its OWN 29px, got {b} — if this \
-             is 11 the second document was served the first one's cached \
-             style, which is what a pointer-address cache key does once the \
-             allocator reuses the address"
+            "second document must resolve to its OWN 29px, got {b} — if this is 11 the second \
+             document was served the first one's cached style, which is what a pointer-address \
+             cache key does once the allocator reuses the address"
         );
     }
 
@@ -8477,8 +8531,8 @@ mod autotest_generated {
             "style is part of every FontSelector, so it must be part of the key"
         );
 
-        // 4. different PLATFORM — only observable through a system font,
-        //    whose fallback chain is platform-specific.
+        // 4. different PLATFORM — only observable through a system font, whose fallback chain is
+        //    platform-specific.
         let sys = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
             "system:ui".to_string().into(),
         )]);
@@ -8496,8 +8550,8 @@ mod autotest_generated {
         );
         assert_ne!(
             mac[0].family, win[0].family,
-            "the platform selects the system fallback chain, so it must be \
-             part of the key — got {:?} for both",
+            "the platform selects the system fallback chain, so it must be part of the key — got \
+             {:?} for both",
             mac[0].family
         );
     }
@@ -9509,8 +9563,10 @@ mod style_interning_tests {
     /// seen.
     #[test]
     fn identical_styles_share_one_allocation() {
-        use azul_core::dom::{Dom, NodeId};
-        use azul_core::styled_dom::StyledDom;
+        use azul_core::{
+            dom::{Dom, NodeId},
+            styled_dom::StyledDom,
+        };
 
         // Three sibling texts with no styling of their own: identical
         // computed style, three different nodes.
@@ -9546,9 +9602,8 @@ mod style_interning_tests {
             .collect();
         assert!(
             distinct.len() < arcs.len(),
-            "{} nodes produced {} DISTINCT StyleProperties allocations — \
-             identical computed styles are not being shared, which is the \
-             defect this cache exists to prevent",
+            "{} nodes produced {} DISTINCT StyleProperties allocations — identical computed \
+             styles are not being shared, which is the defect this cache exists to prevent",
             arcs.len(),
             distinct.len()
         );
@@ -9571,8 +9626,10 @@ mod style_interning_tests {
     /// the hash the next build will compute.
     #[test]
     fn a_hash_collision_never_merges_two_different_styles() {
-        use azul_core::dom::{Dom, NodeId};
-        use azul_core::styled_dom::StyledDom;
+        use azul_core::{
+            dom::{Dom, NodeId},
+            styled_dom::StyledDom,
+        };
 
         let sd = StyledDom::create_from_dom(
             Dom::create_body()
@@ -9597,8 +9654,7 @@ mod style_interning_tests {
         let rebuilt = get_style_properties_cached(&mut cache, &sd, NodeId::new(0), None, viewport);
         assert_ne!(
             *rebuilt, *impostor,
-            "a colliding bucket entry must be rejected by the equality \
-             check, not returned"
+            "a colliding bucket entry must be rejected by the equality check, not returned"
         );
         assert_eq!(*rebuilt, *real, "the correct style is still produced");
     }

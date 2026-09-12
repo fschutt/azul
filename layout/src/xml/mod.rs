@@ -2,8 +2,8 @@
 //!
 //! Provides two parsing paths:
 //! - `parse_xml_string`: builds an `XmlNode` tree (used by `domxml_from_str`)
-//! - `parse_xml_to_fast_dom_with_css`: builds an arena-based `FastDom` directly
-//!   from XML tokens (used by `parse_xml_to_styled_dom`)
+//! - `parse_xml_to_fast_dom_with_css`: builds an arena-based `FastDom` directly from XML tokens
+//!   (used by `parse_xml_to_styled_dom`)
 //!
 //! Both paths handle HTML5-lite features: void elements, auto-closing tags,
 //! XML entity decoding, `<style>` CSS extraction, and BOM/DOCTYPE stripping.
@@ -328,12 +328,16 @@ const fn peak_rss_bytes() -> u64 {
 
 /// Internal: parse XML into `FastDom` + collected CSS stylesheets.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 fn parse_xml_to_fast_dom_with_css(
     xml: &str,
 ) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
-    use azul_core::dom::{IdOrClass, NodeData, NodeType, TabIndex};
-    use azul_core::xml::CompactDomBuilder;
+    use azul_core::{
+        dom::{IdOrClass, NodeData, NodeType, TabIndex},
+        xml::CompactDomBuilder,
+    };
     use xmlparser::{
         ElementEnd::{Close, Empty, Open},
         Token::{Attribute, ElementEnd, ElementStart, Text},
@@ -511,8 +515,10 @@ fn parse_xml_to_fast_dom_with_css(
                         let props = css_attrs
                             .into_iter()
                             .filter_map(|s| {
-                                use azul_css::css::CssDeclaration;
-                                use azul_css::dynamic_selector::CssPropertyWithConditions;
+                                use azul_css::{
+                                    css::CssDeclaration,
+                                    dynamic_selector::CssPropertyWithConditions,
+                                };
                                 match s {
                                     CssDeclaration::Static(s) => {
                                         Some(CssPropertyWithConditions::simple(s))
@@ -527,9 +533,9 @@ fn parse_xml_to_fast_dom_with_css(
                     }
                     // Boolean attribute: presence is the value, as in HTML.
                     "autofocus" => attr_vec.push(azul_core::dom::AttributeType::Autofocus),
-                    "placeholder" => attr_vec.push(
-                        azul_core::dom::AttributeType::Placeholder(value.clone().into()),
-                    ),
+                    "placeholder" => attr_vec.push(azul_core::dom::AttributeType::Placeholder(
+                        value.clone().into(),
+                    )),
                     "contenteditable" => {
                         match parse_bool(value.as_str()) {
                             Some(true) => nd.set_contenteditable(true),
@@ -543,7 +549,8 @@ fn parse_xml_to_fast_dom_with_css(
                             // `with_attribute(ContentEditable(false))` and the HTML
                             // loader disagreed on the same document.
                             Some(false) => {
-                                attr_vec.push(azul_core::dom::AttributeType::ContentEditable(false));
+                                attr_vec
+                                    .push(azul_core::dom::AttributeType::ContentEditable(false));
                             }
                             None => {}
                         }
@@ -1670,13 +1677,12 @@ mod autotest_generated {
 
         assert!(
             a.is_ok(),
-            "parse_xml_string panicked on {INPUT:?}: the DOCTYPE sniff slices \
-             xml[..9] without an is_char_boundary check"
+            "parse_xml_string panicked on {INPUT:?}: the DOCTYPE sniff slices xml[..9] without an \
+             is_char_boundary check"
         );
         assert!(
             b.is_ok(),
-            "parse_xml_to_fast_dom panicked on {INPUT:?}: same unchecked \
-             xml[..9] slice"
+            "parse_xml_to_fast_dom panicked on {INPUT:?}: same unchecked xml[..9] slice"
         );
     }
 
@@ -2044,9 +2050,8 @@ mod autotest_generated {
 
     #[test]
     fn parse_xml_to_fast_dom_skips_head_but_collects_style_css() {
-        let src = "<html><head><title>T</title>\
-                   <style>div { width: 10px; }</style></head>\
-                   <body>x</body></html>";
+        let src = "<html><head><title>T</title><style>div { width: 10px; \
+                   }</style></head><body>x</body></html>";
         let (dom, css) = parse_xml_to_fast_dom_with_css(src).expect("valid document");
         let n = nodes(&dom);
 
@@ -2431,11 +2436,8 @@ mod autotest_generated {
         // Both the bare-name spec and the pack-qualified fallback-list spec
         // (`missing:x` first — must fall through to `testpack:content_copy`).
         let styled = parse_xml_to_styled_dom_resolving_icons(
-            "<html><body>\
-             <icon> content_copy </icon>\
-             <icon>missing:x, testpack:CONTENT_COPY</icon>\
-             <icon>unknown_icon</icon>\
-             </body></html>",
+            "<html><body><icon> content_copy </icon><icon>missing:x, \
+             testpack:CONTENT_COPY</icon><icon>unknown_icon</icon></body></html>",
             &provider,
             &SystemStyle::default(),
         )
@@ -2531,8 +2533,8 @@ mod autotest_generated {
             let dom = dom_from_parsed_xml(Xml { root: root.into() });
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::Html),
-                "a real document is rooted at <html>, got {:?} - a <body> root \
-                 here would mean the ERROR Dom came back instead",
+                "a real document is rooted at <html>, got {:?} - a <body> root here would mean \
+                 the ERROR Dom came back instead",
                 dom.root.get_node_type()
             );
         }
@@ -2577,13 +2579,10 @@ mod autotest_generated {
                 const DEPTH: usize = 550;
                 let mut node = XmlNode::create("div");
                 for _ in 0..DEPTH {
-                    node =
-                        XmlNode::create("div").with_children(vec![XmlNodeChild::Element(node)]);
+                    node = XmlNode::create("div").with_children(vec![XmlNodeChild::Element(node)]);
                 }
-                let body =
-                    XmlNode::create("body").with_children(vec![XmlNodeChild::Element(node)]);
-                let html =
-                    XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
+                let body = XmlNode::create("body").with_children(vec![XmlNodeChild::Element(node)]);
+                let html = XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
 
                 let dom = dom_from_parsed_xml(Xml {
                     root: vec![XmlNodeChild::Element(html)].into(),

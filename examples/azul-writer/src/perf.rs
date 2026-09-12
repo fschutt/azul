@@ -13,9 +13,11 @@
 //! - `AZWRITER_FRAME_LOG=1`   — breakdown for frames over the 8 ms budget
 //! - `AZWRITER_FRAME_LOG=all` — breakdown for EVERY frame (call counting)
 
-use std::cell::RefCell;
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 pub use crate::args::FrameLog as Mode;
 

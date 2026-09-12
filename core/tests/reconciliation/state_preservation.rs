@@ -7,12 +7,14 @@
 //
 // State is transferred via reconcile_dom → create_migration_map → transfer_states.
 
-use azul_core::diff::{create_migration_map, reconcile_dom, transfer_states, ChangeAccumulator};
-use azul_core::dom::{DomId, NodeData};
-use azul_core::geom::LogicalRect;
-use azul_core::id::NodeId;
-use azul_core::task::Instant;
-use azul_core::OrderedMap;
+use azul_core::{
+    diff::{create_migration_map, reconcile_dom, transfer_states, ChangeAccumulator},
+    dom::{DomId, NodeData},
+    geom::LogicalRect,
+    id::NodeId,
+    task::Instant,
+    OrderedMap,
+};
 use azul_css::AzString;
 
 /// Helper: create a layout map with zero-rect entries for N nodes

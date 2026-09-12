@@ -11,22 +11,27 @@
 //! References:
 //! - Taffy tests/caching.rs: deep tree measure count test
 //! - Taffy tests/relayout.rs: stability + display toggle tests
-//! - CSS 2.1 §8.3.1 (margin collapsing), §9.2.2.1 (anonymous boxes),
-//!   §10.3 (containing block), §14.2 (canvas background)
+//! - CSS 2.1 §8.3.1 (margin collapsing), §9.2.2.1 (anonymous boxes), §10.3 (containing block),
+//!   §14.2 (canvas background)
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        paged_layout::layout_document_paged_with_config, pagination::FakePageConfig, LayoutNodeId,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 // ============================================================================
 // Test helpers
@@ -339,8 +344,10 @@ fn test_node_cache_sizing_store_and_retrieve() {
 #[test]
 fn test_node_cache_layout_store_and_retrieve() {
     use azul_core::geom::{LogicalPosition, LogicalSize};
-    use azul_layout::solver3::cache::{LayoutCacheEntry, NodeCache};
-    use azul_layout::solver3::scrollbar::ScrollbarRequirements;
+    use azul_layout::solver3::{
+        cache::{LayoutCacheEntry, NodeCache},
+        scrollbar::ScrollbarRequirements,
+    };
 
     let mut cache = NodeCache::default();
 
@@ -454,7 +461,8 @@ fn test_dirty_propagation_via_layout() {
         .count();
     assert!(
         filled_after >= filled_before,
-        "relayout of identical DOM should not reduce cache fill: before={filled_before}, after={filled_after}"
+        "relayout of identical DOM should not reduce cache fill: before={filled_before}, \
+         after={filled_after}"
     );
 }
 
@@ -605,7 +613,8 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
     }
     assert_eq!(
         anonymous_ifc_count, 0,
-        "whitespace between blocks should NOT create anonymous IFC wrappers, got {anonymous_ifc_count}"
+        "whitespace between blocks should NOT create anonymous IFC wrappers, got \
+         {anonymous_ifc_count}"
     );
 }
 

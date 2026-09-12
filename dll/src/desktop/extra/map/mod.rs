@@ -5,18 +5,14 @@
 //! Architecture (see `MOBILE_SESSION_LOG.md` for the full design and
 //! the user's "MVT + MapCSS = SVG → DOM" pipeline):
 //!
-//! 1. `MapWidget`'s `VirtualView` callback computes the visible tiles
-//!    (Web Mercator XYZ).
-//! 2. For each visible tile not in cache, the widget enqueues a fetch.
-//!    Fetch lands in a follow-up tick — needs a Thread/async surface.
-//! 3. When the fetched PBF bytes arrive, `decode_mvt_tile` parses them
-//!    via the `td` crate (`td::parse_mvt_tile`), returning a `Vec` of
-//!    GeoJSON `Feature`s with WGS-84 coordinates.
-//! 4. The next tick maps each Feature → SVG path string by applying
-//!    the user's `MapCSS` stylesheet (parsed via the framework's
-//!    existing CSS parser).
-//! 5. The widget's `VirtualView` patches the SVG-as-DOM into the tile
-//!    `<div>` as a child.
+//! 1. `MapWidget`'s `VirtualView` callback computes the visible tiles (Web Mercator XYZ).
+//! 2. For each visible tile not in cache, the widget enqueues a fetch. Fetch lands in a follow-up
+//!    tick — needs a Thread/async surface.
+//! 3. When the fetched PBF bytes arrive, `decode_mvt_tile` parses them via the `td` crate
+//!    (`td::parse_mvt_tile`), returning a `Vec` of GeoJSON `Feature`s with WGS-84 coordinates.
+//! 4. The next tick maps each Feature → SVG path string by applying the user's `MapCSS` stylesheet
+//!    (parsed via the framework's existing CSS parser).
+//! 5. The widget's `VirtualView` patches the SVG-as-DOM into the tile `<div>` as a child.
 //!
 //! This module is the entry point for step 3 only. Steps 1-2 are
 //! `MapWidget` internals; steps 4-5 land in later ticks.
@@ -60,7 +56,7 @@ pub fn decode_mvt_tile(
 pub fn build_tile_url(
     url_template: &str,
     tile: azul_layout::widgets::map::MapTileId,
-) -> alloc::string::String {
+) -> String {
     use alloc::string::ToString;
     url_template
         .replace("{z}", &tile.z.to_string())
@@ -73,10 +69,10 @@ pub fn build_tile_url(
 /// compile and run without dragging in the MVT dep tree.
 #[cfg(not(feature = "map-tiles"))]
 pub fn decode_mvt_tile(
-    _bytes: alloc::vec::Vec<u8>,
+    _bytes: Vec<u8>,
     _tile: azul_layout::widgets::map::MapTileId,
-) -> Result<alloc::vec::Vec<()>, alloc::string::String> {
-    Err(alloc::string::String::from(
+) -> Result<Vec<()>, String> {
+    Err(String::from(
         "azul-dll built without `map-tiles` feature — MVT decode unavailable",
     ))
 }
@@ -90,9 +86,9 @@ pub fn decode_mvt_tile(
 /// 2. `azul_layout::http::http_get(url)` → PBF bytes.
 /// 3. `decode_mvt_tile(bytes, tile)` → GeoJSON features.
 /// 4. `features_to_svg(&features, tile)` → SVG string.
-/// 5. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`
-///    pointed at `azul_layout::widgets::map::map_tile_writeback`,
-///    which stamps the cache `Ready` and triggers a relayout.
+/// 5. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg` pointed at
+///    `azul_layout::widgets::map::map_tile_writeback`, which stamps the cache `Ready` and triggers
+///    a relayout.
 ///
 /// Cancellation: between the fetch and the decode we poll
 /// `recv.recv()` for `ThreadSendMsg::TerminateThread` so a tile that
@@ -105,15 +101,17 @@ pub extern "C" fn tile_fetch_worker(
 ) {
     use azul_core::refany::{OptionRefAny, RefAny};
     use azul_css::AzString;
-    use azul_layout::thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback};
-    use azul_layout::widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg};
+    use azul_layout::{
+        thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback},
+        widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg},
+    };
 
-    let (tile, url, mapcss, theme, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
+    let (tile, url, mapcss, look, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
         Some(i) => (
             i.tile,
             i.url.as_str().to_string(),
             i.style_css.as_str().to_string(),
-            i.theme,
+            i.look,
             i.bytes.as_ref().to_vec(),
         ),
         None => return,
@@ -131,7 +129,7 @@ pub extern "C" fn tile_fetch_worker(
                 tile,
                 svg,
                 error,
-                theme,
+                look,
                 bytes: azul_css::U8Vec::from_vec(bytes),
             }),
         )
@@ -149,46 +147,48 @@ pub extern "C" fn tile_fetch_worker(
     // case this job is a restyle and touches the network zero times. A tile's
     // geometry is downloaded once per session however often the look changes.
     let restyle = !cached_bytes.is_empty();
-    let bytes =
-        if restyle {
-            if dbg {
-                eprintln!(
-                "[map] worker restyle tile=({},{},{}) theme={theme:?} — {} cached bytes, no fetch",
-                tile.z, tile.x, tile.y, cached_bytes.len()
+    let bytes = if restyle {
+        if dbg {
+            eprintln!(
+                "[map] worker restyle tile=({},{},{}) look={look:?} — {} cached bytes, no fetch",
+                tile.z,
+                tile.x,
+                tile.y,
+                cached_bytes.len()
             );
-            }
-            cached_bytes
-        } else {
-            match azul_layout::http::http_get(&url) {
-                Ok(resp) => {
-                    let b = resp.body.as_ref().to_vec();
-                    if dbg {
-                        eprintln!(
-                            "[map] worker fetched tile=({},{},{}) {} bytes",
-                            tile.z,
-                            tile.x,
-                            tile.y,
-                            b.len()
-                        );
-                    }
-                    b
+        }
+        cached_bytes
+    } else {
+        match azul_layout::http::http_get(&url) {
+            Ok(resp) => {
+                let b = resp.body.as_ref().to_vec();
+                if dbg {
+                    eprintln!(
+                        "[map] worker fetched tile=({},{},{}) {} bytes",
+                        tile.z,
+                        tile.x,
+                        tile.y,
+                        b.len()
+                    );
                 }
-                Err(e) => {
-                    if dbg {
-                        eprintln!(
-                            "[map] worker fetch FAILED tile=({},{},{}): {e:?}",
-                            tile.z, tile.x, tile.y
-                        );
-                    }
-                    sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                        AzString::from(""),
-                        AzString::from(alloc::format!("fetch failed: {e:?}")),
-                        Vec::new(),
-                    )));
-                    return;
-                }
+                b
             }
-        };
+            Err(e) => {
+                if dbg {
+                    eprintln!(
+                        "[map] worker fetch FAILED tile=({},{},{}): {e:?}",
+                        tile.z, tile.x, tile.y
+                    );
+                }
+                sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                    AzString::from(""),
+                    AzString::from(alloc::format!("fetch failed: {e:?}")),
+                    Vec::new(),
+                )));
+                return;
+            }
+        }
+    };
 
     // Cancellation check between fetch and decode.
     if matches!(
@@ -206,7 +206,7 @@ pub extern "C" fn tile_fetch_worker(
             let svg = features_to_svg(&features, tile, &mapcss);
             if dbg {
                 eprintln!(
-                    "[map] worker decoded tile=({},{},{}) theme={theme:?} {} features svg_len={}",
+                    "[map] worker decoded tile=({},{},{}) look={look:?} {} features svg_len={}",
                     tile.z,
                     tile.x,
                     tile.y,
@@ -283,9 +283,9 @@ pub fn map_widget_dom(widget: azul_layout::widgets::map::MapWidget) -> azul_core
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             eprintln!(
-                "[azul][map] MapWidget: this build has no `map-tiles` feature — no \
-                 tile fetch worker exists, the map shows its placeholder forever. \
-                 Rebuild with: cargo build -p azul-dll --features build-dll,map-tiles"
+                "[azul][map] MapWidget: this build has no `map-tiles` feature — no tile fetch \
+                 worker exists, the map shows its placeholder forever. Rebuild with: cargo build \
+                 -p azul-dll --features build-dll,map-tiles"
             );
         });
         widget.dom()

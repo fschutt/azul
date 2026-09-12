@@ -53,10 +53,9 @@ const MOCK_ARABIC_COVERAGE: [UnicodeRange; 3] = [
 /// U+0628 ARABIC LETTER BEH — in the mock's cmap.
 const BEH: char = '\u{0628}';
 
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-family: 'Azul Mock Mono'; font-size: 20px; width: 600px; } \
-                   .p { display: block; } \
-                   .wide { font-family: 'Azul Mock Wide'; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-family: 'Azul Mock Mono'; font-size: \
+                   20px; width: 600px; } .p { display: block; } .wide { font-family: 'Azul Mock \
+                   Wide'; }";
 
 fn with_class(dom: Dom, class: &'static str) -> Dom {
     let ids: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class(class.into())].into();
@@ -126,8 +125,11 @@ fn latin_generics() -> FcFallbackConfig {
 fn window_with_mock_arabic(dom: Dom) -> LayoutWindow {
     let fc_cache = FcFontCache::default().with_fallback_config(latin_generics());
     let mut lw = LayoutWindow::new(fc_cache).unwrap();
-    lw.font_manager
-        .register_named_font("Azul Mock Arabic", MOCK_ARABIC, MOCK_ARABIC_COVERAGE.to_vec());
+    lw.font_manager.register_named_font(
+        "Azul Mock Arabic",
+        MOCK_ARABIC,
+        MOCK_ARABIC_COVERAGE.to_vec(),
+    );
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
     lw.current_window_state = window_state;
@@ -182,7 +184,8 @@ fn mono_key(lw: &LayoutWindow) -> FontChainKey {
         .cloned()
         .unwrap_or_else(|| {
             panic!(
-                "premise: the paragraph's stack resolved a chain at full layout; keys present: {:?}",
+                "premise: the paragraph's stack resolved a chain at full layout; keys present: \
+                 {:?}",
                 lw.font_manager.font_chain_cache.keys().collect::<Vec<_>>()
             )
         })
@@ -213,13 +216,38 @@ fn assert_premise_no_arabic(lw: &LayoutWindow) {
     let _ = mono_key(lw);
     assert!(
         !chain_draws(lw, BEH),
-        "premise: a Latin document resolves NO Arabic face — the resolver only \
-         sees the text the DOM contains; chain = {:#?}; loaded = {:?}",
-        lw.font_manager.font_chain_cache.get(&mono_key(lw)).map(|c| (
-            c.css_fallbacks.iter().map(|g| (g.css_name.clone(), g.fonts.iter().map(|f| (f.id, f.unicode_ranges.clone())).collect::<Vec<_>>())).collect::<Vec<_>>(),
-            c.unicode_fallbacks.iter().map(|g| (g.range, g.fonts.iter().map(|f| (f.id, f.unicode_ranges.clone())).collect::<Vec<_>>())).collect::<Vec<_>>(),
-        )),
-        lw.font_manager.get_loaded_fonts().iter().map(|(id, _)| *id).collect::<Vec<_>>()
+        "premise: a Latin document resolves NO Arabic face — the resolver only sees the text the \
+         DOM contains; chain = {:#?}; loaded = {:?}",
+        lw.font_manager
+            .font_chain_cache
+            .get(&mono_key(lw))
+            .map(|c| (
+                c.css_fallbacks
+                    .iter()
+                    .map(|g| (
+                        g.css_name.clone(),
+                        g.fonts
+                            .iter()
+                            .map(|f| (f.id, f.unicode_ranges.clone()))
+                            .collect::<Vec<_>>()
+                    ))
+                    .collect::<Vec<_>>(),
+                c.unicode_fallbacks
+                    .iter()
+                    .map(|g| (
+                        g.range,
+                        g.fonts
+                            .iter()
+                            .map(|f| (f.id, f.unicode_ranges.clone()))
+                            .collect::<Vec<_>>()
+                    ))
+                    .collect::<Vec<_>>(),
+            )),
+        lw.font_manager
+            .get_loaded_fonts()
+            .iter()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>()
     );
     let loaded = lw.font_manager.get_loaded_fonts();
     assert!(
@@ -259,8 +287,8 @@ fn arabic_typed_into_a_latin_paragraph_gets_a_face_that_can_draw_it() {
     );
     assert!(
         chain_draws(&lw, BEH),
-        "the paragraph's chain must now resolve the typed letter to a loaded face \
-         that has it — the edit-time coverage extension did not run"
+        "the paragraph's chain must now resolve the typed letter to a loaded face that has it — \
+         the edit-time coverage extension did not run"
     );
     let glyphs = painted_glyphs(&lw);
     assert_no_tofu(&glyphs, "after typing Arabic into a Latin paragraph");
@@ -268,8 +296,8 @@ fn arabic_typed_into_a_latin_paragraph_gets_a_face_that_can_draw_it() {
     assert_eq!(
         fonts_after.len(),
         2,
-        "'Hello' keeps its face and the Arabic letter paints in the ONE face that \
-         has it; got faces {fonts_after:?} (before: {fonts_before:?})"
+        "'Hello' keeps its face and the Arabic letter paints in the ONE face that has it; got \
+         faces {fonts_after:?} (before: {fonts_before:?})"
     );
     assert!(
         fonts_after.is_superset(&fonts_before),
@@ -317,13 +345,16 @@ fn a_relayout_that_rebuilds_the_chains_keeps_the_typed_script_covered() {
     let mut lw = window_with_mock_arabic(latin_document());
     assert_premise_no_arabic(&lw);
     type_into_host(&mut lw, &BEH.to_string());
-    assert!(chain_draws(&lw, BEH), "premise: the edit-time extension ran");
+    assert!(
+        chain_draws(&lw, BEH),
+        "premise: the edit-time extension ran"
+    );
 
     // The app re-renders with an extra node in a DIFFERENT family: the font
     // signature changes, so resolution re-runs and the chain cache is rebuilt.
     // Node ids 0..=3 are unchanged, so the overlay entry survives the swap.
-    let changed = latin_document()
-        .with_child(with_class(Dom::create_div(), "wide").with_child(text("W")));
+    let changed =
+        latin_document().with_child(with_class(Dom::create_div(), "wide").with_child(text("W")));
     run_layout(&mut lw, styled(changed));
 
     assert!(
@@ -332,8 +363,8 @@ fn a_relayout_that_rebuilds_the_chains_keeps_the_typed_script_covered() {
     );
     assert!(
         chain_draws(&lw, BEH),
-        "the rebuilt chain cache lost the typed script — the overlay was not \
-         consulted when the chains were re-resolved"
+        "the rebuilt chain cache lost the typed script — the overlay was not consulted when the \
+         chains were re-resolved"
     );
     assert_eq!(lw.frame_report_synced().font_shape_deficit, 0);
     assert_no_tofu(&painted_glyphs(&lw), "after a chain-rebuilding relayout");
@@ -364,8 +395,11 @@ fn committed_arabic_in_a_latin_stack_is_covered_by_the_fast_resolver() {
             .unwrap()
             .with_registry(registry),
     );
-    lw.font_manager
-        .register_named_font("Azul Mock Arabic", MOCK_ARABIC, MOCK_ARABIC_COVERAGE.to_vec());
+    lw.font_manager.register_named_font(
+        "Azul Mock Arabic",
+        MOCK_ARABIC,
+        MOCK_ARABIC_COVERAGE.to_vec(),
+    );
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
     lw.current_window_state = window_state;
@@ -382,8 +416,8 @@ fn committed_arabic_in_a_latin_stack_is_covered_by_the_fast_resolver() {
     assert_eq!(lw.frame_report_synced().font_shape_deficit, 0);
     assert!(
         chain_draws(&lw, BEH),
-        "the fast resolver left committed Arabic uncovered: the chain's own \
-         families have no Arabic face and no script-aware lookup ran"
+        "the fast resolver left committed Arabic uncovered: the chain's own families have no \
+         Arabic face and no script-aware lookup ran"
     );
     assert_no_tofu(&painted_glyphs(&lw), "committed Arabic in a Latin stack");
 }

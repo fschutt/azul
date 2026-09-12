@@ -4,13 +4,6 @@
 
 use std::sync::Arc;
 
-use api::{FontKey, FontRenderMode, GlyphDimensions};
-use azul_core::resources::{
-    GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
-};
-use azul_css::props::basic::font::FontRef;
-use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
-
 use agg_rust::{
     basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
     color::Rgba8,
@@ -24,6 +17,12 @@ use agg_rust::{
     scanline_u::ScanlineU8,
     trans_affine::TransAffine,
 };
+use api::{FontKey, FontRenderMode, GlyphDimensions};
+use azul_core::resources::{
+    GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
+};
+use azul_css::props::basic::font::FontRef;
+use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
 
 use crate::{
     rasterizer::{
@@ -38,6 +37,12 @@ pub struct FontContext {
     fonts: FastHashMap<FontKey, FontRef>,
 }
 
+impl Default for FontContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontContext {
     /// Creates a new, empty font context.
     pub fn new() -> Self {
@@ -50,9 +55,7 @@ impl FontContext {
     ///
     /// This avoids re-parsing the font since azul-layout has already parsed it.
     pub fn add_font(&mut self, font_key: FontKey, parsed_font: FontRef) {
-        if !self.fonts.contains_key(&font_key) {
-            self.fonts.insert(font_key, parsed_font);
-        }
+        self.fonts.entry(font_key).or_insert(parsed_font);
     }
 
     /// Removes a font from the context.

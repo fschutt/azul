@@ -3,7 +3,6 @@
 /// ISSUE: When layout_flow is called with valid available_width (e.g., 800.0),
 /// the returned FragmentLayout has bounds.width=0, causing text to be positioned
 /// vertically instead of horizontally.
-///
 // This test should FAIL initially, demonstrating the bug.
 use azul_layout::text3::cache::{
     AvailableSpace, InlineContent, LayoutFragment, StyledRun, TextShapingCache, UnifiedConstraints,
@@ -89,8 +88,8 @@ fn test_available_width_should_produce_nonzero_bounds() {
     println!("Checking: bounds.width > 0");
     assert!(
         frag_bounds.width > 0.0,
-        "FAIL: bounds.width is {}, expected > 0. \
-         With available_width={}, the text '{}' should have a measurable width.",
+        "FAIL: bounds.width is {}, expected > 0. With available_width={}, the text '{}' should \
+         have a measurable width.",
         frag_bounds.width,
         available_width,
         text

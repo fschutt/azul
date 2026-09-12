@@ -1,9 +1,11 @@
 //! Shared datatypes for azul-* crates
 //!
 //! `azul-core` provides the platform-independent core types used throughout
-//! the Azul toolkit. Key modules include [`dom`] for DOM construction,
-//! [`callbacks`] for event callback types, [`styled_dom`] for the CSSOM,
-//! and [`window`] for OS windowing abstractions.
+//! the Azul toolkit.
+//!
+//! Key modules include [`dom`] for DOM construction, [`callbacks`] for event
+//! callback types, [`styled_dom`] for the CSSOM, and [`window`] for OS
+//! windowing abstractions.
 //!
 //! This crate depends on [`azul_css`] for CSS property definitions and is
 //! consumed by `azul-layout`, `azul-dll`, and the platform shell crates.
@@ -78,8 +80,14 @@ extern crate alloc;
 #[macro_use]
 extern crate azul_css;
 
+// clippy reports `too_long_first_doc_paragraph` here with a span that starts
+// in the crate-level `//!` doc far above and ends on this one-line `///`,
+// measuring the two as a single paragraph. The doc below is one short line;
+// re-paragraphing the crate doc does not move it, and a crate-level allow does
+// not apply to it. A genuine instance of this lint — a doc comment cut in half
+// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
+#[allow(clippy::too_long_first_doc_paragraph)]
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
-///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -104,8 +112,10 @@ pub mod sync {
 
     #[cfg(not(feature = "std"))]
     mod nostd {
-        use core::cell::UnsafeCell;
-        use core::sync::atomic::{AtomicU8, Ordering};
+        use core::{
+            cell::UnsafeCell,
+            sync::atomic::{AtomicU8, Ordering},
+        };
 
         const UNINIT: u8 = 0;
         const BUSY: u8 = 1;
@@ -269,7 +279,9 @@ pub mod callbacks;
 /// `_createFromHostHandle` without the host having to generate trampolines for
 /// struct-by-value signatures their FFI library can't handle.
 #[macro_use]
+/// The host-invoker ABI: how a foreign-language binding routes a callback back into its runtime.
 pub mod host_invoker;
+/// Accessibility tree: roles, states and the actions assistive tech can invoke.
 pub mod a11y;
 /// Accessibility types for screen-reader integration (AccessKit).
 /// DOM-morph animation.
@@ -298,6 +310,7 @@ pub mod camera;
 pub mod compact;
 /// Linear-time DOM diffing for incremental updates.
 pub mod diagnostics;
+/// DOM diffing: what changed between two `StyledDom`s, and how far it has to be re-solved.
 pub mod diff;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
@@ -305,21 +318,28 @@ pub mod dom;
 pub mod drag;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
+/// Form constraint validation - the `ValidityState` an `Invalid` event
+/// explains itself with. The rules live in `azul_layout::form`.
+pub mod form;
 /// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
 /// `GamepadState`.
 ///
 /// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
-pub mod haptics;
-pub mod hid;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 ///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
+// clippy reports `too_long_first_doc_paragraph` here with a span that starts
+// in the crate-level `//!` doc far above and ends on this one-line `///`,
+// measuring the two as a single paragraph. The doc below is one short line;
+// re-paragraphing the crate doc does not move it, and a crate-level allow does
+// not apply to it. A genuine instance of this lint — a doc comment cut in half
+// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
+#[allow(clippy::too_long_first_doc_paragraph)]
 /// OpenGL context wrappers, shader compilation, and texture cache.
-///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -327,9 +347,19 @@ pub mod gl_fxaa;
 pub mod glconst;
 /// GPU value cache for CSS transforms and opacity.
 pub mod gpu;
+/// Haptic feedback: vibration and force-feedback actuators.
+pub mod haptics;
+/// Raw HID device access (game controllers, tablets, custom peripherals).
+pub mod hid;
+// clippy reports `too_long_first_doc_paragraph` here with a span that starts
+// in the crate-level `//!` doc far above and ends on this one-line `///`,
+// measuring the two as a single paragraph. The doc below is one short line;
+// re-paragraphing the crate doc does not move it, and a crate-level allow does
+// not apply to it. A genuine instance of this lint — a doc comment cut in half
+// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
+#[allow(clippy::too_long_first_doc_paragraph)]
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
-///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -347,11 +377,6 @@ pub mod keyring;
 /// never by a cargo feature — see the module docs for the 2026-08-07 incident
 /// that made a compile-time gate delete the one diagnosis that was needed.
 pub mod log_filter;
-/// Form constraint validation - the `ValidityState` an `Invalid` event
-/// explains itself with. The rules live in `azul_layout::form`.
-pub mod form;
-/// Menu system: context menus, dropdown menus, and menu bars.
-pub mod menu;
 /// Media playback POD types — the `PlaybackState` the six media events
 /// describe (11c).
 ///
@@ -362,6 +387,8 @@ pub mod media_player;
 /// The app-facing half of the media-key transport in
 /// `dll/desktop/extra/media_keys`.
 pub mod media_session;
+/// Menu system: context menus, dropdown menus, and menu bars.
+pub mod menu;
 /// Paged-media primitives: the `FragmentationContext` (continuous vs. paged) and
 /// `PageMargins`. The pagination/slicing logic lives in `azul_layout::solver3`.
 pub mod paged;
@@ -369,6 +396,7 @@ pub mod paged;
 pub mod path_parser;
 /// CSS property cache for efficient per-node style resolution.
 pub mod physical_key;
+/// Per-node resolved CSS property cache, the layout engine's read path.
 pub mod prop_cache;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
@@ -400,6 +428,7 @@ pub mod svg;
 pub mod task;
 /// 3D transform matrix computation for CSS transforms.
 pub mod transform;
+/// Transient windows: menus, dropdowns and dialogs owned by a parent window.
 pub mod transient;
 /// System tray / status icon POD types.
 ///

@@ -449,14 +449,11 @@ fn run_test_and_collect_data(
     let azul_screenshot_path = debug_dir.join(format!("{}_azul.webp", config.test_name));
 
     let (css_warnings, layout_debug_messages, azul_display_list) =
-        generate_azul_with_debug(&test_file, &azul_screenshot_path)?;
+        generate_azul_with_debug(test_file, &azul_screenshot_path)?;
 
     // Compare images if both exist
     let diff_count = if chrome_screenshot_path.exists() && azul_screenshot_path.exists() {
-        match super::compare_images(&chrome_screenshot_path, &azul_screenshot_path) {
-            Ok(count) => Some(count),
-            Err(_) => None,
-        }
+        super::compare_images(&chrome_screenshot_path, &azul_screenshot_path).ok()
     } else {
         None
     };
@@ -632,7 +629,8 @@ fn collect_source_code_with_budget(config: &DebugConfig) -> anyhow::Result<Vec<(
     let token_budget = if config.dry_run {
         usize::MAX // No limit for dry run
     } else {
-        MAX_TOKENS - 100_000 - image_tokens // Reserve 100k for test data + prompt structure + images
+        MAX_TOKENS - 100_000 - image_tokens // Reserve 100k for test data + prompt structure +
+                                            // images
     };
 
     for (priority, path) in source_files {
