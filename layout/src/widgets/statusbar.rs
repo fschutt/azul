@@ -629,48 +629,138 @@ pub struct StatusBarStyle {
     /// deriving matching custom parts.
     pub theme: StatusBarTheme,
     /// The bar itself (horizontal row).
-    pub bar_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub bar_style: OptionCssPropertyWithConditionsVec,
     /// One left-hand segment (page count, word count, language, …).
-    pub segment_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub segment_style: OptionCssPropertyWithConditionsVec,
     /// Icon inside a segment.
-    pub segment_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub segment_icon_style: OptionCssPropertyWithConditionsVec,
     /// Text label inside a segment.
-    pub segment_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub segment_label_style: OptionCssPropertyWithConditionsVec,
     /// Flexible spacer between the left segments and the right clusters.
-    pub filler_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub filler_style: OptionCssPropertyWithConditionsVec,
     /// The view-switcher cluster.
-    pub views_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub views_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into one view-switcher [`Button`].
-    pub view_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub view_button_style: OptionCssPropertyWithConditionsVec,
     /// APPENDED to the active view-switcher button.
-    pub view_button_active_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub view_button_active_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the view-switcher [`Button`]s.
-    pub view_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub view_icon_style: OptionCssPropertyWithConditionsVec,
     /// The zoom cluster (− slider + label).
-    pub zoom_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_style: OptionCssPropertyWithConditionsVec,
     /// Container style injected into the zoom −/+ [`Button`]s.
-    pub zoom_button_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_button_style: OptionCssPropertyWithConditionsVec,
     /// Icon style injected into the zoom −/+ [`Button`]s.
-    pub zoom_icon_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_icon_style: OptionCssPropertyWithConditionsVec,
     /// Positioning host around the rail, tick and embedded slider.
-    pub zoom_track_host_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_track_host_style: OptionCssPropertyWithConditionsVec,
     /// The 1px rail line.
-    pub zoom_rail_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_rail_style: OptionCssPropertyWithConditionsVec,
     /// The center (100%) tick on the rail.
-    pub zoom_tick_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_tick_style: OptionCssPropertyWithConditionsVec,
     /// Track style injected into the embedded [`Slider`].
-    pub slider_track_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub slider_track_style: OptionCssPropertyWithConditionsVec,
     /// Thumb style injected into the embedded [`Slider`] (without the
     /// position; `dom()` appends the computed `margin-left`).
-    pub slider_thumb_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub slider_thumb_style: OptionCssPropertyWithConditionsVec,
     /// The "100%" zoom percent label.
-    pub zoom_label_style: CssPropertyWithConditionsVec,
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub zoom_label_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl StatusBarStyle {
     /// The the Office-2013-era look look (#2B579A bar, white text) - the default.
     #[must_use]
-    pub fn office_2013() -> Self {
+    pub const fn office_2013() -> Self {
         Self::from_theme(StatusBarTheme::office_2013())
     }
 
@@ -684,29 +774,208 @@ impl StatusBarStyle {
 
     /// Derives every part style from the given palette.
     #[must_use]
-    pub fn from_theme(theme: StatusBarTheme) -> Self {
-        let t = &theme;
+    pub const fn from_theme(theme: StatusBarTheme) -> Self {
         Self {
             theme,
-            bar_style: theme_bar(t),
-            segment_style: theme_segment(t),
-            segment_icon_style: theme_segment_icon(t),
-            segment_label_style: theme_segment_label(t),
-            filler_style: theme_filler(t),
-            views_style: theme_views(t),
-            view_button_style: theme_view_button(t),
-            view_button_active_style: theme_view_button_active(t),
-            view_icon_style: theme_view_icon(t),
-            zoom_style: theme_zoom(t),
-            zoom_button_style: theme_zoom_button(t),
-            zoom_icon_style: theme_zoom_icon(t),
-            zoom_track_host_style: theme_zoom_track_host(t),
-            zoom_rail_style: theme_zoom_rail(t),
-            zoom_tick_style: theme_zoom_tick(t),
-            slider_track_style: theme_slider_track(t),
-            slider_thumb_style: theme_slider_thumb(t),
-            zoom_label_style: theme_zoom_label(t),
+            bar_style: OptionCssPropertyWithConditionsVec::None,
+            segment_style: OptionCssPropertyWithConditionsVec::None,
+            segment_icon_style: OptionCssPropertyWithConditionsVec::None,
+            segment_label_style: OptionCssPropertyWithConditionsVec::None,
+            filler_style: OptionCssPropertyWithConditionsVec::None,
+            views_style: OptionCssPropertyWithConditionsVec::None,
+            view_button_style: OptionCssPropertyWithConditionsVec::None,
+            view_button_active_style: OptionCssPropertyWithConditionsVec::None,
+            view_icon_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_button_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_icon_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_track_host_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_rail_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_tick_style: OptionCssPropertyWithConditionsVec::None,
+            slider_track_style: OptionCssPropertyWithConditionsVec::None,
+            slider_thumb_style: OptionCssPropertyWithConditionsVec::None,
+            zoom_label_style: OptionCssPropertyWithConditionsVec::None,
         }
+    }
+
+    /// The `bar_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_bar_style(&self) -> CssPropertyWithConditionsVec {
+        self.bar_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_bar(&self.theme))
+    }
+
+    /// The `segment_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_segment_style(&self) -> CssPropertyWithConditionsVec {
+        self.segment_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_segment(&self.theme))
+    }
+
+    /// The `segment_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_segment_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.segment_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_segment_icon(&self.theme))
+    }
+
+    /// The `segment_label_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_segment_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.segment_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_segment_label(&self.theme))
+    }
+
+    /// The `filler_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_filler_style(&self) -> CssPropertyWithConditionsVec {
+        self.filler_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_filler(&self.theme))
+    }
+
+    /// The `views_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_views_style(&self) -> CssPropertyWithConditionsVec {
+        self.views_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_views(&self.theme))
+    }
+
+    /// The `view_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_view_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.view_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_view_button(&self.theme))
+    }
+
+    /// The `view_button_active_style` this bundle renders with: the caller's override if there is
+    /// one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_view_button_active_style(&self) -> CssPropertyWithConditionsVec {
+        self.view_button_active_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_view_button_active(&self.theme))
+    }
+
+    /// The `view_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_view_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.view_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_view_icon(&self.theme))
+    }
+
+    /// The `zoom_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom(&self.theme))
+    }
+
+    /// The `zoom_button_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_button_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_button_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_button(&self.theme))
+    }
+
+    /// The `zoom_icon_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_icon(&self.theme))
+    }
+
+    /// The `zoom_track_host_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_track_host_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_track_host_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_track_host(&self.theme))
+    }
+
+    /// The `zoom_rail_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_rail_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_rail_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_rail(&self.theme))
+    }
+
+    /// The `zoom_tick_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_tick_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_tick_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_tick(&self.theme))
+    }
+
+    /// The `slider_track_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_slider_track_style(&self) -> CssPropertyWithConditionsVec {
+        self.slider_track_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_slider_track(&self.theme))
+    }
+
+    /// The `slider_thumb_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_slider_thumb_style(&self) -> CssPropertyWithConditionsVec {
+        self.slider_thumb_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_slider_thumb(&self.theme))
+    }
+
+    /// The `zoom_label_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_zoom_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.zoom_label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_zoom_label(&self.theme))
     }
 }
 
@@ -1149,7 +1418,7 @@ impl StatusBar {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_FILLER))
-                .with_css_props(style.filler_style.clone()),
+                .with_css_props(style.resolved_filler_style()),
         );
 
         if let Some(switcher) = views.into_option() {
@@ -1162,7 +1431,7 @@ impl StatusBar {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_STATUSBAR))
-            .with_css_props(style.bar_style)
+            .with_css_props(style.resolved_bar_style())
             .with_children(DomVec::from_vec(children))
     }
 }
@@ -1220,9 +1489,12 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         // Icon and/or clickable: expand to a Button (flat chassis).
         let mut b = Button::create(label);
         b.icon = icon;
-        b.container_style = OptionCssPropertyWithConditionsVec::Some(style.segment_style.clone());
-        b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.segment_icon_style.clone());
-        b.label_style = OptionCssPropertyWithConditionsVec::Some(style.segment_label_style.clone());
+        b.container_style =
+            OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_style());
+        b.icon_style =
+            OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_icon_style());
+        b.label_style =
+            OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_label_style());
         b.on_click = on_click;
         return b
             .dom()
@@ -1231,7 +1503,8 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
     let label_dom = if marker.as_str().is_empty() {
         // Inert text segment. `<p>` so it has the same `div > p > text` shape
         // as the clickable one (Button puts `label_style` on a `<p>` too).
-        crate::widgets::widget_p_with_text(label).with_css_props(style.segment_label_style.clone())
+        crate::widgets::widget_p_with_text(label)
+            .with_css_props(style.resolved_segment_label_style())
     } else {
         // Live segment: the `<p>` lives inside a `VirtualView` that this
         // module can re-render in place (`StatusBar::update_segment_label`).
@@ -1239,7 +1512,7 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
     };
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT))
-        .with_css_props(style.segment_style.clone())
+        .with_css_props(style.resolved_segment_style())
         .with_children(DomVec::from_vec(vec![label_dom]))
 }
 
@@ -1265,8 +1538,8 @@ struct StatusBarLabelLocalDataset {
 /// keeps `segment_style`), so what the callback reports IS the box and the
 /// size converges in one extra pass, not two.
 fn segment_label_view(label: AzString, marker: AzString, style: &StatusBarStyle) -> Dom {
-    let mut label_style: Vec<Cond> = style.segment_label_style.as_ref().to_vec();
-    if let Some(family) = inherited_font_family(&style.bar_style) {
+    let mut label_style: Vec<Cond> = style.resolved_segment_label_style().as_ref().to_vec();
+    if let Some(family) = inherited_font_family(&style.resolved_bar_style()) {
         label_style.push(family);
     }
     let dataset = RefAny::new(StatusBarLabelLocalDataset {
@@ -1343,9 +1616,12 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
     let mut children: Vec<Dom> = Vec::with_capacity(views.len());
     for (idx, view) in views.into_library_owned_vec().into_iter().enumerate() {
         let container = if idx == active_view {
-            merged_style(&style.view_button_style, &style.view_button_active_style)
+            merged_style(
+                &style.resolved_view_button_style(),
+                &style.resolved_view_button_active_style(),
+            )
         } else {
-            style.view_button_style.clone()
+            style.resolved_view_button_style()
         };
         let on_click: OptionButtonOnClick = match on_select.as_ref() {
             Some(cb) => Some(super::button::ButtonOnClick {
@@ -1364,13 +1640,13 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
         children.push(styled_button(
             view.icon,
             container,
-            style.view_icon_style.clone(),
+            style.resolved_view_icon_style(),
             on_click,
         ));
     }
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_VIEWS))
-        .with_css_props(style.views_style.clone())
+        .with_css_props(style.resolved_views_style())
         .with_children(DomVec::from_vec(children))
 }
 
@@ -1391,8 +1667,8 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
 
     children.push(styled_button(
         AzString::from_const_str("remove"),
-        style.zoom_button_style.clone(),
-        style.zoom_icon_style.clone(),
+        style.resolved_zoom_button_style(),
+        style.resolved_zoom_icon_style(),
         on_zoom_out,
     ));
 
@@ -1404,35 +1680,36 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
     };
     let margin = (fraction * (ZOOM_TRACK_W - ZOOM_THUMB_W) as f32).round() as isize;
     let thumb_style = merged_style(
-        &style.slider_thumb_style,
+        &style.resolved_slider_thumb_style(),
         &CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_margin_left(
             LayoutMarginLeft::const_px(margin),
         ))]),
     );
     let mut slider = Slider::create(percent, min, max);
-    slider.track_style = OptionCssPropertyWithConditionsVec::Some(style.slider_track_style.clone());
+    slider.track_style =
+        OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
     slider.slider_state.on_value_change = on_slider_change;
 
     children.push(
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_TRACK))
-            .with_css_props(style.zoom_track_host_style.clone())
+            .with_css_props(style.resolved_zoom_track_host_style())
             .with_children(DomVec::from_vec(vec![
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_RAIL))
-                    .with_css_props(style.zoom_rail_style.clone()),
+                    .with_css_props(style.resolved_zoom_rail_style()),
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_TICK))
-                    .with_css_props(style.zoom_tick_style.clone()),
+                    .with_css_props(style.resolved_zoom_tick_style()),
                 slider.dom(),
             ])),
     );
 
     children.push(styled_button(
         AzString::from_const_str("add"),
-        style.zoom_button_style.clone(),
-        style.zoom_icon_style.clone(),
+        style.resolved_zoom_button_style(),
+        style.resolved_zoom_icon_style(),
         on_zoom_in,
     ));
 
@@ -1441,7 +1718,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_LABEL))
-                .with_css_props(style.zoom_label_style.clone())
+                .with_css_props(style.resolved_zoom_label_style())
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                     AzString::from(label),
                 )])),
@@ -1450,7 +1727,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM))
-        .with_css_props(style.zoom_style.clone())
+        .with_css_props(style.resolved_zoom_style())
         .with_children(DomVec::from_vec(children))
 }
 
