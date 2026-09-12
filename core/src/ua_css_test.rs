@@ -1621,3 +1621,110 @@ mod themed_ua_colours {
         }
     }
 }
+
+/// Theme-chain analysis 2026-09-12, item 3: ONE themed UA table for both
+/// cascades, with the inherited text colour in it.
+#[cfg(test)]
+mod one_themed_ua_table {
+    use azul_css::{
+        css::CssPropertyValue,
+        dynamic_selector::{DynamicSelectorContext, ThemeCondition},
+        props::property::{CssProperty, CssPropertyType},
+    };
+
+    use crate::ua_css::{get_ua_root_property_themed, UA_PROPERTY_TYPES};
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            theme,
+            ..DynamicSelectorContext::default()
+        }
+    }
+
+    fn rgb(p: Option<&CssProperty>) -> Option<(u8, u8, u8)> {
+        match p {
+            Some(CssProperty::TextColor(CssPropertyValue::Exact(c))) => {
+                Some((c.inner.r, c.inner.g, c.inner.b))
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_root_text_colour_follows_the_theme() {
+        let light = get_ua_root_property_themed(
+            CssPropertyType::TextColor,
+            Some(&ctx(ThemeCondition::Light)),
+        );
+        let dark = get_ua_root_property_themed(
+            CssPropertyType::TextColor,
+            Some(&ctx(ThemeCondition::Dark)),
+        );
+        assert_eq!(rgb(light), Some((0, 0, 0)), "light: the CSS initial value");
+        assert_eq!(
+            rgb(dark),
+            Some((0xe8, 0xe8, 0xe8)),
+            "dark: near-white, not pure white"
+        );
+    }
+
+    #[test]
+    fn no_context_answers_the_light_table() {
+        // A DOM no window has adopted yet: the unconditional entry only.
+        assert_eq!(
+            rgb(get_ua_root_property_themed(
+                CssPropertyType::TextColor,
+                None
+            )),
+            Some((0, 0, 0))
+        );
+    }
+
+    #[test]
+    fn the_root_table_defines_nothing_but_the_text_colour() {
+        for pt in [
+            CssPropertyType::Display,
+            CssPropertyType::BorderTopColor,
+            CssPropertyType::BackgroundContent,
+            CssPropertyType::FontSize,
+        ] {
+            assert!(
+                get_ua_root_property_themed(pt, Some(&ctx(ThemeCondition::Dark))).is_none(),
+                "{pt:?} is not a document-wide default"
+            );
+        }
+    }
+
+    /// Both cascade passes walk this one list; the two per-pass copies it
+    /// replaced had each lost entries the other had.
+    #[test]
+    fn the_shared_type_list_covers_both_former_lists() {
+        for pt in [
+            // formerly compact-only
+            CssPropertyType::BorderBottomColor,
+            CssPropertyType::BorderLeftColor,
+            CssPropertyType::BorderRightColor,
+            CssPropertyType::TextColor,
+            // formerly cascaded-only
+            CssPropertyType::FontFamily,
+            CssPropertyType::BreakInside,
+            CssPropertyType::BreakAfter,
+            // both
+            CssPropertyType::Display,
+            CssPropertyType::Cursor,
+        ] {
+            assert!(
+                UA_PROPERTY_TYPES.contains(&pt),
+                "{pt:?} missing from UA_PROPERTY_TYPES"
+            );
+        }
+        let mut sorted: Vec<_> = UA_PROPERTY_TYPES.iter().map(|p| *p as u16).collect();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            UA_PROPERTY_TYPES.len(),
+            "a duplicated type would push a UA entry twice"
+        );
+    }
+}

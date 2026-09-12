@@ -945,6 +945,123 @@ pub fn get_ua_property(
     }
 }
 
+/// Every property type the UA sheet can answer, for the cascade passes that
+/// walk the table per node: `CssPropertyCache::apply_ua_css` (the
+/// `cascaded_props` / `computed_values` reader) and the compact-cache builder
+/// (`apply_ua_css_to_compact`, the layout fast path).
+///
+/// ONE list for both, on purpose. Each pass used to carry its own copy with
+/// the instruction to keep them in sync, and they were not: the compact list
+/// had the three non-top button border edges and `TextColor`, the cascaded
+/// list had `FontFamily` and the heading `break-*` defaults, and neither had
+/// everything — so the two readers disagreed about a node's computed value
+/// depending on which one a getter happened to ask (the VirtualView overflow
+/// default was the first instance found). A type only one pass can store is
+/// harmless in the other: `apply_css_property_to_compact` ignores what has no
+/// compact slot, and a cascaded entry nothing reads costs one push.
+pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
+    // Tier1 enum properties
+    CssPropertyType::Display,
+    CssPropertyType::Position,
+    CssPropertyType::Float,
+    CssPropertyType::Clear,
+    CssPropertyType::OverflowX,
+    CssPropertyType::OverflowY,
+    CssPropertyType::BoxSizing,
+    CssPropertyType::FlexDirection,
+    CssPropertyType::FlexWrap,
+    CssPropertyType::JustifyContent,
+    CssPropertyType::AlignItems,
+    CssPropertyType::AlignContent,
+    CssPropertyType::WritingMode,
+    CssPropertyType::FontWeight,
+    CssPropertyType::FontStyle,
+    CssPropertyType::TextAlign,
+    CssPropertyType::Visibility,
+    CssPropertyType::WhiteSpace,
+    CssPropertyType::Direction,
+    CssPropertyType::VerticalAlign,
+    CssPropertyType::BorderCollapse,
+    // Tier2 dimension properties
+    CssPropertyType::Width,
+    CssPropertyType::Height,
+    CssPropertyType::FontSize,
+    CssPropertyType::FontFamily,
+    CssPropertyType::MarginTop,
+    CssPropertyType::MarginBottom,
+    CssPropertyType::MarginLeft,
+    CssPropertyType::MarginRight,
+    CssPropertyType::PaddingTop,
+    CssPropertyType::PaddingBottom,
+    CssPropertyType::PaddingLeft,
+    CssPropertyType::PaddingRight,
+    CssPropertyType::BorderTopWidth,
+    CssPropertyType::BorderTopStyle,
+    CssPropertyType::BorderTopColor,
+    CssPropertyType::BorderRightWidth,
+    CssPropertyType::BorderRightStyle,
+    CssPropertyType::BorderRightColor,
+    CssPropertyType::BorderBottomWidth,
+    CssPropertyType::BorderBottomStyle,
+    CssPropertyType::BorderBottomColor,
+    CssPropertyType::BorderLeftWidth,
+    CssPropertyType::BorderLeftStyle,
+    CssPropertyType::BorderLeftColor,
+    // Fragmentation (headings avoid breaks)
+    CssPropertyType::BreakInside,
+    CssPropertyType::BreakAfter,
+    CssPropertyType::BreakBefore,
+    // Text properties
+    CssPropertyType::TextColor,
+    CssPropertyType::LineHeight,
+    CssPropertyType::LetterSpacing,
+    CssPropertyType::WordSpacing,
+    CssPropertyType::TextDecoration,
+    CssPropertyType::Cursor,
+    CssPropertyType::ListStyleType,
+    // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
+    // restarts numbering. Without these here the has_counter fast-path bit
+    // stays unset for list containers, compute_counters skips the reset, and
+    // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
+    // 3,4 instead of restarting at 1).
+    CssPropertyType::CounterReset,
+    CssPropertyType::CounterIncrement,
+];
+
+/// The UA defaults of the DOCUMENT ROOT (the node at index 0), themed.
+///
+/// These are the defaults that hold for the whole document and reach every
+/// node by inheritance rather than by node type — today that is the inherited
+/// text colour, `color`, from [`UA_ROOT_TEXT_COLOR_CSS`]: black on a light
+/// window, near-white on a dark one. Keyed on the root's POSITION, not on
+/// `<body>`/`<html>`: a body-rooted subtree appended under another document
+/// must keep inheriting its new parent's colour, and a document rooted in a
+/// `<div>` (tests, popups) needs the default as much as one rooted in
+/// `<body>`.
+///
+/// Consumed by the same three readers as [`get_ua_property_themed`], so the
+/// default is IN the resolved style (`cascaded_props` on the root,
+/// `computed_values` below it, the compact text tier everywhere) and no
+/// paint-time reader has to invent it. `None` for the context answers the
+/// light table, like the per-type resolver.
+#[must_use]
+pub fn get_ua_root_property_themed(
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    if property_type != CssPropertyType::TextColor {
+        return None;
+    }
+    UA_ROOT_TEXT_COLOR_CSS
+        .iter()
+        .find(|prop| match ctx {
+            Some(c) => prop.matches(c),
+            // No window yet: only the unconditional entry applies.
+            None => !prop.is_conditional(),
+        })
+        .map(|prop| &prop.property)
+}
+
 /// [`get_ua_property`], with the theme taken into account.
 ///
 /// The UA sheet is a static table, which is what keeps the property cache a
@@ -953,7 +1070,13 @@ pub fn get_ua_property(
 /// chosen for a white window is wrong on a dark one. Those few resolve through
 /// here: with a dark context they answer their dark twin, otherwise the plain
 /// table. The inherited text colour has the same shape in
-/// [`UA_ROOT_TEXT_COLOR_CSS`].
+/// [`UA_ROOT_TEXT_COLOR_CSS`], answered by [`get_ua_root_property_themed`].
+///
+/// This pair is THE themed UA table. All three readers go through it —
+/// `apply_ua_css` (cascaded/computed values), the compact-cache builder (the
+/// layout fast path) and `get_property_slow`'s last-resort fallback — so a
+/// theme flip changes the same answer everywhere, and a getter that asks the
+/// compact tier gets what the slow path would have said.
 ///
 /// `None` for the context means "no window yet" and falls back to the light
 /// table, which is what every caller did before this existed.
@@ -1361,23 +1484,22 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
     ))),
 ];
 
-/// The inherited-text-colour default for `ctx`'s theme.
+/// The inherited-text-colour default for `ctx`'s theme, as a value.
 ///
-/// Falls back to the CSS initial value if the table somehow matches nothing,
-/// so this can never return "no colour".
+/// The cascade consumes the same table through
+/// [`get_ua_root_property_themed`], so after a cascade has run this answer is
+/// already in every node's resolved style; the remaining callers are the
+/// `debug_assert!`-guarded paint-time fallbacks, which should never be
+/// reached on a cascaded DOM. Falls back to the CSS initial value if the
+/// table somehow matches nothing, so this can never return "no colour".
 #[must_use]
 pub fn evaluate_ua_root_text_color(
     ctx: &DynamicSelectorContext,
 ) -> azul_css::props::style::text::StyleTextColor {
-    for prop in UA_ROOT_TEXT_COLOR_CSS {
-        if !prop.matches(ctx) {
-            continue;
-        }
-        if let CssProperty::TextColor(CssPropertyValue::Exact(c)) = &prop.property {
-            return *c;
-        }
+    match get_ua_root_property_themed(CssPropertyType::TextColor, Some(ctx)) {
+        Some(CssProperty::TextColor(CssPropertyValue::Exact(c))) => *c,
+        _ => azul_css::defaults::DEFAULT_TEXT_COLOR,
     }
-    azul_css::defaults::DEFAULT_TEXT_COLOR
 }
 
 #[must_use]

@@ -2251,4 +2251,181 @@ mod theme_flip_is_a_restyle {
             "no conditional declaration anywhere, same theme: the cascade must be untouched"
         );
     }
+    // ------------------------------------------------------------------
+    // Item 3: one themed UA table, the text colour IN the resolved style
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_theme_flip_rebuilds_the_compact_cache_from_the_new_defaults() {
+        let mut dom = body_with_button();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        let light_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache built at creation");
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        let dark_raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
+            .expect("compact cache rebuilt on the flip");
+        assert_ne!(light_raw, 0, "the light border is in the compact tier");
+        assert_ne!(dark_raw, 0, "the dark border is in the compact tier");
+        assert_ne!(
+            light_raw, dark_raw,
+            "the compact (normal-state fast path) tier must follow the theme too"
+        );
+    }
+
+    /// `body > p > "text"`, nothing styled: the text colour is the UA's
+    /// document default, and it must be IN the resolved style of every node
+    /// on every reader — root `cascaded_props`, descendant `computed_values`
+    /// (the slow path), the compact text tier (the fast path).
+    fn body_p_text() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        )
+    }
+
+    const ROOT: NodeId = NodeId::new(0);
+    const TEXT: NodeId = NodeId::new(2);
+
+    fn slow_text_color(sd: &StyledDom, node: NodeId) -> Option<(u8, u8, u8)> {
+        let node_data = sd.node_data.as_container();
+        match sd.get_css_property_cache().get_property_slow(
+            &node_data[node],
+            &node,
+            &StyledNodeState::default(),
+            &CssPropertyType::TextColor,
+        ) {
+            Some(CssProperty::TextColor(v)) => {
+                v.get_property().map(|c| (c.inner.r, c.inner.g, c.inner.b))
+            }
+            _ => None,
+        }
+    }
+
+    fn compact_text_color(sd: &StyledDom, node: NodeId) -> Option<(u8, u8, u8)> {
+        let raw = sd
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|cc| cc.get_text_color_raw(node.index()))
+            .unwrap_or(0);
+        (raw != 0).then(|| ((raw >> 24) as u8, (raw >> 16) as u8, (raw >> 8) as u8))
+    }
+
+    const BLACK: (u8, u8, u8) = (0, 0, 0);
+    const DARK_INK: (u8, u8, u8) = (0xe8, 0xe8, 0xe8);
+
+    #[test]
+    fn the_ua_text_colour_is_cascaded_onto_the_root_and_inherited_below() {
+        let mut dom = body_p_text();
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        let root_entries: Vec<_> = sd
+            .get_css_property_cache()
+            .cascaded_props
+            .get_slice(ROOT.index())
+            .iter()
+            .filter(|p| p.prop_type == CssPropertyType::TextColor)
+            .map(|p| p.ua_origin)
+            .collect();
+        assert_eq!(
+            root_entries,
+            vec![true],
+            "the root carries ONE UA-origin `color` entry"
+        );
+        // The <p> and the text node have no entry of their own — they inherit.
+        for node in [NodeId::new(1), TEXT] {
+            assert!(
+                sd.get_css_property_cache()
+                    .cascaded_props
+                    .get_slice(node.index())
+                    .iter()
+                    .all(|p| !(p.prop_type == CssPropertyType::TextColor && p.ua_origin)),
+                "node {} must not get a UA `color` of its own (it would block inheritance)",
+                node.index()
+            );
+        }
+        assert_eq!(slow_text_color(&sd, ROOT), Some(DARK_INK));
+        assert_eq!(
+            slow_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "computed_values"
+        );
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "compact text tier"
+        );
+    }
+
+    #[test]
+    fn the_two_readers_agree_on_the_text_colour_under_both_themes_and_across_a_flip() {
+        let mut dom = body_p_text();
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "no context: light");
+        assert_eq!(compact_text_color(&sd, TEXT), Some(BLACK));
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_eq!(
+            slow_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "dark: slow path"
+        );
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(DARK_INK),
+            "dark: fast path"
+        );
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "back: slow path");
+        assert_eq!(
+            compact_text_color(&sd, TEXT),
+            Some(BLACK),
+            "back: fast path"
+        );
+    }
+
+    #[test]
+    fn get_text_color_or_default_never_needs_its_default_on_a_cascaded_dom() {
+        let mut dom = body_p_text();
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        let node_data = sd.node_data.as_container();
+        for i in 0..sd.node_count() {
+            let n = NodeId::new(i);
+            let c = sd.get_css_property_cache().get_text_color_or_default(
+                &node_data[n],
+                &n,
+                &StyledNodeState::default(),
+            );
+            assert_eq!((c.inner.r, c.inner.g, c.inner.b), DARK_INK, "node {i}");
+        }
+    }
+
+    #[test]
+    fn an_author_colour_on_the_root_beats_the_ua_default() {
+        let mut dom = body_p_text();
+        dom.set_css("color: rgb(10, 20, 30);");
+        let sd =
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+        assert_eq!(slow_text_color(&sd, TEXT), Some((10, 20, 30)));
+        assert_eq!(compact_text_color(&sd, TEXT), Some((10, 20, 30)));
+        assert!(
+            sd.get_css_property_cache()
+                .cascaded_props
+                .get_slice(ROOT.index())
+                .iter()
+                .all(|p| !(p.prop_type == CssPropertyType::TextColor && p.ua_origin)),
+            "an inline `color` on the root suppresses the UA entry"
+        );
+    }
 }

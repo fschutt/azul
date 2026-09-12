@@ -3156,12 +3156,25 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    // CSS initial value for 'color' is UA-dependent but conventionally black.
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
     // Do NOT use system_style.colors.text here — that reflects the OS theme
     // (e.g. white on macOS dark mode) and would produce white text on
     // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
     // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or(ColorU::BLACK);
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {

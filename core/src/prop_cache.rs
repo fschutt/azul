@@ -2541,7 +2541,22 @@ impl CssPropertyCache {
         use azul_css::defaults::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state)
             .and_then(|fs| fs.get_property().copied())
-            .unwrap_or(DEFAULT_TEXT_COLOR)
+            .unwrap_or_else(|| {
+                // On a cascaded DOM the UA root text colour is in every
+                // node's resolved style (root: `cascaded_props`; below it:
+                // `computed_values`), so reaching this constant means a
+                // reader lost the cascade's answer — the theme-blind seed
+                // the theme-chain analysis (2026-09-12, R1) traced the
+                // black-on-dark family to. Legitimate only for a cache no UA
+                // pass has run on.
+                debug_assert!(
+                    !self.ua_applied,
+                    "get_text_color_or_default: node {} has no `color` in its resolved style \
+                     although the UA pass ran — the themed root default did not reach it",
+                    node_id.index()
+                );
+                DEFAULT_TEXT_COLOR
+            })
     }
 
     /// Returns the font family of the node, or the default font family if none is set.
@@ -3091,13 +3106,22 @@ impl CssPropertyCache {
             }
         }
 
-        // User-agent stylesheet fallback (lowest precedence)
-        // Check if the node type has a default value for this property
-        crate::ua_css::get_ua_property_themed(
-            &node_data.node_type,
-            *css_property_type,
-            self.dynamic_context.as_deref(),
-        )
+        // User-agent stylesheet fallback (lowest precedence): the SAME themed
+        // table `apply_ua_css` and the compact builder consume. On a cascaded
+        // DOM every answer here is already in `cascaded_props` /
+        // `computed_values` above (the root's document-wide defaults
+        // included), so this is reached for caches no UA pass has run on and
+        // for the properties the cascade prunes back out
+        // (`prune_compact_normal_props`).
+        let ctx = self.dynamic_context.as_deref();
+        crate::ua_css::get_ua_property_themed(&node_data.node_type, *css_property_type, ctx)
+            .or_else(|| {
+                if node_id.index() == 0 {
+                    crate::ua_css::get_ua_root_property_themed(*css_property_type, ctx)
+                } else {
+                    None
+                }
+            })
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -4820,7 +4844,7 @@ impl CssPropertyCache {
     /// Leaves `cascaded_props` sorted and flattened.
     #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
-        use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType};
+        use azul_css::dynamic_selector::PseudoStateType;
 
         let node_count = node_data.len();
         if node_count == 0 {
@@ -4922,46 +4946,22 @@ impl CssPropertyCache {
             }
         }
 
-        // All UA property types that get_ua_property() may return Some for.
-        // MUST stay in sync with compact.rs::UA_PROPERTY_TYPES: a UA property
-        // present in one list but not the other makes the two cascade paths
-        // disagree about the computed value (this bit the VirtualView
-        // overflow default).
-        let property_types = [
-            CssPropertyType::Display,
-            CssPropertyType::OverflowX,
-            CssPropertyType::OverflowY,
-            CssPropertyType::Width,
-            CssPropertyType::Height,
-            CssPropertyType::FontSize,
-            CssPropertyType::FontWeight,
-            CssPropertyType::FontFamily,
-            CssPropertyType::MarginTop,
-            CssPropertyType::MarginBottom,
-            CssPropertyType::MarginLeft,
-            CssPropertyType::MarginRight,
-            CssPropertyType::PaddingTop,
-            CssPropertyType::PaddingBottom,
-            CssPropertyType::PaddingLeft,
-            CssPropertyType::PaddingRight,
-            CssPropertyType::BorderTopStyle,
-            CssPropertyType::BorderTopWidth,
-            CssPropertyType::BorderTopColor,
-            CssPropertyType::BreakInside,
-            CssPropertyType::BreakAfter,
-            CssPropertyType::ListStyleType,
-            CssPropertyType::CounterReset,
-            CssPropertyType::TextDecoration,
-            CssPropertyType::TextAlign,
-            CssPropertyType::VerticalAlign,
-            CssPropertyType::Cursor,
-        ];
+        // The ONE list both cascade passes walk (the compact builder reads the
+        // same const): a UA property present in one pass but not the other
+        // made the two readers disagree about a node's computed value.
+        let property_types = crate::ua_css::UA_PROPERTY_TYPES;
+        let ctx = self.dynamic_context.as_deref();
 
         // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
         for (node_index, node) in node_data.iter().enumerate() {
             let node_type = &node.node_type;
+            // The document root additionally carries the document-wide
+            // defaults (the inherited text colour) — themed, and IN the
+            // cascade from here on, so `computed_values` inherits it down
+            // to every text node and no paint-time reader has to guess it.
+            let is_root = node_index == 0;
 
-            for prop_type in &property_types {
+            for prop_type in property_types {
                 // Check bitset: if already set, skip entirely
                 let d = *prop_type as u16 as usize;
                 let has_prop = if d < 128 {
@@ -4975,11 +4975,16 @@ impl CssPropertyCache {
                 }
 
                 // Check if UA CSS defines this property for this node type
-                if let Some(ua_prop) = crate::ua_css::get_ua_property_themed(
-                    node_type,
-                    *prop_type,
-                    self.dynamic_context.as_deref(),
-                ) {
+                // (or, on the root, for the document as a whole).
+                let ua_prop = crate::ua_css::get_ua_property_themed(node_type, *prop_type, ctx)
+                    .or_else(|| {
+                        if is_root {
+                            crate::ua_css::get_ua_root_property_themed(*prop_type, ctx)
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(ua_prop) = ua_prop {
                     self.cascaded_props.push_to(
                         node_index,
                         StatefulCssProperty {
