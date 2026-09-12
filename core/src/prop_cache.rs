@@ -5158,10 +5158,26 @@ impl CssPropertyCache {
             }
         }
 
-        // Step 4: Inline CSS properties
+        // Step 4: Inline CSS properties.
+        //
+        // Conditional declarations take part in inheritance exactly when they
+        // apply to the node's RESTING style under the window's context — the
+        // same test `get_property` makes for the node's own value, minus every
+        // pseudo-state (hover/focus/active are runtime overlays, never an
+        // inherited default). Skipping every conditional declaration, as this
+        // did, made a container's `dark_theme(color: ..)` twin invisible to
+        // its children: the label under a dark-mode button inherited the light
+        // value and painted dark-on-dark. Source order, last match wins, like
+        // the node's own resolution.
+        let dyn_ctx = self.dynamic_context.as_deref();
         for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
-            // Only apply unconditional (normal) properties
-            if conds.as_slice().is_empty() {
+            let applies = conds.as_slice().iter().all(|c| match c {
+                azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
+                    *s == azul_css::dynamic_selector::PseudoStateType::Normal
+                }
+                other => dyn_ctx.is_some_and(|ctx| other.matches(ctx)),
+            });
+            if applies {
                 Self::process_property(ctx, prop, parent_computed);
             }
         }

@@ -26599,129 +26599,56 @@ mod window_theme_context {
         assert_eq!(light, rects(&lw), "the switch back moved node rects");
     }
 
-    /// TEMPORARY PROBE — bisects the same-window relayout shrink.
+    /// An inline-level box that changes behind an unchanged block sibling —
+    /// a text edit in an `inline-flex` box after a `<p>` — is re-solved by
+    /// its container, not on its own: it widens to its new max-content and
+    /// keeps its place. Two pre-existing incremental-relayout defects met
+    /// here: the root promotion did not recognise an `inline-flex` box as
+    /// inline-level (only `Inline`/`InlineBlock` contexts were), and the
+    /// containing block of a root under a freshly rebuilt parent was a
+    /// silent 0x0 — together, the box came back min-content wide, two lines
+    /// tall.
     #[test]
-    fn probe_same_window_relayout_variants() {
-        use crate::widgets::button::{Button, ButtonType};
-
-        fn rects(lw: &LayoutWindow) -> Vec<(usize, LogicalRect)> {
-            let n = lw.layout_results.get(&DomId::ROOT_ID).expect("root").styled_dom.node_data.as_ref().len();
-            (0..n).filter_map(|i| lw.get_node_layout_rect(DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))) }).map(|r| (i, r))).collect()
-        }
-        fn button_fixture() -> StyledDom {
-            let mut button = Button::create("Increase counter".into());
-            button.button_type = ButtonType::Primary;
-            let mut dom = Dom::create_body().with_child(button.dom());
-            let (css, _) = azul_css::parser2::new_from_str("");
-            StyledDom::create(&mut dom, css)
-        }
-        fn plain_fixture(dark_twin: bool) -> StyledDom {
-            let mut b = Dom::create_div().with_child(
-                Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Increase counter")),
-            );
-            b.set_css("display: inline-flex; padding: 6px 12px; background: #4285f4; color: white;");
-            if dark_twin {
-                b = b.with_css_props(azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(vec![
-                    azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(
-                        azul_css::props::property::CssProperty::const_text_color(azul_css::props::style::StyleTextColor { inner: azul_css::props::basic::color::ColorU::rgb(200, 200, 200) }),
-                    ),
-                ]));
-            }
-            let mut dom = Dom::create_body().with_child(b);
-            let (css, _) = azul_css::parser2::new_from_str("");
-            StyledDom::create(&mut dom, css)
-        }
-        fn run(name: &str, make: &dyn Fn() -> StyledDom, flip: bool) {
-            let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
-            let mut ws = FullWindowState { theme: WindowTheme::LightMode, ..Default::default() };
-            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
-            let rr = RendererResources::default();
-            let sc = ExternalSystemCallbacks::rust_internal();
-            let mut dbg = None;
-            lw.layout_and_generate_display_list(make(), &ws, &rr, &sc, &mut dbg).expect("first");
-            let first = rects(&lw);
-            if flip {
-                let mut dark_style = azul_css::system::SystemStyle::default();
-                dark_style.theme = azul_css::system::Theme::Dark;
-                lw.set_system_style(std::sync::Arc::new(dark_style));
-                ws.theme = WindowTheme::DarkMode;
-            }
-            lw.layout_and_generate_display_list(make(), &ws, &rr, &sc, &mut dbg).expect("second");
-            let second = rects(&lw);
-            eprintln!("PROBE {name}: {}", if first == second { "same" } else { "DIFFERENT" });
-            if first != second { eprintln!("   first  {first:?}\n   second {second:?}"); }
-        }
-        fn with_p(css: &'static str, make: impl Fn() -> Dom) -> StyledDom {
-            let mut label = Dom::create_p()
+    fn a_changed_inline_flex_box_behind_a_block_sibling_keeps_its_slot_and_widens() {
+        fn fixture(text: &'static str) -> StyledDom {
+            let label = Dom::create_p()
                 .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5"));
-            if !css.is_empty() { label.set_css(css); }
-            let mut dom = Dom::create_body().with_child(label).with_child(make());
+            let mut b = Dom::create_div().with_child(Dom::create_p().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(text),
+            ));
+            b.set_css(
+                "display: inline-flex; padding: 6px 12px; background: #4285f4; color: white;",
+            );
+            let mut dom = Dom::create_body().with_child(label).with_child(b);
             let (css, _) = azul_css::parser2::new_from_str("");
             StyledDom::create(&mut dom, css)
         }
-        fn button_dom() -> Dom {
-            let mut button = Button::create("Increase counter".into());
-            button.button_type = ButtonType::Primary;
-            button.dom()
+        fn rect(lw: &LayoutWindow, i: usize) -> LogicalRect {
+            lw.get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+            })
+            .expect("laid out")
         }
-        fn plain_twin_dom() -> Dom {
-            let mut b = Dom::create_div().with_child(
-                Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Increase counter")),
-            );
-            b.set_css("display: inline-flex; padding: 6px 12px; background: #4285f4; color: white;");
-            b.with_css_props(azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(vec![
-                azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(
-                    azul_css::props::property::CssProperty::const_text_color(azul_css::props::style::StyleTextColor { inner: azul_css::props::basic::color::ColorU::rgb(200, 200, 200) }),
-                ),
-            ]))
-        }
-        run("A button, no flip", &button_fixture, false);
-        run("B plain, flip", &|| plain_fixture(false), true);
-        run("C plain+twin, flip", &|| plain_fixture(true), true);
-        run("D button, flip", &button_fixture, true);
-        run("E plain+twin, no flip", &|| plain_fixture(true), false);
-        run("F p32+button, no flip", &|| with_p("font-size: 32px; margin: 0;", button_dom), false);
-        run("G p(plain)+button, flip", &|| with_p("", button_dom), true);
-        run("H p32+button, flip", &|| with_p("font-size: 32px; margin: 0;", button_dom), true);
-        run("I p32+plaintwin, flip", &|| with_p("font-size: 32px; margin: 0;", plain_twin_dom), true);
-        run("J p(margin0)+button, flip", &|| with_p("margin: 0;", button_dom), true);
-        run("K p(fs32)+button, flip", &|| with_p("font-size: 32px;", button_dom), true);
-        // L/M: NO theme flip — the second DOM differs from the first in one
-        // style value (L) or in its label text (M).
-        fn run2(name: &str, first: &dyn Fn() -> StyledDom, second: &dyn Fn() -> StyledDom) {
-            let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
-            let mut ws = FullWindowState { theme: WindowTheme::LightMode, ..Default::default() };
-            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
-            let rr = RendererResources::default();
-            let sc = ExternalSystemCallbacks::rust_internal();
-            let mut dbg1 = Some(Vec::new());
-            lw.layout_and_generate_display_list(first(), &ws, &rr, &sc, &mut dbg1).expect("first");
-            let a = rects(&lw);
-            let mut dbg = Some(Vec::new());
-            lw.layout_and_generate_display_list(second(), &ws, &rr, &sc, &mut dbg).expect("second");
-            let b = rects(&lw);
-            if name.starts_with('M') {
-                for (pass, msgs) in [("P1", dbg1.unwrap_or_default()), ("P2", dbg.unwrap_or_default())] {
-                for m in msgs {
-                    let t = format!("{pass} {m:?}");
-                    if t.contains("LAYOUT ROOT") || t.contains("TAFFY INPUT] node_idx=4") || t.contains("node_index=3,") || t.contains("node_index=4,") || t.contains("atomic") || t.contains("shrink") || t.contains("Dirty") || t.contains("intrinsic") || t.contains("reconcile") || t.contains("available") || t.contains("layout_roots") || t.contains("IFC") || t.contains("inline") {
-                        eprintln!("   DBG {}", t.chars().take(200).collect::<String>());
-                    }
-                }
-                }
-            }
-            eprintln!("PROBE {name}: {}", if a == b { "same" } else { "DIFFERENT" });
-            if a != b { eprintln!("   first  {a:?}\n   second {b:?}"); }
-        }
-        fn plain_dom(bg: &'static str, text: &'static str) -> Dom {
-            let mut b = Dom::create_div().with_child(
-                Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
-            );
-            b.set_css(if bg == "blue" { "display: inline-flex; padding: 6px 12px; background: #4285f4; color: white;" } else { "display: inline-flex; padding: 6px 12px; background: #ff0000; color: white;" });
-            b
-        }
-        run2("L p+plain, bg changes", &|| with_p("", || plain_dom("blue", "Increase counter")), &|| with_p("", || plain_dom("red", "Increase counter")));
-        run2("M p+plain, text changes", &|| with_p("", || plain_dom("blue", "Increase counter")), &|| with_p("", || plain_dom("blue", "Increase counters")));
-        run2("N p+plain, identical", &|| with_p("", || plain_dom("blue", "Increase counter")), &|| with_p("", || plain_dom("blue", "Increase counter")));
+
+        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(fixture("Increase counter"), &ws, &rr, &sc, &mut dbg)
+            .expect("first");
+        let before = rect(&lw, 3);
+        lw.layout_and_generate_display_list(fixture("Increase counters"), &ws, &rr, &sc, &mut dbg)
+            .expect("second");
+        let after = rect(&lw, 3);
+
+        assert_eq!(after.origin, before.origin, "the box must keep its slot");
+        assert_eq!(after.size.height, before.size.height, "one line, as before");
+        assert!(
+            after.size.width > before.size.width,
+            "a longer label widens the box: {before:?} -> {after:?}"
+        );
     }
 }

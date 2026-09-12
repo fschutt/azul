@@ -456,12 +456,15 @@ if is_macos; then
     ORIGINAL_APPEARANCE="$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light)"
     log_info "macOS detected: taking light mode screenshot..."
     osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false'
-    sleep 2
+    # The appearance change reaches the app through AppKit's notification and a
+    # ThemeChange regeneration; 2 s captured the PREVIOUS theme's frame often
+    # enough that the committed dark screenshots were light.
+    sleep 5
     take_screenshot ".mac.light"
 
     log_info "macOS detected: taking dark mode screenshot..."
     osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true'
-    sleep 2
+    sleep 5
     take_screenshot ".mac.dark"
     if [ "$ORIGINAL_APPEARANCE" = "Dark" ]; then
         osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true'

@@ -1520,6 +1520,75 @@ mod autotest_generated {
         );
     }
 
+    /// A container's conditional declaration is inherited by its children
+    /// when the condition holds — `dark_theme(color: ..)` on a button reaches
+    /// the label's text under a dark window, and stays out of the way under a
+    /// light one.
+    #[test]
+    fn conditional_inline_declarations_take_part_in_inheritance() {
+        use azul_css::{
+            dynamic_selector::{
+                CssPropertyWithConditions, CssPropertyWithConditionsVec, ThemeCondition,
+            },
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let light = ColorU::rgb(33, 37, 41);
+        let dark = ColorU::rgb(232, 232, 232);
+        let build = || {
+            let mut dom = Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        CssPropertyWithConditions::simple(CssProperty::const_text_color(
+                            StyleTextColor { inner: light },
+                        )),
+                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                            StyleTextColor { inner: dark },
+                        )),
+                    ]))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("label"),
+                    )),
+            );
+            StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        };
+        // body(0) > div(1) > p(2) > text(3)
+        let text_colour = |sd: &StyledDom| {
+            let node_data = sd.node_data.as_container();
+            let n = NodeId::new(3);
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("text node"), &n, &normal())
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+
+        let mut sd = build();
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
+        sd.set_dynamic_selector_context(ctx);
+        assert_eq!(
+            text_colour(&sd),
+            Some(light),
+            "light window: the unconditional value"
+        );
+
+        let mut sd = build();
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
+        sd.set_dynamic_selector_context(ctx);
+        assert_eq!(
+            text_colour(&sd),
+            Some(dark),
+            "dark window: the twin, inherited"
+        );
+    }
+
     #[test]
     fn check_properties_changed_only_fires_when_a_condition_flips() {
         let plain = DynamicSelectorContext::default();

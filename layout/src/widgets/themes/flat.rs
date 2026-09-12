@@ -660,16 +660,25 @@ pub fn button(btn: Button) -> Dom {
         btn_container_style.as_slice().to_vec();
 
     if btn_owns_style {
-        // In a flat theme we just override the background and text color for dark mode
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
+        // The dark face and ink — for the NEUTRAL surface only. A coloured
+        // command (primary, danger, ...) is its own colour in both modes and
+        // a link has no face; painting `DARK_BG` over every type, as this
+        // did, turned a blue primary button into an invisible dark box on a
+        // dark window. (`ButtonType::surface` is the one place that rule
+        // lives; `button_states` reads it too.)
+        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::BackgroundContent(
+                    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
+                        DARK_BG,
+                    )])
                     .into(),
-            ),
-        ));
-        container_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-        ));
+                ),
+            ));
+            container_style.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
+            ));
+        }
 
         // The interactive states go LAST. Inline declarations resolve last-match
         // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
@@ -2096,7 +2105,7 @@ pub fn button_states(
     }
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
-    let neutral = button_type == ButtonType::Default;
+    let neutral = button_type.surface() == crate::widgets::button::ButtonSurface::Neutral;
     let (dark_hover, dark_active) = if neutral {
         (DARK_HT, DARK_PT)
     } else {

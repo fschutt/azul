@@ -2532,20 +2532,39 @@ mod autotest_generated {
         assert_eq!(cb_pos.y, 13.0);
     }
 
+    /// A parent with no `used_size` yet (a node the reconcile just rebuilt)
+    /// lends its child the nearest SIZED ancestor's content box — the
+    /// viewport when there is none. It used to lend 0x0, under which every
+    /// shrink-to-fit box beneath it came out min-content.
     #[test]
-    fn a_parent_without_a_used_size_yields_a_zero_sized_containing_block() {
+    fn a_parent_without_a_used_size_borrows_the_nearest_sized_ancestors_content_box() {
         let dom = body_dom();
+
+        // Root parent, unsized: the viewport.
         let tree = tree_of(vec![
             hot(None, Some(NodeId::ZERO), None, &ResolvedBoxProps::default()),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
-
         let (_, cb_size) =
             get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
-        assert_eq!(cb_size.width, 0.0);
-        assert_eq!(cb_size.height, 0.0);
+        assert_eq!((cb_size.width, cb_size.height), (800.0, 600.0));
+
+        // Sized grandparent (300x200, 10px padding all round), unsized parent:
+        // the grandparent's content box, 280x180.
+        let grand = bp(edges(0.0, 0.0, 0.0, 0.0), edges(10.0, 10.0, 10.0, 10.0));
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(300.0, 200.0)), &grand),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+            hot(Some(1), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+        pos_set(&mut positions, 1, pos(10.0, 10.0));
+        let (_, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 2, &positions, rect(0.0, 0.0, 800.0, 600.0));
+        assert_eq!((cb_size.width, cb_size.height), (280.0, 180.0));
     }
 
     #[test]
