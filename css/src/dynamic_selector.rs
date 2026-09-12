@@ -1181,6 +1181,13 @@ impl DynamicSelectorContext {
     /// display-list cache keyed on resolved style alone therefore served the
     /// OTHER theme's list after a switch: dark window, black text. This is
     /// the key component that tells them apart.
+    ///
+    /// Since 2026-09-12 the UA colour defaults ARE cascaded (they live in
+    /// the resolved style and every theme flip bumps
+    /// `CssPropertyCache::cascade_epoch`, which the display-list key also
+    /// carries), so this component is redundant. Kept: it is one hash of one
+    /// enum, and it keys the list on the theme even for a path that forgets
+    /// to bump the epoch.
     #[must_use]
     pub fn paint_defaults_fingerprint(&self) -> u64 {
         use core::hash::{Hash, Hasher};

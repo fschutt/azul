@@ -1024,6 +1024,28 @@ pub struct CssPropertyCache {
     /// and merely "no cascade yet" here.
     pub ua_applied: bool,
 
+    /// The CASCADE GENERATION: bumped by everything that changes what a node's
+    /// resolved style answers — a restyle, a UA/inheritance re-cascade, a
+    /// compact-cache rebuild, a context change (`set_dynamic_selector_context`),
+    /// a user override written through `restyle_user_property`, a DOM merge.
+    ///
+    /// Caches that serve PAINTED output key on it (the display-list cache via
+    /// `dl_input_fingerprint`, the per-pass `StyleCache`, the DL patch gate):
+    /// colour is deliberately excluded from the relayout hash, so without this
+    /// two cascades of one DOM under two themes (or before/after a `color`
+    /// override) hashed identically and the cache served the other one's
+    /// list. One monotonic counter replaces the three compensations that grew
+    /// for that (`paint_defaults_fingerprint`, the `last_dynamic_context`
+    /// equality gate, `reset_incremental` on a style change) — theme-chain
+    /// analysis 2026-09-12, R4/I5.
+    ///
+    /// NOT bumped by `set_user_property_override_fast`: that is the per-tick
+    /// animation channel, whose caller patches the display list with the
+    /// interpolated pixels itself; bumping there would miss the DL cache on
+    /// every tick of every transition. Only equality is ever compared, so
+    /// wrapping is fine.
+    pub cascade_epoch: u64,
+
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
     // Stored in a flat cache-friendly layout after sort_and_flatten().
@@ -2401,6 +2423,7 @@ impl CssPropertyCache {
             user_overridden_properties: Vec::new(),
             dynamic_context: None,
             ua_applied: false,
+            cascade_epoch: 0,
 
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
@@ -2431,6 +2454,7 @@ impl CssPropertyCache {
         }
         // The merged store carries UA entries as soon as either half did.
         self.ua_applied |= other.ua_applied;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
         self.cascaded_props.extend_from(&mut other.cascaded_props);
         self.css_props.extend_from(&mut other.css_props);
         self.computed_values.append(&mut other.computed_values);
@@ -5011,6 +5035,7 @@ impl CssPropertyCache {
         // over `cascaded_props` stays valid after a re-application too.
         self.sort_cascaded_props();
         self.ua_applied = true;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
     }
 
     /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.

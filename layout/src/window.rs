@@ -1992,6 +1992,7 @@ impl LayoutWindow {
                 last_full_build_seq: 0,
                 patch_damage_log: Vec::new(),
                 last_dynamic_context: None,
+                last_cascade_epoch: 0,
                 previous_sizes: Vec::new(),
                 dom_diff_clean: None,
                 last_fingerprint_skips: 0,
@@ -4606,6 +4607,7 @@ impl LayoutWindow {
             last_full_build_seq: 0,
             patch_damage_log: Vec::new(),
             last_dynamic_context: None,
+            last_cascade_epoch: 0,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -7682,6 +7684,7 @@ impl LayoutWindow {
             last_full_build_seq: 0,
             patch_damage_log: Vec::new(),
             last_dynamic_context: None,
+            last_cascade_epoch: 0,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
             last_fingerprint_skips: 0,
@@ -18023,6 +18026,7 @@ impl LayoutWindow {
                 .get_css_property_cache()
                 .dynamic_context
                 .as_deref(),
+            styled_dom.get_css_property_cache().cascade_epoch,
         );
 
         // Build a temporary LayoutContext with all the state we need

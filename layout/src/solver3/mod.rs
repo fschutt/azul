@@ -478,13 +478,21 @@ pub fn dl_input_fingerprint(
         azul_css::props::basic::color::ColorU,
     )],
     dynamic_context: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
+    cascade_epoch: u64,
 ) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     cursor_is_visible.hash(&mut h);
-    // The theme: its UA colour defaults are resolved at BUILD time and are
-    // not in any node's resolved style, so the subtree hash cannot see a
-    // switch (`DynamicSelectorContext::paint_defaults_fingerprint`).
+    // The CASCADE GENERATION (`CssPropertyCache::cascade_epoch`): colour is
+    // excluded from the relayout hash by design, so two cascades of one DOM
+    // under two themes — or before/after a `color` override, or across an
+    // `@media` restyle — hash identically at the subtree level. The epoch
+    // is what tells them apart here.
+    cascade_epoch.hash(&mut h);
+    // The theme, as a key of its own. Redundant with the epoch now that the
+    // UA colour defaults are IN the resolved style (every theme flip bumps
+    // the epoch) — kept because it is cheap and it keys the list on the
+    // theme even for a DOM whose epoch some future path forgets to bump.
     dynamic_context
         .map(azul_css::dynamic_selector::DynamicSelectorContext::paint_defaults_fingerprint)
         .hash(&mut h);
@@ -776,6 +784,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         paint_selection_handles,
         &seat_focus_rings,
         new_dom.get_css_property_cache().dynamic_context.as_deref(),
+        new_dom.get_css_property_cache().cascade_epoch,
     );
     if let Some((
         cached_hash,
@@ -1117,6 +1126,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .dynamic_context
             .as_deref()
             .cloned();
+        cache.last_cascade_epoch = ctx.styled_dom.get_css_property_cache().cascade_epoch;
         // Full re-emit, not a splice — clear the patched-build flags so the
         // renderers' damage override cannot replay stale patch rects, and
         // retire the patch log: the renderers' item diff against the list
@@ -1558,11 +1568,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     _ => {}
                 }
             }
-            match (cur, cache.last_dynamic_context.as_ref()) {
-                (Some(a), Some(b)) => a == b,
-                (None, None) => true,
-                _ => false,
-            }
+            // The CASCADE EPOCH is the gate, not context equality: it covers
+            // the context (every accepted change bumps it) AND the restyles
+            // and user overrides a context comparison could never see.
+            cache.last_cascade_epoch == ctx.styled_dom.get_css_property_cache().cascade_epoch
         };
         let structure_ok = cache.last_reconcile_was_skipped
             || (cache.last_reconcile_structure_preserved
@@ -1817,6 +1826,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if !same {
             cache.last_dynamic_context = cur.cloned();
         }
+        cache.last_cascade_epoch = ctx.styled_dom.get_css_property_cache().cascade_epoch;
     }
     cache.cached_display_list = Some((
         root_subtree_hash,
@@ -3532,5 +3542,33 @@ mod autotest_generated {
                 assert_eq!(warm.y.to_bits(), cold.y.to_bits(), "warm pass moved a node");
             }
         }
+    }
+}
+
+/// Theme-chain analysis 2026-09-12, item 4: the display-list cache key
+/// carries the cascade epoch.
+#[cfg(test)]
+mod cascade_epoch_in_the_dl_key {
+    use super::*;
+
+    fn fp(epoch: u64, ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>) -> u64 {
+        dl_input_fingerprint(false, &[], &BTreeMap::new(), None, false, &[], ctx, epoch)
+    }
+
+    #[test]
+    fn two_epochs_of_one_dom_get_different_keys() {
+        let ctx = azul_css::dynamic_selector::DynamicSelectorContext::default();
+        assert_ne!(fp(1, Some(&ctx)), fp(2, Some(&ctx)));
+        assert_eq!(fp(7, Some(&ctx)), fp(7, Some(&ctx)), "deterministic");
+    }
+
+    #[test]
+    fn the_theme_still_keys_on_its_own() {
+        let light = azul_css::dynamic_selector::DynamicSelectorContext::default();
+        let dark = azul_css::dynamic_selector::DynamicSelectorContext {
+            theme: azul_css::dynamic_selector::ThemeCondition::Dark,
+            ..Default::default()
+        };
+        assert_ne!(fp(1, Some(&light)), fp(1, Some(&dark)));
     }
 }

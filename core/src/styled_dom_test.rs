@@ -2429,3 +2429,94 @@ mod theme_flip_is_a_restyle {
         );
     }
 }
+
+/// Theme-chain analysis 2026-09-12, item 4: `CssPropertyCache::cascade_epoch`
+/// is the ONE key that tells two cascades of one DOM apart for every cache
+/// that serves painted output.
+#[cfg(test)]
+mod cascade_epoch {
+    use azul_css::{
+        dynamic_selector::{DynamicSelectorContext, ThemeCondition},
+        props::{basic::color::ColorU, style::StyleTextColor},
+    };
+
+    use super::*;
+
+    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+        DynamicSelectorContext {
+            theme,
+            ..Default::default()
+        }
+    }
+
+    fn fixture() -> StyledDom {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
+        );
+        StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Light)))
+    }
+
+    fn epoch(sd: &StyledDom) -> u64 {
+        sd.get_css_property_cache().cascade_epoch
+    }
+
+    fn red() -> CssProperty {
+        CssProperty::const_text_color(StyleTextColor {
+            inner: ColorU::rgb(255, 0, 0),
+        })
+    }
+
+    #[test]
+    fn a_theme_flip_bumps_the_epoch_and_an_equal_offer_does_not() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        assert_eq!(epoch(&sd), e0, "the same context again is free");
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_ne!(epoch(&sd), e0, "a flip is a new generation");
+    }
+
+    #[test]
+    fn a_context_change_without_a_recascade_still_bumps() {
+        // Plain DOM, same theme, different viewport: nothing re-cascades,
+        // but the context is a cascade input and the DL key must move.
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light).with_viewport(1.0, 1.0));
+        assert_ne!(epoch(&sd), e0);
+    }
+
+    #[test]
+    fn a_restyle_bumps() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.restyle(Css::empty());
+        assert_ne!(epoch(&sd), e0);
+    }
+
+    #[test]
+    fn a_user_override_bumps_but_the_per_tick_channel_does_not() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        let _ = sd.restyle_user_property(&NodeId::new(1), &[red()]);
+        let e1 = epoch(&sd);
+        assert_ne!(e1, e0, "restyle_user_property changes the resolved style");
+
+        sd.set_user_property_override_fast(&NodeId::new(1), &[red()]);
+        assert_eq!(
+            epoch(&sd),
+            e1,
+            "the animation channel patches the display list itself and must not invalidate the DL \
+             cache every tick"
+        );
+    }
+
+    #[test]
+    fn a_recompute_of_the_compact_cache_bumps() {
+        let mut sd = fixture();
+        let e0 = epoch(&sd);
+        sd.recompute_inheritance_and_compact_cache();
+        assert_ne!(epoch(&sd), e0);
+    }
+}

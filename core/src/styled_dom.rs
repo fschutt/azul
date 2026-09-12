@@ -1719,6 +1719,8 @@ impl StyledDom {
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
+        let cache = self.css_property_cache.downcast_mut();
+        cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
     }
 
     /// Re-applies CSS styles to the existing DOM structure.
@@ -1764,6 +1766,10 @@ impl StyledDom {
     /// the display list with the interpolated value directly) - every other
     /// caller wants [`Self::restyle_user_property`]. At t=1 the override is
     /// removed and the (correctly cascaded) target shows through.
+    ///
+    /// Deliberately does NOT bump `CssPropertyCache::cascade_epoch`: the
+    /// display-list cache keys on the epoch, and this channel runs every
+    /// tick of a transition with the caller patching the list itself.
     pub fn set_user_property_override_fast(
         &mut self,
         node_id: &NodeId,
@@ -2378,6 +2384,12 @@ impl StyledDom {
                 .invalidate_resolved_font_sizes();
         }
 
+        // The override layer is part of the resolved style whether or not the
+        // compact cache was rebuilt above: a `color` override on a text node
+        // changes what the display list paints without touching geometry.
+        let cache = self.get_css_property_cache_mut();
+        cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+
         if !changes.is_empty() {
             map.insert(*node_id, changes);
         }
@@ -2437,6 +2449,9 @@ impl StyledDom {
                 .as_deref()
                 .is_none_or(|c| c.theme != context.theme);
             cache.dynamic_context = Some(Box::new(context));
+            // A new generation even when nothing below re-runs: a context
+            // change is a cascade input, and the DL cache keys on this.
+            cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
         }
         // Author-css @-rule conditions are baked at CASCADE time (restyle
         // drops non-matching rule blocks), so a context change must re-run

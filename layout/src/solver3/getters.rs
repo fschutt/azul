@@ -2940,7 +2940,11 @@ pub fn get_vertical_align_for_node(
 /// does.
 #[derive(Default, Debug)]
 pub struct StyleCache {
-    by_node: HashMap<(u32, StyledNodeState, u32, u32), std::sync::Arc<StyleProperties>>,
+    /// Key: (node, pseudo-state, viewport w/h bits, cascade epoch). The epoch
+    /// (`CssPropertyCache::cascade_epoch`) makes a restyle, a context change
+    /// or a user override within one pass miss instead of serving the style
+    /// resolved before it.
+    by_node: HashMap<(u32, StyledNodeState, u32, u32, u64), std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
@@ -2969,6 +2973,7 @@ pub fn get_style_properties_cached(
         node_state,
         viewport_size.width.to_bits(),
         viewport_size.height.to_bits(),
+        styled_dom.get_css_property_cache().cascade_epoch,
     );
     if let Some(v) = cache.by_node.get(&key) {
         drop(crate::probe::Probe::span("style_props_memo_hit"));

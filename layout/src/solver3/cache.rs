@@ -470,6 +470,13 @@ pub struct LayoutCache {
     /// `css_dirty`, so spliced items would serve the OLD styles (the
     /// blue-desktop-box-after-crossing-to-mobile bug).
     pub last_dynamic_context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    /// `CssPropertyCache::cascade_epoch` of the DOM the cached display list
+    /// was BUILT from. The structure-preserved patch arm requires the
+    /// current DOM's epoch to be EQUAL — this subsumes the context equality
+    /// above (every accepted context change bumps the epoch) and also
+    /// catches restyles and user overrides, which leave the context alone.
+    /// `last_dynamic_context` stays for the `AZ_PATCH_DEBUG` diagnostics.
+    pub last_cascade_epoch: u64,
     /// `used_size` of every layout node as of the PREVIOUS pass — captured at
     /// the resize-skip branch (the pass overwrites `used_size` in the shared
     /// tree object). DL patching diffs these against the new sizes: a node
