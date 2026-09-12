@@ -4266,8 +4266,6 @@ pub struct E2eConfig {
     pub delay_between_steps_ms: u64,
 }
 
-#[cfg(feature = "std")]
-
 /// A single E2E test containing setup + steps.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
