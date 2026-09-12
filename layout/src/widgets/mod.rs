@@ -341,6 +341,59 @@ pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::D
     label_convention::every_widget_dom()
 }
 
+/// Reading a rendered node's inline style apart from the theme's contribution.
+///
+/// A widget resolves its own style; the theme module then appends the
+/// declarations only it can write — the dark twin of a colour, the hover and
+/// pressed faces — on top of that. So a test that compares a rendered node
+/// against the widget's own style cannot use raw equality: it has to say which
+/// half it is looking at. These two helpers are that distinction, shared so
+/// each widget's suite does not grow its own copy of the predicate.
+#[cfg(test)]
+pub(crate) mod theme_probe {
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition},
+        props::property::CssProperty,
+    };
+
+    /// True if a declaration is gated on a theme, i.e. it is one half of a
+    /// light/dark pair rather than something that applies in every mode.
+    fn is_theme_gated(conditions: &DynamicSelectorVec) -> bool {
+        conditions
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::Theme(_)))
+    }
+
+    /// The node's inline declarations that apply in EVERY theme, in declaration
+    /// order — what the widget itself resolved, with the theme's mode-specific
+    /// additions left out. Pair it with [`dark`] so skipping them here cannot
+    /// hide a theme that forgot its dark half.
+    pub(crate) fn unthemed(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| !is_theme_gated(c))
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// The node's inline declarations that apply only in dark mode.
+    pub(crate) fn dark(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                c.as_ref()
+                    .iter()
+                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+            })
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Widget-owned text carriers
 // ---------------------------------------------------------------------------

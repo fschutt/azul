@@ -302,7 +302,9 @@ impl CheckBox {
         };
         match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::check_box(self),
-            crate::widgets::themes::UiTheme::Flora => crate::widgets::themes::flora::check_box(self),
+            crate::widgets::themes::UiTheme::Flora => {
+                crate::widgets::themes::flora::check_box(self)
+            }
         }
     }
 }
@@ -316,7 +318,7 @@ pub mod input {
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
     use crate::callbacks::CallbackInfo;
 
-    #[must_use] 
+    #[must_use]
     pub extern "C" fn default_on_checkbox_clicked(
         mut check_box: RefAny,
         mut info: CallbackInfo,
@@ -408,6 +410,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -806,8 +809,14 @@ mod autotest_generated {
         for checked in [false, true] {
             let c = CheckBox::create(checked);
             // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent.
-            assert_eq!(width_px(&c.resolved_container_style()), Some(CONTAINER_SIDE));
-            assert_eq!(height_px(&c.resolved_container_style()), Some(CONTAINER_SIDE));
+            assert_eq!(
+                width_px(&c.resolved_container_style()),
+                Some(CONTAINER_SIDE)
+            );
+            assert_eq!(
+                height_px(&c.resolved_container_style()),
+                Some(CONTAINER_SIDE)
+            );
             assert_eq!(width_px(&c.resolved_content_style()), Some(CONTENT_SIDE));
             assert_eq!(height_px(&c.resolved_content_style()), Some(CONTENT_SIDE));
         }
@@ -887,10 +896,13 @@ mod autotest_generated {
         // Without `cursor: pointer` the checkbox looks inert even though it is the
         // node that carries the mouse-up handler.
         for checked in [false, true] {
-            let cursor = find(&CheckBox::create(checked).resolved_container_style(), |p| match p {
-                CssProperty::Cursor(c) => c.get_property().copied(),
-                _ => None,
-            });
+            let cursor = find(
+                &CheckBox::create(checked).resolved_container_style(),
+                |p| match p {
+                    CssProperty::Cursor(c) => c.get_property().copied(),
+                    _ => None,
+                },
+            );
             assert_eq!(
                 cursor,
                 Some(StyleCursor::Pointer),
@@ -1180,6 +1192,10 @@ mod autotest_generated {
     fn dom_puts_the_container_style_on_the_box_and_the_content_style_on_the_mark() {
         // Swapping the two would style the 8px mark like a 14px bordered box (and vice
         // versa) — the widget would still render, just wrong.
+        //
+        // Compared without the theme-gated declarations: the theme appends a
+        // dark background to each node on top of what the widget resolved, and
+        // those twins are asserted separately below.
         for checked in [false, true] {
             let c = CheckBox::create(checked);
             let container = properties(&c.resolved_container_style());
@@ -1187,14 +1203,37 @@ mod autotest_generated {
 
             let dom = c.dom();
             assert_eq!(
-                inline_properties(&dom),
+                theme_probe::unthemed(&dom),
                 container,
                 "checked={checked}: the container style did not land on the container",
             );
             assert_eq!(
-                inline_properties(&dom.children.as_ref()[0]),
+                theme_probe::unthemed(&dom.children.as_ref()[0]),
                 content,
                 "checked={checked}: the content style did not land on the checkmark",
+            );
+        }
+    }
+
+    #[test]
+    fn dom_gives_the_box_and_the_checked_mark_a_dark_mode_twin() {
+        // The counterpart to the test above: the theme's dark declarations are
+        // what keeps a light-mode fill off a dark surface, so they have to
+        // actually be emitted, not merely tolerated by the comparison there.
+        for checked in [false, true] {
+            let dom = CheckBox::create(checked).dom();
+
+            assert!(
+                theme_probe::dark(&dom)
+                    .iter()
+                    .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+                "checked={checked}: the box would paint its light fill in dark mode",
+            );
+            // Only the checked mark is filled, so only it needs a dark fill.
+            assert_eq!(
+                theme_probe::dark(&dom.children.as_ref()[0]).is_empty(),
+                !checked,
+                "checked={checked}: the mark's dark fill does not follow the check",
             );
         }
     }

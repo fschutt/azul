@@ -278,7 +278,9 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat),
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
+            ),
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -348,7 +350,7 @@ impl Slider {
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme {
             crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
@@ -416,12 +418,12 @@ fn commit_value(
     }
 }
 
+#[must_use]
 /// Arrow-key control, so a slider is usable without a mouse: Left/Down step
 /// DOWN and Right/Up step UP, by 1% of the range - or 10% with Ctrl (Cmd on
 /// macOS), the same fine/coarse pair the colour picker uses.
 ///
 /// Commits through `commit_value`, exactly like a drag.
-#[must_use] 
 pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
@@ -464,8 +466,8 @@ pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
     commit_value(&mut slider, &mut info, fraction, width)
 }
 
+#[must_use]
 /// Pointer down → begin a drag and set the value from the press position.
-#[must_use] 
 pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
@@ -474,8 +476,8 @@ pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInf
     apply_cursor_value(&mut slider, &mut info)
 }
 
+#[must_use]
 /// Pointer move → if a drag is active, track the value to the cursor.
-#[must_use] 
 pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
@@ -486,8 +488,8 @@ pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInf
     apply_cursor_value(&mut slider, &mut info)
 }
 
+#[must_use]
 /// Pointer up → end the drag.
-#[must_use] 
 pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
@@ -495,6 +497,7 @@ pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) ->
     Update::DoNothing
 }
 
+#[must_use]
 /// Pointer leave → end the drag, but only when the pointer left the TRACK.
 ///
 /// Every event bubbles here (`W3C` `mouseleave` does not), so the thumb's own
@@ -505,7 +508,6 @@ pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) ->
 /// The callback sees its own node (the track), not the event's origin, so
 /// the cursor decides: still inside the track's rect means the pointer only
 /// left a child.
-#[must_use] 
 pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
@@ -525,6 +527,7 @@ pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) 
     Update::DoNothing
 }
 
+#[must_use]
 /// Carry the interaction state across a parent rebuild.
 ///
 /// A callback that returns `RefreshDom` — the `AzWidgets` demo does, on every
@@ -542,7 +545,6 @@ pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) 
 /// the pointer is up the app's value is the truth again, as for any
 /// controlled widget. The `on_value_change` hook is taken from the FRESH
 /// build so a rebuilt closure/data is honoured.
-#[must_use] 
 pub extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SliderStateWrapper>();
@@ -615,6 +617,7 @@ mod autotest_generated {
             geometry::PackedBoxProps,
             layout_tree::{LayoutNodeHot, LayoutTree},
         },
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -2172,11 +2175,33 @@ mod autotest_generated {
 
     #[test]
     fn dom_inlines_the_track_and_thumb_styles_verbatim() {
+        // "Verbatim" up to the theme: on top of what the widget declares, the
+        // theme appends the declarations only it can write — here a dark fill
+        // for each of the two nodes, asserted by the test below. Comparing the
+        // theme-independent half is what isolates the widget's own styling.
         let s = Slider::create(75.0, 0.0, 100.0);
         let (track_props, thumb_props) = (properties(&s.track_style), properties(&s.thumb_style));
         let dom = s.dom();
-        assert_eq!(inline_properties(&dom), track_props);
-        assert_eq!(inline_properties(&dom.children.as_ref()[0]), thumb_props);
+        assert_eq!(theme_probe::unthemed(&dom), track_props);
+        assert_eq!(
+            theme_probe::unthemed(&dom.children.as_ref()[0]),
+            thumb_props
+        );
+    }
+
+    #[test]
+    fn dom_gives_the_track_and_the_thumb_a_dark_mode_fill() {
+        // Without these the slider paints its light grey track and white thumb
+        // straight onto a dark surface.
+        let dom = Slider::create(75.0, 0.0, 100.0).dom();
+        for (what, node) in [("track", &dom), ("thumb", &dom.children.as_ref()[0])] {
+            assert!(
+                theme_probe::dark(node)
+                    .iter()
+                    .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+                "the {what} has no dark fill, so it keeps its light one",
+            );
+        }
     }
 
     #[test]
