@@ -290,7 +290,7 @@ fn ret_type(cb: &CallbackTypedefDef) -> Option<&str> {
 /// Emit the abstract interfaces, the handle table and the host-invoker
 /// FFI block. Must run AFTER the wrapper type declarations (the
 /// interfaces `import` them) and BEFORE `contains`.
-pub(crate) fn emit_managed_decls(builder: &mut CodeBuilder, ctx: &Ctx) {
+pub(crate) fn emit_managed_decls(builder: &mut CodeBuilder, ctx: &Ctx, split: &super::Split) {
     builder.line("! ----------------------------------------------------------------------");
     builder.line("! Callback interfaces. Write an ordinary module procedure matching one");
     builder.line("! of these and pass it straight to the method that takes the callback");
@@ -389,11 +389,16 @@ pub(crate) fn emit_managed_decls(builder: &mut CodeBuilder, ctx: &Ctx) {
     builder.line("end interface");
     builder.blank();
 
-    if ctx.ref_any.is_some() {
+    // Each public name is attributed to the api.json module of the type
+    // it serves (the RefAny class, the kind's wrapper struct), so the
+    // per-module facades re-export it.
+    if let Some(ra) = &ctx.ref_any {
+        builder.line(&split.marker(ra));
         builder.line(&format!("public :: {}", REF_ANY_CREATE));
     }
     for cb in &ctx.kinds {
         let k = wrapper_name(cb);
+        builder.line(&split.marker(k));
         builder.line(&format!("public :: {}", iface_name(k)));
         builder.line(&format!("public :: {}", register_name(k)));
     }

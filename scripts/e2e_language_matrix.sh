@@ -895,7 +895,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/racket/$(basename "$LIB_PATH")"
       ;;
     ocaml)
-      rm -f "$REPO_ROOT/examples/ocaml/azul.ml" "$REPO_ROOT/examples/ocaml/azul.mli"
+      # The binding is azul.ml + one azul_*.ml(i) unit per api.json module.
+      rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
       rm -f "$REPO_ROOT/examples/ocaml/$(basename "$LIB_PATH")"
       rm -rf "$REPO_ROOT/examples/ocaml/_build"
       ;;
@@ -913,8 +914,9 @@ lang_deps_cleanup() {
       _choco_remove freepascal
       ;;
     fortran)
-      rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
-      rm -f "$REPO_ROOT/examples/fortran/azul.f90"
+      rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod "$REPO_ROOT/examples/fortran/"*.smod
+      # The binding is azul.f90 + one azul_*.f90 module per api.json module.
+      rm -f "$REPO_ROOT/examples/fortran/"azul*.f90 "$REPO_ROOT/examples/fortran/sources.txt"
       # examples/fortran/Makefile is TRACKED (the release ships it as the
       # documented `Makefile`); the recipe overwrote it with the codegen copy
       # and this line then deleted it, so every local e2e run left a deleted
@@ -1758,7 +1760,8 @@ lang_red() {
 # ---- OCaml -------------------------------------------------------------------
 # Toolchain: dune + ocaml + the ctypes / ctypes-foreign opam packages
 # (CI: ocaml/setup-ocaml, then `opam install dune ctypes ctypes-foreign`).
-# README recipe: `dune exec ./hello_world.exe`. Needs azul.ml/.mli + dune files.
+# README recipe: `dune exec ./hello_world.exe`. Needs the generated units
+# (azul.ml + azul_*.ml/.mli, one per api.json module) + the example's dune files.
 lang_ocaml() {
   # opam installs into a SWITCH that is not on PATH until its env is evaluated.
   # setup-ocaml and `opam install dune ctypes` both succeed and opam itself
@@ -1775,12 +1778,15 @@ lang_ocaml() {
   local f; f="$(log_path ocaml)"
   (
     set -x
-    # Only copy the generated sources. The example's own dune/dune-project
-    # already define BOTH the azul library and the hello_world executable —
-    # overwriting them with the codegen's library-only dune breaks the build.
-    cp "$CODEGEN_DIR/azul.ml"  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.mli" "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
-    cp "$LIB_PATH"             "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    # Only copy the generated sources (globbed: the split is one unit per
+    # api.json module, and the unit list is the generator's business). The
+    # example's own dune/dune-project already define BOTH the azul library
+    # and the hello_world executable — overwriting them with the codegen's
+    # library-only dune breaks the build.
+    rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
+    cp "$CODEGEN_DIR"/ocaml/*.ml  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    cp "$CODEGEN_DIR"/ocaml/*.mli "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    cp "$LIB_PATH"                "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/ocaml" || exit 1
     dune exec ./hello_world.exe
   ) >"$f" 2>&1
@@ -1861,11 +1867,15 @@ lang_fortran() {
   local f; f="$(log_path fortran)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.f90"            "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/Makefile.fortran"    "$REPO_ROOT/examples/fortran/Makefile" 2>/dev/null || true
-    cp "$LIB_PATH"                        "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    # Globbed: the binding is one module per api.json module behind the
+    # azul.f90 facade, and the generated Makefile knows their compile order.
+    rm -f "$REPO_ROOT/examples/fortran/"azul*.f90 "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
+    cp "$CODEGEN_DIR"/fortran/*.f90        "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/fortran/sources.txt"  "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/fortran/Makefile"     "$REPO_ROOT/examples/fortran/Makefile" 2>/dev/null || true
+    cp "$LIB_PATH"                         "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/fortran" || exit 1
-    make || exit 1
+    make -j4 || exit 1
     ./hello_world
   ) >"$f" 2>&1
   finish fortran "fortran smoke-only (no counter E2E per README)"
@@ -2283,13 +2293,13 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
     racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # dune compiles the 7.8 MB azul.ml (ocaml) and cabal the three generated
-    # Haskell modules from scratch on the first run: minutes, not a hang.
+    # dune compiles the ~150 generated OCaml units and cabal the ~200
+    # generated Haskell modules from scratch on the first run: minutes, not
+    # a hang (each was one multi-megabyte file before the 2026-09 split).
     ocaml|haskell) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # gfortran compiles the 245k-line azul.f90 (~45s) and then resolves the
-    # example's type-bound procedure calls against the 2.2 MB azul.mod, which
-    # costs about as much again: 1m48s for a clean `make` on an M-series Mac,
-    # and CI's ubuntu runner is slower. The default 240s left no margin.
+    # gfortran compiles the ~140 generated modules (`make -j4`) and then the
+    # example against them; a clean build was 1m48s on an M-series Mac when
+    # the binding was one 245k-line file, and CI's ubuntu runner is slower.
     fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
     # cgo compiles the generated azul-go package from scratch on every run:
     # five MB of Go over 126k lines plus the probes of azul.h. 35 s with

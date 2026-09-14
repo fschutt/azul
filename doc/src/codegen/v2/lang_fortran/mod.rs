@@ -1,109 +1,76 @@
 //! Fortran (modern, F2003+) binding generator.
 //!
-//! Generates a single `azul.f90` module file that:
+//! Generates a set of Fortran modules behind one facade, `azul`:
 //!
-//! 1. Declares all C-ABI types as Fortran `type, bind(C)` derived types (the Fortran spelling of a
-//!    C struct), unit-only enums as `enum, bind(C)` blocks (F2008) plus a matching `integer(c_int)`
-//!    type alias, and tagged unions as ABI-opaque blob types with the exact C size/alignment
-//!    (Fortran has no native `union`; the blob keeps every embedding struct layout-identical to
-//!    `azul.h` — see [`layout`]).
-//! 2. Declares every C-API function inside an `interface ... end interface` block, each with the
-//!    verbatim C symbol carried via `bind(C, name="AzFoo_create")`. Fortran is case-insensitive for
-//!    its own identifiers, but the `name="..."` argument is case-sensitive so the linker matches
-//!    the same exported symbols as the C/C++/Pascal bindings.
-//! 3. Wraps every class in an idiomatic `<snake>_t` derived type (`dom_t`, `button_t`, `app_t`)
-//!    whose methods are type-bound procedures (`call app%run(window)`), whose `String` arguments
-//!    are `character(len=*)`, whose unit enums are plain `integer`, and whose callbacks are
-//!    ordinary Fortran procedures matching a typed abstract interface. There is deliberately NO
-//!    `final ::` subroutine: gfortran finalizes a function result after the assignment that
-//!    consumed it, so a finalizer would `_delete` everything a factory ever returned. Cleanup is
-//!    the explicit `delete` type-bound procedure, guarded by an `owned` flag.
-//! 4. Adds the host-invoker runtime (see [`managed`]): one handle table that owns both `RefAny`
-//!    payloads and registered user procedures, installed lazily on the first handle so user code
-//!    never calls an `init` function.
-//!
-//! # Output structure (high-level)
-//!
-//! ```fortran
-//! module azul
-//!   use, intrinsic :: iso_c_binding
-//!   implicit none
-//!   private
-//!
-//!   ! --- Public exports ---
-//!   public :: AzAppConfig, App, ButtonType_Primary, ...
-//!
-//!   ! --- POD derived types ---
-//!   type, bind(C) :: AzAppConfig
-//!     ! ... fields ...
-//!   end type AzAppConfig
-//!
-//!   ! --- Unit enums (F2008 enum block + integer alias) ---
-//!   enum, bind(C)
-//!     enumerator :: AzButtonType_Primary = 0
-//!     enumerator :: AzButtonType_Secondary = 1
-//!   end enum
-//!
-//!   ! --- Tagged unions: ABI-opaque blob, exact C size/alignment ---
-//!   type, bind(C) :: AzOptionI64
-//!     integer(c_int64_t) :: opaque_(2)
-//!   end type AzOptionI64
-//!
-//!   ! --- C ABI interface block ---
-//!   interface
-//!     function az_app_create(data, config) bind(C, name="AzApp_create") result(r)
-//!       import
-//!       type(AzRefAny), value :: data
-//!       type(AzAppConfig), value :: config
-//!       type(AzApp) :: r
-//!     end function az_app_create
-//!     ! ...
-//!   end interface
-//!
-//!   ! --- Idiomatic wrappers ---
-//!   type :: app_t
-//!     type(AzApp) :: raw
-//!     logical :: owned = .false.
-//!   contains
-//!     procedure :: delete => app_delete
-//!     procedure :: run => app_run
-//!   end type app_t
-//!
-//! contains
-//!
-//!   subroutine app_delete(self)
-//!     class(app_t), intent(inout), target :: self
-//!     if (self%owned) call az_app_delete(self%raw)
-//!     self%owned = .false.
-//!   end subroutine app_delete
-//!
-//!   ! ... method bodies ...
-//! end module azul
-//! ```
+//! 1. `azul_types_<unit>.f90` — one module per plan chunk (see
+//!    [`super::module_plan::ModulePlan`]; `azul_types_css`,
+//!    `azul_types_dom`, `azul_types_css_2`, ...) declaring the C-ABI types
+//!    of that chunk as Fortran `type, bind(C)` derived types (the Fortran
+//!    spelling of a C struct), unit-only enums as `enum, bind(C)` blocks
+//!    (F2008), tagged unions as ABI-opaque blob types with the exact C
+//!    size/alignment (Fortran has no native `union`; the blob keeps every
+//!    embedding struct layout-identical to `azul.h` — see [`layout`]), and
+//!    callback typedefs as `abstract interface`s. A chunk `use`s the chunks
+//!    it references; `azul_types` re-exports them all.
+//! 2. `azul_ffi_<module>.f90` — one module per api.json module declaring
+//!    that module's C-API functions inside an `interface ... end interface`
+//!    block, each with the verbatim C symbol carried via
+//!    `bind(C, name="AzFoo_create")`. Fortran is case-insensitive for
+//!    its own identifiers, but the `name="..."` argument is case-sensitive
+//!    so the linker matches the same exported symbols as the C/C++/Pascal
+//!    bindings. `azul_ffi` re-exports them all.
+//! 3. `azul_api.f90` — the idiomatic layer: every class as a `<snake>_t`
+//!    derived type (`dom_t`, `button_t`, `app_t`) whose methods are
+//!    type-bound procedures (`call app%run(window)`), whose `String`
+//!    arguments are `character(len=*)`, whose unit enums are plain
+//!    `integer`, and whose callbacks are ordinary Fortran procedures
+//!    matching a typed abstract interface; plus the host-invoker runtime
+//!    (see [`managed`]): one handle table that owns both `RefAny` payloads
+//!    and registered user procedures, installed lazily on the first handle
+//!    so user code never calls an `init` function. There is deliberately
+//!    NO `final ::` subroutine: gfortran finalizes a function result after
+//!    the assignment that consumed it, so a finalizer would `_delete`
+//!    everything a factory ever returned. Cleanup is the explicit `delete`
+//!    type-bound procedure, guarded by an `owned` flag. This layer is one
+//!    module because type-bound procedures, the callback interfaces that
+//!    name the wrapper types and the wrappers that take callbacks form one
+//!    cycle Fortran modules cannot express; a parent/submodule split of its
+//!    bodies is the next step if it ever needs one.
+//! 4. `azul_<module>.f90` — one facade per api.json module that
+//!    re-exports exactly that module's names (`use azul_dom, only: dom_t,
+//!    dom_create_body`), whichever unit above declares them.
+//! 5. `azul.f90` — the facade that `use`s everything, so `use azul` is the
+//!    only import a program needs (including the `iso_c_binding` entities
+//!    the raw layer traffics in).
+//! 6. `Makefile` + `sources.txt` — the compile order (a module must be
+//!    compiled before the modules that `use` it).
 //!
 //! # Build
 //!
 //! ```bash
-//! gfortran -c azul.f90
-//! gfortran main.f90 azul.o -L. -lazul -o main
+//! make            # or, by hand, in the order of sources.txt:
+//! gfortran -ffree-line-length-none -c azul_types_css.f90 ... azul.f90
+//! gfortran -ffree-line-length-none main.f90 azul*.o -L. -lazul -o main
 //! ```
 //!
 //! No standardized package manifest exists in the Fortran ecosystem, so
-//! the orchestrator emits a plain Makefile beside the example
-//! (`examples/fortran/Makefile`) rather than something like a `.fpm.toml`.
+//! the generator emits a plain Makefile rather than something like an
+//! `fpm.toml`.
 //!
-//! # Wiring
+//! # Output protocol
 //!
-//! Like other Wave-2 generators this module is intentionally NOT wired from
-//! `v2/mod.rs`. The orchestrator adds `pub mod lang_fortran;` plus a
-//! `pub fn generate_fortran(api_data) -> Result<String>` helper that
-//! mirrors `generate_pascal`, then writes the result to
-//! `target/codegen/v2/azul.f90` and the Makefile from
-//! [`makefile::generate_makefile`] alongside it.
+//! `generate(ir, config)` returns a single `String` with multiple files
+//! separated by [`FILE_MARKER`] / [`END_MARKER`] header lines (each a
+//! valid Fortran comment). The orchestrator splits them into one directory.
+
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 
-use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
+use super::config::CodegenConfig;
+use super::generator::CodeBuilder;
+use super::ir::CodegenIR;
+use super::module_plan::ModulePlan;
 
 pub mod functions;
 pub(crate) mod layout;
@@ -124,93 +91,406 @@ pub const LIB_NAME: &str = "azul";
 /// it. Names longer than this are truncated by [`truncate_identifier`].
 pub const MAX_IDENT_LEN: usize = 63;
 
-/// Public entry point. Produces the full `azul.f90` module source.
-///
-/// The caller is expected to write the result to disk
-/// (e.g. `target/codegen/v2/azul.f90`) and to separately emit the
-/// accompanying Makefile via [`makefile::generate_makefile`].
-pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new("  ");
+/// File-marker header introducing each per-file section of the output.
+pub const FILE_MARKER: &str = "!==FILE: ";
 
-    emit_header(&mut builder);
+/// Trailing marker closing the file-marker header line.
+pub const END_MARKER: &str = " ==";
 
-    // Module declaration + iso_c_binding import.
-    builder.line("module azul");
-    builder.indent();
-    builder.line("use, intrinsic :: iso_c_binding");
-    builder.line("implicit none");
-    builder.line("private");
-    builder.blank();
+/// Comment the emitters write in front of every declaration group, naming
+/// the api.json module it belongs to. The per-module facades are built by
+/// reading these back together with the `public ::` lines that follow.
+pub const API_MODULE_MARKER: &str = "! [api.json module: ";
 
-    // The module is `private` by default, so the `iso_c_binding`
-    // entities a user would otherwise have to import themselves are
-    // re-exported here. `use azul` is the only `use` a program needs.
-    builder.line("! iso_c_binding re-exports: `use azul` is the only import a program");
-    builder.line("! needs, even when it reaches for the raw `az_*` layer.");
-    for name in ISO_C_REEXPORTS {
-        builder.line(&format!("public :: {}", name));
-    }
-    builder.blank();
+/// The api.json module a class the plan does not know is filed under.
+const FALLBACK_MODULE: &str = "misc";
 
-    // 1. Derived-type / enum / callback procedural type emission.
-    types::generate_types(&mut builder, ir, config)?;
+/// Names per `use ..., only:` statement in a facade (F2008 allows 255
+/// continuation lines; gfortran is generous, but keep every statement
+/// short).
+const ONLY_NAMES_PER_STATEMENT: usize = 40;
 
-    // 2. C-ABI interface block.
-    functions::generate_externals(&mut builder, ir, config)?;
-
-    // 3. Idiomatic wrapper type declarations (still inside the module decl section — Fortran
-    //    modules separate type declarations from procedure bodies via the `contains` keyword
-    //    below). The plan is built once and shared with the managed layer: both claim module-wide
-    //    (case-folded) identifiers from the same table.
-    let ctx = wrappers::Ctx::new(ir, config);
-    wrappers::generate_wrapper_decls(&mut builder, &ctx)?;
-
-    // 3b. Managed-FFI host-invoker plumbing — typed callback interfaces,
-    //     the handle table and the host-handle FFI block. Must come
-    //     before `contains`, and after the wrapper types the abstract
-    //     interfaces `import`.
-    managed::emit_managed_decls(&mut builder, &ctx);
-
-    // === module body (procedure implementations) ===
-    builder.dedent();
-    builder.line("contains");
-    builder.indent();
-    builder.blank();
-
-    wrappers::generate_wrapper_bodies(&mut builder, &ctx)?;
-
-    // Managed-FFI bodies (handle table, per-kind invokers + registrars,
-    // ref_any_create / the RefAny `get` binding).
-    managed::emit_managed_bodies(&mut builder, &ctx);
-
-    builder.dedent();
-    builder.line("end module azul");
-
-    Ok(builder.finish())
+/// The split, shared by the per-unit emitters.
+pub struct Split {
+    pub plan: ModulePlan,
 }
 
-fn emit_header(builder: &mut CodeBuilder) {
+impl Split {
+    pub fn new(ir: &CodegenIR) -> Self {
+        Split {
+            plan: ModulePlan::build(ir),
+        }
+    }
+
+    /// The api.json module a class / type / callback typedef belongs to.
+    pub fn module_of(&self, type_or_class: &str) -> String {
+        self.plan
+            .api_module_of(type_or_class)
+            .unwrap_or(FALLBACK_MODULE)
+            .to_string()
+    }
+
+    /// Every api.json module the per-class surface is split over.
+    pub fn api_modules(&self, ir: &CodegenIR) -> Vec<String> {
+        let mut mods: std::collections::BTreeSet<String> =
+            self.plan.api_modules().into_iter().collect();
+        for f in &ir.functions {
+            mods.insert(self.module_of(&f.class_name));
+        }
+        mods.into_iter().collect()
+    }
+
+    /// Module name of a types chunk: `azul_types_css_2`.
+    pub fn types_unit(&self, chunk_idx: usize) -> String {
+        format!("azul_types_{}", self.plan.chunks[chunk_idx].name)
+    }
+
+    /// The marker line for a declaration group of `type_or_class`.
+    pub fn marker(&self, type_or_class: &str) -> String {
+        format!("{}{}]", API_MODULE_MARKER, self.module_of(type_or_class))
+    }
+}
+
+/// Public entry point. Produces every Fortran source of the binding plus
+/// the Makefile, concatenated with file markers.
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let split = Split::new(ir);
+    let mut files: Vec<(String, String)> = Vec::new();
+    // api.json module -> unit -> public names declared for it there.
+    let mut registry: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+
+    // 1. Types, one module per plan chunk.
+    let mut type_units = Vec::new();
+    for idx in 0..split.plan.chunks.len() {
+        let unit = split.types_unit(idx);
+        let src = generate_types_unit(ir, config, &split, idx)?;
+        collect_publics(&src, &unit, FALLBACK_MODULE, &mut registry);
+        files.push((format!("{}.f90", unit), src));
+        order.push(unit.clone());
+        type_units.push(unit);
+    }
+    files.push((
+        "azul_types.f90".to_string(),
+        generate_reexport_module(
+            "azul_types",
+            "Every C-ABI type of the binding: the union of the per-module chunks.",
+            &type_units,
+        ),
+    ));
+    order.push("azul_types".to_string());
+
+    // 2. C-ABI interface blocks, one module per api.json module.
+    let api_modules = split.api_modules(ir);
+    let mut ffi_units = Vec::new();
+    for m in &api_modules {
+        let unit = format!("azul_ffi_{}", m);
+        let src = generate_ffi_unit(ir, config, &split, m)?;
+        collect_publics(&src, &unit, m, &mut registry);
+        files.push((format!("{}.f90", unit), src));
+        order.push(unit.clone());
+        ffi_units.push(unit);
+    }
+    files.push((
+        "azul_ffi.f90".to_string(),
+        generate_reexport_module(
+            "azul_ffi",
+            "Every C-API function of the binding: the union of the per-module interface blocks.",
+            &ffi_units,
+        ),
+    ));
+    order.push("azul_ffi".to_string());
+
+    // 3. The idiomatic layer.
+    let api_src = generate_api_unit(ir, config, &split)?;
+    collect_publics(&api_src, "azul_api", FALLBACK_MODULE, &mut registry);
+    files.push(("azul_api.f90".to_string(), api_src));
+    order.push("azul_api".to_string());
+
+    // 4. Per-module facades.
+    for m in &api_modules {
+        let unit = format!("azul_{}", m);
+        let names = registry.get(m).cloned().unwrap_or_default();
+        files.push((format!("{}.f90", unit), generate_module_facade(m, &names)));
+        order.push(unit);
+    }
+
+    // 5. The umbrella.
+    files.push(("azul.f90".to_string(), generate_umbrella()));
+    order.push("azul".to_string());
+
+    // 6. Build files.
+    let chunk_deps: Vec<(String, Vec<String>)> = split
+        .plan
+        .chunks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            (
+                split.types_unit(i),
+                c.deps.iter().map(|&d| split.types_unit(d)).collect(),
+            )
+        })
+        .collect();
+    files.push((
+        "Makefile".to_string(),
+        makefile::generate_makefile(&chunk_deps, &ffi_units, &api_modules),
+    ));
+    let mut sources = String::new();
+    for u in &order {
+        sources.push_str(u);
+        sources.push_str(".f90\n");
+    }
+    files.push(("sources.txt".to_string(), sources));
+
+    let total: usize = files.iter().map(|(_, s)| s.len()).sum();
+    let mut out = String::with_capacity(total + 64 * files.len());
+    for (path, src) in &files {
+        out.push_str(FILE_MARKER);
+        out.push_str(path);
+        out.push_str(END_MARKER);
+        out.push('\n');
+        out.push_str(src);
+        if !src.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
+/// Read the `public :: <name>` lines of a generated unit back, attributed
+/// to the api.json module the nearest preceding [`API_MODULE_MARKER`]
+/// names (`default` before the first marker).
+fn collect_publics(
+    src: &str,
+    unit: &str,
+    default: &str,
+    registry: &mut BTreeMap<String, BTreeMap<String, Vec<String>>>,
+) {
+    let mut module = default.to_string();
+    for line in src.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix(API_MODULE_MARKER) {
+            module = rest.trim_end_matches(']').trim().to_string();
+        } else if let Some(name) = t.strip_prefix("public :: ") {
+            let name = name.trim();
+            let names = registry
+                .entry(module.clone())
+                .or_default()
+                .entry(unit.to_string())
+                .or_default();
+            if !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Per-unit builders
+// ============================================================================
+
+fn emit_header(builder: &mut CodeBuilder, what: &str) {
     builder.line("! ============================================================================");
+    builder.line(&format!("! {}", what));
     builder.line("! Auto-generated Fortran (F2003+) bindings for the Azul GUI framework.");
-    builder.line("! Generated by azul-doc codegen v2 (lang_fortran).");
-    builder.line("! DO NOT EDIT MANUALLY.");
+    builder.line("! Generated by azul-doc codegen v2 (lang_fortran). DO NOT EDIT MANUALLY.");
     builder.line("!");
-    builder.line("! Requires Fortran 2003 or newer (uses iso_c_binding + final subroutines).");
-    builder.line("! F2008 `enum, bind(C)` blocks are used for unit enums; supported by");
-    builder.line("! gfortran >= 4.6 and Intel Fortran (ifort/ifx) >= 14.");
+    builder.line("! Requires Fortran 2003 or newer (uses iso_c_binding); F2008 `enum, bind(C)`");
+    builder.line("! blocks are used for unit enums (gfortran >= 4.6, ifort/ifx >= 14).");
     builder.line("!");
-    builder.line("! Build:");
-    builder.line("!   gfortran -ffree-line-length-none -c azul.f90");
-    builder.line("!   gfortran -ffree-line-length-none main.f90 azul.o -L. -lazul -o main");
+    builder.line("! Build with the generated Makefile, or by hand in the order of sources.txt:");
+    builder.line("!   gfortran -ffree-line-length-none -c <each azul*.f90 in that order>");
+    builder.line("!   gfortran -ffree-line-length-none main.f90 azul*.o -L. -lazul -o main");
     builder.line("!");
     builder.line("! `-ffree-line-length-none` is not optional. Free-form Fortran capped");
     builder.line("! lines at 132 columns until F2023 lifted it, and the C ABI names here");
     builder.line("! are long enough that ~1500 declarations run past that. gfortran >= 14");
-    builder.line("! defaults to no limit and accepts the file bare; every older gfortran");
+    builder.line("! defaults to no limit and accepts the files bare; every older gfortran");
     builder.line("! truncates the line and then errors on the half-statement that is left.");
     builder.line("! The generated Makefile already carries the flag in FFLAGS.");
     builder.line("! ============================================================================");
     builder.blank();
+}
+
+/// A module that re-exports other modules wholesale.
+fn generate_reexport_module(name: &str, what: &str, units: &[String]) -> String {
+    let mut b = CodeBuilder::new("  ");
+    emit_header(&mut b, what);
+    b.line(&format!("module {}", name));
+    b.indent();
+    for u in units {
+        b.line(&format!("use {}", u));
+    }
+    b.line("implicit none");
+    b.line("public");
+    b.dedent();
+    b.line(&format!("end module {}", name));
+    b.finish()
+}
+
+/// `azul_types_<unit>`: one plan chunk's types.
+fn generate_types_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    idx: usize,
+) -> Result<String> {
+    let chunk = &split.plan.chunks[idx];
+    let mut b = CodeBuilder::new("  ");
+    emit_header(
+        &mut b,
+        &format!(
+            "C-ABI types of the api.json module `{}` (unit {} of the split).",
+            chunk.api_module, chunk.ordinal
+        ),
+    );
+    let unit = split.types_unit(idx);
+    b.line(&format!("module {}", unit));
+    b.indent();
+    b.line("use, intrinsic :: iso_c_binding");
+    for dep in &chunk.deps {
+        b.line(&format!("use {}", split.types_unit(*dep)));
+    }
+    b.line("implicit none");
+    b.line("private");
+    b.blank();
+    let members: std::collections::BTreeSet<&str> =
+        chunk.types.iter().map(|s| s.as_str()).collect();
+    let belongs = |t: &str| members.contains(t);
+    types::generate_types_for(&mut b, ir, config, &belongs, split)?;
+    b.dedent();
+    b.line(&format!("end module {}", unit));
+    Ok(b.finish())
+}
+
+/// `azul_ffi_<module>`: the C-API interface block of one api.json module.
+fn generate_ffi_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<String> {
+    let mut b = CodeBuilder::new("  ");
+    emit_header(
+        &mut b,
+        &format!(
+            "C-API interface block of the api.json module `{}`.",
+            api_module
+        ),
+    );
+    let unit = format!("azul_ffi_{}", api_module);
+    b.line(&format!("module {}", unit));
+    b.indent();
+    b.line("use, intrinsic :: iso_c_binding");
+    b.line("use azul_types");
+    b.line("implicit none");
+    b.line("private");
+    b.blank();
+    let belongs = |c: &str| split.module_of(c) == api_module;
+    functions::generate_externals_for(&mut b, ir, config, &belongs)?;
+    b.dedent();
+    b.line(&format!("end module {}", unit));
+    Ok(b.finish())
+}
+
+/// `azul_api`: the idiomatic wrappers and the managed runtime.
+fn generate_api_unit(ir: &CodegenIR, config: &CodegenConfig, split: &Split) -> Result<String> {
+    let mut b = CodeBuilder::new("  ");
+    emit_header(
+        &mut b,
+        "Idiomatic wrappers (`<snake>_t` types with type-bound methods) and the host-invoker runtime.",
+    );
+    b.line("module azul_api");
+    b.indent();
+    b.line("use, intrinsic :: iso_c_binding");
+    b.line("use azul_types");
+    b.line("use azul_ffi");
+    b.line("implicit none");
+    b.line("private");
+    b.blank();
+
+    // Wrapper type declarations (inside the module decl section — Fortran
+    // modules separate type declarations from procedure bodies via the
+    // `contains` keyword below). The plan is built once and shared with
+    // the managed layer: both claim module-wide (case-folded) identifiers
+    // from the same table.
+    let ctx = wrappers::Ctx::new(ir, config);
+    wrappers::generate_wrapper_decls(&mut b, &ctx, split)?;
+
+    // Managed-FFI host-invoker plumbing — typed callback interfaces, the
+    // handle table and the host-handle FFI block. Must come before
+    // `contains`, and after the wrapper types the abstract interfaces
+    // `import`.
+    managed::emit_managed_decls(&mut b, &ctx, split);
+
+    b.dedent();
+    b.line("contains");
+    b.indent();
+    b.blank();
+
+    wrappers::generate_wrapper_bodies(&mut b, &ctx)?;
+    managed::emit_managed_bodies(&mut b, &ctx);
+
+    b.dedent();
+    b.line("end module azul_api");
+    Ok(b.finish())
+}
+
+/// `azul_<module>`: re-exports exactly one api.json module's names.
+fn generate_module_facade(api_module: &str, names: &BTreeMap<String, Vec<String>>) -> String {
+    let mut b = CodeBuilder::new("  ");
+    emit_header(
+        &mut b,
+        &format!(
+            "Facade for the api.json module `{}`: `use azul_{}, only: ...` imports just this module's names.",
+            api_module, api_module
+        ),
+    );
+    let unit = format!("azul_{}", api_module);
+    b.line(&format!("module {}", unit));
+    b.indent();
+    for (from, list) in names {
+        // A whole per-module interface block is this module's by
+        // construction; everything else is picked by name.
+        if from == &format!("azul_ffi_{}", api_module) {
+            b.line(&format!("use {}", from));
+            continue;
+        }
+        for group in list.chunks(ONLY_NAMES_PER_STATEMENT) {
+            b.line(&format!("use {}, only: {}", from, group.join(", ")));
+        }
+    }
+    b.line("implicit none");
+    b.line("public");
+    b.dedent();
+    b.line(&format!("end module {}", unit));
+    b.finish()
+}
+
+/// `azul`: everything.
+fn generate_umbrella() -> String {
+    let mut b = CodeBuilder::new("  ");
+    emit_header(
+        &mut b,
+        "The `azul` module: every unit of the binding. `use azul` (or `use azul, only: ...`) is the only import a program needs.",
+    );
+    b.line("module azul");
+    b.indent();
+    b.line("! iso_c_binding re-exports: `use azul` is the only import a program");
+    b.line("! needs, even when it reaches for the raw `az_*` layer.");
+    b.line(&format!(
+        "use, intrinsic :: iso_c_binding, only: {}",
+        ISO_C_REEXPORTS.join(", ")
+    ));
+    b.line("use azul_types");
+    b.line("use azul_ffi");
+    b.line("use azul_api");
+    b.line("implicit none");
+    b.line("public");
+    b.dedent();
+    b.line("end module azul");
+    b.finish()
 }
 
 // ============================================================================
@@ -411,7 +691,8 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
 ///
 /// - Reserved keywords get a trailing underscore.
 /// - Names longer than [`MAX_IDENT_LEN`] are truncated.
-/// - Leading underscores (illegal in Fortran identifiers) get prefixed with `f_`.
+/// - Leading underscores (illegal in Fortran identifiers) get prefixed
+///   with `f_`.
 pub fn sanitize_identifier(name: &str) -> String {
     let mut out = if is_fortran_reserved(name) {
         format!("{}_", name)
@@ -566,5 +847,85 @@ pub fn pascal_to_snake_case(s: &str) -> String {
 /// Newlines split the comment over multiple `!` lines; the caller is
 /// responsible for emitting one `!` prefix per resulting line.
 pub fn sanitize_comment_line(s: &str) -> String {
-    s.replace(['\r', '\n'], " ").trim().to_string()
+    s.replace('\r', " ").replace('\n', " ").trim().to_string()
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::super::config::CodegenConfig;
+    use super::super::module_plan::test_fixture_ir;
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn generated() -> BTreeMap<String, String> {
+        let ir = test_fixture_ir();
+        let out = generate(&ir, &CodegenConfig::c_header()).expect("fortran codegen");
+        let mut files = BTreeMap::new();
+        let mut cur: Option<String> = None;
+        for line in out.lines() {
+            if let Some(rest) = line.strip_prefix(FILE_MARKER) {
+                cur = Some(rest.trim_end_matches(END_MARKER).trim().to_string());
+                files.insert(cur.clone().unwrap(), String::new());
+            } else if let Some(p) = &cur {
+                let f = files.get_mut(p).unwrap();
+                f.push_str(line);
+                f.push('\n');
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn types_split_per_module_with_uses() {
+        let files = generated();
+        let css = &files["azul_types_css.f90"];
+        let dom = &files["azul_types_dom.f90"];
+        assert!(css.contains("type, bind(C) :: AzColor0"), "{}", css);
+        assert!(dom.contains("type, bind(C) :: AzDom\n"), "{}", dom);
+        assert!(dom.contains("type, bind(C) :: AzDomVec"), "DomVec follows Dom");
+        assert!(dom.contains("use azul_types_css"), "dom embeds Color0:\n{}", dom);
+        assert!(!css.contains("use azul_types_dom"));
+        assert!(dom.contains("enumerator :: AzUpdate_RefreshDom = 1"), "{}", dom);
+    }
+
+    #[test]
+    fn facades_reexport_by_module_and_sources_are_ordered() {
+        let files = generated();
+        let dom = &files["azul_dom.f90"];
+        assert!(dom.contains("use azul_types_dom, only:") && dom.contains("AzDom"), "{}", dom);
+        assert!(dom.contains("use azul_ffi_dom\n"), "{}", dom);
+        assert!(dom.contains("dom_t") && dom.contains("dom_create_body") && dom.contains("Update_RefreshDom"), "{}", dom);
+        assert!(!dom.contains("button_t"), "widgets names stay out of azul_dom:\n{}", dom);
+        let widgets = &files["azul_widgets.f90"];
+        assert!(widgets.contains("button_t") && widgets.contains("button_dom"), "{}", widgets);
+        let azul = &files["azul.f90"];
+        for u in ["azul_types", "azul_ffi", "azul_api"] {
+            assert!(azul.contains(&format!("use {}\n", u)), "azul lacks {}", u);
+        }
+        let sources: Vec<&str> = files["sources.txt"].lines().collect();
+        assert_eq!(sources.first(), Some(&"azul_types_css.f90"));
+        assert_eq!(sources.last(), Some(&"azul.f90"));
+        let pos = |n: &str| sources.iter().position(|s| *s == n).unwrap_or_else(|| panic!("{} missing", n));
+        assert!(pos("azul_types_dom.f90") < pos("azul_types.f90"));
+        assert!(pos("azul_types.f90") < pos("azul_ffi_dom.f90"));
+        assert!(pos("azul_ffi.f90") < pos("azul_api.f90"));
+        assert!(pos("azul_api.f90") < pos("azul_dom.f90"));
+        for s in &sources {
+            assert!(files.contains_key(*s), "{} listed but not written", s);
+        }
+        let mk = &files["Makefile"];
+        assert!(mk.contains("azul_types_dom.o: azul_types_dom.f90 azul_types_css.o"), "{}", mk);
+        assert!(mk.contains("azul_api.o: azul_api.f90 azul_types.o azul_ffi.o"));
+    }
+
+    #[test]
+    fn per_class_surface_is_grouped_by_module() {
+        let files = generated();
+        assert!(files["azul_ffi_widgets.f90"].contains("bind(C, name=\"AzButton_dom\")"));
+        assert!(!files["azul_ffi_dom.f90"].contains("AzButton_"));
+        let api = &files["azul_api.f90"];
+        assert!(api.contains("type :: dom_t") && api.contains("type :: button_t"));
+        assert!(api.contains(&format!("{}widgets]", API_MODULE_MARKER)));
+        assert!(api.contains("use azul_ffi\n") && api.contains("use azul_types\n"));
+    }
 }

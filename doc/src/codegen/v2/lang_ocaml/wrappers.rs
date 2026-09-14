@@ -49,41 +49,11 @@ use super::{
 // Interface (.mli) emission
 // ============================================================================
 
-pub fn emit_wrapper_interface(
+pub fn emit_idiomatic_module_interface_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
-) -> Result<()> {
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder
-        .line("(* Wrapper records (interface).                                                *)");
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder.blank();
-
-    let delete_set = collect_delete_targets(ir);
-    for s in &ir.structs {
-        if !should_wrap(s, config) {
-            continue;
-        }
-        if !delete_set.contains(s.name.as_str()) {
-            continue;
-        }
-        emit_wrapper_signature(builder, s);
-    }
-    builder.blank();
-
-    // Polymorphic-variant signatures for tagged unions live in the
-    // interface because user code dispatches against them.
-    emit_union_variant_interface(builder, ir, config);
-    Ok(())
-}
-
-pub fn emit_idiomatic_module_interface(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -100,7 +70,7 @@ pub fn emit_idiomatic_module_interface(
     builder.blank();
 
     let delete_set = collect_delete_targets(ir);
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_wrap(s, config) {
             continue;
         }
@@ -113,65 +83,21 @@ pub fn emit_idiomatic_module_interface(
         emit_module_interface_for_class(builder, s, ir, &delete_set);
     }
 
-    emit_enum_modules(builder, ir, config, /* interface */ true);
+    emit_enum_modules(builder, ir, config, belongs, /* interface */ true);
 
     builder.blank();
     Ok(())
-}
-
-/// `.mli` side of the Dom-typed layout sugar (see
-/// [`emit_layout_dom_sugar_implementation`]). Emitted at the very end of
-/// the interface so `dom`, `az_ref_any`, `az_layout_callback` and the
-/// factory classes' FFI types are all already declared.
-pub fn emit_layout_dom_sugar_interface(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
-    if !layout_dom_sugar_available(ir, config) {
-        return;
-    }
-    let dom_t = ocaml_wrapper_type_name("Dom");
-    let refany_ffi = ocaml_ffi_type_name("RefAny");
-    let cb_sig = format!(
-        "({} Ctypes.structure Ctypes.ptr -> unit Ctypes.ptr -> {})",
-        refany_ffi, dom_t
-    );
-
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder
-        .line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder.blank();
-    for s in &ir.structs {
-        let Some(info) = layout_callback_factory_info(s, ir) else {
-            continue;
-        };
-        builder.line(&format!(
-            "val azul_{}_with_layout_dom : {} -> {} Ctypes.structure",
-            to_snake_case(&info.class_name),
-            cb_sig,
-            ocaml_ffi_type_name(&info.class_name)
-        ));
-    }
-    builder.line(&format!(
-        "val azul_register_layout_callback_dom : {} -> {} Ctypes.structure",
-        cb_sig,
-        ocaml_ffi_type_name("LayoutCallback")
-    ));
-    builder.blank();
 }
 
 // ============================================================================
 // Implementation (.ml) emission
 // ============================================================================
 
-pub fn emit_wrapper_records(
+pub fn emit_wrapper_records_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -182,7 +108,7 @@ pub fn emit_wrapper_records(
     builder.blank();
 
     let delete_set = collect_delete_targets(ir);
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_wrap(s, config) {
             continue;
         }
@@ -194,10 +120,11 @@ pub fn emit_wrapper_records(
     Ok(())
 }
 
-pub fn emit_idiomatic_module_implementation(
+pub fn emit_idiomatic_module_implementation_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -211,10 +138,10 @@ pub fn emit_idiomatic_module_implementation(
     // .mli so the interface matches the implementation. Without these
     // `dune build` fails with
     //   The type az_foo_view is required but not provided.
-    emit_union_variant_interface(builder, ir, config);
+    emit_union_variant_interface(builder, ir, config, belongs);
 
     let delete_set = collect_delete_targets(ir);
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_wrap(s, config) {
             continue;
         }
@@ -225,7 +152,7 @@ pub fn emit_idiomatic_module_implementation(
     }
 
     builder.blank();
-    emit_enum_modules(builder, ir, config, /* interface */ false);
+    emit_enum_modules(builder, ir, config, belongs, /* interface */ false);
 
     Ok(())
 }
@@ -367,27 +294,6 @@ fn class_has_visible_methods(class_name: &str, ir: &CodegenIR) -> bool {
 // ============================================================================
 // Wrapper signatures (.mli)
 // ============================================================================
-
-fn emit_wrapper_signature(builder: &mut CodeBuilder, s: &StructDef) {
-    let wrapper = ocaml_wrapper_type_name(&s.name);
-    let ffi = ocaml_ffi_type_name(&s.name);
-
-    if !s.doc.is_empty() {
-        for d in &s.doc {
-            builder.line(&format!("(* {} *)", sanitize_doc(d)));
-        }
-    }
-    builder.line(&format!("type {}", wrapper));
-    builder.line(&format!(
-        "val make_{} : {} Ctypes.structure -> {}",
-        wrapper, ffi, wrapper
-    ));
-    builder.line(&format!("val dispose_{} : {} -> unit", wrapper, wrapper));
-    builder.line(&format!(
-        "val raw_{} : {} -> {} Ctypes.structure",
-        wrapper, wrapper, ffi
-    ));
-}
 
 // ============================================================================
 // Wrapper records (.ml)
@@ -1316,9 +1222,14 @@ fn emit_method_impl(
 // Polymorphic-variant signature for tagged unions
 // ============================================================================
 
-fn emit_union_variant_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+fn emit_union_variant_interface(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) {
     let mut emitted_header = false;
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !config.should_include_type(&e.name) {
             continue;
         }
@@ -1451,9 +1362,10 @@ fn emit_enum_modules(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
     interface: bool,
 ) {
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
             continue;
         }

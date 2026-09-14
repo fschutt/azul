@@ -1,28 +1,40 @@
 //! Emits the Cabal build manifest for the generated Haskell bindings.
 //!
-//! The output is a single deterministic string — no IR-driven content
-//! is needed because the library shape is fixed (one library exposing
-//! `Azul`, `Azul.Internal.FFI`, and `Azul.Types`, depending on
-//! `base` and `containers` — the host-handle table in `Azul` is a
-//! `Data.Map`).
+//! The manifest lists every generated module (the `Azul` facade, the
+//! per-chunk `Azul.Types.*`, the per-module `Azul.Internal.FFI.*`,
+//! `Azul.Internal.Handles.*` and `Azul.<Module>` units) and every C shim
+//! file; both lists come from the generator so the manifest cannot drift
+//! from the split. The library depends on `base` and `containers` (the
+//! host-handle table in `Azul.Internal.Runtime` is a `Data.Map`).
 //!
 //! Notes:
-//! - We declare `extra-libraries: azul` so GHC links the prebuilt `libazul.so` / `libazul.dylib` /
-//!   `azul.dll`. The user is expected to place that artifact in a discoverable directory; the
+//! - We declare `extra-libraries: azul` so GHC links the prebuilt
+//!   `libazul.so` / `libazul.dylib` / `azul.dll`. The user is expected
+//!   to place that artifact in a discoverable directory; the
 //!   `extra-lib-dirs` field below allows customising the search path.
-//! - All `Storable` instances are hand-rolled in `Azul.Types`, so we don't need any
-//!   Storable-deriving extensions or template Haskell.
-//! - `cabal-version: 2.4` gives us the modern field set without requiring any GHC features that
-//!   aren't in the latest LTS Stackage.
+//! - All `Storable` instances are hand-rolled in `Azul.Types.*`, so we
+//!   don't need any Storable-deriving extensions or template Haskell.
+//! - `cabal-version: 2.4` gives us the modern field set without
+//!   requiring any GHC features that aren't in the latest LTS Stackage.
 
-/// Single deterministic Cabal manifest string.
-pub fn generate_cabal(version: &str) -> String {
+/// The Cabal manifest for the given exposed modules and C sources.
+pub fn generate_cabal(version: &str, exposed_modules: &[String], c_sources: &[String]) -> String {
     // `cabal-version` MUST be the very first non-comment line for
     // spec >= 2.2; cabal 3.16 errors out with
     //   "cabal-version should be at the beginning of the file starting
     //    with spec version 2.2."
     // when comments precede it. Keep the header block underneath.
-    let s = format!(
+    let modules = exposed_modules
+        .iter()
+        .map(|m| format!("                        {}", m))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let sources = c_sources
+        .iter()
+        .map(|c| format!("                        {}", c))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
         r#"cabal-version:      2.4
 -- ============================================================================
 -- Auto-generated Cabal manifest for the Azul GUI framework Haskell bindings.
@@ -51,16 +63,19 @@ maintainer:         hello@azul.rs
 build-type:         Simple
 
 library
-    exposed-modules:    Azul
-                        Azul.Types
-                        Azul.Internal.FFI
+    -- One module per api.json module (and per dependency slice of it for
+    -- the types), so GHC compiles the binding in parallel and a change to
+    -- one module rebuilds one unit. `Azul` re-exports everything.
+    exposed-modules:
+{modules}
     hs-source-dirs:     src
     -- C shim layer for struct-by-value FFI. GHC's foreign-import doesn't
     -- support passing or returning C structs by value; the shim takes
     -- aggregate args/returns through pointers and dereferences them
-    -- before calling into libazul. Generated alongside the Haskell
-    -- modules.
-    c-sources:          cbits/azul_shims.c
+    -- before calling into libazul. One file per api.json module, plus
+    -- the host-invoker protocol. Generated alongside the Haskell modules.
+    c-sources:
+{sources}
     include-dirs:       cbits
     -- Wide base range: GHC 8.10 ships base 4.14, latest GHC 9.14 ships
     -- base 4.22. We don't depend on anything base-API-specific so any
@@ -72,11 +87,10 @@ library
     extra-libraries:    azul
     -- extra-lib-dirs:  /path/to/libazul
     -- -O0: the binding is a thin FFI layer (every function is a C call) and
-    -- gains nothing from optimisation, while GHC needs more than twenty
-    -- minutes for the multi-megabyte Azul.Types at -O1 against three and a
-    -- half for the whole package at -O0. Your own modules keep their flags.
-    ghc-options:        -O0 -Wall -Wno-unused-imports -Wno-unused-matches
+    -- gains nothing from optimisation, while GHC needs many times longer at
+    -- -O1 over the multi-megabyte Storable instances. Your own modules keep
+    -- their flags. -j: the ~200 generated modules compile in parallel.
+    ghc-options:        -O0 -j -Wall -Wno-unused-imports -Wno-unused-matches
 "#
-    );
-    s.to_string()
+    )
 }

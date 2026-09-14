@@ -31,14 +31,18 @@ use super::{
     map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier,
 };
 
-pub fn generate_externals(
+/// The interface block of every function whose class `belongs` accepts —
+/// one api.json module's worth.
+pub fn generate_externals_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder.line("! ----------------------------------------------------------------------");
-    builder.line("! C-ABI interface block: every exported `azul` C symbol is declared");
-    builder.line("! here. Symbol names match the C bindings verbatim via bind(C, name=).");
+    builder.line("! C-ABI interface block: every exported `azul` C symbol of this module");
+    builder.line("! is declared here. Symbol names match the C bindings verbatim via");
+    builder.line("! bind(C, name=).");
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
@@ -46,7 +50,7 @@ pub fn generate_externals(
     builder.indent();
     builder.blank();
 
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
@@ -61,7 +65,7 @@ pub fn generate_externals(
     // block symbol must be re-exported explicitly. Without these
     // `public` declarations, `use azul` in caller code sees a typedef
     // tree but no callable C-ABI functions.
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }

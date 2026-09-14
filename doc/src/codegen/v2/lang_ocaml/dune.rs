@@ -50,7 +50,10 @@ pub fn generate_dune() -> String {
 ; current working directory).
 ; ============================================================================
 
-; The generated azul bindings (azul.ml + azul.mli) defined as a local library.
+; The generated azul bindings defined as a local library: `azul.ml` is the
+; facade consumers open, `azul_*.ml` the per-module units it includes (one
+; per api.json module, one per dependency slice for the types). dune wraps
+; the library, so only `Azul` is visible from outside.
 ; The codegen emits many declarations that are unused by any given consumer;
 ; that's fine for an FFI-binding library. Suppress warning 32 (unused
 ; value declaration) so the build doesn't fail on a stable, complete API.
@@ -58,7 +61,7 @@ pub fn generate_dune() -> String {
  (name azul)
  (flags (:standard -w -32-26-27-33-34-35-37-39))
  (libraries ctypes ctypes-foreign)
- (modules azul))
+ (modules :standard))
 
 ; Uncomment to build the hello-world example from the guide
 ; (save the snippet as hello_world.ml next to this file):

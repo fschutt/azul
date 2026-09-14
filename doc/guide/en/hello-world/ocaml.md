@@ -39,9 +39,11 @@ You need **OCaml 4.14+** with **dune**, the **`ctypes`** + **`ctypes-foreign`**
 packages, and the native `libazul` library.
 
 There is no opam package yet - install manually: the bundle holds the
-generated `azul.ml` / `azul.mli`, the dune scaffolding (`dune` with both the
-`azul` library and the `hello_world` executable stanza, `dune-project`) and
-the counter example, so unpacking it gives a complete dune project:
+generated units (`azul.ml`, the facade you `open`, plus one `azul_*.ml` /
+`.mli` per api.json module it includes), the dune scaffolding (`dune` with
+both the `azul` library and the `hello_world` executable stanza,
+`dune-project`) and the counter example, so unpacking it gives a complete
+dune project:
 
 ```sh
 opam install ctypes ctypes-foreign dune
@@ -155,8 +157,8 @@ Click the button: the counter increments and the layout callback re-runs.
 
 - **`Dl.dlopen` / library not found** — the native library isn't on
   `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`, or not in the project directory.
-- **`Unbound module Azul`** — `azul.ml` / `azul.mli` aren't listed in your dune
-  `modules` / not in the project.
+- **`Unbound module Azul`** — the generated `azul*.ml` / `.mli` units aren't
+  covered by your dune `modules` field / not in the project.
 - **SIGABRT in `<U8Vec as Drop>::drop` on exit** — you forgot `azul_consume` on a
   wrapper whose bytes were moved into libazul; the GC finalizer double-freed it.
 - **Counter does not advance** — `on_click` returned `0` (DoNothing) instead of `1`.

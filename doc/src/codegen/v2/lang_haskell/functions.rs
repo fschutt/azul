@@ -42,19 +42,33 @@ use super::{
 // Top-level entry
 // ============================================================================
 
+/// Every import in one module (the pre-split shape, kept for the tests).
 pub fn emit_foreign_imports(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    for func in &ir.functions {
+    emit_foreign_imports_for(builder, ir, config, &|_| true)?;
+    emit_host_invoker_imports(builder, ir, config);
+    Ok(())
+}
+
+/// The imports of every function whose class, and every callback typedef
+/// whose name, `belongs` accepts — one api.json module's worth. The
+/// host-invoker protocol is not per module; see
+/// [`emit_host_invoker_imports`].
+pub fn emit_foreign_imports_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
         emit_one(builder, func, ir);
     }
-
-    emit_host_invoker_imports(builder, ir, config);
 
     // Callback wrappers: emit `foreign import ccall "wrapper"` for each
     // callback typedef so users can pass Haskell functions across the
@@ -64,7 +78,7 @@ pub fn emit_foreign_imports(
     builder.line("-- Callback wrappers: turn a Haskell function into a C function pointer.");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -89,10 +103,10 @@ pub fn emit_foreign_imports(
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Inbound trampolines (Haskell-friendly out-pointer inner + C-ABI trampoline).");
-    builder.line("-- See cbits/azul_shims.c for the matching `Az<X>_trampoline` / `_set_inner`.");
+    builder.line("-- See cbits/azul_<module>.c for the matching `Az<X>_trampoline` / `_set_inner`.");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -107,7 +121,7 @@ pub fn emit_foreign_imports(
 /// The `_via` forms are the shims `cshim.rs` emits for the by-value
 /// returns. The managed layer in `Azul` builds `refAnyCreate` and the
 /// closure-taking callback setters on top of these.
-fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+pub fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Host-invoker protocol: host-handle RefAny + per-kind invokers.");
@@ -212,7 +226,18 @@ pub fn emit_callback_register_helpers(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    if ir.callback_typedefs.is_empty() {
+    emit_callback_register_helpers_for(builder, ir, config, &|_| true)
+}
+
+/// The `register<X>Callback` helpers of the callback typedefs `belongs`
+/// accepts.
+pub fn emit_callback_register_helpers_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    if !ir.callback_typedefs.iter().any(|cb| belongs(&cb.name)) {
         return Ok(());
     }
     builder.blank();
@@ -220,7 +245,7 @@ pub fn emit_callback_register_helpers(
     builder.line("-- Per-callback-typedef `register<X>Callback` helpers (raw trampoline path).");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }

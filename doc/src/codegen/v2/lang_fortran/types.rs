@@ -2,65 +2,73 @@
 //!
 //! Strategy:
 //!
-//! - **POD structs** map to `type, bind(C) :: AzFoo ... end type AzFoo`. Fortran `bind(C)` derived
-//!   types have C-compatible memory layout (matches Rust's `#[repr(C)]`), so values can flow across
-//!   the FFI boundary by value.
-//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which has fixed underlying integer
-//!   kind compatible with C `int`) plus a public `integer(c_int)` named alias so users can declare
+//! - **POD structs** map to `type, bind(C) :: AzFoo ... end type AzFoo`.
+//!   Fortran `bind(C)` derived types have C-compatible memory layout
+//!   (matches Rust's `#[repr(C)]`), so values can flow across the FFI
+//!   boundary by value.
+//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which
+//!   has fixed underlying integer kind compatible with C `int`) plus
+//!   a public `integer(c_int)` named alias so users can declare
 //!   `integer(c_int) :: my_button = AzButtonType_Primary`.
-//! - **Tagged-union enums** have no native equivalent in Fortran; we emit a derived type holding an
-//!   ABI-opaque blob with the EXACT size and alignment of the C `repr(C,u8)` union (computed by
-//!   `super::layout`). Anything else corrupts every struct that embeds a union by value — see the
-//!   2026-07 e2e SIGSEGV post-mortem. The `_TAG_*` enumerator constants are still emitted for
-//!   reference.
-//! - **Callback typedefs** become `abstract interface` blocks plus a `procedure(...), pointer ::
-//!   AzFooCallbackType` alias. Fortran procedure pointers with `bind(C)` are exactly C function
-//!   pointers.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types are emitted as ABI-opaque
-//!   blob stand-ins when their layout is computable (they ARE embedded by value — every `AzXVec`
-//!   carries an `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
+//! - **Tagged-union enums** have no native equivalent in Fortran; we
+//!   emit a derived type holding an ABI-opaque blob with the EXACT
+//!   size and alignment of the C `repr(C,u8)` union (computed by
+//!   `super::layout`). Anything else corrupts every struct that embeds
+//!   a union by value — see the 2026-07 e2e SIGSEGV post-mortem. The
+//!   `_TAG_*` enumerator constants are still emitted for reference.
+//! - **Callback typedefs** become `abstract interface` blocks plus a
+//!   `procedure(...), pointer :: AzFooCallbackType` alias. Fortran
+//!   procedure pointers with `bind(C)` are exactly C function pointers.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types
+//!   are emitted as ABI-opaque blob stand-ins when their layout is
+//!   computable (they ARE embedded by value — every `AzXVec` carries an
+//!   `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
 
 use anyhow::Result;
 
+use super::super::config::CodegenConfig;
+use super::super::generator::CodeBuilder;
+use super::super::ir::{
+    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+};
+use super::layout::{blob_field_decl, mono_layout, type_layout};
 use super::{
-    super::{
-        config::CodegenConfig,
-        generator::CodeBuilder,
-        ir::{
-            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
-            FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef,
-            TypeCategory,
-        },
-    },
-    ffi_type_name,
-    layout::{blob_field_decl, mono_layout, type_layout},
-    map_type_to_fortran, sanitize_comment_line, sanitize_identifier, truncate_identifier,
+    ffi_type_name, map_type_to_fortran, sanitize_comment_line, sanitize_identifier,
+    truncate_identifier,
 };
 
 // ============================================================================
 // Top-level type-block emission
 // ============================================================================
 
-pub fn generate_types(
+/// The type definitions of every type `belongs` accepts — one plan
+/// chunk's worth — each group preceded by the api.json-module marker the
+/// per-module facades are built from.
+pub fn generate_types_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+    split: &super::Split,
 ) -> Result<()> {
     builder.line("! ----------------------------------------------------------------------");
     builder.line("! Type definitions: derived types, enums, tagged-union approximations.");
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
-    // 1. Unit (simple) enums first so they may appear in derived-type field declarations as
-    //    `integer(c_int)` aliases. Skipped-category tagged unions (DestructorOrClone etc.) are
-    //    embedded BY VALUE in regular structs (every AzXVec carries an AzXVecDestructor), so they
-    //    get an ABI-opaque blob stand-in here — mapping them to `type(c_ptr)` shrank every
-    //    embedding struct and corrupted all by-value FFI calls (2026-07 Fortran e2e SIGSEGV root
-    //    cause).
-    for e in &ir.enums {
+    // 1. Unit (simple) enums first so they may appear in derived-type
+    //    field declarations as `integer(c_int)` aliases. Skipped-category
+    //    tagged unions (DestructorOrClone etc.) are embedded BY VALUE in
+    //    regular structs (every AzXVec carries an AzXVecDestructor), so
+    //    they get an ABI-opaque blob stand-in here — mapping them to
+    //    `type(c_ptr)` shrank every embedding struct and corrupted all
+    //    by-value FFI calls (2026-07 Fortran e2e SIGSEGV root cause).
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_include_enum(e, config) {
             if e.is_union && e.generic_params.is_empty() {
                 if let Some(l) = type_layout(&e.name, ir) {
+                    builder.line(&split.marker(&e.name));
                     emit_opaque_blob(builder, &e.name, l, e.category.description());
                     continue;
                 }
@@ -69,6 +77,7 @@ pub fn generate_types(
             continue;
         }
         if !e.is_union {
+            builder.line(&split.marker(&e.name));
             emit_unit_enum(builder, e);
         }
     }
@@ -85,7 +94,7 @@ pub fn generate_types(
         Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
     }
     let mut items: Vec<(usize, Item)> = Vec::new();
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_include_struct(s, config) {
             // Same ABI rule as skipped unions above: if the skipped
             // struct is layout-computable, other structs may embed it by
@@ -93,6 +102,7 @@ pub fn generate_types(
             // exact-size blob stand-in instead of collapsing to c_ptr.
             if s.generic_params.is_empty() {
                 if let Some(l) = type_layout(&s.name, ir) {
+                    builder.line(&split.marker(&s.name));
                     emit_opaque_blob(builder, &s.name, l, s.category.description());
                     continue;
                 }
@@ -102,7 +112,7 @@ pub fn generate_types(
         }
         items.push((s.sort_order, Item::Struct(s)));
     }
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_include_enum(e, config) {
             continue;
         }
@@ -110,7 +120,7 @@ pub fn generate_types(
             items.push((e.sort_order, Item::Union(e)));
         }
     }
-    for ta in &ir.type_aliases {
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
         let Some(ref mono) = ta.monomorphized_def else {
             continue;
         };
@@ -122,14 +132,24 @@ pub fn generate_types(
     items.sort_by_key(|(d, _)| *d);
     for (_, item) in &items {
         match item {
-            Item::Struct(s) => emit_struct(builder, s, ir),
-            Item::Union(e) => emit_tagged_union(builder, e, ir),
-            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
+            Item::Struct(s) => {
+                builder.line(&split.marker(&s.name));
+                emit_struct(builder, s, ir)
+            }
+            Item::Union(e) => {
+                builder.line(&split.marker(&e.name));
+                emit_tagged_union(builder, e, ir)
+            }
+            Item::Mono(ta, mono) => {
+                builder.line(&split.marker(&ta.name));
+                emit_monomorphized_alias(builder, ta, mono, ir)
+            }
         }
     }
 
     // 4. Callback (procedural) typedefs.
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
+        builder.line(&split.marker(&cb.name));
         emit_callback_typedef(builder, cb, ir);
     }
 

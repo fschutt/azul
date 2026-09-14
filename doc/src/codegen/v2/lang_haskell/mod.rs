@@ -1,23 +1,41 @@
 //! Haskell binding generator.
 //!
-//! Produces a small library of `.hs` modules, a C shim file and a Cabal
-//! manifest:
+//! Produces a library of `.hs` modules, per-module C shim files and a
+//! Cabal manifest. The surface user code sees is unchanged — `import Azul`
+//! — but underneath, every layer is split so GHC compiles the binding as
+//! ~200 small modules in parallel (`-j`) instead of three multi-megabyte
+//! ones (which peaked at 3.5 GB RSS on one core, 2026-09).
 //!
-//! 1. `src/Azul.hs` — the umbrella module user code imports: one managed wrapper type per
-//!    resource-owning class, one function per api.json method (receiver last, so builder chains are
-//!    `>>=` pipelines), the host-handle `RefAny` (`refAnyCreate` / `refAnyGet` / `refAnyModify`),
-//!    callbacks as plain closures, and re-exports of the `Azul.Types` enums and plain structs. See
-//!    `wrappers.rs`.
-//! 2. `src/Azul/Internal/FFI.hs` — raw `foreign import ccall` declarations that link to the C ABI
-//!    symbols (through the `_via` shims wherever a struct travels by value). Every import is
-//!    `safe`: a host-handle `RefAny` destructor re-enters Haskell through the releaser, so any
-//!    function that may drop one can call back.
-//! 3. `src/Azul/Types.hs` — Haskell data declarations that mirror the C structs, enums and tagged
-//!    unions, with `Storable` instances whose sizes, alignments and member offsets are imports of
-//!    the cbits layout oracle (the C compiler's `sizeof` / `_Alignof` / `offsetof`).
-//! 4. `cbits/azul_shims.c` — the `_via` shims, the inbound trampolines, the host-invoker prototypes
-//!    and the layout oracle.
-//! 5. `azul.cabal` — Cabal manifest declaring the library + deps.
+//! The split follows [`super::module_plan::ModulePlan`]:
+//!
+//! 1. `src/Azul/Types/<Unit>.hs` — one module per plan chunk
+//!    (`Azul.Types.Css`, `Azul.Types.Dom`, `Azul.Types.Css2`, ...): the
+//!    Haskell data declarations that mirror the C structs, enums and
+//!    tagged unions, with `Storable` instances over the cbits layout
+//!    oracle. A chunk imports the chunks it references; the plan
+//!    guarantees the import graph is acyclic. `Azul.Types.Common` holds
+//!    the UTF-8 codec every chunk may need. See `types.rs`.
+//! 2. `src/Azul/Types.hs` — a facade re-exporting every chunk, so
+//!    `import qualified Azul.Types as T` keeps working.
+//! 3. `src/Azul/Internal/FFI/<Module>.hs` — raw `foreign import ccall`
+//!    declarations for the classes of one api.json module (plus the
+//!    callback wrappers and inbound-trampoline imports of that module's
+//!    callback typedefs); `Azul.Internal.FFI.Host` carries the host-invoker
+//!    protocol. Every import is `safe` (a host-handle `RefAny` destructor
+//!    re-enters Haskell). `src/Azul/Internal/FFI.hs` is the facade.
+//! 4. The idiomatic layer, in four tiers that only ever import downwards:
+//!    `Azul.Internal.Runtime` (handle table, string marshalling),
+//!    `Azul.Internal.Handles.<Module>` (the managed wrapper types, one file
+//!    per api.json module, plus the `Azul.Internal.Handles` facade),
+//!    `Azul.Internal.Callbacks` (the host-handle `RefAny`, one closure type
+//!    and invoker per callback kind) and `Azul.<Module>` (constructors and
+//!    methods of that module's classes, receiver last). See `wrappers.rs`.
+//! 5. `src/Azul.hs` — the facade user code imports: re-exports the whole
+//!    idiomatic layer and the `Azul.Types` entities it does not wrap.
+//! 6. `cbits/azul_<module>.c` — the `_via` shims, inbound trampolines and
+//!    layout-oracle functions for one api.json module; `cbits/azul_host.c`
+//!    the host-invoker prototypes. See `cshim.rs`.
+//! 7. `azul.cabal` — Cabal manifest listing every module and C source.
 //!
 //! ## Output protocol
 //!
@@ -27,14 +45,8 @@
 //! ```text
 //! -- ==FILE: src/Azul.hs ==
 //! <Azul.hs contents>
-//! -- ==FILE: src/Azul/Internal/FFI.hs ==
-//! <FFI.hs contents>
-//! -- ==FILE: src/Azul/Types.hs ==
-//! <Types.hs contents>
-//! -- ==FILE: cbits/azul_shims.c ==
-//! <shim contents>
-//! -- ==FILE: azul.cabal ==
-//! <cabal contents>
+//! -- ==FILE: src/Azul/Types/Css.hs ==
+//! ...
 //! ```
 //!
 //! The marker is itself a syntactically valid Haskell line comment
@@ -51,7 +63,10 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
+use super::config::CodegenConfig;
+use super::generator::CodeBuilder;
+use super::ir::CodegenIR;
+use super::module_plan::ModulePlan;
 
 pub mod cshim;
 
@@ -66,34 +81,459 @@ pub const END_MARKER: &str = " ==";
 /// Library name used in the Cabal manifest and in the Hackage display.
 pub const LIB_NAME: &str = "azul";
 
+/// The api.json module a class or callback typedef the plan does not know
+/// (a function-only class) is filed under.
+const FALLBACK_MODULE: &str = "misc";
+
+/// One generated Haskell source: its Cabal module name and contents.
+struct HsFile {
+    module: String,
+    src: String,
+}
+
+impl HsFile {
+    fn path(&self) -> String {
+        format!("src/{}.hs", self.module.replace('.', "/"))
+    }
+}
+
+/// `css_2` -> `Css2`, `dom` -> `Dom`: the Haskell module segment for a
+/// plan chunk or api.json module.
+pub fn module_segment(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut upper = true;
+    for c in name.chars() {
+        if c == '_' || c == '-' {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    if out.is_empty() {
+        "Misc".to_string()
+    } else {
+        out
+    }
+}
+
+/// Everything the per-unit emitters need to know about the split.
+pub struct Split {
+    pub plan: ModulePlan,
+}
+
+impl Split {
+    pub fn new(ir: &CodegenIR) -> Self {
+        Split {
+            plan: ModulePlan::build(ir),
+        }
+    }
+
+    /// The api.json module a class / type / callback typedef belongs to.
+    pub fn module_of(&self, type_or_class: &str) -> String {
+        self.plan
+            .api_module_of(type_or_class)
+            .unwrap_or(FALLBACK_MODULE)
+            .to_string()
+    }
+
+    /// Every api.json module the per-class surface is split over: the
+    /// modules that own a type, plus the fallback for function-only
+    /// classes.
+    pub fn api_modules(&self, ir: &CodegenIR) -> Vec<String> {
+        let mut mods: std::collections::BTreeSet<String> =
+            self.plan.api_modules().into_iter().collect();
+        for f in &ir.functions {
+            mods.insert(self.module_of(&f.class_name));
+        }
+        for cb in &ir.callback_typedefs {
+            mods.insert(self.module_of(&cb.name));
+        }
+        mods.into_iter().collect()
+    }
+
+    /// Haskell module name of a types chunk.
+    pub fn types_module(&self, chunk_idx: usize) -> String {
+        format!("Azul.Types.{}", module_segment(&self.plan.chunks[chunk_idx].name))
+    }
+}
+
 /// Public entry point. Generates the full multi-file Haskell binding
 /// concatenated into a single `String` with file markers between
 /// chunks.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let umbrella = generate_umbrella(ir, config)?;
-    let ffi = generate_ffi(ir, config)?;
-    let types_src = generate_types_module(ir, config)?;
-    let cabal_src = cabal::generate_cabal(&ir.api_version);
-    let cshim_src = cshim::generate_c_shims(ir, config);
+    let split = Split::new(ir);
+    let mut files: Vec<HsFile> = Vec::new();
+
+    // 1. Types: one module per plan chunk + the codec + the facade.
+    files.push(HsFile {
+        module: "Azul.Types.Common".to_string(),
+        src: generate_types_common(config),
+    });
+    for (idx, chunk) in split.plan.chunks.iter().enumerate() {
+        files.push(HsFile {
+            module: split.types_module(idx),
+            src: generate_types_chunk(ir, config, &split, idx)?,
+        });
+        let _ = chunk;
+    }
+    let type_modules: Vec<String> = files.iter().map(|f| f.module.clone()).collect();
+    files.push(HsFile {
+        module: "Azul.Types".to_string(),
+        src: generate_reexport_facade(
+            "Azul.Types",
+            "Every Haskell datatype of the binding: the union of the per-module chunks.",
+            &type_modules,
+            &[],
+        ),
+    });
+
+    // 2. FFI: one module per api.json module + host + facade.
+    let api_modules = split.api_modules(ir);
+    let mut ffi_modules = Vec::new();
+    for m in &api_modules {
+        let module = format!("Azul.Internal.FFI.{}", module_segment(m));
+        files.push(HsFile {
+            module: module.clone(),
+            src: generate_ffi_module(ir, config, &split, m)?,
+        });
+        ffi_modules.push(module);
+    }
+    files.push(HsFile {
+        module: "Azul.Internal.FFI.Host".to_string(),
+        src: generate_ffi_host(ir, config)?,
+    });
+    ffi_modules.push("Azul.Internal.FFI.Host".to_string());
+    files.push(HsFile {
+        module: "Azul.Internal.FFI".to_string(),
+        src: generate_reexport_facade(
+            "Azul.Internal.FFI",
+            "Raw @foreign import ccall@ declarations against the libazul C ABI. This module is internal: use \"Azul\" for the curated surface.",
+            &ffi_modules,
+            &["{-# LANGUAGE ForeignFunctionInterface #-}"],
+        ),
+    });
+
+    // 3. The idiomatic layer + the `Azul` facade.
+    let ctx = wrappers::Ctx::new(ir, config, &split);
+    files.push(HsFile {
+        module: "Azul.Internal.Runtime".to_string(),
+        src: wrappers::generate_runtime_module(&ctx),
+    });
+    let mut handle_modules = Vec::new();
+    for m in &api_modules {
+        let module = format!("Azul.Internal.Handles.{}", module_segment(m));
+        files.push(HsFile {
+            module: module.clone(),
+            src: wrappers::generate_handles_module(&ctx, m),
+        });
+        handle_modules.push(module);
+    }
+    files.push(HsFile {
+        module: "Azul.Internal.Handles".to_string(),
+        src: generate_reexport_facade(
+            "Azul.Internal.Handles",
+            "Every managed wrapper type of the binding.",
+            &handle_modules,
+            &[],
+        ),
+    });
+    files.push(HsFile {
+        module: "Azul.Internal.Callbacks".to_string(),
+        src: wrappers::generate_callbacks_module(&ctx),
+    });
+    let mut api_hs_modules = Vec::new();
+    for m in &api_modules {
+        let module = format!("Azul.{}", module_segment(m));
+        files.push(HsFile {
+            module: module.clone(),
+            src: wrappers::generate_api_module(&ctx, m),
+        });
+        api_hs_modules.push(module);
+    }
+    let idiomatic_bodies: Vec<&str> = files
+        .iter()
+        .filter(|f| {
+            f.module == "Azul.Internal.Runtime"
+                || f.module == "Azul.Internal.Callbacks"
+                || f.module.starts_with("Azul.Internal.Handles.")
+                || api_hs_modules.contains(&f.module)
+        })
+        .map(|f| f.src.as_str())
+        .collect();
+    let mut facade_modules = vec![
+        "Azul.Internal.Runtime".to_string(),
+        "Azul.Internal.Handles".to_string(),
+        "Azul.Internal.Callbacks".to_string(),
+    ];
+    facade_modules.extend(api_hs_modules.iter().cloned());
+    files.push(HsFile {
+        module: "Azul".to_string(),
+        src: wrappers::generate_facade(&ctx, &facade_modules, &idiomatic_bodies),
+    });
 
     // Codegen-time guard: a Haskell module may declare each name at most
     // once. Emitters that key a declaration on something other than the
     // loop variable (a Vec's *element* type inside a per-*Vec* loop, for
     // instance) can silently produce two identical declarations, which
     // GHC only rejects much later with GHC-29916. Fail here instead.
-    check_no_duplicate_declarations("src/Azul.hs", &umbrella)?;
-    check_no_duplicate_declarations("src/Azul/Internal/FFI.hs", &ffi)?;
-    check_no_duplicate_declarations("src/Azul/Types.hs", &types_src)?;
+    for f in &files {
+        check_no_duplicate_declarations(&f.path(), &f.src)?;
+    }
 
-    let mut out = String::with_capacity(
-        umbrella.len() + ffi.len() + types_src.len() + cabal_src.len() + cshim_src.len() + 256,
-    );
-    push_section(&mut out, "src/Azul.hs", &umbrella);
-    push_section(&mut out, "src/Azul/Internal/FFI.hs", &ffi);
-    push_section(&mut out, "src/Azul/Types.hs", &types_src);
-    push_section(&mut out, "cbits/azul_shims.c", &cshim_src);
+    // 4. C shims, one per api.json module, plus the host-invoker file.
+    let mut c_sources: Vec<(String, String)> = Vec::new();
+    for m in &api_modules {
+        c_sources.push((
+            format!("cbits/azul_{}.c", m),
+            cshim::generate_c_shims_for_module(ir, config, &split, m),
+        ));
+    }
+    c_sources.push((
+        "cbits/azul_host.c".to_string(),
+        cshim::generate_host_shims(ir, config),
+    ));
+
+    let exposed: Vec<String> = files.iter().map(|f| f.module.clone()).collect();
+    let c_paths: Vec<String> = c_sources.iter().map(|(p, _)| p.clone()).collect();
+    let cabal_src = cabal::generate_cabal(&ir.api_version, &exposed, &c_paths);
+
+    let total: usize = files.iter().map(|f| f.src.len()).sum::<usize>()
+        + c_sources.iter().map(|(_, s)| s.len()).sum::<usize>()
+        + cabal_src.len();
+    let mut out = String::with_capacity(total + 64 * files.len());
+    for f in &files {
+        push_section(&mut out, &f.path(), &f.src);
+    }
+    for (p, s) in &c_sources {
+        push_section(&mut out, p, s);
+    }
     push_section(&mut out, "azul.cabal", &cabal_src);
     Ok(out)
+}
+
+fn push_section(out: &mut String, path: &str, content: &str) {
+    out.push_str(FILE_MARKER);
+    out.push_str(path);
+    out.push_str(END_MARKER);
+    out.push('\n');
+    out.push_str(content);
+    if !content.ends_with('\n') {
+        out.push('\n');
+    }
+}
+
+// ============================================================================
+// Per-file builders
+// ============================================================================
+
+fn generated_header(builder: &mut CodeBuilder, what: &str) {
+    builder.line(&format!("-- | {}", what));
+    builder.line("--");
+    builder.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
+}
+
+/// A module that only re-exports other modules.
+fn generate_reexport_facade(
+    name: &str,
+    what: &str,
+    modules: &[String],
+    pragmas: &[&str],
+) -> String {
+    let mut b = CodeBuilder::new("    ");
+    generated_header(&mut b, what);
+    for p in pragmas {
+        b.line(p);
+    }
+    b.line("{-# OPTIONS_GHC -Wno-unused-imports #-}");
+    b.blank();
+    b.line(&format!("module {}", name));
+    b.indent();
+    for (i, m) in modules.iter().enumerate() {
+        let prefix = if i == 0 { "( " } else { ", " };
+        b.line(&format!("{}module {}", prefix, m));
+    }
+    b.line(") where");
+    b.dedent();
+    b.blank();
+    for m in modules {
+        b.line(&format!("import {}", m));
+    }
+    b.finish()
+}
+
+/// `Azul.Types.Common`: the UTF-8 codec for the AzString boundary.
+/// `Foreign.C.String` would use the locale encoding, which is not
+/// guaranteed to be UTF-8; libazul strings always are.
+fn generate_types_common(config: &CodegenConfig) -> String {
+    let mut builder = CodeBuilder::new(&config.indent);
+    generated_header(&mut builder, "UTF-8 codec shared by every \"Azul.Types\" chunk.");
+    builder.blank();
+    builder.line("module Azul.Types.Common where");
+    builder.blank();
+    builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
+    builder.line("import Data.Char (chr, ord)");
+    builder.line("import Data.Word (Word8)");
+    builder.blank();
+    builder.line("-- | Encode a Haskell String as UTF-8 bytes (what every AzString holds).");
+    builder.line("encodeUtf8 :: String -> [Word8]");
+    builder.line("encodeUtf8 = concatMap enc");
+    builder.indent();
+    builder.line("where");
+    builder.indent();
+    builder.line("enc c");
+    builder.indent();
+    builder.line("| n < 0x80 = [fromIntegral n]");
+    builder.line("| n < 0x800 = [fromIntegral (0xC0 .|. (n `shiftR` 6)), cont n]");
+    builder.line("| n < 0x10000 = [fromIntegral (0xE0 .|. (n `shiftR` 12)), cont (n `shiftR` 6), cont n]");
+    builder.line("| otherwise = [fromIntegral (0xF0 .|. (n `shiftR` 18)), cont (n `shiftR` 12), cont (n `shiftR` 6), cont n]");
+    builder.indent();
+    builder.line("where n = ord c");
+    builder.dedent();
+    builder.dedent();
+    builder.line("cont n = fromIntegral (0x80 .|. (n .&. 0x3F))");
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+    builder.line("-- | Decode UTF-8 bytes into a Haskell String (malformed sequences become U+FFFD).");
+    builder.line("decodeUtf8 :: [Word8] -> String");
+    builder.line("decodeUtf8 [] = []");
+    builder.line("decodeUtf8 (b0 : rest)");
+    builder.indent();
+    builder.line("| b0 < 0x80 = chr (fromIntegral b0) : decodeUtf8 rest");
+    builder.line("| b0 .&. 0xE0 == 0xC0 = multi 1 (fromIntegral (b0 .&. 0x1F)) rest");
+    builder.line("| b0 .&. 0xF0 == 0xE0 = multi 2 (fromIntegral (b0 .&. 0x0F)) rest");
+    builder.line("| b0 .&. 0xF8 == 0xF0 = multi 3 (fromIntegral (b0 .&. 0x07)) rest");
+    builder.line("| otherwise = '\\xFFFD' : decodeUtf8 rest");
+    builder.indent();
+    builder.line("where");
+    builder.indent();
+    builder.line("multi :: Int -> Int -> [Word8] -> String");
+    builder.line("multi 0 acc bs = chr acc : decodeUtf8 bs");
+    builder.line("multi k acc (b : bs) | b .&. 0xC0 == 0x80 = multi (k - 1) ((acc `shiftL` 6) .|. fromIntegral (b .&. 0x3F)) bs");
+    builder.line("multi _ _ bs = '\\xFFFD' : decodeUtf8 bs");
+    builder.dedent();
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+    builder.finish()
+}
+
+/// One `Azul.Types.<Unit>` chunk: the declarations of the plan chunk's
+/// types, importing the chunks they reference.
+fn generate_types_chunk(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    idx: usize,
+) -> Result<String> {
+    let chunk = &split.plan.chunks[idx];
+    let mut builder = CodeBuilder::new(&config.indent);
+    generated_header(
+        &mut builder,
+        &format!(
+            "Haskell datatypes mirroring the C ABI structs and enums of the api.json module @{}@ (unit {} of the split), with 'Storable' instances whose sizes, alignments and member offsets are the C compiler's (the cbits layout oracle, see cshim.rs).",
+            chunk.api_module, chunk.ordinal
+        ),
+    );
+    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
+    builder.line("{-# LANGUAGE GeneralizedNewtypeDeriving #-}");
+    builder.line("{-# LANGUAGE DeriveFunctor #-}");
+    builder.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches #-}");
+    builder.blank();
+    builder.line(&format!("module {} where", split.types_module(idx)));
+    builder.blank();
+    builder.line("import Azul.Types.Common");
+    for dep in &chunk.deps {
+        builder.line(&format!("import {}", split.types_module(*dep)));
+    }
+    builder.line("import Foreign.C.Types");
+    builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, nullPtr)");
+    builder.line("import qualified Foreign.Ptr");
+    // `<vec>ToList` needs `alloca` for the per-element clone out-buffer.
+    // Qualified-only so the symbol doesn't pollute the import namespace
+    // of users who already had unqualified imports from
+    // Foreign.Marshal.Alloc in their own modules.
+    builder.line("import qualified Foreign.Marshal.Alloc");
+    builder.line("import Foreign.Storable (Storable(..))");
+    builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
+    builder.line("import Data.Char (chr, ord)");
+    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
+    builder.blank();
+
+    let members: std::collections::BTreeSet<&str> = chunk.types.iter().map(|s| s.as_str()).collect();
+    types::emit_type_decls_for(&mut builder, ir, config, &|t| members.contains(t))?;
+    Ok(builder.finish())
+}
+
+/// `Azul.Internal.FFI.<Module>`: the C imports of one api.json module.
+fn generate_ffi_module(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+    generated_header(
+        &mut builder,
+        &format!(
+            "Raw @foreign import ccall@ declarations for the classes and callback typedefs of the api.json module @{}@. Internal: use \"Azul\" for the curated surface.",
+            api_module
+        ),
+    );
+    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
+    builder.line("{-# LANGUAGE CApiFFI #-}");
+    builder.line("{-# OPTIONS_GHC -Wno-unused-imports #-}");
+    builder.blank();
+    builder.line(&format!(
+        "module Azul.Internal.FFI.{} where",
+        module_segment(api_module)
+    ));
+    builder.blank();
+    builder.line("import Azul.Types");
+    builder.line("import Foreign.C.Types");
+    builder.line("import Foreign.Ptr (Ptr, FunPtr)");
+    builder.line("import Foreign.Marshal.Alloc (alloca)");
+    builder.line("import Foreign.Storable (Storable(..), poke)");
+    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
+    builder.blank();
+
+    let belongs = |name: &str| split.module_of(name) == api_module;
+    functions::emit_foreign_imports_for(&mut builder, ir, config, &belongs)?;
+
+    // Per callback typedef, a `register<X>Callback` helper that hides the
+    // inbound-trampoline triplet (mk_<X>_inner + c_Az<X>_set_inner +
+    // p_Az<X>_trampoline) behind a single function. Lives here so the
+    // type signatures match the mk_<X>_inner shape exactly.
+    functions::emit_callback_register_helpers_for(&mut builder, ir, config, &belongs)?;
+
+    Ok(builder.finish())
+}
+
+/// `Azul.Internal.FFI.Host`: the host-invoker protocol imports.
+fn generate_ffi_host(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+    generated_header(
+        &mut builder,
+        "Host-invoker protocol imports (see core/src/host_invoker.rs): host-handle RefAny + per-kind invokers.",
+    );
+    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
+    builder.line("{-# OPTIONS_GHC -Wno-unused-imports #-}");
+    builder.blank();
+    builder.line("module Azul.Internal.FFI.Host where");
+    builder.blank();
+    builder.line("import Azul.Types");
+    builder.line("import Foreign.C.Types");
+    builder.line("import Foreign.Ptr (Ptr, FunPtr)");
+    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
+    builder.blank();
+    functions::emit_host_invoker_imports(&mut builder, ir, config);
+    Ok(builder.finish())
 }
 
 // ============================================================================
@@ -105,8 +545,9 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 ///
 /// Recognised shapes (all of which GHC rejects if repeated in one module):
 /// - `data <Name>` / `newtype <Name>` / `type <Name>` at column 0
-/// - a type signature `<name> :: <ty>` — at column 0 for a plain binding, or indented directly
-///   under a `foreign import ...` header, which is how this backend emits its FFI bindings.
+/// - a type signature `<name> :: <ty>` — at column 0 for a plain binding,
+///   or indented directly under a `foreign import ...` header, which is
+///   how this backend emits its FFI bindings.
 ///
 /// Deliberately *not* matched, because they are not module-scope
 /// declarations: record fields (`{ foo :: !T` / `, bar :: !T` — the line
@@ -192,157 +633,14 @@ fn check_no_duplicate_declarations(path: &str, src: &str) -> Result<()> {
     }
     if !dupes.is_empty() {
         anyhow::bail!(
-            "Haskell codegen emitted {} duplicate module-scope declaration(s) in {} (GHC rejects \
-             these with GHC-29916 \"Multiple declarations of ...\"):\n{}",
+            "Haskell codegen emitted {} duplicate module-scope declaration(s) in {} \
+             (GHC rejects these with GHC-29916 \"Multiple declarations of ...\"):\n{}",
             dupes.len(),
             path,
             dupes.join("\n")
         );
     }
     Ok(())
-}
-
-fn push_section(out: &mut String, path: &str, content: &str) {
-    out.push_str(FILE_MARKER);
-    out.push_str(path);
-    out.push_str(END_MARKER);
-    out.push('\n');
-    out.push_str(content);
-    if !content.ends_with('\n') {
-        out.push('\n');
-    }
-}
-
-// ============================================================================
-// Per-file builders
-// ============================================================================
-
-fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new(&config.indent);
-    wrappers::emit_umbrella_module(&mut builder, ir, config)?;
-    Ok(builder.finish())
-}
-
-fn generate_ffi(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new(&config.indent);
-
-    builder.line("-- | Raw @foreign import ccall@ declarations against the libazul C ABI.");
-    builder.line("-- This module is internal: use \"Azul\" for the curated surface.");
-    builder.line("--");
-    builder.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
-    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
-    builder.line("{-# LANGUAGE CApiFFI #-}");
-    builder.blank();
-    builder.line("module Azul.Internal.FFI where");
-    builder.blank();
-    builder.line("import Azul.Types");
-    builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr)");
-    builder.line("import Foreign.Marshal.Alloc (alloca)");
-    builder.line("import Foreign.Storable (Storable(..), poke)");
-    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
-    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
-    builder.blank();
-
-    functions::emit_foreign_imports(&mut builder, ir, config)?;
-
-    // Per callback typedef, a `register<X>Callback` helper that hides the
-    // inbound-trampoline triplet (mk_<X>_inner + c_Az<X>_set_inner +
-    // p_Az<X>_trampoline) behind a single function. Lives here (FFI.hs)
-    // so the type signatures match the mk_<X>_inner shape exactly — both
-    // modules import `Azul.Types` unqualified.
-    functions::emit_callback_register_helpers(&mut builder, ir, config)?;
-
-    Ok(builder.finish())
-}
-
-fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new(&config.indent);
-
-    builder.line("-- | Haskell datatypes that mirror the C ABI structs and enums,");
-    builder.line("-- with 'Storable' instances whose sizes, alignments and member offsets");
-    builder.line("-- are the C compiler's (the cbits layout oracle, see cshim.rs).");
-    builder.line("--");
-    builder.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
-    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
-    builder.line("{-# LANGUAGE GeneralizedNewtypeDeriving #-}");
-    builder.line("{-# LANGUAGE DeriveFunctor #-}");
-    builder.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches #-}");
-    builder.blank();
-    builder.line("module Azul.Types where");
-    builder.blank();
-    builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, nullPtr)");
-    builder.line("import qualified Foreign.Ptr");
-    // `<vec>ToList` needs `alloca` for the per-element clone out-buffer.
-    // Qualified-only so the symbol doesn't pollute the import namespace
-    // of users who already had unqualified imports from
-    // Foreign.Marshal.Alloc in their own modules.
-    builder.line("import qualified Foreign.Marshal.Alloc");
-    builder.line("import Foreign.Storable (Storable(..))");
-    builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
-    builder.line("import Data.Char (chr, ord)");
-    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
-    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
-    builder.blank();
-
-    // UTF-8 codec for the AzString boundary. `Foreign.C.String` would use
-    // the locale encoding, which is not guaranteed to be UTF-8; libazul
-    // strings always are.
-    builder.line("-- | Encode a Haskell String as UTF-8 bytes (what every AzString holds).");
-    builder.line("encodeUtf8 :: String -> [Word8]");
-    builder.line("encodeUtf8 = concatMap enc");
-    builder.indent();
-    builder.line("where");
-    builder.indent();
-    builder.line("enc c");
-    builder.indent();
-    builder.line("| n < 0x80 = [fromIntegral n]");
-    builder.line("| n < 0x800 = [fromIntegral (0xC0 .|. (n `shiftR` 6)), cont n]");
-    builder.line(
-        "| n < 0x10000 = [fromIntegral (0xE0 .|. (n `shiftR` 12)), cont (n `shiftR` 6), cont n]",
-    );
-    builder.line(
-        "| otherwise = [fromIntegral (0xF0 .|. (n `shiftR` 18)), cont (n `shiftR` 12), cont (n \
-         `shiftR` 6), cont n]",
-    );
-    builder.indent();
-    builder.line("where n = ord c");
-    builder.dedent();
-    builder.dedent();
-    builder.line("cont n = fromIntegral (0x80 .|. (n .&. 0x3F))");
-    builder.dedent();
-    builder.dedent();
-    builder.blank();
-    builder
-        .line("-- | Decode UTF-8 bytes into a Haskell String (malformed sequences become U+FFFD).");
-    builder.line("decodeUtf8 :: [Word8] -> String");
-    builder.line("decodeUtf8 [] = []");
-    builder.line("decodeUtf8 (b0 : rest)");
-    builder.indent();
-    builder.line("| b0 < 0x80 = chr (fromIntegral b0) : decodeUtf8 rest");
-    builder.line("| b0 .&. 0xE0 == 0xC0 = multi 1 (fromIntegral (b0 .&. 0x1F)) rest");
-    builder.line("| b0 .&. 0xF0 == 0xE0 = multi 2 (fromIntegral (b0 .&. 0x0F)) rest");
-    builder.line("| b0 .&. 0xF8 == 0xF0 = multi 3 (fromIntegral (b0 .&. 0x07)) rest");
-    builder.line("| otherwise = '\\xFFFD' : decodeUtf8 rest");
-    builder.indent();
-    builder.line("where");
-    builder.indent();
-    builder.line("multi :: Int -> Int -> [Word8] -> String");
-    builder.line("multi 0 acc bs = chr acc : decodeUtf8 bs");
-    builder.line(
-        "multi k acc (b : bs) | b .&. 0xC0 == 0x80 = multi (k - 1) ((acc `shiftL` 6) .|. \
-         fromIntegral (b .&. 0x3F)) bs",
-    );
-    builder.line("multi _ _ bs = '\\xFFFD' : decodeUtf8 bs");
-    builder.dedent();
-    builder.dedent();
-    builder.dedent();
-    builder.blank();
-
-    types::emit_type_decls(&mut builder, ir, config)?;
-
-    Ok(builder.finish())
 }
 
 // ============================================================================
@@ -582,4 +880,91 @@ fn upper_first(s: &str) -> String {
 /// surrounding Haskell block comment if it ever ends up inside one.
 pub fn sanitize_doc(s: &str) -> String {
     s.replace('\n', " ").replace("-}", "- }").trim().to_string()
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::super::config::CodegenConfig;
+    use super::super::module_plan::test_fixture_ir;
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn generated() -> BTreeMap<String, String> {
+        let ir = test_fixture_ir();
+        let out = generate(&ir, &CodegenConfig::c_header()).expect("haskell codegen");
+        let mut files = BTreeMap::new();
+        let mut cur: Option<String> = None;
+        for line in out.lines() {
+            if let Some(rest) = line.strip_prefix(FILE_MARKER) {
+                cur = Some(rest.trim_end_matches(END_MARKER).trim().to_string());
+                files.insert(cur.clone().unwrap(), String::new());
+            } else if let Some(p) = &cur {
+                let f = files.get_mut(p).unwrap();
+                f.push_str(line);
+                f.push('\n');
+            }
+        }
+        files
+    }
+
+    /// Every type lands in the chunk module of its api.json module, the
+    /// container next to its element, and a chunk imports the chunks it
+    /// references.
+    #[test]
+    fn types_split_per_module_with_imports() {
+        let files = generated();
+        let css = &files["src/Azul/Types/Css.hs"];
+        let dom = &files["src/Azul/Types/Dom.hs"];
+        assert!(css.contains("data Color0 = Color0"), "{}", css);
+        assert!(dom.contains("data Dom = Dom"), "{}", dom);
+        assert!(dom.contains("data DomVec = DomVec"), "DomVec follows Dom:\n{}", dom);
+        assert!(!css.contains("data Dom ="));
+        assert!(dom.contains("import Azul.Types.Css"), "dom embeds Color0:\n{}", dom);
+        assert!(!css.contains("import Azul.Types.Dom"));
+        assert!(files["src/Azul/Types/Widgets.hs"].contains("import Azul.Types.Dom"));
+    }
+
+    /// The facades re-export every unit, and the cabal manifest lists
+    /// every module and C source the generator wrote.
+    #[test]
+    fn facades_and_manifest_cover_every_unit() {
+        let files = generated();
+        let hs: Vec<&String> = files.keys().filter(|k| k.ends_with(".hs")).collect();
+        let cabal = &files["azul.cabal"];
+        for path in &hs {
+            let module = path.trim_start_matches("src/").trim_end_matches(".hs").replace('/', ".");
+            assert!(cabal.contains(&format!("\n                        {}\n", module)), "cabal lacks {}", module);
+        }
+        for path in files.keys().filter(|k| k.ends_with(".c")) {
+            assert!(cabal.contains(path.as_str()), "cabal lacks {}", path);
+        }
+        let types = &files["src/Azul/Types.hs"];
+        for m in ["Azul.Types.Common", "Azul.Types.Css", "Azul.Types.Dom", "Azul.Types.Widgets"] {
+            assert!(types.contains(&format!("module {}", m)), "Azul.Types lacks {}", m);
+        }
+        let azul = &files["src/Azul.hs"];
+        for m in ["Azul.Internal.Runtime", "Azul.Internal.Handles", "Azul.Internal.Callbacks", "Azul.Dom", "Azul.Widgets"] {
+            assert!(azul.contains(&format!("module {}", m)), "Azul lacks {}:\n{}", m, azul);
+        }
+        assert!(azul.contains("T.Update(..)"), "unwrapped types are re-exported:\n{}", azul);
+    }
+
+    /// The per-class surface is grouped by api.json module: the FFI import,
+    /// the wrapper type and the method of a widget live in the widgets
+    /// units, and a method returning another module's class goes through
+    /// the handles facade rather than that module.
+    #[test]
+    fn per_class_surface_is_grouped_by_module() {
+        let files = generated();
+        assert!(files["src/Azul/Internal/FFI/Widgets.hs"].contains("\"AzButton_dom"));
+        assert!(!files["src/Azul/Internal/FFI/Dom.hs"].contains("AzButton_"));
+        assert!(files["src/Azul/Internal/Handles/Widgets.hs"].contains("data Button = Button"));
+        assert!(files["src/Azul/Internal/Handles/Dom.hs"].contains("data Dom = Dom"));
+        let widgets = &files["src/Azul/Widgets.hs"];
+        assert!(widgets.contains("buttonDom :: Button -> IO Dom"), "{}", widgets);
+        assert!(widgets.contains("import Azul.Internal.Handles"));
+        assert!(files["src/Azul/Dom.hs"].contains("domCreateBody :: IO Dom"));
+        assert!(files["cbits/azul_dom.c"].contains("az_hs_sizeof_Dom"));
+        assert!(!files["cbits/azul_widgets.c"].contains("az_hs_sizeof_Dom"));
+    }
 }
