@@ -454,8 +454,6 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
     }
 }
 
-/// Take a native screenshot on Linux/X11 using XGetImage via dlopen
-#[cfg(target_os = "linux")]
 /// Set by the temporary X error handler installed around the decorated
 /// (root-window) grab, so the caller can fall back to the plain client grab
 /// instead of returning a half-read image. Process-global because Xlib's error
@@ -465,6 +463,8 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
 static FRAME_GRAB_FAILED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
+/// Take a native screenshot on Linux/X11 using XGetImage via dlopen
+#[cfg(target_os = "linux")]
 fn take_native_screenshot_xlib_bytes(
     display: *mut core::ffi::c_void,
     window: u64,
