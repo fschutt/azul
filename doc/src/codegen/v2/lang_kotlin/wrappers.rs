@@ -6,10 +6,10 @@
 //! ```kotlin
 //! class App private constructor(private val ptr: Pointer) : AutoCloseable {
 //!     companion object {
-//!         fun create(...): App = App(AzulNative.INSTANCE.AzApp_create(...).pointer!!)
+//!         fun create(...): App = App(AzulNative.AzApp_create(...).pointer!!)
 //!     }
-//!     override fun close() = AzulNative.INSTANCE.AzApp_delete(ptr)
-//!     fun run(...) = AzulNative.INSTANCE.AzApp_run(ptr, ...)
+//!     override fun close() = AzulNative.AzApp_delete(ptr)
+//!     fun run(...) = AzulNative.AzApp_run(ptr, ...)
 //! }
 //! ```
 //!
@@ -170,7 +170,7 @@ fn is_az_string_kt(raw: &str, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
-/// Build an `<NativeClass>.INSTANCE.Az<OptionT>_delete(__ret.getPointer())`
+/// Build an `<NativeClass>.Az<OptionT>_delete(__ret.getPointer())`
 /// call (or None when there's no _delete export).
 fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
@@ -184,12 +184,12 @@ fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Optio
     let native = super::super::lang_java::functions::native_class_for_class(option_type_name, ir);
     let ffi_name = ffi_type_name(option_type_name);
     Some(format!(
-        "{}.INSTANCE.{}_delete(__ret.getPointer())",
+        "{}.{}_delete(__ret.getPointer())",
         native, ffi_name
     ))
 }
 
-/// Build an `<NativeClass>.INSTANCE.Az<T>_clone` expression for a
+/// Build an `<NativeClass>.Az<T>_clone` expression for a
 /// wrapper-class payload type, or None if no _clone export exists.
 fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
@@ -202,7 +202,7 @@ fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<Strin
     }
     let native = super::super::lang_java::functions::native_class_for_class(payload_type_name, ir);
     let ffi_name = ffi_type_name(payload_type_name);
-    Some(format!("{}.INSTANCE.{}_clone", native, ffi_name))
+    Some(format!("{}.{}_clone", native, ffi_name))
 }
 
 /// Emit the body for an `Option<T>` return. `__ret` (the FFI `Az*Option`
@@ -480,7 +480,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.line("if (__guard.compareAndSet(false, true)) {");
     builder.indent();
     builder.line(&format!(
-        "{}.INSTANCE.{}_delete(__p)",
+        "{}.{}_delete(__p)",
         super::super::lang_java::functions::native_class_for_class(&s.name, ir),
         ffi_name
     ));
@@ -638,7 +638,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
                 builder.indent();
                 builder.line(&format!("val __cb = AzulHostInvoker.{}(fn)", register_fn));
                 builder.line(&format!(
-                    "val __wco = {}.INSTANCE.{}()",
+                    "val __wco = {}.{}()",
                     native_class, info.default_c_name
                 ));
                 builder.line("__cb.write()");
@@ -844,7 +844,7 @@ fn emit_kt_az_string_conv(pre_call_lines: &mut Vec<String>, raw_name: &str) -> S
         bytes = bytes_name,
     ));
     pre_call_lines.push(format!(
-        "val {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, {bytes}.size.toLong())",
+        "val {az} = AzulNativeStr.AzString_fromUtf8({mem}, {bytes}.size.toLong())",
         az = az_name,
         mem = mem_name,
         bytes = bytes_name,
@@ -879,7 +879,7 @@ fn emit_kt_equals_hashcode_if_supported(
         // memory whose ownership was already transferred/dropped.
         builder.line("if (this.closed || other.closed) return this === other");
         builder.line(&format!(
-            "return {}.INSTANCE.{}(this.ptr, other.ptr).toInt() != 0",
+            "return {}.{}(this.ptr, other.ptr).toInt() != 0",
             native, eq_sym
         ));
         builder.dedent();
@@ -893,7 +893,7 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.indent();
         // Non-nullable `ptr` — guard on `closed`, not a dead null check.
         builder.line("if (closed) return 0");
-        builder.line(&format!("val h = {}.INSTANCE.{}(ptr)", native, hash_sym));
+        builder.line(&format!("val h = {}.{}(ptr)", native, hash_sym));
         builder.line("return (h xor (h ushr 32)).toInt()");
         builder.dedent();
         builder.line("}");
@@ -925,7 +925,7 @@ fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: 
     // Non-nullable `ptr` — the null half of the old guard was an
     // always-false warning; `closed` is the real lifecycle gate.
     builder.line("if (closed) return super.toString()");
-    builder.line(&format!("val __s = {}.INSTANCE.{}(ptr)", native, dbg_sym));
+    builder.line(&format!("val __s = {}.{}(ptr)", native, dbg_sym));
     builder.line("__s.write()");
     builder.line("val __sp = __s.pointer");
     builder.line("val __vecPtr: Pointer? = __sp.getPointer(0)");
@@ -935,7 +935,7 @@ fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: 
     // ByteArray.toString(Charset) avoids the wrapper-class `String`
     // constructor collision (see earlier fix in s.name == \"String\" block).
     builder.line("val __out = __bytes.toString(Charsets.UTF_8)");
-    builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp)");
+    builder.line("AzulNativeStr.AzString_delete(__sp)");
     builder.line("return __out");
     builder.dedent();
     builder.line("}");
@@ -1193,7 +1193,7 @@ fn emit_static_factory(
     // than `func.method_name` (raw snake-case from api.json) which
     // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
-        "{}.INSTANCE.{}({})",
+        "{}.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
         super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
@@ -1421,7 +1421,7 @@ fn emit_instance_method(
     // than `func.method_name` (raw snake-case from api.json) which
     // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
-        "{}.INSTANCE.{}({})",
+        "{}.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
         super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
