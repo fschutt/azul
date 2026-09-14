@@ -250,8 +250,21 @@ fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
 ///    GNOME/KDE/xrdb).
 /// 2. The monitor cache's `scale_factor` (XRandR/EDID mm-based estimate), quantized to 25% steps so
 ///    measurement noise on ordinary monitors (e.g. a computed 1.04) stays exactly at scale 1.0 /
-///    dpi 96.
+///    dpi 96, and FLOORED AT 1.0 — see below.
 /// 3. 96 (scale 1.0).
+///
+/// The floor is the whole difference between this looking right and looking
+/// shrunken. The mm-based estimate exists to DETECT HiDPI, and a result below
+/// 1.0 does not mean "make everything smaller", it means "this is an ordinary
+/// display" — which is scale 1.0. A 27" 1920x1080 panel reports 602x343 mm,
+/// i.e. 81 DPI, which quantized to 25% steps is 0.75: every window came out at
+/// three quarters of the size the app asked for (900x620 -> 675x465), with
+/// every font 25% too small and blurry from being rasterised at a fractional
+/// scale. GTK on the same session uses 96 (`gtk-xft-dpi=98304` = 96 * 1024),
+/// which is why only azul looked wrong.
+///
+/// An EXPLICIT `Xft.dpi` below 96 is still honoured — that is the user asking
+/// for it, not a guess from a number the monitor's EDID happens to report.
 fn detect_initial_dpi(xlib: &Xlib, display: *mut Display) -> u32 {
     // 1. Xft.dpi from the RESOURCE_MANAGER property (xrdb database).
     if let Some(dpi) = xft_dpi(xlib, display) {
@@ -266,7 +279,7 @@ fn detect_initial_dpi(xlib: &Xlib, display: *mut Display) -> u32 {
         .find(|m| m.is_primary_monitor)
         .or_else(|| monitors.as_slice().first())
     {
-        let quantized = (m.scale_factor * 4.0).round() / 4.0;
+        let quantized = ((m.scale_factor * 4.0).round() / 4.0).max(1.0);
         if quantized > 0.0 {
             return (quantized * 96.0) as u32;
         }
@@ -5454,9 +5467,13 @@ impl X11Window {
                                 );
                             }
                         }
-                        // Same 0.25-step quantization as detect_initial_dpi, so a
-                        // noisy mm-based estimate (~1.04) stays at exactly 96 DPI.
-                        let new_dpi = (((display.scale_factor * 4.0).round() / 4.0) * 96.0) as u32;
+                        // Same 0.25-step quantization AND the same 1.0 floor as
+                        // detect_initial_dpi: a noisy mm-based estimate (~1.04)
+                        // stays at exactly 96 DPI, and an ordinary-density
+                        // monitor (a 27" 1080p panel estimates 0.84) must not
+                        // shrink the window when it is dragged onto it.
+                        let new_dpi = ((((display.scale_factor * 4.0).round() / 4.0).max(1.0))
+                            * 96.0) as u32;
                         let old_dpi = self.common.current_window_state().size.dpi;
                         if !has_xft_dpi
                             && new_dpi > 0
