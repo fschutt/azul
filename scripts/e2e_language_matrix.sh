@@ -1158,6 +1158,17 @@ lang_go() {
     cd "$REPO_ROOT/examples/go" || exit 1
     export CGO_ENABLED=1
     export CGO_CFLAGS="-I."
+    # cgo with gcc does not finish on the runner. Its first probe is a
+    # generated C file of ~94k lines — five deliberately failing functions for
+    # each of the ~9,400 C names the binding references, all under the 5.6 MB
+    # azul.h — and gcc's error-recovery path crawls through it: one cc1 ran
+    # 150 s+ on a fast arm64 box and 900 s+ on the 2-core ubuntu runner, twice
+    # (2026-09-12/14). clang takes the same probe in 16 s and the whole build
+    # in 35 s (measured in golang:1.22, Debian clang 14). The e2e runner
+    # installs clang; use it wherever it exists.
+    if command -v clang >/dev/null 2>&1; then
+      export CC=clang
+    fi
     local OUT="hello-world-go-e2e"
     if [ "$IS_MACOS" = 1 ]; then
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
@@ -2237,14 +2248,11 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # costs about as much again: 1m48s for a clean `make` on an M-series Mac,
     # and CI's ubuntu runner is slower. The default 240s left no margin.
     fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
-    # cgo compiles the generated azul-go package from scratch on every run: five
-    # MB of Go over 126k lines (wrappers.go alone is 2.8 MB) plus the DWARF
-    # probe of azul.h. 32 s on an M-series Mac; the 2-core ubuntu runner ran
-    # past 600 s on both attempts (2026-09-12, run 34707993902) with nothing
-    # after `go build` in the log. Same budget as the other big generated
-    # packages — and then past 900 s as well (2026-09-14, run 34858574462),
-    # so 1800 s while the timestamped `-x` log below shows where the time goes.
-    go) [ "$LANG_TIMEOUT" -lt 1800 ] && LANG_TIMEOUT=1800 ;;
+    # cgo compiles the generated azul-go package from scratch on every run:
+    # five MB of Go over 126k lines plus the probes of azul.h. 35 s with
+    # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
+    # slow runner without hiding a return of that class.
+    go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`
