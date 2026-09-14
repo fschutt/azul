@@ -2300,6 +2300,33 @@ pub(crate) fn discover() -> SystemStyle {
     // App-specific ricing stylesheet
     style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
 
+    // ── 4. `AZ_THEME=light|dark` overrides the lot ──────────────────
+    // Applied HERE, before DISCOVERED_THEME is written, so the pin reaches the
+    // window theme too and not just the cascade. The replacement palette
+    // follows the session: a KDE desktop pinned light gets Breeze Light, not
+    // Adwaita, so the capture still looks like the desktop it was taken on.
+    let kde_session = matches!(
+        linux_settings_source(&azul_css::system::detect_linux_desktop_env()),
+        LinuxSettingsSource::KdeConfig
+    );
+    azul_css::system::apply_env_theme_pin(
+        &mut style,
+        || {
+            if kde_session {
+                defaults::kde_breeze_light()
+            } else {
+                defaults::gnome_adwaita_light()
+            }
+        },
+        || {
+            if kde_session {
+                defaults::kde_breeze_dark()
+            } else {
+                defaults::gnome_adwaita_dark()
+            }
+        },
+    );
+
     // Remember what full detection concluded, so a session with no
     // xdg-desktop-portal still has a light/dark answer for the WINDOW theme.
     // See `effective_system_theme`.

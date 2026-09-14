@@ -87,6 +87,71 @@ pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
 }
 
+/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_THEME`
+/// pins, swapping in `light` / `dark` as the replacement palette.
+///
+/// `AZ_THEME=light|dark` exists so a screenshot or a reftest renders the same
+/// on any machine. It used to pin only the CASCADE (`@theme` blocks, via
+/// `dynamic_selector::theme_pinned_by_env`) and the WINDOW theme — but the
+/// window BACKGROUND, the "is this a full regeneration" decision and the
+/// display list's no-context fallback all read `SystemStyle` instead. On a
+/// dark desktop `AZ_THEME=light` therefore rendered light-theme TEXT on the
+/// desktop's DARK background: unreadable, and shipped to the website as the
+/// "light" screenshot of the Linux build. A pin that does not reach here is
+/// not a pin.
+///
+/// Only the polarity-dependent visuals move — the palette, the focus ring and
+/// the scrollbar. The desktop's fonts, metrics, icon and cursor themes are
+/// what make a capture look like the platform it was taken on, and none of
+/// them have a light/dark polarity to disagree about. `light` and `dark` are
+/// closures so the caller picks the palette family that matches what it just
+/// discovered — Breeze on a KDE session, Adwaita on GNOME — and so neither is
+/// built when nothing is pinned, which is every normal run.
+pub fn apply_env_theme_pin(
+    style: &mut SystemStyle,
+    light: impl FnOnce() -> SystemStyle,
+    dark: impl FnOnce() -> SystemStyle,
+) {
+    use crate::dynamic_selector::ThemeCondition;
+
+    let Some(pin) = crate::dynamic_selector::theme_pinned_by_env() else {
+        return;
+    };
+    let wanted = match pin {
+        ThemeCondition::Dark => Theme::Dark,
+        _ => Theme::Light,
+    };
+    if style.theme == wanted {
+        return;
+    }
+
+    let mut replacement = match wanted {
+        Theme::Dark => dark(),
+        Theme::Light => light(),
+    };
+
+    // An EXPLICIT list of what has a polarity, not "replace the struct and put
+    // a few things back". These callers run the pin at the END of discovery,
+    // after `platform`, `language`, `os_version`, the accessibility flags and
+    // the user's ricing stylesheet have all been filled in, and a wholesale
+    // replacement would quietly reset every one of them to whatever the
+    // built-in palette carries.
+    style.theme = replacement.theme;
+    style.focus_visuals = replacement.focus_visuals;
+    // `SystemStyle` implements `Drop` (the FFI double-drop guard), so the one
+    // boxed field here has to be TAKEN rather than moved out of `replacement`.
+    style.scrollbar = core::mem::take(&mut replacement.scrollbar);
+
+    // The ACCENT survives: it is the one colour the user picked themselves,
+    // it is a hue rather than a polarity, and both desktops that report one
+    // (KDE, the XDG portal) report it independently of light/dark.
+    let accent = style.colors.accent;
+    style.colors = replacement.colors;
+    if accent.is_some() {
+        style.colors.accent = accent;
+    }
+}
+
 // --- Public Data Structures ---
 #[allow(variant_size_differences)]
 // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size

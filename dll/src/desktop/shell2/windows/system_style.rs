@@ -343,6 +343,16 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
 
     discover_windows_riced_style(&mut style);
 
+    // `AZ_THEME=light|dark` overrides the lot — see
+    // `azul_css::system::apply_env_theme_pin`. Applied last so it outranks
+    // every probe above, and reaching the SYSTEM style (not just the cascade)
+    // is what keeps a pinned capture's BACKGROUND in the theme it asked for.
+    azul_css::system::apply_env_theme_pin(
+        &mut style,
+        defaults::windows_11_light,
+        defaults::windows_11_dark,
+    );
+
     style
 }
 
