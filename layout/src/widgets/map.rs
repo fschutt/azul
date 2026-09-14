@@ -2174,14 +2174,25 @@ pub extern "C" fn map_tile_writeback(
     Update::DoNothing
 }
 
-/// Inclusive `(x_min, x_max, y_min, y_max)` tile range covering a
-/// `width_px x height_px` viewport centred at tile-space `(centre_x,
-/// centre_y)`, at fractional `zoom_scale` and integer `tile_count` (2^z).
-/// A one-tile margin (`+ 1.0`) is added each side so a tile scrolling into
-/// view is already requested; the result is clamped to the valid
-/// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
-/// loop - what decides which tiles get fetched.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+/// Inclusive `(x_min, x_max, y_min, y_max)` tile range for a `width_px x
+/// height_px` viewport centred at tile-space `(centre_x, centre_y)`, at
+/// fractional `zoom_scale` and integer `tile_count` (2^z). The pure core of
+/// `map_widget_render`'s grid loop — what decides which tiles get fetched.
+///
+/// The range is the tiles that actually INTERSECT the viewport, plus ONE tile of
+/// padding per axis (USER RULING 2026-09-14: "even with one tile padding over the
+/// 4x3 visible tiles it's 5x4 = 20 tiles, not 42"). The padding goes on the side
+/// whose viewport edge is nearest the next tile boundary — the tile a small pan
+/// reveals first.
+///
+/// This used to add a whole tile on EVERY side (`+ 1.0` to each half-extent) and
+/// then took `ceil` of an inclusive maximum, which names the tile that starts
+/// beyond the edge. Together that made an 874x523 map request 42 tiles (7x6) for
+/// 12 visible. Every request is a real download: ask for what is shown.
+///
+/// x is not clamped (the map wraps horizontally; callers take the column mod
+/// `tile_count`); y is clamped to `0..=tile_count-1`, and padding that would fall
+/// past a pole goes to the other side instead of being lost.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render
                                                                        // numeric cast
 fn visible_tile_range(
@@ -2193,19 +2204,60 @@ fn visible_tile_range(
     tile_count: u32,
 ) -> (i32, i32, i32, i32) {
     let tile_px = 256.0 * zoom_scale;
-    let half_w = (width_px / tile_px).abs() * 0.5 + 1.0;
-    let half_h = (height_px / tile_px).abs() * 0.5 + 1.0;
+    let half_w = (width_px / tile_px).abs() * 0.5;
+    let half_h = (height_px / tile_px).abs() * 0.5;
     let max_idx = tile_count as i32 - 1;
-    // x is NOT clamped: the map wraps horizontally. Callers take the tile id mod
-    // `tile_count` (so a column past the antimeridian shows the far side of the
-    // world) while positioning the div at the un-wrapped column — seamless pan
-    // across ±180° with no empty gutter. y IS clamped: there is no data beyond
-    // the Web-Mercator poles, so vertical over-scan must not request bogus rows.
-    let x_min = (centre_x - half_w).floor() as i32;
-    let x_max = (centre_x + half_w).ceil() as i32;
-    let y_min = ((centre_y - half_h).floor() as i32).max(0);
-    let y_max = ((centre_y + half_h).ceil() as i32).min(max_idx);
+
+    let (x_min, x_max) = padded_axis(centre_x, half_w, None);
+    let (y_min, y_max) = padded_axis(centre_y, half_h, Some(max_idx));
     (x_min, x_max, y_min, y_max)
+}
+
+/// One axis of [`visible_tile_range`]: the tiles intersecting
+/// `[centre - half, centre + half]`, plus one tile on the nearer side.
+/// `clamp_max` bounds a clamped axis (y) to `0..=clamp_max`.
+#[allow(clippy::cast_possible_truncation)] // saturating float->int casts, by design
+fn padded_axis(centre: f32, half: f32, clamp_max: Option<i32>) -> (i32, i32) {
+    let lo_edge = centre - half;
+    let hi_edge = centre + half;
+    // A non-finite extent (zoom scale 0 → infinite tiles per pixel) spans
+    // everything, and a NaN centre collapses to one cell; the saturating casts
+    // already say both. Neither is a real view, so neither gets padding.
+    if !half.is_finite() || !centre.is_finite() {
+        let (lo, hi) = (lo_edge.floor() as i32, hi_edge.ceil() as i32);
+        return match clamp_max {
+            Some(m) => (lo.max(0), hi.min(m)),
+            None => (lo, hi),
+        };
+    }
+    // Tile n covers [n, n + 1). The first tile the view touches is floor(lo);
+    // the last is the tile whose START is below hi, i.e. ceil(hi) - 1 — and at
+    // least the first, for a zero-width view.
+    let mut lo = lo_edge.floor() as i32;
+    let mut hi = (hi_edge.ceil() as i32).saturating_sub(1).max(lo);
+    if let Some(m) = clamp_max {
+        // A degenerate tile count (0, or u32::MAX wrapping to -1) leaves no valid
+        // row: return an EMPTY span (lo > hi) so the caller's loop never runs.
+        // `clamp` would panic on a max below its min.
+        if m < 0 {
+            return (0, m);
+        }
+        lo = lo.clamp(0, m);
+        hi = hi.clamp(lo, m);
+    }
+    // One tile of padding, toward the edge nearest the next tile boundary.
+    let lo_gap = lo_edge - lo_edge.floor(); // how close the tile before `lo` is
+    let hi_gap = hi_edge.ceil() - hi_edge; // how close the tile after `hi` is
+    let lo_room = clamp_max.is_none_or(|_| lo > 0);
+    let hi_room = clamp_max.is_none_or(|m| hi < m);
+    if (lo_gap <= hi_gap && lo_room) || !hi_room {
+        if lo_room {
+            lo = lo.saturating_sub(1);
+        }
+    } else {
+        hi = hi.saturating_add(1);
+    }
+    (lo, hi)
 }
 
 /// Wrap a (possibly negative or over-range) tile column into the valid
@@ -3194,12 +3246,34 @@ mod tests {
     }
 
     #[test]
-    fn tile_range_covers_centre_with_margin() {
-        // 512x512 viewport at zoom-scale 1 (256 px tiles) = 2 tiles across;
-        // half-extent 2 (incl. the +1 margin) → 5 tiles each axis, centred.
+    fn tile_range_is_the_visible_tiles_plus_one_per_axis() {
+        // 512x512 at zoom-scale 1 (256 px tiles), centred on a tile corner: the
+        // view covers exactly tiles 7..=8 on each axis. One tile of padding per
+        // axis (edges tie, so it goes low) → 6..=8, three tiles each way.
         let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, 512.0, 512.0, 1.0, 16);
-        assert_eq!((x0, x1), (6, 10));
-        assert_eq!((y0, y1), (6, 10));
+        assert_eq!((x0, x1), (6, 8));
+        assert_eq!((y0, y1), (6, 8));
+    }
+
+    /// The live map that exposed the over-fetch: 874x523 at z6, centre tile
+    /// (34.91, 22.19). Visible = 4x3; with one tile of padding per axis on the
+    /// nearer side = 5x4 = 20. It used to request 7x6 = 42.
+    #[test]
+    fn the_async_example_map_requests_twenty_tiles_not_forty_two() {
+        let (x0, x1, y0, y1) = visible_tile_range(34.91, 22.19, 874.0, 523.0, 1.0, 64);
+        // left edge 33.20 is 0.20 from tile 32, right edge 36.62 is 0.38 from 37
+        assert_eq!((x0, x1), (32, 36), "4 visible columns + 1 on the nearer (left) side");
+        // top edge 21.17 is 0.17 from row 20, bottom edge 23.21 is 0.79 from 24
+        assert_eq!((y0, y1), (20, 23), "3 visible rows + 1 on the nearer (top) side");
+        assert_eq!((x1 - x0 + 1) * (y1 - y0 + 1), 20);
+    }
+
+    #[test]
+    fn padding_that_would_cross_a_pole_goes_to_the_other_side() {
+        // A 256px-tall view whose top sits at row 0: nothing above the pole, so
+        // the padding row goes below instead of being clamped away.
+        let (_, _, y0, y1) = visible_tile_range(8.0, 0.5, 256.0, 256.0, 1.0, 16);
+        assert_eq!((y0, y1), (0, 1));
     }
 
     #[test]
@@ -3243,7 +3317,9 @@ mod tests {
         // Web-Mercator edges)…
         let (x0, _, y0, _) = visible_tile_range(0.0, 0.0, 512.0, 512.0, 1.0, 16);
         assert!(y0 >= 0);
-        let (_, x1, _, y1) = visible_tile_range(15.0, 15.0, 512.0, 512.0, 1.0, 16);
+        // Centred half a tile in from the east edge so the view genuinely crosses
+        // the antimeridian (a view ENDING exactly on it touches no further column).
+        let (_, x1, _, y1) = visible_tile_range(15.5, 15.0, 512.0, 512.0, 1.0, 16);
         assert!(y1 <= 15);
         // …but x is unclamped so the world wraps: a west-edge viewport over-scans
         // into negative columns and an east-edge one past tile_count-1; both wrap
@@ -3995,19 +4071,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn visible_tile_range_always_keeps_a_one_tile_margin() {
-        // Even a 1x1-pixel viewport must over-scan by a whole tile each side.
+    fn visible_tile_range_always_pads_by_one_tile() {
+        // Even a 1x1-pixel viewport gets one tile of padding per axis. It sits on
+        // the corner of tiles 7 and 8, so it touches both; padding makes three.
         let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, 1.0, 1.0, 1.0, 16);
-        assert!(x0 <= 7 && x1 >= 9, "x span {x0}..={x1} lost its margin");
-        assert!(y0 <= 7 && y1 >= 9, "y span {y0}..={y1} lost its margin");
+        assert_eq!(x1 - x0 + 1, 3, "x span {x0}..={x1}");
+        assert_eq!(y1 - y0 + 1, 3, "y span {y0}..={y1}");
     }
 
     #[test]
-    fn visible_tile_range_extreme_zoom_scale_shrinks_to_the_margin() {
-        // A gigantic tile_px makes the viewport sub-tile: only the margin remains.
+    fn visible_tile_range_extreme_zoom_scale_shrinks_to_one_tile_plus_padding() {
+        // A gigantic tile_px makes the viewport a point at tile 8's corner: that
+        // tile plus one tile of padding per axis.
         let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, 800.0, 600.0, f32::MAX, 16);
-        assert_eq!((x0, x1), (7, 9));
-        assert_eq!((y0, y1), (7, 9));
+        assert_eq!((x0, x1), (7, 8));
+        assert_eq!((y0, y1), (7, 8));
     }
 
     // ==================================================================
