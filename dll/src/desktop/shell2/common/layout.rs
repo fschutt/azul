@@ -254,6 +254,37 @@ pub fn regenerate_layout(
     azul_layout::probe::emit_phase_heap("start");
     let mut phases = PhaseTimer::new();
 
+    // ── Platform backends, registered BEFORE the layout callback runs ──────
+    // Each of these installs a backend that a widget reads AT BUILD TIME, and
+    // they used to run at the very END of this function — after the app's
+    // layout callback had already built the DOM, and not at all on the three
+    // early-return paths in between. So the FIRST build of every such widget
+    // saw no backend. The map showed it: `AzMapWidget_domWithFetch` reads the
+    // registered tile fetcher when it builds its cache, got none, and the map
+    // never fetched a tile ("spawn_pending: ABORT — no fetch_callback"). X11 hid
+    // it by chance — it performs a second full rebuild shortly after the first,
+    // and the dataset merge copies the now-registered fetcher into the cache.
+    // Native Wayland performs no such rebuild, so on Wayland the map stayed grey
+    // forever. Every call is OnceLock-guarded; first is as cheap as last.
+    // Register the platform microphone-capture backend once (ALSA on Linux) so
+    // MicrophoneWidget captures real audio where available; OnceLock-guarded.
+    crate::desktop::extra::audio::ensure_mic_backend();
+
+    // Register the platform camera-capture backend once (v4l2 via rscam on
+    // Linux) so CameraWidget shows the real camera where available; guarded.
+    crate::desktop::extra::camera::ensure_camera_backend();
+    crate::desktop::extra::screencap::ensure_screen_backend();
+    // The platform frame scaler the capture fan-out uses (vImage on macOS;
+    // the portable scaler elsewhere) — same seam, same guard.
+    crate::desktop::extra::resample::ensure_frame_resampler();
+    // Same seam for the async OS file picker: on iOS / Android
+    // the resumable `FileDialog::open_file` dispatches to the dispatchers this
+    // installs; the desktop answers the same call synchronously via tfd.
+    crate::desktop::extra::file_picker::ensure_file_picker_backend();
+    // Same seam for the map tile fetcher: `MapWidget::dom_with_fetch()` wires
+    // whatever fetcher is registered here, and the worker lives in this crate.
+    crate::desktop::extra::map::ensure_map_tile_fetcher();
+
     // E2E observability: count DOM regenerations (sticky until
     // `reset_frame_counters`) so that a test can assert an interaction did not
     // trigger a DOM rebuild storm.
@@ -1529,24 +1560,6 @@ pub fn regenerate_layout(
     // capability_pump::pump(), gated on the listener flags computed above —
     // no listeners, no native subscription, no polling.)
 
-    // Register the platform microphone-capture backend once (ALSA on Linux) so
-    // MicrophoneWidget captures real audio where available; OnceLock-guarded.
-    crate::desktop::extra::audio::ensure_mic_backend();
-
-    // Register the platform camera-capture backend once (v4l2 via rscam on
-    // Linux) so CameraWidget shows the real camera where available; guarded.
-    crate::desktop::extra::camera::ensure_camera_backend();
-    crate::desktop::extra::screencap::ensure_screen_backend();
-    // The platform frame scaler the capture fan-out uses (vImage on macOS;
-    // the portable scaler elsewhere) — same seam, same guard.
-    crate::desktop::extra::resample::ensure_frame_resampler();
-    // Same seam for the async OS file picker: on iOS / Android
-    // the resumable `FileDialog::open_file` dispatches to the dispatchers this
-    // installs; the desktop answers the same call synchronously via tfd.
-    crate::desktop::extra::file_picker::ensure_file_picker_backend();
-    // Same seam for the map tile fetcher: `MapWidget::dom_with_fetch()` wires
-    // whatever fetcher is registered here, and the worker lives in this crate.
-    crate::desktop::extra::map::ensure_map_tile_fetcher();
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
