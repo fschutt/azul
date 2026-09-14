@@ -381,10 +381,94 @@ restore_desktop_theme() {
     log_info "Desktop appearance restored to $SAVED_DESKTOP_THEME"
 }
 
+# ── KWin ScreenShot2 authorization (KDE Plasma on Wayland) ─────────────────
+#
+# On a KDE Wayland session the native capture goes through KWin's
+# `org.kde.KWin.ScreenShot2` D-Bus interface — KWin has neither
+# ext-image-copy-capture nor the ext-foreign-toplevel-list a portable window
+# capture needs. KWin answers that interface only for an application it can
+# match: it resolves the caller's PID to /proc/<pid>/exe and looks for an
+# installed .desktop file whose `Exec` is that same binary and whose
+# `X-KDE-DBUS-Restricted-Interfaces` names the interface. So each example gets a
+# throwaway .desktop entry for the duration of its run, and the KService cache
+# (ksycoca) is rebuilt so KWin can see it. All of them are removed on exit.
+KWIN_AUTH_FILES=()
+KWIN_SYCOCA=""
+if is_linux && [ "$XDG_SESSION_TYPE" = "wayland" ] \
+   && [ "$(printf '%s' "$XDG_CURRENT_DESKTOP" | tr a-z A-Z)" = "KDE" ]; then
+    KWIN_SYCOCA="$(command -v kbuildsycoca6 || command -v kbuildsycoca5 || true)"
+fi
+
+authorize_kwin_screenshot() {
+    local name=$1 bin=$2
+    [ -z "$KWIN_SYCOCA" ] && return 0
+    local apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    local file="$apps/azul-screenshot-$name.desktop"
+    mkdir -p "$apps"
+    # KWin compares CANONICAL paths, so resolve symlinks here too.
+    cat > "$file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=azul screenshot ($name)
+Exec=$(readlink -f "$bin")
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+EOF
+    KWIN_AUTH_FILES+=("$file")
+    "$KWIN_SYCOCA" >/dev/null 2>&1 || true
+}
+
+# Make the window of process $1 the ACTIVE one, through a KWin script.
+#
+# KWin's ScreenShot2 captures the active window, and KWin's focus-stealing
+# prevention keeps focus on whatever the user was typing into when a new window
+# maps: launched from a busy terminal, 4 of 7 examples came back as the
+# terminal (the capture refuses those — it checks the caption). A script
+# setting the active window goes through `Workspace::activateWindow`, which
+# does not consult focus-stealing prevention.
+#
+# It runs HERE, from the shell, while the app sits idle in its settle wait — not
+# inside the capture. Activation makes KWin ping the window, and a window that
+# cannot answer (because its thread is blocked in a D-Bus capture) is marked
+# "(Not Responding)", which the capture then photographs in the titlebar.
+kwin_activate_pid() {
+    local pid=$1 dir=$2
+    [ -z "$KWIN_SYCOCA" ] && return 0
+    local plugin="azul-screenshot-activate-$pid"
+    local js="$dir/activate-$pid.js"
+    # `var`, no arrow functions: Plasma 5's QJSEngine. windowList/activeWindow
+    # is Plasma 6, clientList/activeClient Plasma 5.
+    cat > "$js" <<EOF
+(function () {
+  var list = typeof workspace.windowList === 'function' ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].pid === $pid) {
+      if ('activeWindow' in workspace) { workspace.activeWindow = list[i]; } else { workspace.activeClient = list[i]; }
+      break;
+    }
+  }
+})();
+EOF
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s "$plugin" >/dev/null 2>&1 || true
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss "$js" "$plugin" >/dev/null 2>&1 || return 0
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting start >/dev/null 2>&1 || true
+    sleep 0.3
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s "$plugin" >/dev/null 2>&1 || true
+    rm -f "$js"
+}
+
+cleanup_on_exit() {
+    restore_desktop_theme
+    if [ ${#KWIN_AUTH_FILES[@]} -gt 0 ]; then
+        rm -f "${KWIN_AUTH_FILES[@]}"
+        [ -n "$KWIN_SYCOCA" ] && "$KWIN_SYCOCA" >/dev/null 2>&1
+        log_info "Removed ${#KWIN_AUTH_FILES[@]} temporary KWin ScreenShot2 authorization(s)"
+    fi
+}
+trap cleanup_on_exit EXIT INT TERM
+
 DESKTOP_THEME_TOOL="$(detect_theme_tool)"
 if [ -n "$DESKTOP_THEME_TOOL" ] && [ -z "$AZ_SCREENSHOT_NO_DESKTOP_SWITCH" ]; then
     SAVED_DESKTOP_THEME="$(save_desktop_theme)"
-    trap restore_desktop_theme EXIT INT TERM
     log_info "Desktop theme switching via '$DESKTOP_THEME_TOOL' (currently: ${SAVED_DESKTOP_THEME:-unknown})"
 else
     DESKTOP_THEME_TOOL=""
@@ -481,7 +565,29 @@ run_theme() {
     local rc=0
     env AZ_THEME="$theme" AZ_E2E="$dir/screenshot.e2e.json" AZ_E2E_SHOT_DIR="$shot_dir" \
         timeout "$RUN_TIMEOUT" "${launcher[@]}" "$bin" \
-        > "$dir/stdout.$theme.log" 2> "$dir/stderr.$theme.log" || rc=$?
+        > "$dir/stdout.$theme.log" 2> "$dir/stderr.$theme.log" &
+    local launcher_pid=$!
+
+    if [ -n "$KWIN_SYCOCA" ]; then
+        # Activate twice early (the window may not be mapped at the first try;
+        # startup on Wayland takes up to ~2 s) and once more a second and a half
+        # before a long settle ends, so the window is focused and idle — its
+        # ping answered — well before the capture step runs.
+        local settle; settle=$(settle_ms "$name")
+        local app_pid=""
+        for t in 1 1; do
+            sleep "$t"
+            app_pid=$(pgrep -n -f "^${bin}\$" || true)
+            [ -n "$app_pid" ] && kwin_activate_pid "$app_pid" "$dir"
+        done
+        if [ "$settle" -gt 5000 ] && kill -0 "$launcher_pid" 2>/dev/null; then
+            sleep $(( (settle - 1500) / 1000 - 2 ))
+            app_pid=$(pgrep -n -f "^${bin}\$" || true)
+            [ -n "$app_pid" ] && kwin_activate_pid "$app_pid" "$dir"
+        fi
+    fi
+
+    wait "$launcher_pid" || rc=$?
 
     if [ $rc -ne 0 ]; then
         log_error "$name exited $rc under AZ_THEME=$theme"
@@ -525,6 +631,7 @@ capture_example() {
     fi
 
     write_scenario "$name"
+    authorize_kwin_screenshot "$name" "$bin"
     log_info "$name: settling $(settle_ms "$name") ms before each capture"
 
     run_theme "$name" "$bin" light || return 1

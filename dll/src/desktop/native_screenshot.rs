@@ -97,7 +97,29 @@ impl NativeScreenshotExt for CallbackInfo {
             #[cfg(target_os = "linux")]
             RawWindowHandle::Wayland(_) => {
                 let title = self.get_current_window_state().title.as_str().to_string();
-                crate::desktop::shell2::linux::wayland::screencopy::capture_toplevel(&title)
+                // KWin first. KDE declined the ext-foreign-toplevel-list
+                // protocol the portable path needs (bugs.kde.org 483227, NOT A
+                // BUG) and has no ext-image-copy-capture either; its supported
+                // capture is its own ScreenShot2 D-Bus interface, present on
+                // Plasma 5.27 and 6 alike. The ext path stays for wlroots-style
+                // compositors (sway, niri, labwc, ...). Both errors are kept so a
+                // failure says why EACH route was unavailable.
+                match take_native_screenshot_kwin_bytes(&title) {
+                    Ok(png) => Ok(png),
+                    Err(kwin) => {
+                        match crate::desktop::shell2::linux::wayland::screencopy::capture_toplevel(
+                            &title,
+                        ) {
+                            Ok(png) => Ok(png),
+                            Err(ext) => Err(AzString::from(format!(
+                                "no Wayland capture route worked. KWin ScreenShot2: {}. \
+                                 ext-image-copy-capture: {}",
+                                kwin.as_str(),
+                                ext.as_str()
+                            ))),
+                        }
+                    }
+                }
             }
             _ => Err(AzString::from(
                 "Native screenshot not supported on this platform",
@@ -146,8 +168,10 @@ fn take_native_screenshot_macos_bytes(
     // kCGWindowListOptionIncludingWindow: capture only the named window.
     const KCG_WINDOW_LIST_OPTION_INCLUDING_WINDOW: CGWindowListOption = 1 << 3;
     // kCGWindowImageBoundsIgnoreFraming: exclude the drop shadow Apple draws
-    // around windows, matching the prior `screencapture -x` behavior.
+    // around windows. Only set when AZ_SCREENSHOT_SHADOW turns the shadow off —
+    // see `screenshot_includes_shadow`.
     const KCG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING: CGWindowImageOption = 1 << 0;
+    const KCG_WINDOW_IMAGE_DEFAULT: CGWindowImageOption = 0;
 
     #[repr(C)]
     struct CGPoint {
@@ -227,7 +251,11 @@ fn take_native_screenshot_macos_bytes(
             null_rect,
             KCG_WINDOW_LIST_OPTION_INCLUDING_WINDOW,
             window_id as CGWindowID,
-            KCG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING,
+            if screenshot_includes_shadow() {
+                KCG_WINDOW_IMAGE_DEFAULT
+            } else {
+                KCG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING
+            },
         );
 
         if image.is_null() {
@@ -452,6 +480,256 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
 
         result
     }
+}
+
+/// Capture this window through KWin's `org.kde.KWin.ScreenShot2` D-Bus
+/// interface, decorations included, and return it as PNG bytes.
+///
+/// The route KDE actually supports for a client-initiated window capture. KWin
+/// has no `ext-image-copy-capture-v1`, and it declined the
+/// `ext-foreign-toplevel-list-v1` a portable window capture needs, so on KDE
+/// this is the ONLY way to get a window with its server-side titlebar. The
+/// interface exists on Plasma 5.27 and Plasma 6.
+///
+/// Three things the KWin source (`effects/screenshot/screenshotdbusinterface2`)
+/// decides, and this function follows:
+///
+///  * AUTHORIZATION. KWin resolves the caller's PID to `/proc/<pid>/exe` and looks for an installed
+///    `.desktop` application whose `Exec` is that same file and whose
+///    `X-KDE-DBUS-Restricted-Interfaces` lists `org.kde.KWin.ScreenShot2`. Anything else gets
+///    `org.kde.KWin.ScreenShot2.Error.NoAuthorized` — reported below with the exact executable
+///    path to authorize.
+///  * ORDER. KWin sends the D-Bus reply (the metadata) FIRST and writes the pixels into the pipe
+///    afterwards, from a worker thread. So: take the reply, close our copy of the write end, then
+///    read to EOF. Reading before the reply would deadlock on anything larger than the pipe
+///    buffer.
+///  * WHICH WINDOW. `CaptureActiveWindow` captures whatever is focused. The reply names the window
+///    it captured (`windowId`), and `getWindowInfo` turns that into its caption; if that is not
+///    this window's title, the pixels belong to someone else and are NOT returned.
+#[cfg(target_os = "linux")]
+pub(crate) fn take_native_screenshot_kwin_bytes(title: &str) -> Result<Vec<u8>, AzString> {
+    use std::{
+        collections::HashMap,
+        io::Read,
+        os::fd::{AsFd, FromRawFd, OwnedFd},
+    };
+
+    use zbus::{
+        blocking::{Connection, Proxy},
+        zvariant::{Fd, OwnedValue, Value},
+    };
+
+    let conn = Connection::session()
+        .map_err(|e| AzString::from(format!("no D-Bus session bus ({e})")))?;
+    let shot = Proxy::new(
+        &conn,
+        "org.kde.KWin",
+        "/org/kde/KWin/ScreenShot2",
+        "org.kde.KWin.ScreenShot2",
+    )
+    .map_err(|e| AzString::from(format!("no org.kde.KWin.ScreenShot2 ({e})")))?;
+
+    // This function does NOT activate the window, and must not. Activating a
+    // window makes KWin PING it (`sendPing(PingReason::FocusWindow)`), and the
+    // pong can only go out once this thread returns to the event loop — which
+    // it cannot while it is blocked in this capture. KWin then marks the window
+    // unresponsive and appends "(Not Responding)" to its title, and
+    // `CaptureActiveWindow` photographs exactly that. Whoever needs the window
+    // focused (scripts/screenshot_single.sh does it through a KWin script, by
+    // PID, while the app is idle) has to do it BEFORE calling this.
+
+    let mut fds = [0 as libc::c_int; 2];
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+        return Err(AzString::from("pipe2 failed"));
+    }
+    let read_end = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+    let write_end = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+
+    let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+    options.insert("include-decoration", Value::from(true));
+    options.insert("include-cursor", Value::from(false));
+    options.insert("native-resolution", Value::from(true));
+
+    let reply: HashMap<String, OwnedValue> = shot
+        .call(
+            "CaptureActiveWindow",
+            &(options, Fd::from(write_end.as_fd())),
+        )
+        .map_err(|e| {
+            let text = e.to_string();
+            if text.contains("NoAuthorized") {
+                let exe = std::fs::read_link("/proc/self/exe")
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "<this executable>".to_string());
+                AzString::from(format!(
+                    "KWin refused: not authorized. KWin only answers ScreenShot2 for an \
+                     application whose installed .desktop file has Exec={exe} and \
+                     X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2 (then run \
+                     kbuildsycoca5/kbuildsycoca6)"
+                ))
+            } else {
+                AzString::from(format!("CaptureActiveWindow failed ({text})"))
+            }
+        })?;
+    // Our copy of the write end. KWin holds its own (passed over the socket) and
+    // closes it when the pixels are written; until OUR copy is closed too, the
+    // read below would never see EOF.
+    drop(write_end);
+
+    let mut raw = Vec::new();
+    std::fs::File::from(read_end)
+        .read_to_end(&mut raw)
+        .map_err(|e| AzString::from(format!("reading the capture pipe failed ({e})")))?;
+
+    let get_u32 = |key: &str| -> Result<u32, AzString> {
+        reply
+            .get(key)
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or_else(|| AzString::from(format!("reply has no u32 `{key}`")))
+    };
+    let (width, height, stride, format) = (
+        get_u32("width")?,
+        get_u32("height")?,
+        get_u32("stride")?,
+        get_u32("format")?,
+    );
+
+    // Is it OUR window? Never hand back another application's pixels.
+    let window_id = reply
+        .get("windowId")
+        .and_then(|v| <&str>::try_from(v).ok())
+        .map(str::to_string)
+        .ok_or_else(|| AzString::from("reply has no windowId"))?;
+    let kwin = Proxy::new(&conn, "org.kde.KWin", "/KWin", "org.kde.KWin")
+        .map_err(|e| AzString::from(format!("no org.kde.KWin ({e})")))?;
+    let info: HashMap<String, OwnedValue> = kwin
+        .call("getWindowInfo", &(window_id.as_str()))
+        .map_err(|e| AzString::from(format!("getWindowInfo failed ({e})")))?;
+    let caption = info
+        .get("caption")
+        .and_then(|v| <&str>::try_from(v).ok())
+        .unwrap_or("")
+        .to_string();
+    if caption != title {
+        return Err(AzString::from(format!(
+            "KWin captured the ACTIVE window, which is {caption:?}, not this window \
+             ({title:?}); refusing to return another window's pixels — focus this window first"
+        )));
+    }
+
+    let (w, h, st) = (width as usize, height as usize, stride as usize);
+    if w == 0 || h == 0 || st < w * 4 || raw.len() < st * h {
+        return Err(AzString::from(format!(
+            "capture is truncated or malformed: {w}x{h} stride {st}, {} bytes",
+            raw.len()
+        )));
+    }
+
+    // QImage::Format values KWin produces. The 32-bit ARGB family is a native
+    // (little-endian) 0xAARRGGBB, i.e. B,G,R,A in memory; the RGBA8888 family is
+    // R,G,B,A in memory regardless of endianness.
+    const FORMAT_RGB32: u32 = 4;
+    const FORMAT_ARGB32: u32 = 5;
+    const FORMAT_ARGB32_PREMULTIPLIED: u32 = 6;
+    const FORMAT_RGBX8888: u32 = 16;
+    const FORMAT_RGBA8888: u32 = 17;
+    const FORMAT_RGBA8888_PREMULTIPLIED: u32 = 18;
+
+    let bgra = matches!(format, FORMAT_RGB32 | FORMAT_ARGB32 | FORMAT_ARGB32_PREMULTIPLIED);
+    let rgba = matches!(
+        format,
+        FORMAT_RGBX8888 | FORMAT_RGBA8888 | FORMAT_RGBA8888_PREMULTIPLIED
+    );
+    if !bgra && !rgba {
+        return Err(AzString::from(format!(
+            "unsupported QImage format {format} in the capture"
+        )));
+    }
+    let opaque = matches!(format, FORMAT_RGB32 | FORMAT_RGBX8888);
+    let premultiplied = matches!(
+        format,
+        FORMAT_ARGB32_PREMULTIPLIED | FORMAT_RGBA8888_PREMULTIPLIED
+    );
+
+    let mut pixels = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        let row = &raw[y * st..y * st + w * 4];
+        for px in row.chunks_exact(4) {
+            let (mut r, mut g, mut b, a) = if bgra {
+                (px[2], px[1], px[0], if opaque { 255 } else { px[3] })
+            } else {
+                (px[0], px[1], px[2], if opaque { 255 } else { px[3] })
+            };
+            if premultiplied && a != 0 && a != 255 {
+                let un = |c: u8| ((c as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8;
+                r = un(r);
+                g = un(g);
+                b = un(b);
+            }
+            pixels.extend_from_slice(&[r, g, b, a]);
+        }
+    }
+
+    // The compositor's DROP SHADOW, kept or cropped per AZ_SCREENSHOT_SHADOW.
+    // `include-decoration` hands back the window as KWin paints it — shadow
+    // included, on a transparent margin (a 400x328 window came back 530x458) —
+    // and KWin 5.27 has no option to leave it out, so removing it is a crop.
+    // The window is opaque and the shadow is not:
+    // the bounding box of the near-opaque pixels IS the window rectangle. (A
+    // translucent window would defeat that, so if no such box exists the capture
+    // is returned uncropped rather than guessed at.)
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            if pixels[(y * w + x) * 4 + 3] >= 250 {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    let crop = !screenshot_includes_shadow();
+    let (pixels, width, height) = if crop
+        && x1 >= x0
+        && y1 >= y0
+        && (x0, y0, x1, y1) != (0, 0, w - 1, h - 1)
+    {
+        let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
+        let mut cropped = Vec::with_capacity(cw * ch * 4);
+        for y in y0..=y1 {
+            cropped.extend_from_slice(&pixels[(y * w + x0) * 4..(y * w + x1 + 1) * 4]);
+        }
+        (cropped, cw as u32, ch as u32)
+    } else {
+        (pixels, width, height)
+    };
+
+    encode_rgba_png(pixels, width, height).map_err(AzString::from)
+}
+
+/// Whether a native window screenshot keeps the compositor's DROP SHADOW.
+///
+/// `AZ_SCREENSHOT_SHADOW=0` (or `false` / `off` / `no`) strips it; anything else,
+/// including unset, keeps it. On by default because the website screenshots look
+/// better with it (USER RULING 2026-09-14) — the shadow sits on a transparent
+/// margin, so the page shows it over whatever it is placed on.
+///
+/// Honoured where the platform can deliver both: KWin (ScreenShot2 hands back
+/// the shadow and it is cropped off when not wanted) and macOS
+/// (`kCGWindowImageBoundsIgnoreFraming`). The X11 capture reads the composited
+/// ROOT, where a shadow would come with the desktop wallpaper behind it rather
+/// than transparency, so it never includes one.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn screenshot_includes_shadow() -> bool {
+    !matches!(
+        std::env::var("AZ_SCREENSHOT_SHADOW")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "off" | "no"
+    )
 }
 
 /// Set by the temporary X error handler installed around the decorated
