@@ -19,9 +19,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"strings"
-	"syscall"
 
 	azul "github.com/azul/azul-go"
 )
@@ -66,7 +63,7 @@ func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
 
 	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
 	body.AddChild(label.Raw())
-	body.AddChild(button.Dom())
+	body.AddChild(button.Dom().Raw())
 	return body
 }
 
