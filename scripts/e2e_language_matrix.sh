@@ -1126,10 +1126,20 @@ lang_cpp() {
     fi
     # Compile-only pass, one dialect at a time with ITS flag (-fsyntax-only
     # is enough: the flag/header/driver pairing is what is under test).
+    # Compilers older than the standard's publication only know its draft
+    # name: ubuntu-22.04's clang 14 rejects -std=c++23 but takes -std=c++2b.
+    std_flag() {
+      if echo 'int main(){}' | "$CXX" -x c++ -fsyntax-only -std=c++$1 - 2>/dev/null; then
+        echo "-std=c++$1"
+      else
+        case "$1" in 20) echo "-std=c++2a" ;; 23) echo "-std=c++2b" ;; *) echo "-std=c++$1" ;; esac
+      fi
+    }
     for d in 03 11 14 17 20 23; do
+      local flag; flag="$(std_flag "$d")"
       ( cd "$REPO_ROOT/examples/cpp/cpp$d" && \
-        "$CXX" -fsyntax-only -std=c++$d ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
-        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with -std=c++$d" >&2; exit 1; }
+        "$CXX" -fsyntax-only "$flag" ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
+        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with $flag" >&2; exit 1; }
     done
     cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
     if [ "$IS_MACOS" = 1 ]; then
