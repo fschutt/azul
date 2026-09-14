@@ -1706,7 +1706,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "one-line build script cfg-gating the nightly read_buf feature; sans-I/O library, no build-time I/O"
-reviewed = ["0.23.43:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
+reviewed = ["0.23.45:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
 
 [crate."rustls-pki-types"]  # build-dependency
 allow = true
@@ -2183,6 +2183,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.11.1+wasi-snapshot-preview1:25dce4b432c2a573b15b6fc14a1de6ad4007ead3c8b872d9979608f12554614f"]
+
+[crate."wasip2"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["1.0.4+wasi-0.2.12:1801e7d8870bf61f9306977e95b9cc6aa551bcbfa6b4187dfcd7c480cdb540c1"]
 
 [crate."wasm-bindgen"]  # build-script
 allow = true
