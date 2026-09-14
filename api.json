@@ -708,11 +708,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world-cpp03.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -739,11 +739,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world-cpp03.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -770,11 +770,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world-cpp03.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -801,11 +801,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world-cpp03.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -835,11 +835,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world-cpp03.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -865,11 +865,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++03 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++03 -I\"$(brew --prefix)/include\" hello-world-cpp03.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -899,11 +899,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++03 -I. hello-world-cpp03.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -933,7 +933,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -941,7 +941,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp03.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -971,7 +971,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp03.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -979,7 +979,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp03.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1013,7 +1013,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world-cpp03.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1025,7 +1025,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul03.hpp": "azul03.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp03.cpp": "hello-world-cpp03.cpp"
                     }
                 },
                 "cpp11": {
@@ -1050,11 +1050,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world-cpp11.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1081,11 +1081,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world-cpp11.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1112,11 +1112,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world-cpp11.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1143,11 +1143,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world-cpp11.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1177,11 +1177,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world-cpp11.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1207,11 +1207,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++11 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++11 -I\"$(brew --prefix)/include\" hello-world-cpp11.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1241,11 +1241,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++11 -I. hello-world-cpp11.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1275,7 +1275,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -1283,7 +1283,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp11.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1313,7 +1313,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp11.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -1321,7 +1321,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp11.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1355,7 +1355,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world-cpp11.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1367,7 +1367,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul11.hpp": "azul11.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp11.cpp": "hello-world-cpp11.cpp"
                     }
                 },
                 "cpp14": {
@@ -1392,11 +1392,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world-cpp14.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1423,11 +1423,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world-cpp14.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1454,11 +1454,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world-cpp14.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1485,11 +1485,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world-cpp14.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1519,11 +1519,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world-cpp14.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1549,11 +1549,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++14 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++14 -I\"$(brew --prefix)/include\" hello-world-cpp14.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1583,11 +1583,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++14 -I. hello-world-cpp14.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1617,7 +1617,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -1625,7 +1625,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp14.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1655,7 +1655,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp14.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -1663,7 +1663,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp14.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1697,7 +1697,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world-cpp14.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1709,7 +1709,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul14.hpp": "azul14.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp14.cpp": "hello-world-cpp14.cpp"
                     }
                 },
                 "cpp17": {
@@ -1734,11 +1734,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1765,11 +1765,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1796,11 +1796,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1827,11 +1827,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1861,11 +1861,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world-cpp17.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1891,11 +1891,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++17 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++17 -I\"$(brew --prefix)/include\" hello-world-cpp17.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1925,11 +1925,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++17 -I. hello-world-cpp17.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -1959,7 +1959,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -1967,7 +1967,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /I. /I%AZ_LINK_PATH% hello-world-cpp17.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1997,7 +1997,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp17.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -2005,7 +2005,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp17.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2039,7 +2039,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /I. hello-world-cpp17.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2051,7 +2051,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul17.hpp": "azul17.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp17.cpp": "hello-world-cpp17.cpp"
                     }
                 },
                 "cpp20": {
@@ -2076,11 +2076,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world-cpp20.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2107,11 +2107,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world-cpp20.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2138,11 +2138,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world-cpp20.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2169,11 +2169,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world-cpp20.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2203,11 +2203,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world-cpp20.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2233,11 +2233,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++20 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++20 -I\"$(brew --prefix)/include\" hello-world-cpp20.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2267,11 +2267,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++20 -I. hello-world-cpp20.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2301,7 +2301,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -2309,7 +2309,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /I. /I%AZ_LINK_PATH% hello-world-cpp20.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2339,7 +2339,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp20.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -2347,7 +2347,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp20.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2381,7 +2381,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /I. hello-world-cpp20.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2393,7 +2393,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul20.hpp": "azul20.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp20.cpp": "hello-world-cpp20.cpp"
                     }
                 },
                 "cpp23": {
@@ -2418,11 +2418,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world-cpp23.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2449,11 +2449,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world-cpp23.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2480,11 +2480,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world-cpp23.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2511,11 +2511,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 hello-world.cpp -lazul -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world-cpp23.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2545,11 +2545,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 hello-world.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world-cpp23.cpp -I. -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2575,11 +2575,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++23 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
+                                    "content": "clang++ -std=c++23 -I\"$(brew --prefix)/include\" hello-world-cpp23.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2609,11 +2609,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++23 -I. hello-world-cpp23.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -2643,7 +2643,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -2651,7 +2651,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /I. /I%AZ_LINK_PATH% hello-world-cpp23.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2681,7 +2681,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world-cpp23.cpp"
                                 },
                                 {
                                     "type": "command",
@@ -2689,7 +2689,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp23.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2723,7 +2723,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /I. hello-world-cpp23.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2735,7 +2735,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul23.hpp": "azul23.hpp",
-                        "hello-world.cpp": "hello-world.cpp"
+                        "hello-world-cpp23.cpp": "hello-world-cpp23.cpp"
                     }
                 },
                 "crystal": {
@@ -3261,7 +3261,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository (into /usr/lib and /usr/include, where cgo finds them), then build the cgo hello-world",
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository (into /usr/lib and /usr/include, where cgo finds them), then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3273,11 +3273,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3295,7 +3295,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library, the C header, and the cgo hello-world, then build (main.go calls the C API directly through cgo; no generated Go package needed)",
+                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3303,15 +3303,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3329,7 +3325,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Install libazul.dylib and azul.h from the self-hosted Homebrew tap, then build the cgo hello-world against the Homebrew prefix",
+                            "description": "Install libazul.dylib and azul.h from the self-hosted Homebrew tap, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h) against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3341,11 +3337,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3363,7 +3359,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the prebuilt library, the C header, and the cgo hello-world, then build (main.go calls the C API directly through cgo; no generated Go package needed)",
+                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3371,15 +3367,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3397,7 +3389,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed, copy them next to main.go, then build the cgo hello-world with MSVC's import library",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed, copy them next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h) with MSVC's import library",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3421,11 +3413,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3455,7 +3447,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket, copy them next to main.go, then build the cgo hello-world",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket, copy them next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3479,11 +3471,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3513,7 +3505,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the prebuilt library, the C header, and the cgo hello-world, then build (main.go calls the C API directly through cgo; no generated Go package needed)",
+                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3521,15 +3513,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "go mod init hello-world"
+                                    "content": "tar xzf azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3559,7 +3547,9 @@
                         }
                     ],
                     "bundle": {
+                        "azul-go/": "azul-go/",
                         "azul.h": "azul.h",
+                        "go.mod": "go.mod",
                         "main.go": "main.go"
                     }
                 },
@@ -5975,39 +5965,68 @@
                     "displayName": "Scala",
                     "install": [
                         {
-                            "id": "linux-windows-scala-run",
-                            "label": "scala run (Linux / Windows)",
+                            "id": "linux-scala-cli",
+                            "label": "Linux (Scala CLI)",
                             "os": [
-                                "linux",
-                                "windows"
+                                "linux"
                             ],
-                            "description": "Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded",
+                            "description": "Needs a JDK 17+ and Scala CLI (the `scala` runner since Scala 3.5; older `scala` launchers do not know `run --dep`), installed by the first step. Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded",
                             "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -sSLf https://scala-cli.virtuslab.org/get | sh"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven"
+                                    "content": "scala-cli run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven"
                                 }
                             ]
                         },
                         {
-                            "id": "macos-scala-run",
-                            "label": "macOS (scala run)",
+                            "id": "macos-scala-cli",
+                            "label": "macOS (Scala CLI)",
                             "os": [
                                 "macos"
                             ],
-                            "description": "Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded (the JVM needs -XstartOnFirstThread for the AppKit event loop)",
+                            "description": "Needs a JDK 17+ and Scala CLI (the `scala` runner since Scala 3.5; older `scala` launchers do not know `run --dep`), installed by the first step. Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded (the JVM needs -XstartOnFirstThread for the AppKit event loop)",
                             "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew install Virtuslab/scala-cli/scala-cli"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven --java-opt -XstartOnFirstThread"
+                                    "content": "scala-cli run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven --java-opt -XstartOnFirstThread"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scala-cli",
+                            "label": "Windows (Scala CLI)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Needs a JDK 17+ and Scala CLI (the `scala` runner since Scala 3.5; older `scala` launchers do not know `run --dep`), installed by the first step. Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "winget install virtuslab.scalacli"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scala-cli run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven"
                                 }
                             ]
                         }
@@ -6366,7 +6385,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated azul.zig + build.zig, then `zig build run` links -lazul from /usr/lib",
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated azul.zig + azul_c.zig (the C ABI pre-translated to Zig, no @cImport) + build.zig, then `zig build run` links -lazul from /usr/lib",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6396,7 +6415,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6456,7 +6475,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6550,7 +6569,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6574,6 +6593,7 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul.zig": "azul.zig",
+                        "azul_c.zig": "azul_c.zig",
                         "build.zig": "build.zig",
                         "hello-world.zig": "hello-world.zig"
                     }

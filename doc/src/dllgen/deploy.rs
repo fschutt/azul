@@ -913,32 +913,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "freebasic/hello-world.bas",
         source: BindingSource::Examples,
     },
-    // --- go ---
-    BindingFile {
-        dst: "azul.go",
-        src: "go/azul.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "types.go",
-        src: "go/types.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "functions.go",
-        src: "go/functions.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "wrappers.go",
-        src: "go/wrappers.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "go.mod",
-        src: "go/go.mod",
-        source: BindingSource::Codegen,
-    },
+    // --- go: the generated package is a DIRECTORY (`azul-go/`, every
+    //     `target/codegen/go/*.go` + its `go.mod` + `azul.h`) copied by
+    //     `copy_go_package` below, never a hand-kept file list: the list here
+    //     used to name 5 of the 7 generated files, and the two it missed
+    //     (`callbacks.go`, `callbacks_export.go`) are what `main.go` imports.
+    //     The hello-world's own `go.mod` (with the `replace` onto `./azul-go`)
+    //     is written by the same function. ---
     // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
     BindingFile {
         dst: "azul.cabal",
@@ -1094,10 +1075,15 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "vb6/HelloWorld.vbp",
         source: BindingSource::Examples,
     },
-    // --- zig ---
+    // --- zig (azul.zig `@import`s azul_c.zig, the pre-translated C ABI) ---
     BindingFile {
         dst: "azul.zig",
         src: "azul.zig",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul_c.zig",
+        src: "azul_c.zig",
         source: BindingSource::Codegen,
     },
     BindingFile {
@@ -1312,6 +1298,41 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "rust/src/hello-world.rs",
         source: BindingSource::Examples,
     },
+    // C++: one driver per dialect, named after it, so the file says which
+    // `-std=` it needs (the unnamed `hello-world.cpp` was the C++20 variant and
+    // the C++17 tabs compiled it with `-std=c++17` against `azul17.hpp`). The
+    // dialect tabs and `scripts/verify_install_commands.sh` fetch these; the
+    // bare `hello-world.cpp` stays for existing links and is C++20.
+    BindingFile {
+        dst: "hello-world-cpp03.cpp",
+        src: "cpp/cpp03/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp11.cpp",
+        src: "cpp/cpp11/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp14.cpp",
+        src: "cpp/cpp14/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp17.cpp",
+        src: "cpp/cpp17/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp20.cpp",
+        src: "cpp/cpp20/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp23.cpp",
+        src: "cpp/cpp23/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
     BindingFile {
         dst: "hello-world.cpp",
         src: "cpp/cpp20/hello-world.cpp",
@@ -1447,6 +1468,15 @@ pub fn copy_language_bindings(
         copied += 1;
     }
 
+    match copy_go_package(version_dir, codegen_dir) {
+        Ok(n) if n > 0 => copied += n,
+        Ok(_) => missing.push(format!(
+            "azul-go/ (from {})",
+            codegen_dir.join("go").display()
+        )),
+        Err(e) => missing.push(format!("azul-go/ ({e})")),
+    }
+
     // LuaRocks rockspec: filename embeds the release version
     // (`azul-<version>-1.rockspec`, must match the `version = "..."` inside),
     // so it can't live in the const BINDING_FILES list.
@@ -1474,6 +1504,67 @@ pub fn copy_language_bindings(
     }
 
     Ok(())
+}
+
+/// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
+/// `main.go`: `main.go` imports `github.com/azul/azul-go`, and this `replace`
+/// resolves it to the `azul-go/` directory shipped alongside — no `go mod
+/// init`, no `go mod edit`, no registry.
+pub fn go_example_mod() -> String {
+    "// go.mod for the azul hello-world. `main.go` imports the generated\n\
+     // github.com/azul/azul-go package; the replace below points at the copy\n\
+     // shipped in ./azul-go (from the same release), so `go build .` works\n\
+     // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
+     // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
+     \n\
+     module hello-world\n\
+     \n\
+     go 1.21\n\
+     \n\
+     require github.com/azul/azul-go v0.0.0\n\
+     \n\
+     replace github.com/azul/azul-go => ./azul-go\n"
+        .to_string()
+}
+
+/// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
+/// `codegen_dir/go/` plus its `go.mod` (a glob, so the generator adding or
+/// renaming a file can never leave the release incomplete again) plus
+/// `azul.h`, because the package's cgo preamble `#include "azul.h"`s it and
+/// cgo resolves `-I.` against the package directory. Also writes the
+/// hello-world's `go.mod` ([`go_example_mod`]). Returns the number of files
+/// written; 0 when the codegen output is absent (a warning for the caller,
+/// never an abort).
+pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> {
+    let go_dir = codegen_dir.join("go");
+    if !go_dir.is_dir() {
+        return Ok(0);
+    }
+    let dst_dir = version_dir.join("azul-go");
+    fs::create_dir_all(&dst_dir)?;
+    let mut n = 0usize;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&go_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.is_file()
+                && (p.extension().is_some_and(|x| x == "go")
+                    || p.file_name().is_some_and(|f| f == "go.mod"))
+        })
+        .collect();
+    entries.sort();
+    for src in entries {
+        let name = src.file_name().unwrap();
+        fs::copy(&src, dst_dir.join(name))?;
+        n += 1;
+    }
+    let header = codegen_dir.join("azul.h");
+    if header.is_file() {
+        fs::copy(&header, dst_dir.join("azul.h"))?;
+        n += 1;
+    }
+    fs::write(version_dir.join("go.mod"), go_example_mod())?;
+    n += 1;
+    Ok(n)
 }
 
 /// Creates examples.zip by reading example paths from api.json and loading files from disk.
@@ -2901,4 +2992,70 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
     }
 
     yaml
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Go package ships as a directory copied by glob — every `*.go` the
+    /// generator wrote plus its `go.mod` and `azul.h` — and the hello-world's
+    /// `go.mod` (with the `replace` onto `./azul-go`) is written next to it.
+    /// A hand-kept file list is what shipped 5 of 7 files before.
+    #[test]
+    fn copy_go_package_globs_the_generated_package_and_writes_the_example_go_mod() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codegen = tmp.path().join("codegen");
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(codegen.join("go")).unwrap();
+        fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod"] {
+            fs::write(codegen.join("go").join(f), b"x").unwrap();
+        }
+        // Not part of the package: a generator scratch file.
+        fs::write(codegen.join("go/NOTES.txt"), b"x").unwrap();
+        fs::write(codegen.join("azul.h"), b"/* header */").unwrap();
+
+        let n = copy_go_package(&version_dir, &codegen).unwrap();
+        assert_eq!(n, 6, "4 package files + azul.h + the example go.mod");
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "azul.h"] {
+            assert!(version_dir.join("azul-go").join(f).is_file(), "{f}");
+        }
+        assert!(!version_dir.join("azul-go/NOTES.txt").exists());
+        let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
+        assert!(gomod.contains("module hello-world\n"), "{gomod}");
+        assert!(gomod.contains("require github.com/azul/azul-go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("replace github.com/azul/azul-go => ./azul-go\n"), "{gomod}");
+    }
+
+    /// No codegen output → nothing written, `Ok(0)` (the caller warns).
+    #[test]
+    fn copy_go_package_without_codegen_output_is_a_warning_not_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(&version_dir).unwrap();
+        assert_eq!(copy_go_package(&version_dir, &tmp.path().join("nope")).unwrap(), 0);
+        assert!(!version_dir.join("azul-go").exists());
+        assert!(!version_dir.join("go.mod").exists());
+    }
+
+    /// One C++ driver per dialect, named after it, next to the unnamed
+    /// (C++20) one — the tabs and the verify script fetch the named ones.
+    #[test]
+    fn every_cpp_dialect_ships_its_own_named_hello_world() {
+        for d in ["03", "11", "14", "17", "20", "23"] {
+            let dst = format!("hello-world-cpp{d}.cpp");
+            let src = format!("cpp/cpp{d}/hello-world.cpp");
+            assert!(
+                BINDING_FILES.iter().any(|b| b.dst == dst && b.src == src),
+                "{dst} <- {src} missing from BINDING_FILES"
+            );
+        }
+        assert!(BINDING_FILES
+            .iter()
+            .any(|b| b.dst == "hello-world.cpp" && b.src == "cpp/cpp20/hello-world.cpp"));
+        // The Go package is a directory now; no flat `package azul` files.
+        assert!(!BINDING_FILES.iter().any(|b| b.src.starts_with("go/") && b.src != "go/main.go"));
+        assert!(BINDING_FILES.iter().any(|b| b.dst == "azul_c.zig"));
+    }
 }

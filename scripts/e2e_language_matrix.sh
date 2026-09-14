@@ -828,7 +828,10 @@ lang_deps_cleanup() {
       ;;
     cpp)
       rm -f "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e" "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/cpp/cpp20"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp20/azul.h"
+      local d
+      for d in 03 11 14 17 20 23; do
+        rm -f "$REPO_ROOT/examples/cpp/cpp$d"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp$d/azul.h"
+      done
       ;;
     go)
       rm -f "$REPO_ROOT/examples/go/hello-world-go-e2e" "$REPO_ROOT/examples/go/hello-world-go-e2e.exe"
@@ -869,10 +872,11 @@ lang_deps_cleanup() {
     scala)
       rm -f "$REPO_ROOT/examples/scala/$(basename "$LIB_PATH")"
       rm -rf "$REPO_ROOT/examples/scala/target" "$REPO_ROOT/examples/scala/project/target"
+      rm -rf "$REPO_ROOT/examples/scala/.scala-build" "$REPO_ROOT/examples/scala/.bsp"
       ;;
     zig)
       rm -f "$REPO_ROOT/examples/zig/hello-world-e2e" "$REPO_ROOT/examples/zig/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig"
+      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig" "$REPO_ROOT/examples/zig/azul_c.zig"
       rm -f "$REPO_ROOT/examples/zig/$(basename "$LIB_PATH")"
       ;;
     odin)
@@ -1089,28 +1093,44 @@ lang_rust() {
 # ---- C++ ---------------------------------------------------------------------
 # Toolchain: clang++ (CI: apt `clang` / macOS preinstalled).
 # Not in rust.yml e2e_native, but the C++20 example mirrors the C one: it
-# #includes the generated azul20.hpp and links libazul. Build cpp20/hello-world.cpp.
+# #includes the generated azul20.hpp and links libazul. Build cpp20/hello-world.cpp
+# and run it; before that, compile EVERY dialect's hello-world.cpp with that
+# dialect's -std flag (the pairing the release ships as hello-world-cppXX.cpp
+# and the api.json tabs document — the C++17 tab used to build the C++20 file
+# with -std=c++17, and nothing here would have caught it).
 lang_cpp() {
   local CXX; CXX="$(command -v clang++ || command -v g++ || true)"
   [ -n "$CXX" ] || { skip cpp "no C++ compiler (apt: clang / Windows: choco install mingw)"; return; }
   local f; f="$(log_path cpp)"
   (
     set -x
-    cp "$CODEGEN_DIR"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
-    cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
+    local d
+    for d in 03 11 14 17 20 23; do
+      cp "$CODEGEN_DIR"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp$d/" 2>/dev/null || true
+      cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp$d/" 2>/dev/null || true
+    done
+    local SDK="" CXXHDR=""
     if [ "$IS_MACOS" = 1 ]; then
       # Pass the active SDK explicitly. Apple clang only searches the
       # TOOLCHAIN's libc++ headers (.../CommandLineTools/usr/include/c++/v1),
       # NOT the SDK's copy — so on a partial CLT install where that dir is
       # missing, <cstdint> fails even with -isysroot. Detect that and point
       # -nostdinc++ at the SDK's own c++/v1 (verified working fallback).
-      local SDK; SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
-      local CXXHDR=""
+      SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
       local TOOLCHAIN_V1="$(dirname "$(dirname "$CXX")")/include/c++/v1"
       if [ ! -d "$TOOLCHAIN_V1" ] && [ -n "$SDK" ] && [ -d "$SDK/usr/include/c++/v1" ]; then
         CXXHDR="-nostdinc++ -isystem $SDK/usr/include/c++/v1"
       fi
+    fi
+    # Compile-only pass, one dialect at a time with ITS flag (-fsyntax-only
+    # is enough: the flag/header/driver pairing is what is under test).
+    for d in 03 11 14 17 20 23; do
+      ( cd "$REPO_ROOT/examples/cpp/cpp$d" && \
+        "$CXX" -fsyntax-only -std=c++$d ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
+        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with -std=c++$d" >&2; exit 1; }
+    done
+    cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
       "$CXX" -g -O0 -std=c++20 ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -framework AppKit -framework OpenGL -framework CoreGraphics \
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
@@ -1432,12 +1452,18 @@ lang_kotlin() {
 }
 
 # ---- Scala -------------------------------------------------------------------
-# Toolchain: scalac + a JDK + JNA + Java's compiled classes (CI: setup-java +
-# coursier/setup-action for scala). Rides on examples/java/target/classes, so
-# Java must have been built first (run lang_java or `mvn package` in java/).
-# examples/scala/build.sh encapsulates the classpath dance.
+# Toolchain: a JDK + JNA + Java's compiled classes (CI: setup-java +
+# coursier/setup-action for scala) and EITHER Scala CLI (`scala-cli`, the
+# `scala` runner since 3.5 — what the api.json tabs document: `scala-cli run
+# HelloWorld.scala --dep rs.azul:azul:$VERSION --repository .../ui/maven`) OR
+# scalac. With Scala CLI we run the documented command shape against the
+# local build: the Java classes stand in for the rs.azul:azul jar (which only
+# the deployed maven mirror serves) via --extra-jars, JNA comes from --dep.
+# Otherwise examples/scala/build.sh encapsulates the scalac classpath dance.
+# Rides on examples/java/target/classes either way, so Java must have been
+# built first (run lang_java or `mvn package` in java/).
 lang_scala() {
-  have scalac || { skip scala "scalac not installed (coursier/setup-action)"; return; }
+  have scalac || have scala-cli || { skip scala "neither scala-cli nor scalac installed (scala-cli.virtuslab.org/get, coursier/setup-action)"; return; }
   local f; f="$(log_path scala)"
   (
     set -x
@@ -1470,41 +1496,58 @@ lang_scala() {
       fi
     fi
     cd "$REPO_ROOT/examples/scala" || exit 1
-    bash build.sh
+    if have scala-cli; then
+      local FIRST_THREAD=()
+      [ "$IS_MACOS" = 1 ] && FIRST_THREAD=(--java-opt -XstartOnFirstThread)
+      # --server=false: no Bloop daemon left behind to hold the classes dir
+      # (lang_java rewrites it) or to outlive the wall-clock timeout.
+      scala-cli run HelloWorld.scala --server=false \
+        --extra-jars "$REPO_ROOT/examples/java/target/classes" \
+        --dep net.java.dev.jna:jna:5.14.0 \
+        "${FIRST_THREAD[@]}" --java-opt -Djna.library.path=.
+    else
+      bash build.sh
+    fi
   ) >"$f" 2>&1
-  finish scala "scala build/run failed (needs java classes + scalac + JNA)"
+  finish scala "scala build/run failed (needs java classes + scala-cli/scalac + JNA)"
 }
 
 # ---- Zig ---------------------------------------------------------------------
 # Toolchain: zig (CI: goto-bus-stop/setup-zig or mlugg/setup-zig). The example
-# @cImports azul.h and links libazul. README recipe (Zig 0.11+ syntax shown;
-# build.zig targets 0.16). We use the explicit build-exe form for stability.
+# imports azul.zig, which @imports azul_c.zig — the C ABI pre-translated from
+# the IR (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB
+# header took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
+# explicit build-exe form for stability (build.zig targets 0.16).
 lang_zig() {
   have zig || { skip zig "zig not installed (mlugg/setup-zig)"; return; }
   local f; f="$(log_path zig)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.h"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$LIB_PATH"             "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/azul.zig"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/azul_c.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$LIB_PATH"               "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    [ -f "$REPO_ROOT/examples/zig/azul_c.zig" ] || {
+      echo "zig: $CODEGEN_DIR/azul_c.zig missing — run the codegen step first" >&2
+      exit 1
+    }
     cd "$REPO_ROOT/examples/zig" || exit 1
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
+      zig build-exe hello-world.zig -lc -lazul -L. -rpath . \
         -framework Foundation -framework AppKit -framework OpenGL \
         -framework CoreGraphics -framework CoreText -femit-bin=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # MinGW/MSVC: link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      zig build-exe hello-world.zig -lc "$RELEASE_DIR/azul.dll.lib" -I. \
+      zig build-exe hello-world.zig -lc "$RELEASE_DIR/azul.dll.lib" \
         -femit-bin=hello-world-e2e.exe || exit 1
     else
-      zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
+      zig build-exe hello-world.zig -lc -lazul -L. -rpath . \
         -femit-bin=hello-world-e2e || exit 1
     fi
     "$BIN"
   ) >"$f" 2>&1
-  finish zig "zig build/run failed (@cImport azul.h)"
+  finish zig "zig build/run failed (azul.zig + azul_c.zig)"
 }
 
 # ---- Odin --------------------------------------------------------------------
