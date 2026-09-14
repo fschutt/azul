@@ -1,77 +1,50 @@
 //! Go binding generator (cgo).
 //!
-//! Emits a small library of `.go` source files plus a `go.mod` manifest
-//! that exposes `libazul`'s C-ABI to Go programs through cgo.
+//! Emits a Go package (`package azul`) plus a `go.mod` manifest that
+//! exposes `libazul`'s C-ABI to Go programs through cgo — one statically
+//! linked binary, no dlopen.
 //!
-//! # Why Go is C-tier (not S-tier)
+//! # Strategy: Go-native types, cgo only for the calls
 //!
-//! All other host-side bindings (C#, Ruby, Lua, Pascal, Ada, FreeBASIC,
-//! Zig, PowerShell, PHP, Perl, OCaml) load `libazul` at runtime through
-//! a dynamic-linker-style FFI (`dlopen` / `LoadLibrary` / P/Invoke /
-//! `ffi.cdef` / `Interfaces.C` / etc.). The consumer needs **only** the
-//! prebuilt shared library on their machine — no C toolchain, no header
-//! file, no recompilation step.
+//! cgo's first gcc probe writes five deliberately failing C functions for
+//! every `C.` name a file references; gcc's error-recovery path grows
+//! super-linearly with that count (2 s at 1.1k names, 6 s at 5.4k, 356 s
+//! at 9.4k). The binding used to reference every C type (`C.AzFoo`) AND
+//! every function — ~18k names. It now references no C type at all:
 //!
-//! Go's cgo does **not** work that way. `import "C"` is a compile-time
-//! directive that requires:
+//! 1. `types.go`  — Go-native definitions of every api.json type with the
+//!                  exact `repr(C)` layout (see `types.rs`), no cgo.
+//! 2. `functions*.go` — the raw call layer, one Go function per C export,
+//!                  named like the C symbol. Owned aggregates cross through
+//!                  the exported `*Byref` twins by pointer; everything is
+//!                  declared with `void*`/primitive prototypes so no C type
+//!                  is named (see `functions.rs`). Chunked into files of
+//!                  at most `functions::CHUNK` names because the probe cost
+//!                  is per file.
+//! 3. `wrappers.go` — idiomatic wrappers (`type App struct { inner *AzApp }`,
+//!                  constructors, methods, `Close() error`), no cgo.
+//! 4. `callbacks.go` / `callbacks_export.go` — host-invoker callback layer
+//!                  (`//export` trampolines); its preamble includes azul.h
+//!                  for a handful of static shims, but the Go side names
+//!                  only shim functions and `C.uint64_t`.
+//! 5. `azul.go`   — package doc + the `#cgo LDFLAGS` directive.
+//! 6. `go.mod`    — `module github.com/azul/azul-go` + Go 1.21 directive.
 //!
-//!   * a working C compiler (`gcc` / `clang` / MinGW) on the host,
-//!   * `azul.h` on the C include path at build time,
-//!   * `libazul.{so,dylib}` (or `azul.dll`) on the linker library path.
+//! # Build-time requirements (cgo)
 //!
-//! cgo also makes cross-compilation genuinely painful: building a
-//! Windows binary from Linux requires a MinGW cross-toolchain. We accept
-//! these trade-offs because Go's audience justifies the inclusion, and
-//! cgo at least delivers a fully native call path with no marshaller
-//! overhead.
-//!
-//! # Strategy
-//!
-//! Like the Zig generator, we let the C compiler do the type translation.
-//! The cgo prelude
-//!
-//! ```go
-//! // #cgo LDFLAGS: -lazul
-//! // #include "azul.h"
-//! import "C"
-//! ```
-//!
-//! makes every C type available as `C.AzApp`, `C.AzDom`, etc., and every
-//! C function available as `C.AzApp_create(...)`. We don't redeclare the
-//! FFI surface — we wrap it.
-//!
-//! We emit four Go source files plus `go.mod`:
-//!
-//! 1. `azul.go`  — package preamble, cgo `// #cgo` and `// #include` directives, `import "C"`, and
-//!    shared documentation.
-//! 2. `types.go` — Go-side mirror types for the public surface (drops the `Az` prefix), plus
-//!    tagged-union sealed interfaces and per-variant types. Skipped categories live here as `//
-//!    SKIPPED:` comments.
-//! 3. `functions.go` — top-level constants (enum values) and helper conversion functions. Most C
-//!    functions get exposed as methods on wrapper types in `wrappers.go` instead.
-//! 4. `wrappers.go` — `type App struct { ptr *C.AzApp }` plus constructors, instance methods, and
-//!    `Close() error` implementations of `io.Closer` for every type that has an `_delete` C
-//!    function. `runtime.SetFinalizer` is registered as a safety net so leaks become eventual
-//!    cleanups instead of permanent ones.
-//! 5. `go.mod`   — `module github.com/azul/azul-go` + Go 1.21 directive.
+//!   * a C compiler (`gcc` / `clang` / MinGW) on the host,
+//!   * `azul.h` on the C include path (`CGO_CFLAGS=-I...`) — the shim and
+//!     callback preambles include it,
+//!   * `libazul.{so,dylib}` (or `azul.dll`) on the linker path
+//!     (`CGO_LDFLAGS=-L...`) and reachable at runtime.
 //!
 //! # Output protocol
 //!
 //! `generate(ir, config)` returns a single concatenated `String` with
 //! per-file sections separated by [`FILE_MARKER`]. The marker is a
-//! syntactically valid Go line comment (`// ==FILE: <path> ==`), so the
-//! combined text would still parse as one Go file in a pinch. The
+//! syntactically valid Go line comment (`// ==FILE: <path> ==`). The
 //! orchestrator splits on the marker and writes each chunk to its
-//! relative path under `target/codegen/v2/go/`.
-//!
-//! # User responsibilities (consumer-side)
-//!
-//! 1. Place `azul.h` somewhere `cgo` can find it (current dir works, or set
-//!    `CGO_CFLAGS=-I/path/to/headers`).
-//! 2. Place `libazul.{so,dylib}` (or `azul.dll`) on the linker path (current dir works with `-L.`,
-//!    or set `CGO_LDFLAGS=-L/path/to/lib`).
-//! 3. Ensure the same library is reachable at runtime (`LD_LIBRARY_PATH` on Linux,
-//!    `DYLD_LIBRARY_PATH` on macOS, `PATH` on Windows). On Linux, `-Wl,-rpath,$ORIGIN` works too.
+//! relative path under `target/codegen/go/`.
 
 pub mod functions;
 pub mod gomod;
@@ -81,7 +54,9 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
+use super::config::CodegenConfig;
+use super::generator::CodeBuilder;
+use super::ir::CodegenIR;
 
 /// File-marker header that introduces each per-file section in the
 /// concatenated output. The orchestrator splits on lines that start
@@ -101,7 +76,7 @@ pub const LIB_NAME: &str = "azul";
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let azul = generate_azul_go(config)?;
     let types_src = types::generate(ir, config)?;
-    let functions_src = functions::generate(ir, config)?;
+    let raw_files = functions::generate_files(ir, config)?;
     let wrappers_src = wrappers::generate(ir, config)?;
     let callbacks_src = managed::generate(ir, config)?;
     let callbacks_export_src = managed::generate_export(ir, config)?;
@@ -110,7 +85,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut out = String::with_capacity(
         azul.len()
             + types_src.len()
-            + functions_src.len()
+            + raw_files.iter().map(|(_, c)| c.len()).sum::<usize>()
             + wrappers_src.len()
             + callbacks_src.len()
             + callbacks_export_src.len()
@@ -119,7 +94,9 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     );
     push_section(&mut out, "azul.go", &azul);
     push_section(&mut out, "types.go", &types_src);
-    push_section(&mut out, "functions.go", &functions_src);
+    for (path, content) in &raw_files {
+        push_section(&mut out, path, content);
+    }
     push_section(&mut out, "wrappers.go", &wrappers_src);
     push_section(&mut out, "callbacks.go", &callbacks_src);
     push_section(&mut out, "callbacks_export.go", &callbacks_export_src);
@@ -154,16 +131,17 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("// Auto-generated by azul-doc codegen v2 (lang_go). DO NOT EDIT MANUALLY.");
     b.line("// ============================================================================");
     b.line("//");
-    b.line("// Strategy: cgo's `import \"C\"` directive parses the existing `azul.h`");
-    b.line("// header at compile time and exposes every `typedef`, `struct`, `enum`,");
-    b.line("// `union`, function declaration, and macro it understands under the `C`");
-    b.line("// namespace. We don't redeclare the FFI surface - we wrap it.");
+    b.line("// Layout of this package:");
+    b.line("//   types.go        Go-native mirrors of every C-ABI type (no cgo).");
+    b.line("//   functions*.go   raw calls, one Go function per C export (the only cgo");
+    b.line("//                   users; owned structs cross by pointer via the *Byref twins).");
+    b.line("//   wrappers.go     idiomatic wrappers with Close()/finalizers (no cgo).");
+    b.line("//   callbacks*.go   Go functions as libazul callbacks (host-invoker pattern).");
     b.line("//");
-    b.line("// Build-time requirements (these are NOT runtime-only loads like the");
-    b.line("// other azul bindings):");
+    b.line("// Build-time requirements (cgo):");
     b.line("//   * a working C compiler (gcc / clang / MinGW) on the host,");
-    b.line("//   * `azul.h` reachable on the C include path,");
-    b.line("//   * `libazul.{so,dylib}` (or `azul.dll`) on the linker library path.");
+    b.line("//   * `azul.h` reachable on the C include path (CGO_CFLAGS=-I...),");
+    b.line("//   * `libazul.{so,dylib}` (or `azul.dll`) on the linker path (CGO_LDFLAGS=-L...).");
     b.line("//");
     b.line("// Runtime requirements:");
     b.line("//   * the same `libazul.{so,dylib}` (or `azul.dll`) reachable through");
@@ -171,81 +149,21 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("//     (Windows). `-Wl,-rpath,$ORIGIN` also works on Linux when the");
     b.line("//     library sits next to the binary.");
     b.line("//");
-    b.line("// Cross-compilation note: cgo makes cross-compiles genuinely painful.");
-    b.line("// Building a Windows binary from Linux requires a MinGW cross-toolchain;");
-    b.line("// building a Linux binary from macOS requires the corresponding sysroot.");
-    b.line("// This is unavoidable for cgo-backed bindings.");
+    b.line("// ABI note: the Go types assume the 64-bit C ABI (8-byte pointers); the");
+    b.line("// `const _ = ...` assertions in types.go fail the build anywhere else.");
     b.line("// ============================================================================");
     b.blank();
     b.line("package azul");
     b.blank();
 
     // The cgo prelude MUST be a single comment block (no blank lines)
-    // immediately followed by `import \"C\"`. Inserting any blank line or
-    // top-level declaration between the comment and `import \"C\"` breaks
-    // cgo. See https://pkg.go.dev/cmd/cgo for the rules.
+    // immediately followed by `import "C"`. This file carries only the
+    // package-wide linker directive; it names no C symbol.
     b.line("/*");
     b.line(&format!("#cgo LDFLAGS: -l{}", LIB_NAME));
-    b.line("#include <stdlib.h>");
-    b.line("#include <string.h>");
-    b.line("#include \"azul.h\"");
+    b.line("#include <stdint.h>");
     b.line("*/");
     b.line("import \"C\"");
-    b.blank();
-    b.line("import (");
-    b.indent();
-    b.line("\"unsafe\"");
-    b.line("\"runtime\"");
-    b.dedent();
-    b.line(")");
-    b.blank();
-
-    // Reference unsafe/runtime so a build that happens to use only the
-    // umbrella file still type-checks. The `_ = ...` blank assignments
-    // are erased by the compiler.
-    b.line("// Suppress unused-import errors when only the umbrella file is consumed.");
-    b.line("var _ = unsafe.Sizeof(uintptr(0))");
-    b.line("var _ = runtime.GC");
-    b.blank();
-
-    // String marshalling helpers used by every wrapper. These are public");
-    // (capitalised) so user code can reach for them too.");
-    b.line("// goString converts a C string allocated by libazul into a Go string.");
-    b.line("// Does NOT free the underlying C string; callers must arrange for that");
-    b.line("// separately if it was malloc'd.");
-    b.line("func goString(p *C.char) string {");
-    b.indent();
-    b.line("if p == nil {");
-    b.indent();
-    b.line("return \"\"");
-    b.dedent();
-    b.line("}");
-    b.line("return C.GoString(p)");
-    b.dedent();
-    b.line("}");
-    b.blank();
-
-    b.line("// cString allocates a C string from a Go string. The returned pointer");
-    b.line("// must be freed with C.free; callers typically wrap the call site in");
-    b.line("// `defer C.free(unsafe.Pointer(p))`.");
-    b.line("func cString(s string) *C.char {");
-    b.indent();
-    b.line("return C.CString(s)");
-    b.dedent();
-    b.line("}");
-    b.blank();
-
-    b.line("// cBool converts a Go bool into the C-ABI's 1-byte boolean.");
-    b.line("func cBool(b bool) C.bool {");
-    b.indent();
-    b.line("if b {");
-    b.indent();
-    b.line("return C.bool(true)");
-    b.dedent();
-    b.line("}");
-    b.line("return C.bool(false)");
-    b.dedent();
-    b.line("}");
     b.blank();
 
     Ok(b.finish())
@@ -399,7 +317,7 @@ pub fn primitive_to_go(name: &str) -> Option<&'static str> {
         "i64" => "int64",
         "f32" => "float32",
         "f64" => "float64",
-        "usize" => "uint",
+        "usize" => "uintptr",
         "isize" => "int",
         "c_void" | "void" | "()" => "",
         _ => return None,
@@ -423,7 +341,7 @@ pub fn primitive_to_cgo(name: &str) -> Option<&'static str> {
         "f32" => "C.float",
         "f64" => "C.double",
         "usize" => "C.size_t",
-        "isize" => "C.ssize_t",
+        "isize" => "C.intptr_t",
         _ => return None,
     })
 }
