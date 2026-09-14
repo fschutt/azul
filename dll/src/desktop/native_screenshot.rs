@@ -449,6 +449,15 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
 
 /// Take a native screenshot on Linux/X11 using XGetImage via dlopen
 #[cfg(target_os = "linux")]
+/// Set by the temporary X error handler installed around the decorated
+/// (root-window) grab, so the caller can fall back to the plain client grab
+/// instead of returning a half-read image. Process-global because Xlib's error
+/// handler is process-global; the window that sets it is the one that just
+/// called `XGetImage`, and captures are not concurrent.
+#[cfg(target_os = "linux")]
+static FRAME_GRAB_FAILED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
 fn take_native_screenshot_xlib_bytes(
     display: *mut core::ffi::c_void,
     window: u64,
@@ -515,6 +524,28 @@ fn take_native_screenshot_xlib_bytes(
     type XGetImageFn =
         unsafe extern "C" fn(*mut Display, Window, i32, i32, u32, u32, u64, i32) -> *mut XImage;
     type XDestroyImageFn = unsafe extern "C" fn(*mut XImage) -> i32;
+    type XQueryTreeFn = unsafe extern "C" fn(
+        *mut Display,
+        Window,
+        *mut Window,
+        *mut Window,
+        *mut *mut Window,
+        *mut u32,
+    ) -> i32;
+    type XFreeFn = unsafe extern "C" fn(*mut c_void) -> i32;
+    type XErrorHandlerFn = unsafe extern "C" fn(*mut Display, *mut c_void) -> i32;
+    type XSetErrorHandlerFn = unsafe extern "C" fn(Option<XErrorHandlerFn>) -> Option<XErrorHandlerFn>;
+    type XSyncFn = unsafe extern "C" fn(*mut Display, i32) -> i32;
+
+    /// Swallow the X error instead of letting Xlib's default handler call
+    /// `exit()`. Installed only around the frame-window grab below: a window
+    /// that moved partly off-screen between the geometry read and the
+    /// `XGetImage` answers `BadMatch`, and a screenshot is never worth killing
+    /// the application over.
+    unsafe extern "C" fn swallow_x_error(_: *mut Display, _: *mut c_void) -> i32 {
+        FRAME_GRAB_FAILED.store(true, core::sync::atomic::Ordering::SeqCst);
+        0
+    }
 
     // Load libX11 dynamically. Miri can't call `dlopen`, so treat the library
     // as unavailable (null) under it and let the is_null() guard below bail.
@@ -564,6 +595,29 @@ fn take_native_screenshot_xlib_bytes(
         }
         let destroy_image: XDestroyImageFn = std::mem::transmute(sym);
 
+        // Optional: present on every real Xlib, absent under a stub. Missing
+        // symbols simply disable the decorated path.
+        let query_tree: Option<XQueryTreeFn> = {
+            let n = CString::new("XQueryTree").unwrap();
+            let sym = libc::dlsym(lib, n.as_ptr());
+            if sym.is_null() { None } else { Some(std::mem::transmute(sym)) }
+        };
+        let x_free: Option<XFreeFn> = {
+            let n = CString::new("XFree").unwrap();
+            let sym = libc::dlsym(lib, n.as_ptr());
+            if sym.is_null() { None } else { Some(std::mem::transmute(sym)) }
+        };
+        let set_error_handler: Option<XSetErrorHandlerFn> = {
+            let n = CString::new("XSetErrorHandler").unwrap();
+            let sym = libc::dlsym(lib, n.as_ptr());
+            if sym.is_null() { None } else { Some(std::mem::transmute(sym)) }
+        };
+        let x_sync: Option<XSyncFn> = {
+            let n = CString::new("XSync").unwrap();
+            let sym = libc::dlsym(lib, n.as_ptr());
+            if sym.is_null() { None } else { Some(std::mem::transmute(sym)) }
+        };
+
         (|| -> Result<Vec<u8>, AzString> {
             let mut attr: XWindowAttributes = core::mem::zeroed();
             if get_window_attrs(display, window, &mut attr) == 0 {
@@ -577,8 +631,124 @@ fn take_native_screenshot_xlib_bytes(
                 return Err(AzString::from("Invalid window dimensions"));
             }
 
+            // ── The window as the USER sees it, decorations included ────────
+            //
+            // macOS (`CGWindowListCreateImage`) and Windows (`PrintWindow` on
+            // the top-level HWND) both capture the window WITH its frame, so
+            // the committed macOS screenshots carry a titlebar and the Linux
+            // ones did not. Matching them on X11 takes two steps, and the
+            // OBVIOUS one is wrong:
+            //
+            //  * WRONG: `XGetImage` on the WM frame window. Under a compositing
+            //    WM (KWin, mutter, picom) the decorations are painted by the
+            //    compositor's own scene and never land in the frame window's X
+            //    drawable, so the titlebar strip comes back as whatever was
+            //    last there — on a 300x253 Breeze frame, 28 px of the desktop
+            //    behind it.
+            //  * RIGHT: grab the ROOT window at the frame's rectangle. That is
+            //    the composited output, which is what the user is looking at.
+            //
+            // The frame is found by walking `XQueryTree` up until the parent IS
+            // the root (KWin nests client -> wrapper -> frame, so it is two
+            // levels, not one). No WM, an override-redirect window, or Xvfb
+            // with no WM at all: the walk stops immediately, frame == client,
+            // and this degrades to exactly the old behaviour.
+            //
+            // The cost of grabbing the root is that it captures whatever is ON
+            // SCREEN in that rectangle — an overlapping window lands in the
+            // shot. That is the right trade for a screenshot of a window the
+            // user can see, and under Xvfb (CI) nothing else is on screen.
+            let mut src_window = window;
+            let mut src_x = 0i32;
+            let mut src_y = 0i32;
+            let mut src_w = width;
+            let mut src_h = height;
+
+            if let (Some(query_tree), Some(x_free)) = (query_tree, x_free) {
+                let root = attr.root;
+                let mut cur = window;
+                // Bounded: a reparenting WM uses one or two levels, and a cycle
+                // here would hang the capture.
+                for _ in 0..8 {
+                    let mut r: Window = 0;
+                    let mut parent: Window = 0;
+                    let mut children: *mut Window = core::ptr::null_mut();
+                    let mut nchildren: u32 = 0;
+                    if query_tree(display, cur, &mut r, &mut parent, &mut children, &mut nchildren)
+                        == 0
+                    {
+                        break;
+                    }
+                    if !children.is_null() {
+                        x_free(children as *mut c_void);
+                    }
+                    if parent == 0 || parent == root || cur == root {
+                        break;
+                    }
+                    cur = parent;
+                }
+
+                if cur != window && cur != root {
+                    let mut frame: XWindowAttributes = core::mem::zeroed();
+                    let mut root_attr: XWindowAttributes = core::mem::zeroed();
+                    if get_window_attrs(display, cur, &mut frame) != 0
+                        && get_window_attrs(display, root, &mut root_attr) != 0
+                        && frame.width > 0
+                        && frame.height > 0
+                        // A child of the root has coordinates relative to the
+                        // root, i.e. absolute. Only take the frame when it sits
+                        // FULLY on screen: `XGetImage` past the root's edge is
+                        // a `BadMatch`, and a half-window screenshot is not
+                        // what anybody asked for either.
+                        && frame.x >= 0
+                        && frame.y >= 0
+                        && frame.x + frame.width <= root_attr.width
+                        && frame.y + frame.height <= root_attr.height
+                    {
+                        src_window = root;
+                        src_x = frame.x;
+                        src_y = frame.y;
+                        src_w = frame.width as u32;
+                        src_h = frame.height as u32;
+                    }
+                }
+            }
+
             // ZPixmap = 2, AllPlanes = !0
-            let image = get_image(display, window, 0, 0, width, height, !0u64, 2);
+            let mut image = if src_window == window {
+                get_image(display, window, 0, 0, width, height, !0u64, 2)
+            } else {
+                FRAME_GRAB_FAILED.store(false, core::sync::atomic::Ordering::SeqCst);
+                let prev = set_error_handler.map(|set| set(Some(swallow_x_error)));
+                let img = get_image(display, src_window, src_x, src_y, src_w, src_h, !0u64, 2);
+                // Force the round trip so a deferred error is attributed here
+                // and not to some unrelated call later.
+                if let Some(sync) = x_sync {
+                    sync(display, 0);
+                }
+                if let (Some(set), Some(prev)) = (set_error_handler, prev) {
+                    set(prev);
+                }
+                if FRAME_GRAB_FAILED.load(core::sync::atomic::Ordering::SeqCst) && !img.is_null() {
+                    destroy_image(img);
+                    core::ptr::null_mut()
+                } else {
+                    img
+                }
+            };
+
+            // The decorated grab is best-effort: anything at all going wrong
+            // with it falls back to the undecorated client window, which is
+            // what this function always used to return.
+            let (width, height) = if image.is_null() && src_window != window {
+                image = get_image(display, window, 0, 0, width, height, !0u64, 2);
+                (width, height)
+            } else if src_window != window {
+                (src_w, src_h)
+            } else {
+                (width, height)
+            };
+
             if image.is_null() {
                 return Err(AzString::from("XGetImage failed"));
             }
@@ -598,7 +768,15 @@ fn take_native_screenshot_xlib_bytes(
                     let b = *pixel_ptr;
                     let g = *pixel_ptr.offset(1);
                     let r = *pixel_ptr.offset(2);
-                    let a = if img.bits_per_pixel == 32 {
+                    // DEPTH decides whether the fourth byte is alpha, not
+                    // bits_per_pixel. A depth-24 drawable is stored 32 bits
+                    // wide with the top byte as PADDING, and X leaves padding
+                    // undefined — in practice zero. Reading it as alpha turned
+                    // the decorated capture (the ROOT window, depth 24 here)
+                    // into a fully transparent PNG that renders as a blank
+                    // white rectangle, while the client window — a 32-bit ARGB
+                    // visual, where the byte really is alpha — came out fine.
+                    let a = if img.bits_per_pixel == 32 && img.depth == 32 {
                         *pixel_ptr.offset(3)
                     } else {
                         255

@@ -1899,65 +1899,6 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo check --verbose -p azul-examples --examples --features serde,icu,fluent,http,zip
 
-      - name: Take screenshots (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-              ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-linux.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (macOS)
-        if: matrix.os == 'macos-14'
-        continue-on-error: true
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-macos.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (Windows)
-        if: matrix.os == 'windows-2022'
-        continue-on-error: true
-        shell: bash
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-windows.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Upload Screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-${{ matrix.os }}
-          path: target/screenshots/*.png
-          retention-days: 7
-          if-no-files-found: warn
-
       - name: Upload the lean libazul
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1987,6 +1928,84 @@ jobs:
             target/codegen/azul23.hpp
           retention-days: 30
           if-no-files-found: error
+
+      # AFTER the artifact uploads. The screenshot script runs azul-dll out of
+      # target/prod-release, and anything that rebuilds azul-dll there replaces
+      # the very files the two steps above publish — which, on macOS, also
+      # invalidates the signature the codesign step just applied. It should not
+      # rebuild anything (see AZ_SCREENSHOT_PROFILE below), but "should not" is
+      # not a guarantee worth an unsigned release artifact. Publish first.
+      #
+      # AZ_SCREENSHOT_PROFILE pins the profile the job has already built. The
+      # script defaults to `release`, which is what a developer's machine has a
+      # tree for. Here the opposite holds: prod-release exists, its feature set
+      # is IDENTICAL (the AZ_E2E runner ships inside `build-dll`), so the
+      # script's cargo build is a cache hit — while `release` would compile the
+      # whole dependency tree a second time under a second profile.
+      - name: Take screenshots (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        continue-on-error: true
+        env:
+          AZ_SCREENSHOT_PROFILE: prod-release
+        run: |
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "Taking screenshot for $example on port $PORT"
+            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+              ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-linux.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+
+      - name: Take screenshots (macOS)
+        if: matrix.os == 'macos-14'
+        continue-on-error: true
+        env:
+          AZ_SCREENSHOT_PROFILE: prod-release
+        run: |
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "Taking screenshot for $example on port $PORT"
+            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-macos.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+
+      - name: Take screenshots (Windows)
+        if: matrix.os == 'windows-2022'
+        continue-on-error: true
+        env:
+          AZ_SCREENSHOT_PROFILE: prod-release
+        shell: bash
+        run: |
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "Taking screenshot for $example on port $PORT"
+            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-windows.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+
+      - name: Upload Screenshots
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: true
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: target/screenshots/*.png
+          retention-days: 7
+          if-no-files-found: warn
 
   build_azuldbg:
     # Builds the azuldbg swap-in library.

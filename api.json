@@ -6753,7 +6753,7 @@
                 },
                 "screenshot": {
                     "windows": "hello-world.mac.png",
-                    "linux": "hello-world.mac.png",
+                    "linux": "hello-world.linux.png",
                     "mac": "hello-world.mac.png"
                 },
                 "description": []
@@ -6779,7 +6779,7 @@
                 },
                 "screenshot": {
                     "windows": "widgets.mac.png",
-                    "linux": "widgets.mac.png",
+                    "linux": "widgets.linux.png",
                     "mac": "widgets.mac.png"
                 },
                 "description": [
@@ -6809,7 +6809,7 @@
                 },
                 "screenshot": {
                     "windows": "opengl.mac.png",
-                    "linux": "opengl.mac.png",
+                    "linux": "opengl.linux.png",
                     "mac": "opengl.mac.png"
                 },
                 "description": [
@@ -6839,7 +6839,7 @@
                 },
                 "screenshot": {
                     "windows": "infinity.mac.png",
-                    "linux": "infinity.mac.png",
+                    "linux": "infinity.linux.png",
                     "mac": "infinity.mac.png"
                 },
                 "description": [
@@ -6869,7 +6869,7 @@
                 },
                 "screenshot": {
                     "windows": "async.mac.png",
-                    "linux": "async.mac.png",
+                    "linux": "async.linux.png",
                     "mac": "async.mac.png"
                 },
                 "description": [
@@ -6899,7 +6899,7 @@
                 },
                 "screenshot": {
                     "windows": "xhtml.mac.png",
-                    "linux": "xhtml.mac.png",
+                    "linux": "xhtml.linux.png",
                     "mac": "xhtml.mac.png"
                 },
                 "description": [
@@ -6929,7 +6929,7 @@
                 },
                 "screenshot": {
                     "windows": "calc.mac.png",
-                    "linux": "calc.mac.png",
+                    "linux": "calc.linux.png",
                     "mac": "calc.mac.png"
                 },
                 "description": [

@@ -2308,10 +2308,20 @@ impl WaylandWindow {
         };
         window.track_listener(window.xdg_toplevel);
 
-        // Request server-side decorations (xdg-decoration-unstable-v1) so the
-        // compositor draws a titlebar (move / close), instead of relying on
-        // client-side decorations azul doesn't render -> the window was an
-        // immovable, uncloseable bare rectangle on Wayland. get_toplevel_decoration:
+        // Negotiate decorations (xdg-decoration-unstable-v1). Which MODE is
+        // decided further down from `flags.decorations` (MWA-B6): azul renders
+        // its own titlebar — `desktop::csd` + `azul_layout::widgets::titlebar`
+        // — so a window that wants CSD, or is frameless, asks for
+        // `client_side` and the compositor draws nothing. Everything else asks
+        // for `server_side`. (This comment used to say azul does not render
+        // client-side decorations; that has not been true since CSD landed,
+        // and the `else` branch below now falls back to a CSD titlebar on a
+        // compositor that offers no xdg-decoration at all, such as GNOME.)
+        //
+        // Which mode is live also decides whether a CLIENT-SIDE screenshot can
+        // see the decorations: under CSD they are part of the surface azul
+        // paints, under SSD they live in the compositor and are out of reach.
+        // get_toplevel_decoration:
         // opcode 1, "no" (new_id<zxdg_toplevel_decoration_v1>, object<xdg_toplevel>),
         // then set_mode(server_side=2): opcode 1, "u". The compositor confirms via the
         // configure event (toplevel_decoration_configure_handler).

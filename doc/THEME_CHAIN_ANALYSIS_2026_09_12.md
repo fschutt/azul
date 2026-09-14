@@ -25,6 +25,15 @@ cascade, yet it still drives three other decisions: whether a style change is a 
 regeneration (`window.rs:1901-1903`), the window background (`event.rs:9576-9587`), and the
 display list's no-context fallback (`display_list.rs:7627-7630`).
 
+> **Fixed 2026-09-14.** The pin now also reaches `SystemStyle`:
+> `azul_css::system::apply_env_theme_pin` runs at the end of all three platform `discover()`s
+> (`linux/system_style.rs`, `macos/system_style.rs`, `windows/system_style.rs`) and swaps the
+> polarity-dependent visuals — palette, focus ring, scrollbar — to the matching built-in family,
+> keeping the desktop's fonts, metrics, extras and accent. Found by taking the website's Linux
+> screenshots on a Breeze Dark session: `AZ_THEME=light` produced light-theme TEXT on the
+> desktop's DARK background, because the cascade followed the pin and the background followed
+> `SystemStyle`. The three decisions above are exactly why a half-pin is not a pin.
+
 Window creation seeds `ws.theme` from `options.window_state.theme` (`macos/mod.rs:5563`,
 `windows/mod.rs:619`, `x11/mod.rs:3873`, `wayland/mod.rs:1972`), i.e. from the `LightMode`
 default, never from the probed `SystemStyle`. `WindowCreateOptions.theme`

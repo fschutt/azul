@@ -2437,6 +2437,17 @@ pub enum DebugEvent {
 
     // Testing
     WaitFrame,
+    /// `{ "op": "wait", "ms": 250 }` — advance the INJECTABLE clock by `ms`
+    /// and yield one turn of the shell's loop. Costs no wall time and is exact
+    /// on any runner at any load, which is what lets a corpus this size run in
+    /// CI; everything the engine drives off time (timers, caret blink,
+    /// scrollbar fade, animations) cannot tell it from a real sleep.
+    ///
+    /// `{ "op": "wait", "ms": 15000, "real": true }` waits on the WALL CLOCK
+    /// instead. Only for work that is genuinely outside the process — a map
+    /// tile over HTTPS, an `http` op against a real server — where no amount of
+    /// virtual time makes the bytes arrive. Real, so use the smallest value
+    /// that does the job.
     Wait {
         ms: u64,
     },
@@ -10302,6 +10313,46 @@ fn resume_e2e_continuation_inner(
             // the wait is for; see resume_not_before).
             if op == "wait" {
                 let ms = step.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                // `"real": true` waits on the WALL CLOCK instead of the
+                // injectable one. The virtual wait below is right for anything
+                // the ENGINE drives — it is exact and it is free — but it buys
+                // no time at all for work that is genuinely outside the process:
+                // a `map-tiles` fetch over HTTPS, a `http` op against a real
+                // server, a font the OS is still loading. The website's map
+                // screenshot captured its empty tile grid, with the `z6/34/22`
+                // placeholders still showing, after a `wait` of 15 000 ms that
+                // returned in 0.45 s.
+                //
+                // It costs the scenario nothing to keep this opt-in: the
+                // `resume_not_before` deadline it sets is the one the pump
+                // already honours (see `continuation_blocked`), the field was
+                // simply never set by anything once `wait` went virtual. And a
+                // real wait must NOT also bump the offset — real time already
+                // flows into `Instant::now()`, so doing both double-counts it
+                // for every timer in the window.
+                let real = step
+                    .params
+                    .get("real")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                if real {
+                    cont.resume_not_before =
+                        Some(wall_clock_now() + std::time::Duration::from_millis(ms));
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index,
+                        op: op.to_string(),
+                        status: "pass".into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs: vec![format!("waiting {ms} ms (wall clock)")],
+                        screenshot: None,
+                        error: None,
+                        response: None,
+                    });
+                    cont.step_idx = step_index + 1;
+                    cont.app_data = app_data;
+                    session.pending = Some(cont);
+                    return needs_update;
+                }
                 // Advance the injectable clock rather than sleeping for real.
                 //
                 // `Instant::now()` is `StdInstant::now() + test_offset`, so to
@@ -14597,17 +14648,7 @@ pub fn process_debug_event(
                     // what makes a mid-animation sequence inspectable at all.
                     // Unset (the default, and always in CI) this does nothing.
                     #[cfg(feature = "std")]
-                    if let Some(dir) = std::env::var_os("AZ_E2E_SHOT_DIR") {
-                        let dir = std::path::PathBuf::from(dir);
-                        let _ = std::fs::create_dir_all(&dir);
-                        static SHOT_N: core::sync::atomic::AtomicUsize =
-                            core::sync::atomic::AtomicUsize::new(0);
-                        let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                        let raw = data.data.rsplit(",").next().unwrap_or("");
-                        if let Ok(bytes) = base64_decode_for_shot(raw) {
-                            let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
-                        }
-                    }
+                    write_shot_to_dir(&data.data);
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -14649,6 +14690,14 @@ pub fn process_debug_event(
                     let data = ScreenshotData {
                         data: data_uri.as_str().to_string(),
                     };
+                    // Same disk sink as the CPU capture above. It used to be
+                    // wired to `take_screenshot` alone, so a scenario that
+                    // asked for the NATIVE window and set AZ_E2E_SHOT_DIR got
+                    // an empty directory and a base64 blob in a response file
+                    // nobody can look at — which is precisely what a
+                    // screenshot run wants from this op.
+                    #[cfg(feature = "std")]
+                    write_shot_to_dir(&data.data);
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -19534,6 +19583,28 @@ mod non_interference_can_fail {
             "every fingerprinted manager must be proven to MOVE when written; the two sets \
              disagree, so at least one fingerprint is untested and may be a constant",
         );
+    }
+}
+
+/// Write one captured screenshot to `AZ_E2E_SHOT_DIR`, numbered in capture
+/// order (`shot-000.png`, `shot-001.png`, ...).
+///
+/// `data_uri` is the `data:image/png;base64,...` string the capture ops hand
+/// back. Unset (the default, and always in CI) this does nothing. The counter
+/// is shared by the CPU and the native capture so the numbering follows the
+/// order the scenario actually asked in, not one sequence per op.
+#[cfg(feature = "std")]
+fn write_shot_to_dir(data_uri: &str) {
+    let Some(dir) = std::env::var_os("AZ_E2E_SHOT_DIR") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let _ = std::fs::create_dir_all(&dir);
+    static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let raw = data_uri.rsplit(',').next().unwrap_or("");
+    if let Ok(bytes) = base64_decode_for_shot(raw) {
+        let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
     }
 }
 
