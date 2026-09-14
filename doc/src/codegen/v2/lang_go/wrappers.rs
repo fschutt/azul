@@ -115,9 +115,17 @@ fn emit_header(b: &mut CodeBuilder) {
     b.blank();
     b.line("package azul");
     b.blank();
-    b.line("import \"runtime\"");
+    // `unsafe` is needed by any signature carrying a raw pointer
+    // (`unsafe.Pointer` args and returns such as `RefAny.GetDataPtr`);
+    // `runtime` by the finalizer safety net. Both are blank-referenced
+    // below so a package that happens to use neither still compiles.
+    b.line("import (");
+    b.line("    \"runtime\"");
+    b.line("    \"unsafe\"");
+    b.line(")");
     b.blank();
     b.line("var _ = runtime.GC");
+    b.line("var _ = unsafe.Sizeof(uintptr(0))");
     b.blank();
 }
 

@@ -109,13 +109,28 @@ impl ModulePlan {
                 if !CONTAINER_MODULES.contains(&types[i].module.as_str()) {
                     continue;
                 }
-                let targets: BTreeSet<&str> = deps[i]
+                let mut targets: BTreeSet<&str> = deps[i]
                     .iter()
                     .map(|&j| module[j].as_str())
                     // A dependency still filed under a container module says
                     // nothing about where this type belongs.
                     .filter(|m| !CONTAINER_MODULES.contains(m))
                     .collect();
+                // A container's satellites have no element to follow: a
+                // `DomVecDestructor` references `c_void` and nothing else,
+                // so its own edges never name a module. Its USERS do — the
+                // destructor exists solely for `DomVec`, which the loop has
+                // by then moved to `dom`. Following a unique dependent keeps
+                // the satellite with the container it belongs to without a
+                // name-shape rule, and a container many modules use (`U8Vec`)
+                // still has no unique answer and stays in `vec`.
+                if targets.is_empty() {
+                    targets = (0..types.len())
+                        .filter(|&j| j != i && deps[j].contains(&i))
+                        .map(|j| module[j].as_str())
+                        .filter(|m| !CONTAINER_MODULES.contains(m))
+                        .collect();
+                }
                 if targets.len() == 1 {
                     let m = targets.into_iter().next().unwrap().to_string();
                     if module[i] != m {
@@ -806,13 +821,21 @@ mod tests {
         for e in &ir.enums {
             assert!(seen.contains(&e.name), "{} missing from the plan", e.name);
         }
-        // Dom embeds ColorU, so css comes first; StyledDom embeds Dom, so
-        // it cannot sit in that first css chunk.
-        let css = plan.chunk_index("ColorU").unwrap();
-        let dom = plan.chunk_index("Dom").unwrap();
-        let styled = plan.chunk_index("StyledDom").unwrap();
-        assert!(css < dom && dom <= styled);
-        assert_ne!(plan.chunk_of("ColorU").unwrap().name, plan.chunk_of("StyledDom").unwrap().name);
+        // Dependency order is a property of the flattened type order, not of
+        // the chunk boundaries: this fixture is smaller than MIN_CHUNK_TYPES,
+        // so every type folds into ONE chunk (see
+        // `small_chunks_fold_into_their_predecessor`) and chunk indices say
+        // nothing. `Dom` embeds `ColorU` and `StyledDom` embeds `Dom`, so
+        // that is the order they must be emitted in.
+        let order: Vec<&str> = plan
+            .chunks
+            .iter()
+            .flat_map(|c| c.types.iter().map(String::as_str))
+            .collect();
+        let pos = |t: &str| order.iter().position(|x| *x == t).unwrap();
+        assert!(pos("ColorU") < pos("Dom"), "{order:?}");
+        assert!(pos("Dom") < pos("StyledDom"), "{order:?}");
+        assert!(pos("DomVecDestructor") < pos("DomVec"), "{order:?}");
     }
 
     #[test]

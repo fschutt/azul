@@ -1188,7 +1188,11 @@ lang_go() {
     # (2026-09-12/14). clang takes the same probe in 16 s and the whole build
     # in 35 s (measured in golang:1.22, Debian clang 14). The e2e runner
     # installs clang; use it wherever it exists.
-    if command -v clang >/dev/null 2>&1; then
+    # NOT on Windows: the clang there is the MSVC-flavoured one, and it hands
+    # Go's GNU-style linker flags (`--start-group`, `-tsaware`) to link.exe,
+    # which rejects them (exit 1181). Windows cgo wants its MinGW gcc, whose
+    # probe finishes anyway now that the package references ~1.5k C names.
+    if [ "$IS_WINDOWS" != 1 ] && command -v clang >/dev/null 2>&1; then
       export CC=clang
     fi
     local OUT="hello-world-go-e2e"

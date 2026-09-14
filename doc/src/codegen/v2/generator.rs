@@ -281,6 +281,12 @@ impl GenerationTargets {
             super::lang_zig::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.zig"),
         )?;
+        // The pre-translated C ABI `azul.zig` imports: `@cImport` over the
+        // 5.6 MB azul.h cost 91 s on a cold build.
+        Self::write_string(
+            super::lang_zig::c_decls::generate_c_decls(ir, &CodegenConfig::c_header()),
+            &codegen_dir.join("azul_c.zig"),
+        )?;
         Self::write_string(
             super::lang_zig::build_zig::generate_build_zig(),
             &codegen_dir.join("build.zig"),

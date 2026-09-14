@@ -9,43 +9,37 @@
 //! every unit only depends on units below it (OCaml compilation units
 //! cannot be mutually recursive):
 //!
-//! 1. `azul_loader.ml` — the `Dl.dlopen` of libazul, forced before any
-//!    `foreign` lookup by every FFI unit.
-//! 2. `azul_types_<unit>.ml` — one unit per plan chunk (`azul_types_css`,
-//!    `azul_types_dom`, `azul_types_css_2`, ...): the Ctypes `structure`
-//!    stubs, fields + `seal`, unit-enum constants and tagged-union blobs of
-//!    that chunk's types. A chunk `open`s the chunks it references.
+//! 1. `azul_loader.ml` — the `Dl.dlopen` of libazul, forced before any `foreign` lookup by every
+//!    FFI unit.
+//! 2. `azul_types_<unit>.ml` — one unit per plan chunk (`azul_types_css`, `azul_types_dom`,
+//!    `azul_types_css_2`, ...): the Ctypes `structure` stubs, fields + `seal`, unit-enum constants
+//!    and tagged-union blobs of that chunk's types. A chunk `open`s the chunks it references.
 //!    `azul_types.ml` `include`s them all. See `types.rs`.
-//! 3. `azul_ffi_<module>.ml` — the `foreign "<C symbol>" (...)` bindings
-//!    of one api.json module's classes; `azul_ffi.ml` includes them all.
-//!    See `functions.rs`.
-//! 4. `azul_managed.ml` — the host-invoker runtime (handle table, per-kind
-//!    invokers, `azul_refany_create` / `azul_refany_get`). See `managed.rs`.
-//! 5. `azul_records_<module>.ml` — the wrapper records with their
-//!    `Gc.finalise` finalisers (`type app = { mutable raw; mutable
-//!    disposed }`, `make_app`, `dispose_app`, `raw_app`) of one api.json
-//!    module; `azul_records.ml` includes them all.
-//! 6. `azul_api_<module>.ml` / `.mli` — the idiomatic per-class submodules
-//!    (`module Dom : sig ... end`, `module Update : sig ... end`) and the
-//!    polymorphic-variant views of one api.json module. The `.mli` seals
-//!    them exactly as the old `azul.mli` did. See `wrappers.rs`.
-//! 7. `azul.ml` — the facade: `include`s every layer and adds the
-//!    Dom.t-returning layout sugar.
+//! 3. `azul_ffi_<module>.ml` — the `foreign "<C symbol>" (...)` bindings of one api.json module's
+//!    classes; `azul_ffi.ml` includes them all. See `functions.rs`.
+//! 4. `azul_managed.ml` — the host-invoker runtime (handle table, per-kind invokers,
+//!    `azul_refany_create` / `azul_refany_get`). See `managed.rs`.
+//! 5. `azul_records_<module>.ml` — the wrapper records with their `Gc.finalise` finalisers (`type
+//!    app = { mutable raw; mutable disposed }`, `make_app`, `dispose_app`, `raw_app`) of one
+//!    api.json module; `azul_records.ml` includes them all.
+//! 6. `azul_api_<module>.ml` / `.mli` — the idiomatic per-class submodules (`module Dom : sig ...
+//!    end`, `module Update : sig ... end`) and the polymorphic-variant views of one api.json
+//!    module. The `.mli` seals them exactly as the old `azul.mli` did. See `wrappers.rs`.
+//! 7. `azul.ml` — the facade: `include`s every layer and adds the Dom.t-returning layout sugar.
 //!
 //! dune wraps the library, so only `Azul` is visible to consumers; the
 //! internal units are reachable as `Azul.<name>` through the includes.
 //!
 //! ## Surface
 //!
-//! - All FFI-level identifiers are emitted in `lower_snake_case`
-//!   (OCaml's value/type-name convention) — e.g. `az_app`, `ffi_az_app_create`.
-//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C
-//!   symbol from the IR (`AzApp_create`), never the OCaml-snake form.
-//! - Idiomatic surface lives inside nested modules: `Azul.App.create`,
-//!   `Azul.App.run`, etc. The `Az_` / `Az` prefix is dropped.
-//! - Tagged-union enums are surfaced as polymorphic variants
-//!   (`[ \`None | \`Some of int64 ]`) with `to_ffi` / `of_ffi`
-//!   conversion functions.
+//! - All FFI-level identifiers are emitted in `lower_snake_case` (OCaml's value/type-name
+//!   convention) — e.g. `az_app`, `ffi_az_app_create`.
+//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C symbol from the IR
+//!   (`AzApp_create`), never the OCaml-snake form.
+//! - Idiomatic surface lives inside nested modules: `Azul.App.create`, `Azul.App.run`, etc. The
+//!   `Az_` / `Az` prefix is dropped.
+//! - Tagged-union enums are surfaced as polymorphic variants (`[ \`None | \`Some of int64 ]`) with
+//!   `to_ffi` / `of_ffi` conversion functions.
 //!
 //! ## Output protocol
 //!
@@ -74,10 +68,9 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
-use super::module_plan::ModulePlan;
+use super::{
+    config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR, module_plan::ModulePlan,
+};
 
 /// Library link name passed to `Dl.dlopen` and used by `foreign` to
 /// resolve the prebuilt artifact at runtime.
@@ -186,7 +179,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     ));
 
     // 4. Managed runtime.
-    files.push(("azul_managed.ml".to_string(), generate_managed_unit(ir, config)));
+    files.push((
+        "azul_managed.ml".to_string(),
+        generate_managed_unit(ir, config),
+    ));
 
     // 5. Wrapper records per api.json module, then the facade.
     let mut record_units = Vec::new();
@@ -220,7 +216,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 7. The facade.
     files.push((
         "azul.ml".to_string(),
-        generate_facade(ir, config, &type_units, &ffi_units, &record_units, &api_units),
+        generate_facade(
+            ir,
+            config,
+            &type_units,
+            &ffi_units,
+            &record_units,
+            &api_units,
+        ),
     ));
 
     let total: usize = files.iter().map(|(_, s)| s.len()).sum();
@@ -311,7 +314,10 @@ fn generate_loader(config: &CodegenConfig) -> String {
     builder.line("let candidates = match Sys.getenv_opt \"AZ_DYLIB\" with");
     builder.indent();
     builder.line("| Some p when String.length p > 0 -> [p]");
-    builder.line("| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \"./libazul.so\"]");
+    builder.line(
+        "| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \
+         \"./libazul.so\"]",
+    );
     builder.dedent();
     builder.line("in");
     builder.line("let rec try_load = function");
@@ -370,7 +376,10 @@ fn generate_ffi_unit(
     let mut builder = CodeBuilder::new(&config.indent);
     unit_header(
         &mut builder,
-        &format!("Raw `foreign` bindings of the api.json module `{}`.", api_module),
+        &format!(
+            "Raw `foreign` bindings of the api.json module `{}`.",
+            api_module
+        ),
     );
     builder.line("open Ctypes");
     builder.line("open Foreign");
@@ -949,10 +958,12 @@ pub fn sanitize_doc(s: &str) -> String {
 
 #[cfg(test)]
 mod split_tests {
-    use super::super::config::CodegenConfig;
-    use super::super::module_plan::test_fixture_ir;
-    use super::*;
     use std::collections::BTreeMap;
+
+    use super::{
+        super::{config::CodegenConfig, module_plan::test_fixture_ir},
+        *,
+    };
 
     fn generated() -> BTreeMap<String, String> {
         let ir = test_fixture_ir();
@@ -980,9 +991,17 @@ mod split_tests {
         assert!(css.contains("structure \"AzColor0\""), "{}", css);
         assert!(dom.contains("structure \"AzDom\""), "{}", dom);
         assert!(dom.contains("structure \"AzDomVec\""), "DomVec follows Dom");
-        assert!(dom.contains("open Azul_types_css"), "dom embeds Color0:\n{}", dom);
+        assert!(
+            dom.contains("open Azul_types_css"),
+            "dom embeds Color0:\n{}",
+            dom
+        );
         assert!(!css.contains("open Azul_types_dom"));
-        assert!(dom.contains("let az_dom_field_color = field az_dom \"color\" az_color0"), "{}", dom);
+        assert!(
+            dom.contains("let az_dom_field_color = field az_dom \"color\" az_color0"),
+            "{}",
+            dom
+        );
     }
 
     #[test]
@@ -991,8 +1010,16 @@ mod split_tests {
         let ir = test_fixture_ir();
         let azul = &files["azul.ml"];
         for unit in unit_names(&ir) {
-            assert!(files.contains_key(&format!("{}.ml", unit)), "unit {} not written", unit);
-            if unit == "azul" || unit == "azul_types" || unit == "azul_ffi" || unit == "azul_records" {
+            assert!(
+                files.contains_key(&format!("{}.ml", unit)),
+                "unit {} not written",
+                unit
+            );
+            if unit == "azul"
+                || unit == "azul_types"
+                || unit == "azul_ffi"
+                || unit == "azul_records"
+            {
                 // facades-of-facades are included as their parts
                 continue;
             }
@@ -1000,8 +1027,13 @@ mod split_tests {
             assert!(azul.contains(&needle), "azul.ml lacks {}", needle);
         }
         assert_eq!(azul.matches("include Azul_types_dom").count(), 1);
-        assert!(azul.find("include Azul_types_dom").unwrap() < azul.find("include Azul_ffi_dom").unwrap());
-        assert!(azul.find("include Azul_managed").unwrap() < azul.find("include Azul_api_dom").unwrap());
+        assert!(
+            azul.find("include Azul_types_dom").unwrap()
+                < azul.find("include Azul_ffi_dom").unwrap()
+        );
+        assert!(
+            azul.find("include Azul_managed").unwrap() < azul.find("include Azul_api_dom").unwrap()
+        );
     }
 
     #[test]
@@ -1011,11 +1043,26 @@ mod split_tests {
         assert!(!files["azul_ffi_dom.ml"].contains("AzButton_"));
         assert!(files["azul_records_dom.ml"].contains("type dom = { mutable raw"));
         assert!(files["azul_api_widgets.mli"].contains("module Button : sig"));
-        assert!(files["azul_api_widgets.mli"].contains("val dom : t -> dom"), "{}", files["azul_api_widgets.mli"]);
+        // A method returning its OWN class comes back as the managed record
+        // (`make_<class>`, finaliser armed); a CROSS-class return stays the
+        // raw ctypes structure. Wrapping `Button.dom` would need
+        // `Azul_records_dom.make_dom` in scope of the widgets API unit — an
+        // edge from every api unit to every record unit, which is what the
+        // chunk plan exists to avoid. Callers wrap explicitly when they want
+        // a managed handle.
+        assert!(
+            files["azul_api_widgets.mli"].contains("val dom : t -> az_dom Ctypes.structure"),
+            "{}",
+            files["azul_api_widgets.mli"]
+        );
         assert!(files["azul_api_dom.mli"].contains("module Update : sig"));
         assert!(files["azul_api_dom.ml"].contains("open Azul_records"));
         for unit in ["azul_ffi_dom.ml", "azul_managed.ml"] {
-            assert!(files[unit].contains("Azul_loader.ensure ()"), "{} must load libazul first", unit);
+            assert!(
+                files[unit].contains("Azul_loader.ensure ()"),
+                "{} must load libazul first",
+                unit
+            );
         }
     }
 }
