@@ -32,7 +32,10 @@
 
 #![cfg(target_os = "linux")]
 
-use core::ffi::c_void;
+// `c_char`, never `i8`: it is `i8` on x86_64 but `u8` on aarch64, riscv64,
+// powerpc64 and armv7 Linux, so spelling C strings `*const i8` compiled here
+// and broke every one of those cross builds at `CStr::from_ptr`.
+use core::ffi::{c_char, c_void};
 
 use azul_css::AzString;
 
@@ -475,7 +478,7 @@ impl Default for State {
 
 #[repr(C)]
 struct RegistryListener {
-    global: unsafe extern "C" fn(*mut c_void, *mut c_void, u32, *const i8, u32),
+    global: unsafe extern "C" fn(*mut c_void, *mut c_void, u32, *const c_char, u32),
     global_remove: unsafe extern "C" fn(*mut c_void, *mut c_void, u32),
 }
 
@@ -489,9 +492,9 @@ struct ToplevelListListener {
 struct ToplevelHandleListener {
     closed: unsafe extern "C" fn(*mut c_void, *mut c_void),
     done: unsafe extern "C" fn(*mut c_void, *mut c_void),
-    title: unsafe extern "C" fn(*mut c_void, *mut c_void, *const i8),
-    app_id: unsafe extern "C" fn(*mut c_void, *mut c_void, *const i8),
-    identifier: unsafe extern "C" fn(*mut c_void, *mut c_void, *const i8),
+    title: unsafe extern "C" fn(*mut c_void, *mut c_void, *const c_char),
+    app_id: unsafe extern "C" fn(*mut c_void, *mut c_void, *const c_char),
+    identifier: unsafe extern "C" fn(*mut c_void, *mut c_void, *const c_char),
 }
 
 #[repr(C)]
@@ -517,7 +520,7 @@ unsafe fn state<'a>(data: *mut c_void) -> &'a mut State {
     &mut *(data as *mut State)
 }
 
-unsafe fn cstr(p: *const i8) -> String {
+unsafe fn cstr(p: *const c_char) -> String {
     if p.is_null() {
         String::new()
     } else {
@@ -529,7 +532,7 @@ unsafe extern "C" fn on_global(
     data: *mut c_void,
     registry: *mut c_void,
     name: u32,
-    interface: *const i8,
+    interface: *const c_char,
     version: u32,
 ) {
     let st = state(data);
@@ -606,17 +609,17 @@ unsafe fn handle_entry<'a>(data: *mut c_void) -> Option<&'a mut Toplevel> {
 
 unsafe extern "C" fn on_handle_closed(_: *mut c_void, _: *mut c_void) {}
 unsafe extern "C" fn on_handle_done(_: *mut c_void, _: *mut c_void) {}
-unsafe extern "C" fn on_handle_title(data: *mut c_void, _: *mut c_void, title: *const i8) {
+unsafe extern "C" fn on_handle_title(data: *mut c_void, _: *mut c_void, title: *const c_char) {
     if let Some(t) = handle_entry(data) {
         t.title = cstr(title);
     }
 }
-unsafe extern "C" fn on_handle_app_id(data: *mut c_void, _: *mut c_void, app_id: *const i8) {
+unsafe extern "C" fn on_handle_app_id(data: *mut c_void, _: *mut c_void, app_id: *const c_char) {
     if let Some(t) = handle_entry(data) {
         t.app_id = cstr(app_id);
     }
 }
-unsafe extern "C" fn on_handle_identifier(_: *mut c_void, _: *mut c_void, _: *const i8) {}
+unsafe extern "C" fn on_handle_identifier(_: *mut c_void, _: *mut c_void, _: *const c_char) {}
 unsafe extern "C" fn on_list_finished(_: *mut c_void, _: *mut c_void) {}
 
 unsafe extern "C" fn on_buffer_size(data: *mut c_void, _: *mut c_void, w: u32, h: u32) {

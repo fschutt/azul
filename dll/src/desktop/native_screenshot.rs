@@ -755,10 +755,16 @@ fn take_native_screenshot_xlib_bytes(
 
     use core::ffi::{c_int, c_long, c_ulong, c_void};
 
-    // X11 types
+    // X11 types. `Window` and `plane_mask` are C `unsigned long` — 64 bits on
+    // x86_64 but 32 on i686 and armv7. They were spelled `u64`, which was an
+    // ABI mismatch on 32-bit targets all along (Xlib read half of each u64) and
+    // became a compile error there once the frame walk compared a `Window`
+    // against `XWindowAttributes::root` (a real `c_ulong`). X11 resource IDs
+    // are 29-bit, so narrowing the public `u64` handle once, here, loses nothing.
     type Display = c_void;
-    type Window = u64;
+    type Window = c_ulong;
     type XImage = c_void;
+    let window = window as Window;
 
     #[repr(C)]
     struct XWindowAttributes {
@@ -807,7 +813,7 @@ fn take_native_screenshot_xlib_bytes(
     type XGetWindowAttributesFn =
         unsafe extern "C" fn(*mut Display, Window, *mut XWindowAttributes) -> i32;
     type XGetImageFn =
-        unsafe extern "C" fn(*mut Display, Window, i32, i32, u32, u32, u64, i32) -> *mut XImage;
+        unsafe extern "C" fn(*mut Display, Window, i32, i32, u32, u32, c_ulong, i32) -> *mut XImage;
     type XDestroyImageFn = unsafe extern "C" fn(*mut XImage) -> i32;
     type XQueryTreeFn = unsafe extern "C" fn(
         *mut Display,
@@ -1001,11 +1007,11 @@ fn take_native_screenshot_xlib_bytes(
 
             // ZPixmap = 2, AllPlanes = !0
             let mut image = if src_window == window {
-                get_image(display, window, 0, 0, width, height, !0u64, 2)
+                get_image(display, window, 0, 0, width, height, c_ulong::MAX, 2)
             } else {
                 FRAME_GRAB_FAILED.store(false, core::sync::atomic::Ordering::SeqCst);
                 let prev = set_error_handler.map(|set| set(Some(swallow_x_error)));
-                let img = get_image(display, src_window, src_x, src_y, src_w, src_h, !0u64, 2);
+                let img = get_image(display, src_window, src_x, src_y, src_w, src_h, c_ulong::MAX, 2);
                 // Force the round trip so a deferred error is attributed here
                 // and not to some unrelated call later.
                 if let Some(sync) = x_sync {
@@ -1026,7 +1032,7 @@ fn take_native_screenshot_xlib_bytes(
             // with it falls back to the undecorated client window, which is
             // what this function always used to return.
             let (width, height) = if image.is_null() && src_window != window {
-                image = get_image(display, window, 0, 0, width, height, !0u64, 2);
+                image = get_image(display, window, 0, 0, width, height, c_ulong::MAX, 2);
                 (width, height)
             } else if src_window != window {
                 (src_w, src_h)
