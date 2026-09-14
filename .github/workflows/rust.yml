@@ -3806,6 +3806,13 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: 12266719
+          # The action's default is `tools platform-tools`. The legacy `tools`
+          # package is gone from the SDK repository the runner's cmdline-tools
+          # 16.0 queries, so `sdkmanager tools` exits 1 ("Failed to find package
+          # 'tools'") and the job dies before building anything. Nothing here
+          # uses it: the next step installs build-tools and the platform
+          # explicitly, and platform-tools stays.
+          packages: platform-tools
       - name: Install SDK build-tools + platform
         run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
       - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
