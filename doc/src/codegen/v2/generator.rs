@@ -274,9 +274,14 @@ impl GenerationTargets {
             &codegen_dir.join("azul.bi"),
         )?;
 
-        // 20. Zig bindings — consumes the C header via @cImport, generator only emits idiomatic
-        //     wrappers + a build.zig manifest.
+        // 20. Zig bindings — `azul_c.zig` is the C ABI pre-translated from the IR (replaces
+        //     the 91 s `@cImport` of the 5.6 MB header), `azul.zig` re-exports it as `C` and
+        //     adds the idiomatic wrappers; plus a build.zig manifest.
         println!("[20/35] Generating Zig bindings...");
+        Self::write_string(
+            super::lang_zig::generate_c_decls(ir, &CodegenConfig::c_header()),
+            &codegen_dir.join(super::lang_zig::c_decls::C_DECLS_FILE),
+        )?;
         Self::write_string(
             super::lang_zig::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.zig"),

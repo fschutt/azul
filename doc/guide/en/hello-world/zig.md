@@ -27,10 +27,13 @@ default-search-keys:
 
 ## Introduction
 
-Zig talks to Azul through `@cImport`: the generated `azul.zig` includes the
-C header (`pub const C = @cImport(@cInclude("azul.h"))`) and every
-`AzString` / `AzDom` / `AzApp_run` symbol comes out fully typed, with no
-FFI shim in between. Because a Zig function declared with `callconv(.c)`
+Zig talks to Azul through a pre-translated C ABI: the generated `azul.zig`
+re-exports `azul_c.zig` (`pub const C = @import("azul_c.zig")`), a file the
+generator emits from the same IR as `azul.h` — every struct, enum, callback
+typedef and `extern fn` in the spelling `zig translate-c` would produce — so
+every `AzString` / `AzDom` / `AzApp_run` symbol comes out fully typed, with
+no FFI shim in between and without `@cImport` translating and analysing the
+5.6 MB header on every cold build (that took ~2 minutes; this takes ~7 s). Because a Zig function declared with `callconv(.c)`
 *is* a real C function pointer, callbacks are passed to Azul directly —
 Zig is one of the few bindings that needs neither a host-invoker
 trampoline nor a wrapper-struct dance for callbacks.
@@ -47,12 +50,13 @@ and lowercase `callconv(.c)` requires 0.14+).
 ## Installation
 
 There is no package-manager story for Zig yet — you download the bundle
-(the header, the binding, a minimal `build.zig` and the counter example)
-plus the native library into one directory and run `zig build run` there:
+(the binding `azul.zig` + `azul_c.zig`, a minimal `build.zig`, the counter
+example, and `azul.h` for reference) plus the native library into one
+directory and run `zig build run` there:
 
 ```sh
 curl -LO https://azul.rs/ui/release/$VERSION/azul-zig-$VERSION.tar.gz
-tar xzf azul-zig-$VERSION.tar.gz          # azul.h, azul.zig, build.zig, hello-world.zig
+tar xzf azul-zig-$VERSION.tar.gz          # azul.zig, azul_c.zig, build.zig, hello-world.zig, azul.h
 
 # linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so

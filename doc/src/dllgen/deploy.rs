@@ -1094,10 +1094,15 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "vb6/HelloWorld.vbp",
         source: BindingSource::Examples,
     },
-    // --- zig ---
+    // --- zig (azul.zig `@import`s azul_c.zig, the pre-translated C ABI) ---
     BindingFile {
         dst: "azul.zig",
         src: "azul.zig",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul_c.zig",
+        src: "azul_c.zig",
         source: BindingSource::Codegen,
     },
     BindingFile {
