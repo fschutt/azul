@@ -1,10 +1,15 @@
-//! The `Azul` umbrella module: the idiomatic layer user code imports.
+//! The idiomatic layer user code imports through the `Azul` facade.
 //!
 //! Everything here is derived from the IR; nothing is keyed on a method
-//! or class name. The module has four parts:
+//! or class name. The layer has four tiers, split into modules that only
+//! ever import downwards (see `mod.rs` for the file layout):
 //!
-//! 1. **Managed wrapper types.** Every struct that owns a resource (has a
-//!    `_delete`) or has methods becomes
+//! 1. **`Azul.Internal.Runtime`** — the host-handle table (see
+//!    `core/src/host_invoker.rs`) and the `String` <-> `AzString`
+//!    marshalling helpers.
+//!
+//! 2. **`Azul.Internal.Handles.<Module>` — managed wrapper types.** Every
+//!    struct that owns a resource (has a `_delete`) or has methods becomes
 //!    `data C = C { cRaw :: ForeignPtr T.C, cConsumed :: IORef Bool }`:
 //!    a GC-managed, pinned buffer of exactly `sizeOf (undefined :: T.C)`
 //!    bytes (the cbits layout oracle) plus a tombstone. Passing the value
@@ -13,32 +18,27 @@
 //!    set. The buffer itself is freed by the GC, never by a finalizer that
 //!    calls into libazul — so nothing runs on a foreign thread.
 //!
-//! 2. **Constructors and methods**, one Haskell function per api.json
-//!    function: `<class><Method>`, arguments in api.json order with the
-//!    receiver LAST so builder chains read as `>>=` pipelines
+//! 3. **`Azul.Internal.Callbacks`** — the host-handle `RefAny`
+//!    (`refAnyCreate` stores any `Typeable` Haskell value in the table
+//!    keyed by a `Word64` handle and wraps the handle in a libazul
+//!    `RefAny`; `refAnyGet` / `refAnyModify` look the value up again from
+//!    any clone, and libazul calls the registered releaser when the last
+//!    clone drops) and, for every callback kind in `HOST_INVOKER_KINDS`,
+//!    one closure type and one invoker registered with libazul that
+//!    dispatches on the handle stored in the callback's `ctx` — so a
+//!    setter such as `buttonWithOnClick` takes a plain Haskell closure.
+//!
+//! 4. **`Azul.<Module>` — constructors and methods**, one Haskell
+//!    function per api.json function of that module's classes:
+//!    `<class><Method>`, arguments in api.json order with the receiver
+//!    LAST so builder chains read as `>>=` pipelines
 //!    (`domCreateBody >>= domWithChild label`). Haskell `String`s marshal
 //!    to `AzString`, `Bool` to `bool`, enums and POD structs travel as
 //!    `Azul.Types` values, wrapper classes as wrappers, `RefAny` by clone.
-//!
-//! 3. **The host-handle `RefAny`.** `refAnyCreate` stores any `Typeable`
-//!    Haskell value in a process-wide table keyed by a `Word64` handle and
-//!    wraps the handle in a libazul `RefAny` (`AzRefAny_newHostHandle`);
-//!    `refAnyGet` / `refAnyModify` look the value up again from any clone
-//!    of that `RefAny`, and libazul calls the registered releaser when the
-//!    last clone drops. This is the same protocol every managed binding
-//!    (Lua, Ruby, OCaml, C#, ...) uses — see `core/src/host_invoker.rs`.
-//!
-//! 4. **Callbacks as closures.** For every callback kind in
-//!    `HOST_INVOKER_KINDS` the module registers one invoker with libazul
-//!    that dispatches on the handle stored in the callback's `ctx`, so a
-//!    setter such as `buttonWithOnClick` takes a plain Haskell closure and
-//!    every button can have its own. `windowCreateOptionsCreate` takes the
-//!    layout closure the same way (spliced into the default options at the
-//!    oracle's `offsetof`).
+//!    `windowCreateOptionsCreate` takes the layout closure the same way
+//!    (spliced into the default options at the oracle's `offsetof`).
 
 use std::collections::{BTreeMap, BTreeSet};
-
-use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
@@ -48,55 +48,180 @@ use super::super::ir::{
 };
 use super::super::managed_host_invoker;
 use super::functions::{ffi_signature, host_invoker_signature};
-use super::{haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc};
+use super::{haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc, Split};
 
 // ============================================================================
-// Entry point
+// Entry points
 // ============================================================================
 
-/// Emit the complete `src/Azul.hs`.
-pub fn emit_umbrella_module(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> Result<()> {
-    let ctx = Ctx::new(ir, config);
+/// `Azul.Internal.Runtime`: the handle table and string marshalling.
+pub fn generate_runtime_module(ctx: &Ctx) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    emit_module_header(
+        &mut b,
+        "Azul.Internal.Runtime",
+        "The host-handle table and the String <-> AzString marshalling every other tier of the idiomatic layer uses. Internal: use \"Azul\".",
+        &[],
+    );
+    emit_prelude(&mut b, ctx);
+    b.finish()
+}
 
-    // The body first: the export header needs to know which names the
-    // module declares before it can decide what to re-export from
-    // `Azul.Types` without a clash.
-    let mut body = CodeBuilder::new(&config.indent);
-    emit_prelude(&mut body, &ctx);
-    for s in &ir.structs {
-        if ctx.wrapped.contains(&s.name) {
-            emit_wrapper_class(&mut body, s, &ctx);
+/// `Azul.Internal.Handles.<Module>`: the managed wrapper types of one
+/// api.json module.
+pub fn generate_handles_module(ctx: &Ctx, api_module: &str) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    emit_module_header(
+        &mut b,
+        &format!("Azul.Internal.Handles.{}", super::module_segment(api_module)),
+        &format!(
+            "Managed wrapper types for the classes of the api.json module @{}@. Internal: use \"Azul\".",
+            api_module
+        ),
+        &["Azul.Internal.Runtime"],
+    );
+    for s in &ctx.ir.structs {
+        if ctx.wrapped.contains(&s.name) && ctx.split.module_of(&s.name) == api_module {
+            emit_wrapper_class(&mut b, s, ctx);
         }
     }
-    emit_managed_refany(&mut body, &ctx);
+    b.finish()
+}
+
+/// `Azul.Internal.Callbacks`: the host-handle `RefAny` and the closure
+/// type + invoker of every callback kind.
+pub fn generate_callbacks_module(ctx: &Ctx) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    emit_module_header(
+        &mut b,
+        "Azul.Internal.Callbacks",
+        "The host-handle RefAny and, per callback kind, the closure type and the invoker libazul dispatches through. Internal: use \"Azul\".",
+        &["Azul.Internal.Runtime", "Azul.Internal.Handles"],
+    );
+    emit_managed_refany(&mut b, ctx);
     for cb in &ctx.kinds {
-        emit_callback_kind(&mut body, cb, &ctx);
+        emit_callback_kind(&mut b, cb, ctx);
     }
-    emit_ensure_managed(&mut body, &ctx);
-    for s in &ir.structs {
-        if ctx.wrapped.contains(&s.name) {
-            emit_layout_factory(&mut body, s, &ctx);
-            emit_class_functions(&mut body, s, &ctx);
+    emit_ensure_managed(&mut b, ctx);
+    b.finish()
+}
+
+/// `Azul.<Module>`: constructors and methods of one api.json module's
+/// classes.
+pub fn generate_api_module(ctx: &Ctx, api_module: &str) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    emit_module_header(
+        &mut b,
+        &format!("Azul.{}", super::module_segment(api_module)),
+        &format!(
+            "Constructors and methods of the classes of the api.json module @{}@ (receiver last, so builder chains are @>>=@ pipelines). Re-exported by \"Azul\".",
+            api_module
+        ),
+        &[
+            "Azul.Internal.Runtime",
+            "Azul.Internal.Handles",
+            "Azul.Internal.Callbacks",
+        ],
+    );
+    for s in &ctx.ir.structs {
+        if ctx.wrapped.contains(&s.name) && ctx.split.module_of(&s.name) == api_module {
+            emit_layout_factory(&mut b, s, ctx);
+            emit_class_functions(&mut b, s, ctx);
         }
     }
-    let body_src = body.finish();
+    b.finish()
+}
 
-    emit_header(builder, &ctx, &body_src);
-    builder.line(&body_src);
-    Ok(())
+/// `Azul`: re-exports every tier of the idiomatic layer and the
+/// `Azul.Types` entities the layer does not wrap. `bodies` are the
+/// sources of the re-exported modules (to keep clashing names out of
+/// the `Azul.Types` re-export list).
+pub fn generate_facade(ctx: &Ctx, modules: &[String], bodies: &[&str]) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    b.line("{- |");
+    b.line("Module      : Azul");
+    b.line("Description : Auto-generated Haskell bindings for the Azul GUI framework.");
+    b.line("");
+    b.line("The idiomatic surface: one managed wrapper type per resource-owning");
+    b.line("class, one function per api.json method with the receiver LAST so");
+    b.line("builder chains are @>>=@ pipelines, Haskell 'String's and 'Bool's at the");
+    b.line("boundary, 'refAnyCreate' / 'refAnyGet' / 'refAnyModify' for the type-erased");
+    b.line("application data, and callbacks as plain closures. The types this module");
+    b.line("does not wrap (enums, plain structs) are re-exported from \"Azul.Types\".");
+    b.line("");
+    b.line("The binding is split into one module per api.json module (\"Azul.Dom\",");
+    b.line("\"Azul.Css\", ...); this module re-exports all of them, so @import Azul@");
+    b.line("is the only import a program needs.");
+    b.line("");
+    b.line("Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
+    b.line("-}");
+    b.line("{-# OPTIONS_GHC -Wno-unused-imports #-}");
+    b.blank();
+    b.line("module Azul");
+    b.indent();
+    for (i, m) in modules.iter().enumerate() {
+        let prefix = if i == 0 { "( " } else { ", " };
+        b.line(&format!("{}module {}", prefix, m));
+    }
+    let all_bodies = bodies.join("\n");
+    for item in reexports(ctx, &all_bodies) {
+        b.line(&format!(", {}", item));
+    }
+    b.line(") where");
+    b.dedent();
+    b.blank();
+    for m in modules {
+        b.line(&format!("import {}", m));
+    }
+    b.line("import qualified Azul.Types as T");
+    b.finish()
+}
+
+/// The pragma + import block every tier shares. `internal` are the
+/// binding's own modules to import unqualified, in addition to
+/// `Azul.Types` as `T` and `Azul.Internal.FFI` as `FFI`.
+fn emit_module_header(b: &mut CodeBuilder, name: &str, what: &str, internal: &[&str]) {
+    b.line(&format!("-- | {}", what));
+    b.line("--");
+    b.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
+    b.line("{-# LANGUAGE ScopedTypeVariables #-}");
+    b.line("{-# LANGUAGE FlexibleInstances #-}");
+    b.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-name-shadowing -Wno-unused-local-binds #-}");
+    b.blank();
+    b.line(&format!("module {} where", name));
+    b.blank();
+    b.line("import qualified Azul.Types as T");
+    b.line("import qualified Azul.Internal.FFI as FFI");
+    for m in internal {
+        b.line(&format!("import {}", m));
+    }
+    b.line("import Control.Exception (SomeException, try)");
+    b.line("import Control.Monad (unless, when)");
+    b.line("import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)");
+    b.line("import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)");
+    b.line("import qualified Data.Map.Strict as Map");
+    b.line("import Data.Int (Int8, Int16, Int32, Int64)");
+    b.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    b.line("import Foreign.C.Types");
+    b.line("import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, newForeignPtr_, withForeignPtr)");
+    b.line("import Foreign.Marshal.Alloc (alloca)");
+    b.line("import Foreign.Marshal.Array (withArrayLen)");
+    b.line("import Foreign.Marshal.Utils (copyBytes, fromBool, toBool)");
+    b.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, plusPtr)");
+    b.line("import Foreign.Storable (Storable(..))");
+    b.line("import System.IO (hPutStrLn, stderr)");
+    b.line("import System.IO.Unsafe (unsafePerformIO)");
+    b.blank();
 }
 
 // ============================================================================
 // Context
 // ============================================================================
 
-struct Ctx<'a> {
+pub struct Ctx<'a> {
     ir: &'a CodegenIR,
     config: &'a CodegenConfig,
+    split: &'a Split,
     /// api.json names of the structs that get a managed wrapper type.
     wrapped: BTreeSet<String>,
     /// Classes with a `_delete` export.
@@ -111,7 +236,7 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    fn new(ir: &'a CodegenIR, config: &'a CodegenConfig) -> Self {
+    pub fn new(ir: &'a CodegenIR, config: &'a CodegenConfig, split: &'a Split) -> Self {
         let deletable: BTreeSet<String> = ir
             .functions
             .iter()
@@ -160,6 +285,7 @@ impl<'a> Ctx<'a> {
         Self {
             ir,
             config,
+            split,
             wrapped,
             deletable,
             kinds,
@@ -234,61 +360,13 @@ fn should_wrap(
 }
 
 // ============================================================================
-// Header: exports + imports
+// Facade exports
 // ============================================================================
 
-fn emit_header(builder: &mut CodeBuilder, ctx: &Ctx, body_src: &str) {
-    builder.line("{- |");
-    builder.line("Module      : Azul");
-    builder.line("Description : Auto-generated Haskell bindings for the Azul GUI framework.");
-    builder.line("");
-    builder.line("The idiomatic surface: one managed wrapper type per resource-owning");
-    builder.line("class, one function per api.json method with the receiver LAST so");
-    builder.line("builder chains are @>>=@ pipelines, Haskell 'String's and 'Bool's at the");
-    builder.line("boundary, 'refAnyCreate' / 'refAnyGet' / 'refAnyModify' for the type-erased");
-    builder.line("application data, and callbacks as plain closures. The types this module");
-    builder.line("does not wrap (enums, plain structs) are re-exported from \"Azul.Types\".");
-    builder.line("");
-    builder.line("Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
-    builder.line("-}");
-    builder.line("{-# LANGUAGE ScopedTypeVariables #-}");
-    builder.line("{-# LANGUAGE FlexibleInstances #-}");
-    builder.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches -Wno-name-shadowing -Wno-unused-local-binds #-}");
-    builder.blank();
-    builder.line("module Azul");
-    builder.indent();
-    builder.line("( module Azul");
-    for item in reexports(ctx, body_src) {
-        builder.line(&format!(", {}", item));
-    }
-    builder.line(") where");
-    builder.dedent();
-    builder.blank();
-    builder.line("import qualified Azul.Types as T");
-    builder.line("import qualified Azul.Internal.FFI as FFI");
-    builder.line("import Control.Exception (SomeException, try)");
-    builder.line("import Control.Monad (unless, when)");
-    builder.line("import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)");
-    builder.line("import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)");
-    builder.line("import qualified Data.Map.Strict as Map");
-    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
-    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
-    builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, newForeignPtr_, withForeignPtr)");
-    builder.line("import Foreign.Marshal.Alloc (alloca)");
-    builder.line("import Foreign.Marshal.Array (withArrayLen)");
-    builder.line("import Foreign.Marshal.Utils (copyBytes, fromBool, toBool)");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, plusPtr)");
-    builder.line("import Foreign.Storable (Storable(..))");
-    builder.line("import System.IO (hPutStrLn, stderr)");
-    builder.line("import System.IO.Unsafe (unsafePerformIO)");
-    builder.blank();
-}
-
 /// The `Azul.Types` entities re-exported through `Azul`: every type this
-/// module does not wrap (enums, POD structs, aliases, callback typedefs)
+/// layer does not wrap (enums, POD structs, aliases, callback typedefs)
 /// plus the string helpers — minus anything whose name would clash with a
-/// declaration of this module (GHC rejects conflicting exports).
+/// declaration of the layer (GHC rejects conflicting exports).
 fn reexports(ctx: &Ctx, body_src: &str) -> Vec<String> {
     let mut local: BTreeSet<String> = super::module_scope_declarations(body_src)
         .into_iter()
@@ -381,6 +459,7 @@ fn reexports(ctx: &Ctx, body_src: &str) -> Vec<String> {
     out
 }
 
+// ============================================================================
 // ============================================================================
 // Prelude: handle table, string marshalling
 // ============================================================================

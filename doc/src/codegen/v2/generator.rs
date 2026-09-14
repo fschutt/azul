@@ -383,31 +383,23 @@ impl GenerationTargets {
 
         // 24. OCaml bindings — generator emits .mli + .ml in one String,
         //     plus dune + dune-project manifests.
+        //     One unit per api.json module (and per dependency slice for
+        //     the types) under ocaml/, plus dune + dune-project manifests.
         println!("[24/35] Generating OCaml bindings...");
         let ocaml_combined = super::lang_ocaml::generate(ir, &CodegenConfig::c_header())?;
-        let (ocaml_mli, ocaml_ml) = ocaml_combined
-            .split_once(super::lang_ocaml::SPLIT_MARKER)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "OCaml generator output did not contain SPLIT_MARKER ({:?})",
-                    super::lang_ocaml::SPLIT_MARKER
-                )
-            })?;
-        Self::write_string(
-            ocaml_mli.trim_end().to_string(),
-            &codegen_dir.join("azul.mli"),
-        )?;
-        Self::write_string(
-            ocaml_ml.trim_start().to_string(),
-            &codegen_dir.join("azul.ml"),
+        Self::write_multifile(
+            &ocaml_combined,
+            super::lang_ocaml::FILE_MARKER,
+            super::lang_ocaml::END_MARKER,
+            &codegen_dir.join("ocaml"),
         )?;
         Self::write_string(
             super::lang_ocaml::dune::generate_dune_project(),
-            &codegen_dir.join("dune-project"),
+            &codegen_dir.join("ocaml/dune-project"),
         )?;
         Self::write_string(
             super::lang_ocaml::dune::generate_dune(),
-            &codegen_dir.join("dune"),
+            &codegen_dir.join("ocaml/dune"),
         )?;
 
         // 25. Haskell bindings — multi-file: src/Azul.hs + src/Azul/Internal/FFI.hs
@@ -452,14 +444,16 @@ impl GenerationTargets {
         )?;
 
         // 28. Fortran (F2003 iso_c_binding) bindings.
+        //     One module per api.json module (and per dependency slice for
+        //     the types) under fortran/, plus the Makefile that knows their
+        //     compile order.
         println!("[28/35] Generating Fortran bindings...");
-        Self::write_string(
-            super::lang_fortran::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.f90"),
-        )?;
-        Self::write_string(
-            super::lang_fortran::makefile::generate_makefile(),
-            &codegen_dir.join("Makefile.fortran"),
+        let fortran_combined = super::lang_fortran::generate(ir, &CodegenConfig::c_header())?;
+        Self::write_multifile(
+            &fortran_combined,
+            super::lang_fortran::FILE_MARKER,
+            super::lang_fortran::END_MARKER,
+            &codegen_dir.join("fortran"),
         )?;
 
         // 29. Go (cgo) bindings — multi-file split.

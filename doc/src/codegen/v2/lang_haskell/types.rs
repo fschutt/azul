@@ -207,10 +207,24 @@ fn offset_expr(lname: &str, suffix: &str) -> String {
 // Top-level entry
 // ============================================================================
 
+/// Every type declaration, in one module (the pre-split shape; the
+/// generator emits per-chunk modules through [`emit_type_decls_for`]).
 pub fn emit_type_decls(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+) -> Result<()> {
+    emit_type_decls_for(builder, ir, config, &|_| true)
+}
+
+/// The declarations of every type for which `belongs` answers true — one
+/// plan chunk's worth. The types a chunk references live either in the
+/// same chunk or in a chunk the caller imported.
+pub fn emit_type_decls_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Struct data declarations + Storable instances (layout from the cbits oracle)");
@@ -226,7 +240,7 @@ pub fn emit_type_decls(
     // and trip GHC-29916 "Multiple declarations of ...".
     let mut foreign_imports: BTreeMap<String, String> = BTreeMap::new();
 
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
                 builder.line(&format!(
@@ -244,7 +258,7 @@ pub fn emit_type_decls(
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
 
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
                 builder.line(&format!(
@@ -267,7 +281,7 @@ pub fn emit_type_decls(
     builder.line("-- Type aliases (monomorphized generics as real types, simple ones as synonyms)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for ta in &ir.type_aliases {
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
         if !config.should_include_type(&ta.name) {
             continue;
         }
@@ -285,7 +299,7 @@ pub fn emit_type_decls(
     builder.line("-- Callback typedefs (C function pointers)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }

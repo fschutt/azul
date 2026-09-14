@@ -133,8 +133,9 @@ pub(crate) struct Ctx<'a> {
     pub delete: BTreeMap<String, &'a FunctionDef>,
     pub clone: BTreeMap<String, &'a FunctionDef>,
     pub classes: Vec<ClassPlan<'a>>,
-    /// `(constant name, value)` for every included unit-enum variant.
-    pub enum_consts: Vec<(String, usize)>,
+    /// `(constant name, value, enum name)` for every included unit-enum
+    /// variant.
+    pub enum_consts: Vec<(String, usize, String)>,
     names: BTreeSet<String>,
 }
 
@@ -270,7 +271,7 @@ impl<'a> Ctx<'a> {
             for (i, v) in e.variants.iter().enumerate() {
                 let want = sanitize_identifier(&format!("{}_{}", e.name, v.name));
                 if let Some(name) = self.try_claim(&want) {
-                    self.enum_consts.push((name, i));
+                    self.enum_consts.push((name, i, e.name.clone()));
                 }
             }
         }
@@ -662,11 +663,22 @@ pub(crate) fn plan_return(ctx: &Ctx, ret: &str) -> RetPlan {
 // Declarations (before `contains`)
 // ============================================================================
 
-pub(crate) fn generate_wrapper_decls(builder: &mut CodeBuilder, ctx: &Ctx) -> Result<()> {
+/// The declaration half of the wrapper layer. Every group is preceded by
+/// the api.json-module marker the per-module facades are built from.
+pub(crate) fn generate_wrapper_decls(
+    builder: &mut CodeBuilder,
+    ctx: &Ctx,
+    split: &super::Split,
+) -> Result<()> {
     builder.line("! ----------------------------------------------------------------------");
     builder.line("! Unit-enum constants (plain integers, no Az prefix).");
     builder.line("! ----------------------------------------------------------------------");
-    for (name, value) in &ctx.enum_consts {
+    let mut last_enum: Option<&str> = None;
+    for (name, value, enum_name) in &ctx.enum_consts {
+        if last_enum != Some(enum_name.as_str()) {
+            builder.line(&split.marker(enum_name));
+            last_enum = Some(enum_name.as_str());
+        }
         builder.line(&format!("integer, parameter :: {} = {}", name, value));
         builder.line(&format!("public :: {}", name));
     }
@@ -679,12 +691,17 @@ pub(crate) fn generate_wrapper_decls(builder: &mut CodeBuilder, ctx: &Ctx) -> Re
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
     for c in &ctx.classes {
+        builder.line(&split.marker(&c.s.name));
         emit_wrapper_type_decl(builder, ctx, c);
     }
 
+    if let Some(st) = &ctx.string {
+        builder.line(&split.marker(&st.name));
+    }
     builder.line(&format!("public :: {}", STRING_IN_HELPER));
     builder.line(&format!("public :: {}", STRING_OUT_HELPER));
     for c in &ctx.classes {
+        builder.line(&split.marker(&c.s.name));
         builder.line(&format!("public :: {}", c.delete_name));
         for p in &c.procs {
             builder.line(&format!("public :: {}", p.name));

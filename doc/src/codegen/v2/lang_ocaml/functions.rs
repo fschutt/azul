@@ -35,10 +35,11 @@ use super::{
 // Top-level entry
 // ============================================================================
 
-pub fn emit_foreign_bindings(
+pub fn emit_foreign_bindings_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -48,7 +49,7 @@ pub fn emit_foreign_bindings(
         .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|func| belongs(&func.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
