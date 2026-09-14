@@ -2667,7 +2667,6 @@ jobs:
           path: |
             target/release
             target/pyext-e2e/release
-            target/codegen
           key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -2703,6 +2702,16 @@ jobs:
       - name: Install dependencies (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      # `download-artifact` MERGES into an existing directory. A restore-key
+      # prefix match above can hand this job a `target/codegen` from an older
+      # run, and a file that later codegen no longer produces (a wrapper for a
+      # type that became `Copy`) survives the merge and reaches every consumer
+      # of the e2e artifact — `mvn package` then fails on natives the C API
+      # never had. The tree comes from the artifact alone.
+      - name: Replace any cached codegen tree
+        shell: bash
+        run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -3566,7 +3575,6 @@ jobs:
         with:
           path: |
             target/${{ matrix.target }}/release
-            target/codegen
           key: mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-
@@ -3588,6 +3596,16 @@ jobs:
             rm -rf "$DIR"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # `download-artifact` MERGES into an existing directory. A restore-key
+      # prefix match above can hand this job a `target/codegen` from an older
+      # run, and a file that later codegen no longer produces (a wrapper for a
+      # type that became `Copy`) survives the merge and reaches every consumer
+      # of the e2e artifact — `mvn package` then fails on natives the C API
+      # never had. The tree comes from the artifact alone.
+      - name: Replace any cached codegen tree
+        shell: bash
+        run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
