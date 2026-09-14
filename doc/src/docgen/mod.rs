@@ -392,7 +392,7 @@ impl ExampleRendered {
 
         ExampleRendered {
             id: name.clone(),
-            title: e.title.join(" "), // One line: "Native Multithreading", not two
+            title: e.title.join("<br>"), // Join multiline titles with <br>
             description: comrak::markdown_to_html(
                 &guide::transform_german_quotes(&e.description.join("\r\n")),
                 &comrak::Options::default(),
