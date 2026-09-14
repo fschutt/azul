@@ -496,8 +496,12 @@ verify_apt() {
   fetch "$(rel hello-world.c)"
   run gcc hello-world.c -lazul -o hello-world || fail "apt: 'gcc hello-world.c -lazul' — the documented compile line — FAILED"
   e2e_run "apt/c" ./hello-world
-  fetch "$(rel hello-world.cpp)"
-  run g++ -std=c++17 hello-world.cpp -lazul -o hello-world-cpp || fail "apt: 'g++ -std=c++17 hello-world.cpp -lazul' — the documented compile line — FAILED"
+  # One driver per dialect: the C++17 tab fetches hello-world-cpp17.cpp and
+  # compiles it with -std=c++17 (the unnamed hello-world.cpp is the C++20
+  # variant — string_view literals — and used to be what this line built
+  # with -std=c++17, which is exactly the mismatch that failed here).
+  fetch "$(rel hello-world-cpp17.cpp)"
+  run g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world-cpp || fail "apt: 'g++ -std=c++17 hello-world-cpp17.cpp -lazul' — the documented compile line — FAILED"
   e2e_run "apt/c++" ./hello-world-cpp
   log "apt: the documented C and C++ builds against the apt-installed azul run the counter e2e"
 }

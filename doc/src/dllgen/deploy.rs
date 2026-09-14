@@ -1298,6 +1298,41 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "rust/src/hello-world.rs",
         source: BindingSource::Examples,
     },
+    // C++: one driver per dialect, named after it, so the file says which
+    // `-std=` it needs (the unnamed `hello-world.cpp` was the C++20 variant and
+    // the C++17 tabs compiled it with `-std=c++17` against `azul17.hpp`). The
+    // dialect tabs and `scripts/verify_install_commands.sh` fetch these; the
+    // bare `hello-world.cpp` stays for existing links and is C++20.
+    BindingFile {
+        dst: "hello-world-cpp03.cpp",
+        src: "cpp/cpp03/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp11.cpp",
+        src: "cpp/cpp11/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp14.cpp",
+        src: "cpp/cpp14/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp17.cpp",
+        src: "cpp/cpp17/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp20.cpp",
+        src: "cpp/cpp20/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp23.cpp",
+        src: "cpp/cpp23/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
     BindingFile {
         dst: "hello-world.cpp",
         src: "cpp/cpp20/hello-world.cpp",
@@ -2957,4 +2992,70 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
     }
 
     yaml
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Go package ships as a directory copied by glob — every `*.go` the
+    /// generator wrote plus its `go.mod` and `azul.h` — and the hello-world's
+    /// `go.mod` (with the `replace` onto `./azul-go`) is written next to it.
+    /// A hand-kept file list is what shipped 5 of 7 files before.
+    #[test]
+    fn copy_go_package_globs_the_generated_package_and_writes_the_example_go_mod() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codegen = tmp.path().join("codegen");
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(codegen.join("go")).unwrap();
+        fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod"] {
+            fs::write(codegen.join("go").join(f), b"x").unwrap();
+        }
+        // Not part of the package: a generator scratch file.
+        fs::write(codegen.join("go/NOTES.txt"), b"x").unwrap();
+        fs::write(codegen.join("azul.h"), b"/* header */").unwrap();
+
+        let n = copy_go_package(&version_dir, &codegen).unwrap();
+        assert_eq!(n, 6, "4 package files + azul.h + the example go.mod");
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "azul.h"] {
+            assert!(version_dir.join("azul-go").join(f).is_file(), "{f}");
+        }
+        assert!(!version_dir.join("azul-go/NOTES.txt").exists());
+        let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
+        assert!(gomod.contains("module hello-world\n"), "{gomod}");
+        assert!(gomod.contains("require github.com/azul/azul-go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("replace github.com/azul/azul-go => ./azul-go\n"), "{gomod}");
+    }
+
+    /// No codegen output → nothing written, `Ok(0)` (the caller warns).
+    #[test]
+    fn copy_go_package_without_codegen_output_is_a_warning_not_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(&version_dir).unwrap();
+        assert_eq!(copy_go_package(&version_dir, &tmp.path().join("nope")).unwrap(), 0);
+        assert!(!version_dir.join("azul-go").exists());
+        assert!(!version_dir.join("go.mod").exists());
+    }
+
+    /// One C++ driver per dialect, named after it, next to the unnamed
+    /// (C++20) one — the tabs and the verify script fetch the named ones.
+    #[test]
+    fn every_cpp_dialect_ships_its_own_named_hello_world() {
+        for d in ["03", "11", "14", "17", "20", "23"] {
+            let dst = format!("hello-world-cpp{d}.cpp");
+            let src = format!("cpp/cpp{d}/hello-world.cpp");
+            assert!(
+                BINDING_FILES.iter().any(|b| b.dst == dst && b.src == src),
+                "{dst} <- {src} missing from BINDING_FILES"
+            );
+        }
+        assert!(BINDING_FILES
+            .iter()
+            .any(|b| b.dst == "hello-world.cpp" && b.src == "cpp/cpp20/hello-world.cpp"));
+        // The Go package is a directory now; no flat `package azul` files.
+        assert!(!BINDING_FILES.iter().any(|b| b.src.starts_with("go/") && b.src != "go/main.go"));
+        assert!(BINDING_FILES.iter().any(|b| b.dst == "azul_c.zig"));
+    }
 }
