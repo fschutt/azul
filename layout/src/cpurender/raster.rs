@@ -800,6 +800,99 @@ pub enum MaskEntry {
         rect: AzRect,
         opacity: f32,
     },
+    /// The rounded corners of a `PushClip` with a border radius
+    /// (`overflow: hidden` on a `border-radius` box).
+    ///
+    /// The clip STACK is rectangles only, so the rectangle clips the bulk of
+    /// the content; what it cannot express is the four quarter-circles. Each
+    /// corner box is snapshotted when the clip is pushed and blended back on
+    /// the matching `PopClip` through the rounded-rect coverage, which restores
+    /// whatever sat outside the arc before the clipped content painted over it.
+    RoundedClip {
+        corners: Vec<RoundedCorner>,
+        /// `clip_stack.len()` right after the push, so `PopClip` restores only
+        /// the corners that belong to the clip it is popping.
+        clip_depth: usize,
+    },
+}
+
+/// One corner box of a [`MaskEntry::RoundedClip`], in device pixels.
+#[derive(Debug)]
+pub struct RoundedCorner {
+    snapshot: Vec<u8>,
+    /// Coverage of the rounded rectangle: 255 inside, 0 outside the arc.
+    mask: Vec<u8>,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+}
+
+/// Build the corner masks for a rounded clip over `rect` (device pixels).
+///
+/// Only the part of each corner box beyond the arc's centre is curved; the
+/// rest of the box is fully inside the rounded rectangle and keeps coverage
+/// 255. A one-pixel analytic edge (`r + 0.5 - d`) anti-aliases the arc.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+fn rounded_clip_corners(
+    pixmap: &AzulPixmap,
+    rect: AzRect,
+    border_radius: &BorderRadius,
+    dpi_factor: f32,
+) -> Vec<RoundedCorner> {
+    let (x0, y0) = (rect.x, rect.y);
+    let (x1, y1) = (rect.x + rect.width, rect.y + rect.height);
+    // CSS clamps radii that would overlap; half the short side is the bound.
+    let max_r = (rect.width.min(rect.height) / 2.0).max(0.0);
+    let spec = [
+        (border_radius.top_left, true, true),
+        (border_radius.top_right, false, true),
+        (border_radius.bottom_left, true, false),
+        (border_radius.bottom_right, false, false),
+    ];
+    let mut corners = Vec::new();
+    for (radius, left, top) in spec {
+        let r = (radius * dpi_factor).min(max_r);
+        // Not positive, or NaN from a degenerate radius: nothing to round.
+        if r.is_nan() || r <= 0.0 {
+            continue;
+        }
+        let cx = if left { x0 + r } else { x1 - r };
+        let cy = if top { y0 + r } else { y1 - r };
+        let bx0 = if left { x0.floor() } else { cx.floor() };
+        let bx1 = if left { cx.ceil() } else { x1.ceil() };
+        let by0 = if top { y0.floor() } else { cy.floor() };
+        let by1 = if top { cy.ceil() } else { y1.ceil() };
+        let w = (bx1 - bx0).max(0.0) as u32;
+        let h = (by1 - by0).max(0.0) as u32;
+        if w == 0 || h == 0 {
+            continue;
+        }
+        let mut mask = vec![255u8; (w as usize) * (h as usize)];
+        for j in 0..h {
+            for i in 0..w {
+                let px = bx0 + i as f32 + 0.5;
+                let py = by0 + j as f32 + 0.5;
+                let beyond_x = if left { px < cx } else { px > cx };
+                let beyond_y = if top { py < cy } else { py > cy };
+                if beyond_x && beyond_y {
+                    let d = (px - cx).hypot(py - cy);
+                    let coverage = (r + 0.5 - d).clamp(0.0, 1.0);
+                    mask[(j * w + i) as usize] = (coverage * 255.0).round() as u8;
+                }
+            }
+        }
+        let (bx, by) = (bx0 as i32, by0 as i32);
+        corners.push(RoundedCorner {
+            snapshot: snapshot_region(pixmap, bx, by, w, h),
+            mask,
+            x: bx,
+            y: by,
+            w,
+            h,
+        });
+    }
+    corners
 }
 
 /// Extract and scale mask image data (R8) to target dimensions.
@@ -893,7 +986,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
     clippy::cast_sign_loss
 )] // software rasterizer: bounded pixel/coord/colour casts
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
-    let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
+    match entry {
         MaskEntry::ImageMask {
             snapshot,
             mask_data,
@@ -901,17 +994,35 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             origin_y,
             width,
             height,
-        } => (
+        } => blend_masked_region(
+            pixmap,
             snapshot,
-            mask_data.as_slice(),
+            mask_data,
             *origin_x,
             *origin_y,
             *width,
             *height,
         ),
-        MaskEntry::Opacity { .. } => return,
-    };
+        MaskEntry::RoundedClip { corners, .. } => {
+            for c in corners {
+                blend_masked_region(pixmap, &c.snapshot, &c.mask, c.x, c.y, c.w, c.h);
+            }
+        }
+        MaskEntry::Opacity { .. } => {}
+    }
+}
 
+/// `result = snapshot * (255 - mask) + current * mask` over one region.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+fn blend_masked_region(
+    pixmap: &mut AzulPixmap,
+    snapshot: &[u8],
+    mask_data: &[u8],
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+) {
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;
 
@@ -2230,8 +2341,33 @@ pub fn render_single_item(
                 real_clip_stack.last().copied().flatten(),
                 new_clip,
             ));
+            // The radius. This arm used to destructure `border_radius` and drop
+            // it, so every `overflow: hidden` + `border-radius` box clipped its
+            // content SQUARE: the map's tiles ran straight into the corners of
+            // its rounded frame while the frame's own background was round.
+            if let Some(rect) = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor) {
+                if !border_radius.is_zero() {
+                    let corners = rounded_clip_corners(pixmap, rect, border_radius, dpi_factor);
+                    if !corners.is_empty() {
+                        mask_stack.push(MaskEntry::RoundedClip {
+                            corners,
+                            clip_depth: clip_stack.len(),
+                        });
+                    }
+                }
+            }
         }
         DisplayListItem::PopClip => {
+            // Restore this clip's rounded corners over whatever painted inside
+            // it — before the clip itself goes.
+            if matches!(
+                mask_stack.last(),
+                Some(MaskEntry::RoundedClip { clip_depth, .. }) if *clip_depth == clip_stack.len()
+            ) {
+                if let Some(entry) = mask_stack.pop() {
+                    apply_mask(pixmap, &entry);
+                }
+            }
             // Never pop the base clip (the window rect pushed at init). An
             // unbalanced PopClip — e.g. a display-list bookkeeping mismatch in
             // the titlebar/stacking-context emit path — must NOT abort the whole
@@ -5437,6 +5573,106 @@ pub fn render_text_run_to_pixmap(
 // ============================================================================
 // Direct SVG-to-image renderer (bypasses CSS layout)
 // ============================================================================
+
+#[cfg(all(test, feature = "std", feature = "text_layout", feature = "font_loading"))]
+mod rounded_clip_tests {
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+
+    fn px(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * p.width + x) * 4) as usize;
+        [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// The map bug, minimised: a red fill inside a rounded `overflow: hidden`
+    /// clip must NOT reach the corners, and must still fill the middle and the
+    /// straight edges.
+    #[test]
+    fn content_inside_a_rounded_clip_is_cut_to_the_radius() {
+        let (w, h) = (100u32, 100u32);
+        let radius = 20.0;
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushClip {
+                    bounds: rect(10.0, 10.0, 80.0, 80.0).into(),
+                    border_radius: BorderRadius {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    },
+                },
+                // Paints the WHOLE canvas; the clip alone decides what shows.
+                DisplayListItem::Rect {
+                    bounds: rect(0.0, 0.0, 100.0, 100.0).into(),
+                    color: red,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopClip,
+            ],
+            ..Default::default()
+        };
+        let rr = RendererResources::default();
+        let fm = FontManager::<FontRef>::new(FcFontCache::default()).expect("font manager");
+        let mut gc = GlyphCache::new();
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_display_list(&dl, &mut pm, 1.0, &rr, &fm, &mut gc).unwrap();
+
+        let white = [255, 255, 255, 255];
+        // Outside the clip rectangle entirely: untouched (the rect clip's job).
+        assert_eq!(px(&pm, 2, 2), white, "outside the clip rect");
+        // Centre and the middle of each straight edge: painted.
+        assert_eq!(px(&pm, 50, 50)[0..3], [255, 0, 0], "centre");
+        assert_eq!(px(&pm, 50, 11)[0..3], [255, 0, 0], "top edge middle");
+        assert_eq!(px(&pm, 11, 50)[0..3], [255, 0, 0], "left edge middle");
+        // The very corner pixel of the clip rect lies beyond the arc: it must
+        // show what was there before (white), not the red content. This is the
+        // assertion that failed before the fix.
+        assert_eq!(px(&pm, 10, 10), white, "top-left corner must be cut");
+        assert_eq!(px(&pm, 89, 10), white, "top-right corner must be cut");
+        assert_eq!(px(&pm, 10, 89), white, "bottom-left corner must be cut");
+        assert_eq!(px(&pm, 89, 89), white, "bottom-right corner must be cut");
+    }
+
+    /// A square clip (no radius) keeps its corners — the fix must not round
+    /// clips that were never rounded.
+    #[test]
+    fn a_square_clip_keeps_its_corners() {
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushClip {
+                    bounds: rect(10.0, 10.0, 80.0, 80.0).into(),
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::Rect {
+                    bounds: rect(0.0, 0.0, 100.0, 100.0).into(),
+                    color: red,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopClip,
+            ],
+            ..Default::default()
+        };
+        let rr = RendererResources::default();
+        let fm = FontManager::<FontRef>::new(FcFontCache::default()).expect("font manager");
+        let mut gc = GlyphCache::new();
+        let mut pm = AzulPixmap::new(100, 100).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_display_list(&dl, &mut pm, 1.0, &rr, &fm, &mut gc).unwrap();
+        assert_eq!(px(&pm, 10, 10)[0..3], [255, 0, 0], "square corner stays painted");
+    }
+}
 
 #[cfg(all(test, feature = "std"))]
 mod text_shadow_tests {
