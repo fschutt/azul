@@ -404,6 +404,7 @@ pub fn rust_crate_name(version: &str) -> String {
 
 /// Per-language bundle maps, with C++ dialect variants merged into their group
 /// (`cpp03`…`cpp23` → `cpp`): key → (release file → path inside the archive).
+/// A `"<dir>/": "<dir>/"` entry ships a whole directory of the release tree.
 pub fn bundle_maps(installation: &Installation) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut out: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     for (lang, cfg) in &installation.languages {
@@ -490,6 +491,24 @@ pub fn create_bindings_bundles(
                         missing_here += 1;
                         report.missing.push(format!("{name}: {src} ({e})"));
                     }
+                }
+                continue;
+            }
+            if src.ends_with('/') && dst.ends_with('/') {
+                // "<dir>/": "<dir>/" — a whole directory of the release tree
+                // (`azul-go/`), every file under it, so a generator that adds
+                // a file cannot ship an incomplete package.
+                if !src_path.is_dir() {
+                    missing_here += 1;
+                    report.missing.push(format!("{name}: {src}"));
+                    continue;
+                }
+                for file in walk_files(&src_path)? {
+                    let rel = file
+                        .strip_prefix(&src_path)
+                        .map(|r| r.to_string_lossy().replace('\\', "/"))
+                        .unwrap_or_default();
+                    tar.add_path(&format!("{dst}{rel}"), &file)?;
                 }
                 continue;
             }
@@ -669,5 +688,135 @@ mod tests {
             "fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBuf])"
         ));
         assert!(b.contains("fn emit_static_system_deps"));
+    }
+
+    /// Every ustar entry name in a `.tar.gz` written by [`TarGz`].
+    fn tar_names(path: &Path) -> Vec<String> {
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(File::open(path).unwrap())
+            .read_to_end(&mut raw)
+            .unwrap();
+        let mut names = Vec::new();
+        let mut at = 0usize;
+        while at + 512 <= raw.len() {
+            let h = &raw[at..at + 512];
+            if h.iter().all(|&b| b == 0) {
+                break;
+            }
+            let name = field(h.try_into().unwrap(), 0, 100);
+            let prefix = field(h.try_into().unwrap(), 345, 500);
+            names.push(if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            });
+            let size = u64::from_str_radix(&field(h.try_into().unwrap(), 124, 136), 8).unwrap();
+            at += 512 + (size as usize).div_ceil(512) * 512;
+        }
+        names
+    }
+
+    /// `"azul-go/": "azul-go/"` in a bundle map ships the whole directory —
+    /// every file under it, however the generator names them — next to the
+    /// flat entries. (The Go bundle used to be `azul.h` + `main.go`, and the
+    /// five-file flat list it replaced missed the two files `main.go`
+    /// imports.)
+    #[test]
+    fn a_directory_bundle_entry_ships_every_file_under_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(version_dir.join("azul-go/internal")).unwrap();
+        fs::write(version_dir.join("main.go"), b"package main").unwrap();
+        fs::write(version_dir.join("go.mod"), b"module hello-world").unwrap();
+        fs::write(version_dir.join("azul-go/azul.go"), b"package azul").unwrap();
+        fs::write(version_dir.join("azul-go/callbacks_export.go"), b"package azul").unwrap();
+        fs::write(version_dir.join("azul-go/go.mod"), b"module github.com/azul/azul-go").unwrap();
+        fs::write(version_dir.join("azul-go/internal/x.go"), b"package internal").unwrap();
+
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "go".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Go".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([
+                    ("main.go".to_string(), "main.go".to_string()),
+                    ("go.mod".to_string(), "go.mod".to_string()),
+                    ("azul-go/".to_string(), "azul-go/".to_string()),
+                ])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        let report = create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        let name = language_bundle_name("go", "0.0.0");
+        assert!(report.written.contains(&name), "{report:?}");
+        assert!(
+            !report.missing.iter().any(|m| m.starts_with(&name)),
+            "{report:?}"
+        );
+        let names = tar_names(&version_dir.join(&name));
+        assert_eq!(
+            names,
+            vec![
+                "azul-go/azul.go",
+                "azul-go/callbacks_export.go",
+                "azul-go/go.mod",
+                "azul-go/internal/x.go",
+                "go.mod",
+                "main.go",
+            ]
+        );
+    }
+
+    /// A directory entry whose directory is absent is reported as missing,
+    /// like a missing file — never silently an empty package.
+    #[test]
+    fn a_missing_bundle_directory_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(&version_dir).unwrap();
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "go".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Go".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([(
+                    "azul-go/".to_string(),
+                    "azul-go/".to_string(),
+                )])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        let report = create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        assert!(
+            report
+                .missing
+                .iter()
+                .any(|m| m == "azul-go-0.0.0.tar.gz: azul-go/"),
+            "{report:?}"
+        );
     }
 }

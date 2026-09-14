@@ -913,32 +913,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "freebasic/hello-world.bas",
         source: BindingSource::Examples,
     },
-    // --- go ---
-    BindingFile {
-        dst: "azul.go",
-        src: "go/azul.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "types.go",
-        src: "go/types.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "functions.go",
-        src: "go/functions.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "wrappers.go",
-        src: "go/wrappers.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "go.mod",
-        src: "go/go.mod",
-        source: BindingSource::Codegen,
-    },
+    // --- go: the generated package is a DIRECTORY (`azul-go/`, every
+    //     `target/codegen/go/*.go` + its `go.mod` + `azul.h`) copied by
+    //     `copy_go_package` below, never a hand-kept file list: the list here
+    //     used to name 5 of the 7 generated files, and the two it missed
+    //     (`callbacks.go`, `callbacks_export.go`) are what `main.go` imports.
+    //     The hello-world's own `go.mod` (with the `replace` onto `./azul-go`)
+    //     is written by the same function. ---
     // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
     BindingFile {
         dst: "azul.cabal",
@@ -1452,6 +1433,15 @@ pub fn copy_language_bindings(
         copied += 1;
     }
 
+    match copy_go_package(version_dir, codegen_dir) {
+        Ok(n) if n > 0 => copied += n,
+        Ok(_) => missing.push(format!(
+            "azul-go/ (from {})",
+            codegen_dir.join("go").display()
+        )),
+        Err(e) => missing.push(format!("azul-go/ ({e})")),
+    }
+
     // LuaRocks rockspec: filename embeds the release version
     // (`azul-<version>-1.rockspec`, must match the `version = "..."` inside),
     // so it can't live in the const BINDING_FILES list.
@@ -1479,6 +1469,67 @@ pub fn copy_language_bindings(
     }
 
     Ok(())
+}
+
+/// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
+/// `main.go`: `main.go` imports `github.com/azul/azul-go`, and this `replace`
+/// resolves it to the `azul-go/` directory shipped alongside — no `go mod
+/// init`, no `go mod edit`, no registry.
+pub fn go_example_mod() -> String {
+    "// go.mod for the azul hello-world. `main.go` imports the generated\n\
+     // github.com/azul/azul-go package; the replace below points at the copy\n\
+     // shipped in ./azul-go (from the same release), so `go build .` works\n\
+     // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
+     // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
+     \n\
+     module hello-world\n\
+     \n\
+     go 1.21\n\
+     \n\
+     require github.com/azul/azul-go v0.0.0\n\
+     \n\
+     replace github.com/azul/azul-go => ./azul-go\n"
+        .to_string()
+}
+
+/// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
+/// `codegen_dir/go/` plus its `go.mod` (a glob, so the generator adding or
+/// renaming a file can never leave the release incomplete again) plus
+/// `azul.h`, because the package's cgo preamble `#include "azul.h"`s it and
+/// cgo resolves `-I.` against the package directory. Also writes the
+/// hello-world's `go.mod` ([`go_example_mod`]). Returns the number of files
+/// written; 0 when the codegen output is absent (a warning for the caller,
+/// never an abort).
+pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> {
+    let go_dir = codegen_dir.join("go");
+    if !go_dir.is_dir() {
+        return Ok(0);
+    }
+    let dst_dir = version_dir.join("azul-go");
+    fs::create_dir_all(&dst_dir)?;
+    let mut n = 0usize;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&go_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.is_file()
+                && (p.extension().is_some_and(|x| x == "go")
+                    || p.file_name().is_some_and(|f| f == "go.mod"))
+        })
+        .collect();
+    entries.sort();
+    for src in entries {
+        let name = src.file_name().unwrap();
+        fs::copy(&src, dst_dir.join(name))?;
+        n += 1;
+    }
+    let header = codegen_dir.join("azul.h");
+    if header.is_file() {
+        fs::copy(&header, dst_dir.join("azul.h"))?;
+        n += 1;
+    }
+    fs::write(version_dir.join("go.mod"), go_example_mod())?;
+    n += 1;
+    Ok(n)
 }
 
 /// Creates examples.zip by reading example paths from api.json and loading files from disk.
