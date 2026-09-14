@@ -1168,9 +1168,11 @@ lang_go() {
     else
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
     fi
-    # -x: every toolchain command in the log, so a timeout names the step
-    # (the cgo probe, the package compile, the link) instead of "hung".
-    go build -x -o "$OUT" . || exit 1
+    # -x with a timestamp on every toolchain step: the runner ran past 900 s
+    # twice with the last lines still compiling the standard library, so the
+    # log has to say where the minutes go before the budget is judged again.
+    go build -x -o "$OUT" . 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$(date +%H:%M:%S)" "$l"; done
+    [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
     "./$OUT"
   ) >"$f" 2>&1
   finish go "go build/run failed (cgo + libazul link)"
@@ -2240,8 +2242,9 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # probe of azul.h. 32 s on an M-series Mac; the 2-core ubuntu runner ran
     # past 600 s on both attempts (2026-09-12, run 34707993902) with nothing
     # after `go build` in the log. Same budget as the other big generated
-    # packages; `go build -x` below names the step if it ever times out again.
-    go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # packages — and then past 900 s as well (2026-09-14, run 34858574462),
+    # so 1800 s while the timestamped `-x` log below shows where the time goes.
+    go) [ "$LANG_TIMEOUT" -lt 1800 ] && LANG_TIMEOUT=1800 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`
