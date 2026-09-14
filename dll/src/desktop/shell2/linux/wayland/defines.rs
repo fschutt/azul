@@ -254,7 +254,7 @@ pub struct wl_message {
 /// aren't auto-`Sync`, but in this module every pointer targets immutable
 /// `Box::leak`-ed data that outlives the process. That makes cross-thread
 /// reads safe; this wrapper carries that promise so `OnceLock` can accept it.
-struct SyncInterface(&'static wl_interface);
+pub(crate) struct SyncInterface(pub(crate) &'static wl_interface);
 unsafe impl Send for SyncInterface {}
 unsafe impl Sync for SyncInterface {}
 

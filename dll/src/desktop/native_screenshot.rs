@@ -8,7 +8,7 @@ use azul_css::AzString;
 use azul_layout::callbacks::CallbackInfo;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut buf, width, height);
@@ -88,10 +88,17 @@ impl NativeScreenshotExt for CallbackInfo {
             RawWindowHandle::Xcb(handle) => {
                 take_native_screenshot_xcb_bytes(handle.connection, handle.window)
             }
+            // A Wayland client cannot read the compositor's output, and with
+            // server-side decorations the titlebar is not in our surface at
+            // all. `ext-image-copy-capture-v1` is the way in; it identifies the
+            // window by the title it is showing, so pass that. On a compositor
+            // without the protocol this returns a descriptive `Err`, which is
+            // what this arm always returned.
             #[cfg(target_os = "linux")]
-            RawWindowHandle::Wayland(_) => Err(AzString::from(
-                "Native screenshot not supported on Wayland - use X11/Xlib backend",
-            )),
+            RawWindowHandle::Wayland(_) => {
+                let title = self.get_current_window_state().title.as_str().to_string();
+                crate::desktop::shell2::linux::wayland::screencopy::capture_toplevel(&title)
+            }
             _ => Err(AzString::from(
                 "Native screenshot not supported on this platform",
             )),

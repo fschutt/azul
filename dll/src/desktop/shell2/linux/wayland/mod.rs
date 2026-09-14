@@ -201,6 +201,7 @@ mod dlopen;
 mod events;
 mod gl;
 pub mod menu;
+pub(crate) mod screencopy;
 mod tooltip;
 
 use std::{
