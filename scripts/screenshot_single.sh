@@ -1,12 +1,28 @@
 #!/bin/bash
 # Screenshot the C examples for the website.
 #
+# THE ONLY PRODUCER of the example screenshots on /ui. They are static: taken
+# by hand, per OS, with this script, then copied into
+# examples/assets/screenshots and committed. CI neither takes nor overwrites
+# them. Publishing a fresh set for one OS:
+#
+#   ./scripts/screenshot_single.sh all
+#   for e in hello-world widgets opengl infinity async xhtml calc; do
+#     cp target/examples-temp/$e/$e.<os>.light.png examples/assets/screenshots/
+#     cp target/examples-temp/$e/$e.<os>.dark.png  examples/assets/screenshots/
+#     cp target/examples-temp/$e/$e.<os>.light.png examples/assets/screenshots/$e.<os>.png
+#   done
+#
+# and make sure api.json's `screenshot.<os>` for each example is
+# `<example>.<os>.png` — `Example::load` derives the light/dark names from it.
+# Flip it in the SAME commit as the images: pointed at files that do not exist
+# yet, the loader falls through to calculator.png on the live site.
+#
 # Usage:
 #   ./scripts/screenshot_single.sh                    # hello-world
 #   ./scripts/screenshot_single.sh widgets            # one example
 #   ./scripts/screenshot_single.sh hello-world calc   # several, ONE dll build
 #   ./scripts/screenshot_single.sh all                # every example on the index
-#   ./scripts/screenshot_single.sh widgets 8780       # legacy: trailing port, ignored
 #
 # Runs on Linux, macOS and Windows (MSYS/MinGW) unchanged: build the library,
 # compile each example against it, run it twice under the AZ_E2E scenario
@@ -15,7 +31,6 @@
 #
 # Output per example, in target/examples-temp/<example>/:
 #   <example>.<os>.light.png   <example>.<os>.dark.png
-#   <example>_screenshot.png   (the light one; what CI's artifact step copies)
 # Those are the names examples/assets/screenshots and api.json use, so
 # publishing a fresh set is a straight copy.
 #
@@ -78,9 +93,8 @@ RUN_TIMEOUT="${AZ_SCREENSHOT_TIMEOUT:-180}"   # per process, must outlast settle
 INDEX_EXAMPLES=(hello-world widgets opengl infinity async xhtml calc)
 
 # ── Arguments ───────────────────────────────────────────────────────────────
-# A bare number is the old debug-server port. Nothing listens any more, but the
-# CI matrix still passes one per example, so drop it rather than treat "8780"
-# as an example name.
+# A bare number is the old debug-server port (the AZ_DEBUG version of this
+# script took one). Dropped rather than treated as an example named "8780".
 EXAMPLES=()
 for arg in "$@"; do
     case "$arg" in
@@ -107,12 +121,11 @@ done
 # is in azul-css -> azul-core -> azul-layout, not in LTO. What `release` buys a
 # screenshot run is not speed, it is SEPARATION: a developer's machine has a
 # `release` tree already and no `prod-release` one, and building into
-# `target/prod-release` here would replace the library CI publishes from that
-# same path.
+# `target/prod-release` here would replace the library a release build
+# publishes from that same path.
 #
-# `AZ_SCREENSHOT_PROFILE` overrides. CI sets it to `prod-release`, where that
-# profile is already built and the feature set is identical, so the build below
-# costs nothing there.
+# `AZ_SCREENSHOT_PROFILE` overrides — e.g. `prod-release` to capture the
+# shipped codegen when that tree is already built.
 PROFILE="${AZ_SCREENSHOT_PROFILE:-release}"
 LIB_DIR="$ROOT_DIR/target/$PROFILE"
 
@@ -257,7 +270,7 @@ EOF
 #    portal, the same way it would for a user.
 #
 # `AZ_THEME` is still set, as a backstop for environments with no desktop to
-# switch — CI under Xvfb, a bare WM — where it at least themes the client area.
+# switch — Xvfb, a bare WM — where it at least themes the client area.
 #
 # The desktop is put back the way it was found on ANY exit path (see the trap):
 # a script that leaves the machine in dark mode because that happened to be the
@@ -530,9 +543,6 @@ capture_example() {
         return 1
     fi
 
-    # The unsuffixed file is the canonical capture: what CI copies into its
-    # screenshot artifact. The light one.
-    cp "$light" "$dir/${name}_screenshot.png"
     return 0
 }
 

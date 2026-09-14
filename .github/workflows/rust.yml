@@ -1929,84 +1929,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # AFTER the artifact uploads. The screenshot script runs azul-dll out of
-      # target/prod-release, and anything that rebuilds azul-dll there replaces
-      # the very files the two steps above publish — which, on macOS, also
-      # invalidates the signature the codesign step just applied. It should not
-      # rebuild anything (see AZ_SCREENSHOT_PROFILE below), but "should not" is
-      # not a guarantee worth an unsigned release artifact. Publish first.
-      #
-      # AZ_SCREENSHOT_PROFILE pins the profile the job has already built. The
-      # script defaults to `release`, which is what a developer's machine has a
-      # tree for. Here the opposite holds: prod-release exists, its feature set
-      # is IDENTICAL (the AZ_E2E runner ships inside `build-dll`), so the
-      # script's cargo build is a cache hit — while `release` would compile the
-      # whole dependency tree a second time under a second profile.
-      - name: Take screenshots (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true
-        env:
-          AZ_SCREENSHOT_PROFILE: prod-release
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-              ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-linux.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (macOS)
-        if: matrix.os == 'macos-14'
-        continue-on-error: true
-        env:
-          AZ_SCREENSHOT_PROFILE: prod-release
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-macos.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (Windows)
-        if: matrix.os == 'windows-2022'
-        continue-on-error: true
-        env:
-          AZ_SCREENSHOT_PROFILE: prod-release
-        shell: bash
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-windows.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Upload Screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-${{ matrix.os }}
-          path: target/screenshots/*.png
-          retention-days: 7
-          if-no-files-found: warn
-
   build_azuldbg:
     # Builds the azuldbg swap-in library.
     name: Build azuldbg swap-in (${{ matrix.os }})
@@ -4372,7 +4294,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
-            examples/assets/screenshots
             scripts/build_registry_mirrors.sh
             scripts/verify_install_commands.sh
             scripts/prune_dead_release_links.py
@@ -4538,27 +4459,6 @@ jobs:
         with:
           name: reftest-results
           path: artifacts-reftest
-
-      - name: Download Linux screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-ubuntu-22.04
-          path: artifacts-screenshots-linux
-
-      - name: Download macOS screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-macos-14
-          path: artifacts-screenshots-macos
-
-      - name: Download Windows screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-windows-2022
-          path: artifacts-screenshots-windows
 
       - name: Download Linux demo binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4900,53 +4800,13 @@ jobs:
             fi
           fi
 
-          mkdir -p website/images
-          for screenshot_dir in artifacts-screenshots-linux artifacts-screenshots-macos artifacts-screenshots-windows; do
-            if [ -d "$screenshot_dir" ]; then
-              for png in "$screenshot_dir"/*.png; do
-                if [ -f "$png" ]; then
-                  filename=$(basename "$png")
-                  case "$screenshot_dir" in
-                    *linux*) os="linux" ;;
-                    *macos*) os="mac" ;;
-                    *windows*) os="windows" ;;
-                  esac
-                  case "$os" in
-                    mac) src_sfx="-macos" ;;
-                    *)   src_sfx="-${os}" ;;
-                  esac
-                  newname="${filename%%${src_sfx}.png}.${os}.png"
-                  cp "$png" "website/images/$newname"
-                  echo "  [OK] Copied screenshot: $newname"
-                fi
-              done
-            fi
-          done
-
-          echo "Checking for missing screenshots, using fallbacks from examples/assets/screenshots..."
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            for os in linux mac windows; do
-              target="website/images/${example}.${os}.png"
-              if [ ! -f "$target" ]; then
-                fallback="examples/assets/screenshots/${example}.${os}.png"
-                if [ -f "$fallback" ]; then
-                  cp "$fallback" "$target"
-                  echo "::warning::screenshot fallback: $target came from $fallback, not from this run"
-                  echo "  [FALLBACK] Copied $fallback -> $target"
-                else
-                  mac_fallback="examples/assets/screenshots/${example}.mac.png"
-                  if [ -f "$mac_fallback" ]; then
-                    cp "$mac_fallback" "$target"
-                    echo "  [FALLBACK] Copied $mac_fallback -> $target (mac as fallback)"
-                  else
-                    echo "  [MISSING] No screenshot for ${example}.${os}.png"
-                  fi
-                fi
-              fi
-            done
-          done
-
-          ls -la website/images/ || echo "No images directory"
+          # The example screenshots on /ui are STATIC. They are taken by hand with
+          # scripts/screenshot_single.sh, committed to examples/assets/screenshots,
+          # and written into the site by `azul-doc deploy` (Example::load) as
+          # ui/images/<example>.<os>.{light,dark}.png. CI neither takes nor
+          # overwrites them. It used to do both, and none of it was ever visible:
+          # the capture landed in website/images/<example>.<os>.png, a name no page
+          # links and a directory the /ui index does not read.
 
           if [ -d "$RELEASE_DIR" ]; then
             echo "Updating file sizes in release HTML..."
