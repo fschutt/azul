@@ -4264,27 +4264,25 @@ fn run_e2e_test_keeping_runner(
                 e2e_pump_continuation(ci, &mut session)
             });
 
-        // `resume_not_before` is never set to `Some` anywhere in the tree: a
-        // `wait` yields with no deadline and advances the injectable clock
-        // instead, so scenario time is a pure function of the ops a scenario ran
-        // rather than of how fast the build is.
+        // `resume_not_before` is set by exactly ONE thing: `{"op": "wait",
+        // "real": true}`, a wall-clock wait for work outside the process (map
+        // tiles over HTTPS in scripts/screenshot_single.sh). It belongs to a LIVE
+        // window, where the shell keeps pumping its event loop until the deadline.
         //
-        // This used to `std::thread::sleep` to the deadline. That is now
-        // unreachable, and leaving it would be a landmine: the moment anything
-        // repopulated the field the whole suite would silently go back to being
-        // pinned to realtime — the exact regression that made
-        // `bug_font_never_removed` red only on unoptimized builds. It would also
-        // reintroduce a `std::time::Instant::now()` here, which panics on
-        // wasm32.
+        // This runner used to `std::thread::sleep` to the deadline, and it must
+        // not go back to that: a sleeping corpus is pinned to realtime — the
+        // exact regression that made `bug_font_never_removed` red only on
+        // unoptimized builds — and `Instant::now()` panics on wasm32. A plain
+        // `wait` advances the injectable clock instead, which is what every
+        // corpus scenario uses.
         //
-        // So it fails loudly instead. If you are here because this fired, the
-        // fix is to advance the test clock (`advance_test_clock_ms`), not to
-        // sleep.
+        // So a real wait here is refused, loudly, with the reason.
         assert!(
             resume_not_before.is_none(),
-            "e2e runner: scenario '{}' asked to resume at a wall-clock deadline. Scenario time is \
-             virtual — advance the injectable clock instead of sleeping, or the suite is pinned \
-             to realtime again.",
+            "e2e runner: scenario '{}' uses a wall-clock wait (`\"real\": true`). Those are for a \
+             live window only — this headless runner keeps scenario time virtual. Use a plain \
+             `wait` (it advances the injectable clock), or run the scenario against a real \
+             window with AZ_E2E.",
             test.name,
         );
         runner.service(&callback_changes, needs_update);
