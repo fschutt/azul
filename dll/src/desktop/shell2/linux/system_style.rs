@@ -89,37 +89,71 @@ fn send_all_nosignal(
 /// Returns `(color_scheme, accent_color_rgb)` where color_scheme is:
 ///   0 = no preference, 1 = dark, 2 = light.
 /// Returns `None` if the portal is unavailable.
+///
+/// This is the ONLY desktop-agnostic source of the light/dark preference: KDE,
+/// GNOME, XFCE and the wlroots compositors all answer it, which is why it is
+/// tried before any desktop-specific probe. It is worth keeping correct.
+///
+/// Every failure path logs. The previous version returned `None` through a
+/// chain of `?` with no diagnostic at all, so a portal that was running and
+/// answering correctly reported as "unavailable" on every single startup and
+/// nothing said why.
 fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
-    use std::{io::Read, os::unix::net::UnixStream, time::Duration};
+    match query_xdg_portal_inner() {
+        Ok(v) => Some(v),
+        Err(e) => {
+            crate::plog_debug!("system style: xdg-desktop-portal probe failed: {}", e);
+            None
+        }
+    }
+}
 
-    // Connect to session D-Bus
-    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
-    // Parse "unix:path=/run/user/1000/bus" or similar
-    let path = bus_addr.strip_prefix("unix:path=")?;
-    // Handle additional parameters after comma
-    let path = path.split(',').next()?;
+fn query_xdg_portal_inner() -> Result<(u32, Option<(f64, f64, f64)>), String> {
+    use std::{os::unix::net::UnixStream, time::Duration};
 
-    let mut stream = UnixStream::connect(path).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS")
+        .map_err(|_| "DBUS_SESSION_BUS_ADDRESS is not set".to_string())?;
+    // "unix:path=/run/user/1000/bus", possibly with further comma-separated
+    // parameters, and possibly `abstract=` instead of `path=`.
+    let path = bus_addr
+        .split(',')
+        .find_map(|p| p.strip_prefix("unix:path=").or_else(|| p.strip_prefix("path=")))
+        .ok_or_else(|| alloc::format!("no unix:path= in DBUS_SESSION_BUS_ADDRESS ({bus_addr})"))?;
+
+    let mut stream =
+        UnixStream::connect(path).map_err(|e| alloc::format!("connect {path}: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|e| alloc::format!("set_read_timeout: {e}"))?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
-        .ok()?;
+        .map_err(|e| alloc::format!("set_write_timeout: {e}"))?;
 
-    // D-Bus authentication: simplest method is EXTERNAL with uid
+    // ── SASL ────────────────────────────────────────────────────────────
+    // The NUL byte, then EXTERNAL auth with the hex-encoded uid. BEGIN must
+    // come AFTER the server's OK: pipelining it into the same write happened
+    // to work against dbus-daemon and is not what the spec asks for.
     let uid = unsafe { libc_getuid() };
-    let auth_msg = alloc::format!("\0AUTH EXTERNAL {}\r\nBEGIN\r\n", hex_encode_uid(uid));
-    send_all_nosignal(&stream, auth_msg.as_bytes()).ok()?;
+    let auth = alloc::format!("\0AUTH EXTERNAL {}\r\n", hex_encode_uid(uid));
+    send_all_nosignal(&stream, auth.as_bytes()).map_err(|e| alloc::format!("send AUTH: {e}"))?;
 
-    // Read auth response (we just need "OK <guid>")
-    let mut buf = [0u8; 256];
-    let n = stream.read(&mut buf).ok()?;
-    let resp = core::str::from_utf8(&buf[..n]).ok()?;
-    if !resp.contains("OK") {
-        return None;
+    let mut sasl = DBusReader::new();
+    let line = sasl
+        .read_line(&mut stream)
+        .map_err(|e| alloc::format!("read AUTH reply: {e}"))?;
+    if !line.starts_with("OK") {
+        return Err(alloc::format!("AUTH EXTERNAL rejected: {}", line.trim()));
     }
+    send_all_nosignal(&stream, b"BEGIN\r\n").map_err(|e| alloc::format!("send BEGIN: {e}"))?;
 
-    // Send Hello message to get our unique name (required before any method call)
-    let hello_msg = build_dbus_method_call(
+    // ── Hello ───────────────────────────────────────────────────────────
+    // Mandatory before any other call. Its reply is followed by a
+    // `NameAcquired` SIGNAL, and that signal is the whole reason this probe
+    // used to fail: the old code did one `read()` per call and handed the
+    // buffer straight to a parser that assumed it began at our method return.
+    // With a signal sitting in front of it, every offset it computed pointed
+    // at the wrong bytes.
+    let hello = build_dbus_method_call(
         "org.freedesktop.DBus",
         "/org/freedesktop/DBus",
         "org.freedesktop.DBus",
@@ -127,51 +161,257 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
         &[],
         1,
     );
-    send_all_nosignal(&stream, &hello_msg).ok()?;
-    // Read Hello response (we ignore it, just need to consume it)
-    let mut resp_buf = vec![0u8; 4096];
-    let _ = stream.read(&mut resp_buf);
+    send_all_nosignal(&stream, &hello).map_err(|e| alloc::format!("send Hello: {e}"))?;
+    sasl.await_reply(&mut stream, 1)
+        .map_err(|e| alloc::format!("Hello: {e}"))?;
 
-    // Now call org.freedesktop.portal.Settings.Read for color-scheme
-    let read_msg = build_dbus_method_call(
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.Settings",
-        "Read",
-        &[
-            DValue::String("org.freedesktop.appearance"),
-            DValue::String("color-scheme"),
-        ],
-        2,
-    );
-    send_all_nosignal(&stream, &read_msg).ok()?;
+    // ── Settings.Read("org.freedesktop.appearance", ...) ────────────────
+    let read_setting = |reader: &mut DBusReader,
+                        stream: &mut UnixStream,
+                        key: &str,
+                        serial: u32|
+     -> Result<Vec<u8>, String> {
+        let msg = build_dbus_method_call(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+            "Read",
+            &[
+                DValue::String("org.freedesktop.appearance"),
+                DValue::String(key),
+            ],
+            serial,
+        );
+        send_all_nosignal(stream, &msg).map_err(|e| alloc::format!("send Read({key}): {e}"))?;
+        reader
+            .await_reply(stream, serial)
+            .map_err(|e| alloc::format!("Read({key}): {e}"))
+    };
 
-    let mut resp_buf = vec![0u8; 4096];
-    let n = stream.read(&mut resp_buf).ok()?;
+    let body = read_setting(&mut sasl, &mut stream, "color-scheme", 2)?;
+    let color_scheme = parse_nested_variant_u32(&body)
+        .ok_or_else(|| "color-scheme: body is not v<v<u>>".to_string())?;
 
-    // Parse the response to extract the uint32 color-scheme value
-    // The response is a D-Bus message containing a variant(variant(uint32))
-    let color_scheme = parse_uint32_from_variant_response(&resp_buf[..n]).unwrap_or(0);
+    // accent-color is optional: a portal backend that does not implement it
+    // answers with an error, which must not sink the colour scheme we already
+    // have.
+    let accent = match read_setting(&mut sasl, &mut stream, "accent-color", 3) {
+        Ok(body) => parse_nested_variant_rgb(&body),
+        Err(e) => {
+            crate::plog_debug!("system style: portal accent-color unavailable: {}", e);
+            None
+        }
+    };
 
-    // Try to read accent-color (may not be available on all portals)
-    let accent_msg = build_dbus_method_call(
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.Settings",
-        "Read",
-        &[
-            DValue::String("org.freedesktop.appearance"),
-            DValue::String("accent-color"),
-        ],
-        3,
-    );
-    send_all_nosignal(&stream, &accent_msg).ok()?;
+    Ok((color_scheme, accent))
+}
 
-    let mut resp_buf2 = vec![0u8; 4096];
-    let n2 = stream.read(&mut resp_buf2).unwrap_or(0);
-    let accent = parse_rgb_from_variant_response(&resp_buf2[..n2]);
+// ── Minimal D-Bus wire reader ────────────────────────────────────────────
 
-    Some((color_scheme, accent))
+/// Buffered reader that splits the D-Bus byte stream into whole MESSAGES.
+///
+/// A socket read is not a message: one read can return a partial message, or
+/// several concatenated. Every caller here needs "the reply to serial N", so
+/// framing and dispatch live in one place.
+struct DBusReader {
+    buf: Vec<u8>,
+}
+
+impl DBusReader {
+    fn new() -> Self {
+        Self { buf: Vec::new() }
+    }
+
+    fn fill(&mut self, stream: &mut std::os::unix::net::UnixStream) -> Result<(), String> {
+        use std::io::Read;
+        let mut chunk = [0u8; 4096];
+        let n = stream.read(&mut chunk).map_err(|e| alloc::format!("read: {e}"))?;
+        if n == 0 {
+            return Err("connection closed by the bus".to_string());
+        }
+        self.buf.extend_from_slice(&chunk[..n]);
+        Ok(())
+    }
+
+    /// One CRLF-terminated SASL line (the handshake is text, not messages).
+    fn read_line(
+        &mut self,
+        stream: &mut std::os::unix::net::UnixStream,
+    ) -> Result<String, String> {
+        for _ in 0..16 {
+            if let Some(pos) = self.buf.windows(2).position(|w| w == b"\r\n") {
+                let line = String::from_utf8_lossy(&self.buf[..pos]).into_owned();
+                self.buf.drain(..pos + 2);
+                return Ok(line);
+            }
+            self.fill(stream)?;
+        }
+        Err("no CRLF in the SASL reply".to_string())
+    }
+
+    /// Total on-the-wire length of the message at the front of the buffer,
+    /// or `None` while fewer than its bytes have arrived.
+    fn framed_len(&self) -> Option<usize> {
+        if self.buf.len() < 16 {
+            return None;
+        }
+        // Only little-endian is produced by a local daemon on every target
+        // azul builds for; a big-endian reply is reported rather than
+        // mis-parsed.
+        if self.buf[0] != b'l' {
+            return Some(usize::MAX);
+        }
+        let body_len = u32::from_le_bytes(self.buf[4..8].try_into().ok()?) as usize;
+        let fields_len = u32::from_le_bytes(self.buf[12..16].try_into().ok()?) as usize;
+        let total = align_to(16 + fields_len, 8) + body_len;
+        (self.buf.len() >= total).then_some(total)
+    }
+
+    /// Read messages until the METHOD_RETURN whose REPLY_SERIAL is `serial`,
+    /// returning its BODY. Signals and other traffic are dropped; an ERROR
+    /// reply to our serial is reported with its name.
+    fn await_reply(
+        &mut self,
+        stream: &mut std::os::unix::net::UnixStream,
+        serial: u32,
+    ) -> Result<Vec<u8>, String> {
+        for _ in 0..64 {
+            let Some(total) = self.framed_len() else {
+                self.fill(stream)?;
+                continue;
+            };
+            if total == usize::MAX {
+                return Err("big-endian D-Bus reply is not supported".to_string());
+            }
+            let msg: Vec<u8> = self.buf.drain(..total).collect();
+
+            let msg_type = msg[1];
+            let fields_len = u32::from_le_bytes(msg[12..16].try_into().unwrap()) as usize;
+            let body_start = align_to(16 + fields_len, 8);
+            let (reply_serial, error_name) = parse_header_fields(&msg[16..16 + fields_len]);
+
+            if reply_serial != Some(serial) {
+                continue; // NameAcquired, or a reply to something else.
+            }
+            // 2 = METHOD_RETURN, 3 = ERROR
+            if msg_type == 3 {
+                return Err(alloc::format!(
+                    "bus returned an error: {}",
+                    error_name.as_deref().unwrap_or("(unnamed)")
+                ));
+            }
+            if msg_type != 2 {
+                return Err(alloc::format!("unexpected message type {msg_type}"));
+            }
+            return Ok(msg[body_start..].to_vec());
+        }
+        Err("no reply after 64 messages".to_string())
+    }
+}
+
+const fn align_to(n: usize, a: usize) -> usize {
+    (n + a - 1) & !(a - 1)
+}
+
+/// Pull REPLY_SERIAL (field 5) and ERROR_NAME (field 4) out of the header
+/// field array. Each entry is a `(byte, variant)` struct on an 8-byte
+/// boundary; everything else is skipped by its signature.
+fn parse_header_fields(fields: &[u8]) -> (Option<u32>, Option<String>) {
+    let mut reply_serial = None;
+    let mut error_name = None;
+    let mut off = 0usize;
+    while off + 4 <= fields.len() {
+        off = align_to(off, 8);
+        if off + 4 > fields.len() {
+            break;
+        }
+        let code = fields[off];
+        let sig_len = fields[off + 1] as usize;
+        if off + 2 + sig_len + 1 > fields.len() {
+            break;
+        }
+        let sig = &fields[off + 2..off + 2 + sig_len];
+        off += 2 + sig_len + 1; // code, sig-len, sig, NUL
+        match sig {
+            b"u" => {
+                off = align_to(off, 4);
+                if off + 4 > fields.len() {
+                    break;
+                }
+                let v = u32::from_le_bytes(fields[off..off + 4].try_into().unwrap());
+                if code == 5 {
+                    reply_serial = Some(v);
+                }
+                off += 4;
+            }
+            b"s" | b"o" | b"g" => {
+                let (len_bytes, hdr) = if sig == b"g" { (1usize, 1usize) } else { (4, 4) };
+                off = align_to(off, hdr);
+                if off + len_bytes > fields.len() {
+                    break;
+                }
+                let len = if len_bytes == 1 {
+                    fields[off] as usize
+                } else {
+                    u32::from_le_bytes(fields[off..off + 4].try_into().unwrap()) as usize
+                };
+                off += len_bytes;
+                if off + len > fields.len() {
+                    break;
+                }
+                if code == 4 {
+                    error_name = Some(String::from_utf8_lossy(&fields[off..off + len]).into_owned());
+                }
+                off += len + 1; // + NUL
+            }
+            _ => break, // an unknown field type makes the rest unparseable
+        }
+    }
+    (reply_serial, error_name)
+}
+
+/// Step over a variant's signature, returning `(signature, offset of value)`.
+fn read_variant_signature(body: &[u8], off: usize) -> Option<(Vec<u8>, usize)> {
+    let sig_len = *body.get(off)? as usize;
+    let sig = body.get(off + 1..off + 1 + sig_len)?.to_vec();
+    Some((sig, off + 1 + sig_len + 1)) // + NUL
+}
+
+/// `Settings.Read` answers `v` wrapping the setting's own `v`. Unwrap both and
+/// read the `u`.
+fn parse_nested_variant_u32(body: &[u8]) -> Option<u32> {
+    let (_outer, off) = read_variant_signature(body, 0)?;
+    let (inner, off) = read_variant_signature(body, off)?;
+    if inner != b"u" {
+        return None;
+    }
+    let off = align_to(off, 4);
+    Some(u32::from_le_bytes(body.get(off..off + 4)?.try_into().ok()?))
+}
+
+/// The same, for the `(ddd)` accent colour. Each component is 0.0..=1.0.
+///
+/// This used to be a stub that returned `None` unconditionally — with the
+/// comment "complex to decode from raw bytes" — so the accent branch in
+/// `discover()` was dead code and every desktop got the fallback accent.
+fn parse_nested_variant_rgb(body: &[u8]) -> Option<(f64, f64, f64)> {
+    let (_outer, off) = read_variant_signature(body, 0)?;
+    let (inner, off) = read_variant_signature(body, off)?;
+    if inner != b"(ddd)" {
+        return None;
+    }
+    // A struct is 8-aligned, and so is each double inside it.
+    let off = align_to(off, 8);
+    let rd = |i: usize| -> Option<f64> {
+        Some(f64::from_le_bytes(
+            body.get(off + i * 8..off + i * 8 + 8)?.try_into().ok()?,
+        ))
+    };
+    let (r, g, b) = (rd(0)?, rd(1)?, rd(2)?);
+    if [r, g, b].iter().any(|c| !c.is_finite() || *c < 0.0 || *c > 1.0) {
+        return None;
+    }
+    Some((r, g, b))
 }
 
 // ── Minimal D-Bus message builder ────────────────────────────────────────
@@ -203,14 +443,21 @@ fn build_dbus_method_call(
             DValue::String(s) => {
                 sig.push('s');
                 let bytes = s.as_bytes();
-                // String: uint32 length + bytes + NUL + padding to 4-byte boundary
-                body.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                body.extend_from_slice(bytes);
-                body.push(0); // NUL terminator
-                              // Pad to 4-byte alignment
+                // Align BEFORE the value, never pad after it. A D-Bus STRING is
+                // `uint32 length + bytes + NUL`, and its uint32 wants a 4-byte
+                // boundary — so the padding belongs to whatever comes NEXT.
+                // Padding after the last argument instead left trailing bytes
+                // inside the declared body length, which is not what the body
+                // length means: the daemon read a value that was not there and
+                // closed the connection. (Same mistake as the header-fields
+                // array length above; `Hello` has no arguments, which is why it
+                // survived and `Settings.Read` did not.)
                 while body.len() % 4 != 0 {
                     body.push(0);
                 }
+                body.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                body.extend_from_slice(bytes);
+                body.push(0); // NUL terminator
             }
         }
     }
@@ -248,7 +495,15 @@ fn build_dbus_method_call(
         header_fields.extend_from_slice(sig_bytes);
         header_fields.push(0);
     }
-    // Pad header fields to 8-byte alignment
+    // The declared array length counts the ELEMENTS ONLY. The padding that
+    // follows, to put the body on an 8-byte boundary, is NOT part of the
+    // array — it belongs to the message. Declaring the padded length makes
+    // the daemon read past the last field into the pad bytes, fail to parse a
+    // header field there, and DROP THE CONNECTION. That is why this probe had
+    // never once succeeded: `Hello` was answered by a disconnect, and the
+    // Settings.Read that followed went to a dead socket whose zero-byte read
+    // parsed as "no value".
+    let header_fields_len = header_fields.len();
     while header_fields.len() % 8 != 0 {
         header_fields.push(0);
     }
@@ -263,8 +518,8 @@ fn build_dbus_method_call(
     msg.extend_from_slice(&(body.len() as u32).to_le_bytes());
     // serial (uint32)
     msg.extend_from_slice(&serial.to_le_bytes());
-    // header fields array length (uint32)
-    msg.extend_from_slice(&(header_fields.len() as u32).to_le_bytes());
+    // header fields array length (uint32) — unpadded, see above
+    msg.extend_from_slice(&(header_fields_len as u32).to_le_bytes());
     // header fields
     msg.extend_from_slice(&header_fields);
     // Pad to 8-byte alignment before body
@@ -302,6 +557,11 @@ fn append_header_field(buf: &mut alloc::vec::Vec<u8>, code: u8, sig: char, value
 /// Extract a `uint32` from a D-Bus method-return whose body is
 /// `variant(variant(uint32))`.  Uses a heuristic: reads the last 4 bytes
 /// of the body and accepts values 0–2 (the defined colour-scheme range).
+/// Still used by the theme WATCHER, which frames its own messages before
+/// calling this. The startup probe uses `parse_nested_variant_u32` on an
+/// already-delimited body instead — this one recomputes the body offset from
+/// the message header, which only works when `data` really does begin at a
+/// message boundary.
 fn parse_uint32_from_variant_response(data: &[u8]) -> Option<u32> {
     // Very simplified: scan backwards for a plausible uint32 value (0, 1, or 2)
     // in the response body.  A full parser is overkill for this single value.
@@ -325,16 +585,6 @@ fn parse_uint32_from_variant_response(data: &[u8]) -> Option<u32> {
             return Some(val);
         }
     }
-    None
-}
-
-/// Parse an `(f64, f64, f64)` accent colour from a D-Bus variant response.
-///
-/// Currently a stub — the `(ddd)` D-Bus struct is non-trivial to decode
-/// from raw bytes.  Returns `None` so the caller falls back to GTK accent.
-fn parse_rgb_from_variant_response(_data: &[u8]) -> Option<(f64, f64, f64)> {
-    // accent-color is a (ddd) struct — complex to parse from raw bytes.
-    // For now, return None and let the caller fall back to the GTK accent.
     None
 }
 

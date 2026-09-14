@@ -244,6 +244,140 @@ write_scenario() {
 EOF
 }
 
+# ── Desktop light/dark switching ────────────────────────────────────────────
+#
+# The theme is switched on the DESKTOP, not just pinned in the app, and that
+# buys two things a pin cannot:
+#
+#  * the WINDOW DECORATIONS follow. KWin draws the titlebar from the desktop's
+#    colour scheme and `AZ_THEME` cannot reach it, so a pinned-light capture on
+#    a Breeze Dark session came out as a light window under a dark titlebar.
+#  * it exercises the REAL path. A pin tells the app what to think; switching
+#    the desktop makes the app DISCOVER it, through `discover()` and the
+#    portal, the same way it would for a user.
+#
+# `AZ_THEME` is still set, as a backstop for environments with no desktop to
+# switch — CI under Xvfb, a bare WM — where it at least themes the client area.
+#
+# The desktop is put back the way it was found on ANY exit path (see the trap):
+# a script that leaves the machine in dark mode because that happened to be the
+# last capture is one nobody runs twice.
+DESKTOP_THEME_TOOL=""
+SAVED_DESKTOP_THEME=""
+
+detect_theme_tool() {
+    if is_macos; then
+        command -v osascript >/dev/null 2>&1 && { echo "macos"; return; }
+    elif is_windows; then
+        command -v powershell >/dev/null 2>&1 && { echo "windows"; return; }
+    else
+        # KDE first: on a Plasma session gsettings exists but nothing reads it.
+        if [ "$(printf '%s' "$XDG_CURRENT_DESKTOP" | tr a-z A-Z)" = "KDE" ] \
+           && command -v plasma-apply-colorscheme >/dev/null 2>&1; then
+            echo "kde"; return
+        fi
+        if command -v xfconf-query >/dev/null 2>&1 \
+           && xfconf-query -c xsettings -p /Net/ThemeName >/dev/null 2>&1; then
+            echo "xfce"; return
+        fi
+        if command -v gsettings >/dev/null 2>&1 \
+           && gsettings get org.gnome.desktop.interface color-scheme >/dev/null 2>&1; then
+            echo "gnome"; return
+        fi
+    fi
+    echo ""
+}
+
+save_desktop_theme() {
+    case "$DESKTOP_THEME_TOOL" in
+        kde)   LC_ALL=C plasma-apply-colorscheme --list-schemes 2>/dev/null \
+                   | sed -n 's/^ \* \(.*\) (current color scheme)$/\1/p' ;;
+        gnome) gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null ;;
+        xfce)  xfconf-query -c xfwm4 -p /general/theme 2>/dev/null ;;
+        macos) defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light ;;
+        windows) powershell -Command "(Get-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme).AppsUseLightTheme" 2>/dev/null ;;
+    esac
+}
+
+set_desktop_theme() {
+    local theme=$1
+    case "$DESKTOP_THEME_TOOL" in
+        kde)
+            if [ "$theme" = "dark" ]; then
+                plasma-apply-colorscheme BreezeDark >/dev/null 2>&1
+            else
+                plasma-apply-colorscheme BreezeLight >/dev/null 2>&1
+            fi
+            ;;
+        gnome)
+            if [ "$theme" = "dark" ]; then
+                gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null
+                gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null
+            else
+                gsettings set org.gnome.desktop.interface color-scheme 'default' 2>/dev/null
+                gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita' 2>/dev/null
+            fi
+            ;;
+        xfce)
+            # The WM theme decides polarity on XFCE (USER RULING 2026-09-04:
+            # "azwriter should use what the titlebar uses").
+            if [ "$theme" = "dark" ]; then
+                xfconf-query -c xfwm4 -p /general/theme -s "Adwaita-dark" 2>/dev/null
+                xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita-dark" 2>/dev/null
+            else
+                xfconf-query -c xfwm4 -p /general/theme -s "Adwaita" 2>/dev/null
+                xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita" 2>/dev/null
+            fi
+            ;;
+        macos)
+            local v=false
+            [ "$theme" = "dark" ] && v=true
+            osascript -e "tell app \"System Events\" to tell appearance preferences to set dark mode to $v" >/dev/null 2>&1
+            ;;
+        windows)
+            local v=1
+            [ "$theme" = "dark" ] && v=0
+            powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value $v -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value $v -Type Dword -Force" >/dev/null 2>&1
+            ;;
+        *) return 1 ;;
+    esac
+    # Let the settings daemon publish the change. The app reads it at startup,
+    # so this only has to beat the launch below.
+    sleep 1
+    return 0
+}
+
+restore_desktop_theme() {
+    [ -z "$DESKTOP_THEME_TOOL" ] && return 0
+    [ -z "$SAVED_DESKTOP_THEME" ] && return 0
+    case "$DESKTOP_THEME_TOOL" in
+        kde)   plasma-apply-colorscheme "$SAVED_DESKTOP_THEME" >/dev/null 2>&1 ;;
+        gnome) gsettings set org.gnome.desktop.interface color-scheme "$SAVED_DESKTOP_THEME" 2>/dev/null ;;
+        xfce)  xfconf-query -c xfwm4 -p /general/theme -s "$SAVED_DESKTOP_THEME" 2>/dev/null ;;
+        macos)
+            if [ "$SAVED_DESKTOP_THEME" = "Dark" ]; then
+                osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
+            else
+                osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false' >/dev/null 2>&1
+            fi
+            ;;
+        windows)
+            powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value $SAVED_DESKTOP_THEME -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value $SAVED_DESKTOP_THEME -Type Dword -Force" >/dev/null 2>&1
+            ;;
+    esac
+    log_info "Desktop appearance restored to $SAVED_DESKTOP_THEME"
+}
+
+DESKTOP_THEME_TOOL="$(detect_theme_tool)"
+if [ -n "$DESKTOP_THEME_TOOL" ] && [ -z "$AZ_SCREENSHOT_NO_DESKTOP_SWITCH" ]; then
+    SAVED_DESKTOP_THEME="$(save_desktop_theme)"
+    trap restore_desktop_theme EXIT INT TERM
+    log_info "Desktop theme switching via '$DESKTOP_THEME_TOOL' (currently: ${SAVED_DESKTOP_THEME:-unknown})"
+else
+    DESKTOP_THEME_TOOL=""
+    log_warn "No desktop theme switcher - decorations will not follow the capture's theme"
+fi
+
 # ── Per-example work ────────────────────────────────────────────────────────
 
 # Compile one example against the library IN ITS BUILD DIRECTORY. Nothing is
@@ -316,6 +450,10 @@ run_theme() {
     rm -rf "$shot_dir"
     mkdir -p "$shot_dir"
     cd "$dir"
+
+    if [ -n "$DESKTOP_THEME_TOOL" ]; then
+        set_desktop_theme "$theme" || true
+    fi
 
     local -a launcher=()
     if is_linux && [ -z "$DISPLAY" ]; then
