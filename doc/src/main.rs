@@ -2253,16 +2253,17 @@ fn main() -> anyhow::Result<()> {
             // Animated foam decoration for the landing hero (copied from the
             // erp-site design; that repo ships no hero video, so only the SVG).
             fs::copy(templates_dir.join("foam.svg"), root_dir.join("foam.svg"))?;
-            // Native AzWidgets screenshot shown above the foam blob in the
-            // marketing hero (captured via the AZ_DEBUG screenshot API).
+            // Native AzWriter window (the document editor in
+            // examples/azul-writer, KDE Plasma Wayland, cropped to the window)
+            // shown above the foam blob in the marketing hero.
             // Optional so a missing capture never breaks a deploy.
             match fs::copy(
-                templates_dir.join("widgets-demo.png"),
-                root_dir.join("widgets-demo.png"),
+                templates_dir.join("azwriter-hero.png"),
+                root_dir.join("azwriter-hero.png"),
             ) {
                 Ok(_) => {}
                 Err(e) => eprintln!(
-                    "  [WARN] widgets-demo.png missing, hero shows foam only: {}",
+                    "  [WARN] azwriter-hero.png missing, hero shows foam only: {}",
                     e
                 ),
             }
