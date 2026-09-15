@@ -862,6 +862,10 @@ pub struct MapTileCache {
     /// cache, so a shared pool stays attached through every relayout and is
     /// released when the map leaves the tree and this cache drops.
     pub setup: MapSetup,
+    /// The tiles the view needs, as the last render or zoom gesture computed
+    /// them. `None` until the first one. Queued tiles outside it are forgotten
+    /// by the next spawn pass (see [`MapTileCache::drop_unwanted_pending`]).
+    pub wanted: Option<WantedTiles>,
 }
 
 impl MapTileCache {
@@ -884,7 +888,34 @@ impl MapTileCache {
             on_pin_tap: OptionMapPinTap::None,
             on_mount: OptionMapMount::None,
             setup: MapSetup::new(),
+            wanted: None,
         }
+    }
+
+    /// Queue `wanted`'s tiles for `look` and remember the range as what the
+    /// view needs now.
+    pub fn want_tiles(&mut self, wanted: WantedTiles, look: MapLook) {
+        for tile in wanted.tiles() {
+            self.tiles
+                .entry(TileStyleKey { tile, look })
+                .or_insert(TileEntry::Pending);
+        }
+        self.wanted = Some(wanted);
+    }
+
+    /// Forget queued tiles the view no longer needs.
+    ///
+    /// A `Pending` tile is only a request: no worker is running for it, so
+    /// dropping it costs nothing. Kept, it would be downloaded after the user has
+    /// already panned or zoomed past it — every tile that was ever on screen
+    /// would be. Tiles already `Fetching` are left alone; their worker is running
+    /// and writes back into this entry.
+    pub fn drop_unwanted_pending(&mut self) {
+        let Some(wanted) = self.wanted else {
+            return;
+        };
+        self.tiles
+            .retain(|key, entry| !matches!(entry, TileEntry::Pending) || wanted.contains(key.tile));
     }
 
     /// The look to render right now: the layer's choice of cartography, taken
@@ -1709,12 +1740,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let vp = cache.viewport;
         let layer = cache.layer.clone();
         let look = cache.current_look();
-        for t in map_visible_tiles(&vp, bounds, &layer) {
-            cache
-                .tiles
-                .entry(TileStyleKey { tile: t, look })
-                .or_insert(TileEntry::Pending);
-        }
+        cache.want_tiles(map_wanted_tiles(&vp, bounds, &layer), look);
         (vp, cache.on_viewport_changed.clone())
     };
     spawn_pending_tile_fetches(&mut data, &mut info);
@@ -2085,6 +2111,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 .entry(TileStyleKey { tile: k.tile, look })
                 .or_insert(TileEntry::Pending);
         }
+        cache.drop_unwanted_pending();
 
         let template = cache.layer.url_template.as_str().to_string();
         let budget = spawn_budget(&cache);
@@ -2430,6 +2457,17 @@ fn map_visible_tiles(
     bounds: azul_core::geom::LogicalSize,
     layer: &MapTileLayer,
 ) -> Vec<MapTileId> {
+    map_wanted_tiles(viewport, bounds, layer).tiles().collect()
+}
+
+/// The tile range a view of `bounds` at `viewport` needs: what the render
+/// draws, including the tilt/rotation overscan and the one tile of padding.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+fn map_wanted_tiles(
+    viewport: &MapViewport,
+    bounds: azul_core::geom::LogicalSize,
+    layer: &MapTileLayer,
+) -> WantedTiles {
     let z_int = (viewport.zoom.floor() as i32)
         .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
     let tile_count = 1u32 << u32::from(z_int);
@@ -2437,25 +2475,69 @@ fn map_visible_tiles(
     let zoom_scale = 2.0_f32.powf(frac_zoom);
     let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
     let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
+    let (over_w, over_h) = camera_overscan(viewport, bounds.width, bounds.height);
     let (x_min, x_max, y_min, y_max) = visible_tile_range(
         centre_x,
         centre_y,
-        bounds.width,
-        bounds.height,
+        bounds.width * over_w,
+        bounds.height * over_h,
         zoom_scale,
         tile_count,
     );
-    let mut tiles = Vec::new();
-    for x in x_min..=x_max {
-        for y in y_min..=y_max {
-            tiles.push(MapTileId {
-                z: z_int,
+    WantedTiles {
+        z: z_int,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+    }
+}
+
+/// A rectangle of tiles at one zoom level, as [`visible_tile_range`] returns
+/// it: `x` is not yet wrapped around the antimeridian, `y` is clamped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WantedTiles {
+    pub z: u8,
+    pub x_min: i32,
+    pub x_max: i32,
+    pub y_min: i32,
+    pub y_max: i32,
+}
+
+impl WantedTiles {
+    /// Every tile in the range, `x` wrapped into the world.
+    #[allow(clippy::cast_sign_loss)] // y is clamped to 0.. by visible_tile_range
+    pub fn tiles(self) -> impl Iterator<Item = MapTileId> {
+        let tile_count = 1u32 << u32::from(self.z.min(31));
+        (self.x_min..=self.x_max).flat_map(move |x| {
+            (self.y_min..=self.y_max).map(move |y| MapTileId {
+                z: self.z,
                 x: wrap_tile_x(x, tile_count),
                 y: y as u32,
-            });
-        }
+            })
+        })
     }
-    tiles
+
+    /// Whether `tile` is one of [`tiles`](Self::tiles).
+    #[must_use]
+    pub fn contains(self, tile: MapTileId) -> bool {
+        if tile.z != self.z {
+            return false;
+        }
+        let y = i64::from(tile.y);
+        if y < i64::from(self.y_min) || y > i64::from(self.y_max) {
+            return false;
+        }
+        if self.x_max < self.x_min {
+            return false;
+        }
+        let tile_count = 1_i64 << u32::from(self.z.min(31));
+        let span = i64::from(self.x_max) - i64::from(self.x_min);
+        if span + 1 >= tile_count {
+            return true; // the range wraps the whole world
+        }
+        (i64::from(tile.x) - i64::from(self.x_min)).rem_euclid(tile_count) <= span
+    }
 }
 
 // ────────── VirtualView callback — visible-tile rendering ─────────────
@@ -2581,23 +2663,20 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         );
     }
 
-    // Patch in any missing tiles as `Pending`. Real fetch dispatch
-    // lands in the follow-up tick that adds the HTTP client; for now
-    // we just track which tiles the viewport needs.
+    // Queue any missing tiles as `Pending` and record this range as what the
+    // view needs; the next spawn pass starts the fetches and forgets queued
+    // tiles outside it.
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
-        for x in x_min..=x_max {
-            for y in y_min..=y_max {
-                let id = MapTileId {
-                    z: z_int,
-                    x: wrap_tile_x(x, tile_count),
-                    y: y as u32,
-                };
-                cache
-                    .tiles
-                    .entry(TileStyleKey { tile: id, look })
-                    .or_insert(TileEntry::Pending);
-            }
-        }
+        cache.want_tiles(
+            WantedTiles {
+                z: z_int,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+            },
+            look,
+        );
     }
 
     // Snapshot what to DISPLAY per visible tile, under a short borrow, then
@@ -3411,9 +3490,17 @@ mod tests {
     fn the_async_example_map_requests_twenty_tiles_not_forty_two() {
         let (x0, x1, y0, y1) = visible_tile_range(34.91, 22.19, 874.0, 523.0, 1.0, 64);
         // left edge 33.20 is 0.20 from tile 32, right edge 36.62 is 0.38 from 37
-        assert_eq!((x0, x1), (32, 36), "4 visible columns + 1 on the nearer (left) side");
+        assert_eq!(
+            (x0, x1),
+            (32, 36),
+            "4 visible columns + 1 on the nearer (left) side"
+        );
         // top edge 21.17 is 0.17 from row 20, bottom edge 23.21 is 0.79 from 24
-        assert_eq!((y0, y1), (20, 23), "3 visible rows + 1 on the nearer (top) side");
+        assert_eq!(
+            (y0, y1),
+            (20, 23),
+            "3 visible rows + 1 on the nearer (top) side"
+        );
         assert_eq!((x1 - x0 + 1) * (y1 - y0 + 1), 20);
     }
 
@@ -6134,5 +6221,104 @@ mod autotest_generated {
             map_widget_render(dataset.clone(), info)
         });
         assert_eq!(rendered_child_count(&first), rendered_child_count(&second));
+    }
+
+    #[test]
+    fn wanted_tiles_contains_exactly_what_it_lists_across_the_antimeridian() {
+        // z3 has 8 columns; x -2..=1 wraps to columns 6, 7, 0, 1.
+        let wanted = WantedTiles {
+            z: 3,
+            x_min: -2,
+            x_max: 1,
+            y_min: 2,
+            y_max: 4,
+        };
+        let listed: alloc::collections::BTreeSet<MapTileId> = wanted.tiles().collect();
+        assert_eq!(listed.len(), 12);
+        for x in 0..8 {
+            for y in 0..8 {
+                let tile = MapTileId { z: 3, x, y };
+                assert_eq!(wanted.contains(tile), listed.contains(&tile), "{tile:?}");
+            }
+        }
+        assert!(
+            !wanted.contains(MapTileId { z: 4, x: 0, y: 2 }),
+            "another zoom"
+        );
+    }
+
+    #[test]
+    fn a_range_wider_than_the_world_wants_every_column() {
+        let wanted = WantedTiles {
+            z: 1,
+            x_min: -3,
+            x_max: 3,
+            y_min: 0,
+            y_max: 1,
+        };
+        assert!(wanted.contains(MapTileId { z: 1, x: 0, y: 0 }));
+        assert!(wanted.contains(MapTileId { z: 1, x: 1, y: 1 }));
+    }
+
+    #[test]
+    fn a_spawn_pass_forgets_queued_tiles_the_view_moved_away_from() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        let look = cache.current_look();
+        let before = WantedTiles {
+            z: 4,
+            x_min: 0,
+            x_max: 3,
+            y_min: 0,
+            y_max: 3,
+        };
+        cache.want_tiles(before, look);
+        // One of the old tiles is already downloading, one is done.
+        let running = MapTileId { z: 4, x: 0, y: 0 };
+        let done = MapTileId { z: 4, x: 1, y: 0 };
+        cache.insert_tile(running, TileEntry::Fetching);
+        cache.insert_tile(
+            done,
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
+
+        // The view moves to a range that shares no tile with the old one.
+        let after = WantedTiles {
+            z: 4,
+            x_min: 8,
+            x_max: 9,
+            y_min: 8,
+            y_max: 9,
+        };
+        cache.want_tiles(after, look);
+        cache.drop_unwanted_pending();
+
+        for (key, entry) in &cache.tiles {
+            if matches!(entry, TileEntry::Pending) {
+                assert!(
+                    after.contains(key.tile),
+                    "{:?} should have been forgotten",
+                    key.tile
+                );
+            }
+        }
+        assert_eq!(cache.pending_tiles_nearest_first().len(), 4);
+        assert!(
+            matches!(cache.tile_entry(running), Some(TileEntry::Fetching)),
+            "a running download is left alone"
+        );
+        assert!(matches!(
+            cache.tile_entry(done),
+            Some(TileEntry::Ready { .. })
+        ));
+    }
+
+    #[test]
+    fn nothing_is_forgotten_before_the_first_render_says_what_it_wants() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        cache.insert_tile(MapTileId { z: 4, x: 3, y: 3 }, TileEntry::Pending);
+        cache.drop_unwanted_pending();
+        assert_eq!(cache.pending_tiles_nearest_first().len(), 1);
     }
 }
