@@ -469,6 +469,72 @@ const ZIG_PROFILE: &[(&str, Expect)] = &[
     ("Default", Expect::Marker(&["{T}_default"])),
 ];
 
+/// Crystal (`azul.cr`).
+///
+/// The `lib LibAzul` block declares every `Az{T}_partialEq` as a `fun`, which
+/// is the raw-C escape hatch and does not count. What counts is the method on
+/// the idiomatic `Azul::{C}` wrapper class, matched inside that class's block
+/// (a wrapper's methods do not carry the class name), or on the reopened
+/// `enum LibAzul::Az{C}` for a fieldless enum. The block ends at the class's
+/// own `end` in column 0; methods are indented.
+///
+/// `PartialOrd` and `Ord` are both `<=>` (with `include Comparable`): the
+/// partial one returns `Int32?`, which `Comparable` treats as incomparable.
+const CRYSTAL_BLOCK: &[&str] = &["class Azul::{C} < ", "enum LibAzul::Az{C}\n"];
+const CRYSTAL_PROFILE: &[(&str, Expect)] = &[
+    (
+        "Debug",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def to_s(io : ::IO)", "def inspect(io : ::IO)"],
+        },
+    ),
+    (
+        "Clone",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def clone : "],
+        },
+    ),
+    ("Copy", COPY_NA),
+    (
+        "PartialEq",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def ==(other : "],
+        },
+    ),
+    ("Eq", EQ_NA),
+    (
+        "PartialOrd",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def <=>(other : "],
+        },
+    ),
+    (
+        "Ord",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def <=>(other : "],
+        },
+    ),
+    (
+        "Hash",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def hash(hasher)"],
+        },
+    ),
+    (
+        "Default",
+        Expect::Block {
+            start: CRYSTAL_BLOCK,
+            markers: &["def self.default : "],
+        },
+    ),
+];
+
 /// A binding: what it is called, which generated files are ITS text, how it
 /// spells a class name, and what each derive must look like in it.
 pub struct Binding {
@@ -776,9 +842,9 @@ pub const BINDINGS: &[Binding] = &[
         name: "crystal",
         files: &["azul.cr"],
         prefix: "Az",
-        block_end: "",
-        expects: ABI_PROFILE,
-        note: "lib binding",
+        block_end: "\nend\n",
+        expects: CRYSTAL_PROFILE,
+        note: "Azul:: wrapper classes over lib LibAzul",
     },
     Binding {
         name: "d",
