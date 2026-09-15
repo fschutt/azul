@@ -99,20 +99,21 @@ fn raise_macos(ns_window: *mut core::ffi::c_void) -> bool {
 /// caller say so instead of claiming success.
 #[cfg(target_os = "windows")]
 fn raise_windows(hwnd: *mut core::ffi::c_void) -> bool {
-    use windows::Win32::{
-        Foundation::HWND,
-        UI::WindowsAndMessaging::{IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE},
-    };
+    use crate::desktop::shell2::windows::dlopen::Win32Libraries;
+    const SW_RESTORE: i32 = 9;
 
     if hwnd.is_null() {
         return false;
     }
-    let hwnd = HWND(hwnd);
+    let Some(win32) = Win32Libraries::shared() else {
+        return false;
+    };
+    let user32 = &win32.user32;
     unsafe {
-        if IsIconic(hwnd).as_bool() {
-            let _ = ShowWindow(hwnd, SW_RESTORE);
+        if (user32.IsIconic)(hwnd) != 0 {
+            (user32.ShowWindow)(hwnd, SW_RESTORE);
         }
-        SetForegroundWindow(hwnd).as_bool()
+        (user32.SetForegroundWindow)(hwnd) != 0
     }
 }
 

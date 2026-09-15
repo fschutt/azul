@@ -18,6 +18,7 @@ pub type HINSTANCE = *mut std::ffi::c_void;
 pub type HWND = *mut std::ffi::c_void;
 pub type HDC = *mut std::ffi::c_void;
 pub type HGLRC = *mut std::ffi::c_void;
+pub use winapi::um::{wincred::CREDENTIALW, wingdi::PIXELFORMATDESCRIPTOR};
 pub type HMENU = *mut std::ffi::c_void;
 pub type HMONITOR = *mut std::ffi::c_void;
 pub type HICON = *mut std::ffi::c_void;
@@ -640,6 +641,10 @@ pub struct User32Functions {
     pub SystemParametersInfoW: unsafe extern "system" fn(u32, u32, *mut core::ffi::c_void, u32) -> BOOL,
     pub PrintWindow: unsafe extern "system" fn(HWND, HDC, u32) -> BOOL,
     pub GetWindowDC: unsafe extern "system" fn(HWND) -> HDC,
+    pub IsIconic: unsafe extern "system" fn(HWND) -> BOOL,
+    pub GetForegroundWindow: unsafe extern "system" fn() -> HWND,
+    /// Vista+.
+    pub IsProcessDPIAware: Option<unsafe extern "system" fn() -> BOOL>,
 
     // Window properties
     pub SetWindowLongPtrW: unsafe extern "system" fn(HWND, i32, isize) -> isize,
@@ -827,6 +832,12 @@ pub struct Gdi32Functions {
     /// Reads one pixel as COLORREF (0x00BBGGRR) — the runtime probe that
     /// proves the RGBA-mask DIB section is honored on this GDI stack.
     pub GetPixel: unsafe extern "system" fn(HDC, i32, i32) -> u32,
+    pub GetDeviceCaps: unsafe extern "system" fn(HDC, i32) -> i32,
+    pub ChoosePixelFormat: unsafe extern "system" fn(HDC, *const PIXELFORMATDESCRIPTOR) -> i32,
+    pub DescribePixelFormat:
+        unsafe extern "system" fn(HDC, i32, u32, *mut PIXELFORMATDESCRIPTOR) -> i32,
+    pub SetPixelFormat: unsafe extern "system" fn(HDC, i32, *const PIXELFORMATDESCRIPTOR) -> BOOL,
+    pub SwapBuffers: unsafe extern "system" fn(HDC) -> BOOL,
 }
 
 /// BI_BITFIELDS: `biCompression` value saying "channel masks follow the
@@ -1025,6 +1036,19 @@ pub struct Advapi32Functions {
         *mut core::ffi::c_void,
         *mut u32,
     ) -> i32,
+    pub CredWriteW: unsafe extern "system" fn(*mut CREDENTIALW, u32) -> BOOL,
+    pub CredReadW: unsafe extern "system" fn(*const u16, u32, u32, *mut *mut CREDENTIALW) -> BOOL,
+    pub CredDeleteW: unsafe extern "system" fn(*const u16, u32, u32) -> BOOL,
+    pub CredFree: unsafe extern "system" fn(*mut core::ffi::c_void),
+}
+
+/// opengl32.dll. Without it only the CPU renderer is available.
+#[derive(Copy, Clone)]
+pub struct Opengl32Functions {
+    pub wglCreateContext: unsafe extern "system" fn(HDC) -> HGLRC,
+    pub wglDeleteContext: unsafe extern "system" fn(HGLRC) -> BOOL,
+    pub wglMakeCurrent: unsafe extern "system" fn(HDC, HGLRC) -> BOOL,
+    pub wglGetProcAddress: unsafe extern "system" fn(*const i8) -> *mut core::ffi::c_void,
 }
 
 /// Pre-load commonly used Win32 DLLs.
@@ -1053,6 +1077,8 @@ pub struct Win32Libraries {
     pub shcore: Option<ShcoreFunctions>,
     pub advapi32_dll: Option<Arc<DynamicLibrary>>,
     pub advapi32: Option<Advapi32Functions>,
+    pub opengl32_dll: Option<Arc<DynamicLibrary>>,
+    pub opengl32: Option<Opengl32Functions>,
 }
 
 struct SharedWin32Libraries(Win32Libraries);
@@ -1107,6 +1133,9 @@ impl Win32Libraries {
                 SystemParametersInfoW: user32_dll.get_symbol("SystemParametersInfoW")?,
                 PrintWindow: user32_dll.get_symbol("PrintWindow")?,
                 GetWindowDC: user32_dll.get_symbol("GetWindowDC")?,
+                IsIconic: user32_dll.get_symbol("IsIconic")?,
+                GetForegroundWindow: user32_dll.get_symbol("GetForegroundWindow")?,
+                IsProcessDPIAware: user32_dll.get_symbol("IsProcessDPIAware").ok(),
 
                 // Window properties
                 // SetWindowLongPtrW/GetWindowLongPtrW are 64-bit-aware wrappers
@@ -1197,6 +1226,11 @@ impl Win32Libraries {
                 BitBlt: gdi32_dll.get_symbol("BitBlt")?,
                 DeleteDC: gdi32_dll.get_symbol("DeleteDC")?,
                 GetPixel: gdi32_dll.get_symbol("GetPixel")?,
+                GetDeviceCaps: gdi32_dll.get_symbol("GetDeviceCaps")?,
+                ChoosePixelFormat: gdi32_dll.get_symbol("ChoosePixelFormat")?,
+                DescribePixelFormat: gdi32_dll.get_symbol("DescribePixelFormat")?,
+                SetPixelFormat: gdi32_dll.get_symbol("SetPixelFormat")?,
+                SwapBuffers: gdi32_dll.get_symbol("SwapBuffers")?,
             }
         };
 
@@ -1316,6 +1350,19 @@ impl Win32Libraries {
         let advapi32 = advapi32_dll.as_ref().and_then(|dll| unsafe {
             Some(Advapi32Functions {
                 RegGetValueW: dll.get_symbol("RegGetValueW").ok()?,
+                CredWriteW: dll.get_symbol("CredWriteW").ok()?,
+                CredReadW: dll.get_symbol("CredReadW").ok()?,
+                CredDeleteW: dll.get_symbol("CredDeleteW").ok()?,
+                CredFree: dll.get_symbol("CredFree").ok()?,
+            })
+        });
+        let opengl32_dll = DynamicLibrary::load("opengl32.dll").ok();
+        let opengl32 = opengl32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Opengl32Functions {
+                wglCreateContext: dll.get_symbol("wglCreateContext").ok()?,
+                wglDeleteContext: dll.get_symbol("wglDeleteContext").ok()?,
+                wglMakeCurrent: dll.get_symbol("wglMakeCurrent").ok()?,
+                wglGetProcAddress: dll.get_symbol("wglGetProcAddress").ok()?,
             })
         });
 
@@ -1336,6 +1383,8 @@ impl Win32Libraries {
             shcore,
             advapi32_dll: advapi32_dll.map(Arc::new),
             advapi32,
+            opengl32_dll: opengl32_dll.map(Arc::new),
+            opengl32,
         })
     }
 }

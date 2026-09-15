@@ -60,7 +60,8 @@ fn run(message: HSTRING) -> windows::core::Result<BiometricResult> {
     let interop: IUserConsentVerifierInterop =
         factory::<UserConsentVerifier, IUserConsentVerifierInterop>()?;
     // Foreground window = the app's window when the user triggered the prompt.
-    let raw = unsafe { winapi::um::winuser::GetForegroundWindow() };
+    let raw = crate::desktop::shell2::windows::dlopen::Win32Libraries::shared()
+        .map_or(core::ptr::null_mut(), |win32| unsafe { (win32.user32.GetForegroundWindow)() });
     let hwnd = HWND(raw as *mut core::ffi::c_void);
     // The interop method is generic over the return interface, so name the type.
     let op: IAsyncOperation<UserConsentVerificationResult> =

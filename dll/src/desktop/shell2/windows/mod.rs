@@ -422,7 +422,7 @@ impl Win32Window {
         }
 
         // Initialize OpenGL context + WebRender (if hardware rendering requested)
-        let mut gl_functions = GlFunctions::initialize();
+        let mut gl_functions = GlFunctions::initialize(&win32);
 
         // Determine renderer type via the unified backend resolution
         // (AZ_BACKEND env var > programmatic hw_accel > Auto). Auto/Gpu try
@@ -467,13 +467,8 @@ impl Win32Window {
                 if hdc.is_null() {
                     return Err(WindowError::PlatformError("Failed to get HDC".into()));
                 }
-                #[cfg(target_os = "windows")]
-                unsafe {
-                    use winapi::um::wingdi::wglMakeCurrent;
-                    wglMakeCurrent(
-                        hdc as winapi::shared::windef::HDC,
-                        hglrc as winapi::shared::windef::HGLRC,
-                    );
+                if let Some(wgl) = win32.opengl32 {
+                    unsafe { (wgl.wglMakeCurrent)(hdc, hglrc) };
                 }
                 gl_functions.load();
                 let gl_ctx_inner = azul_core::gl::GlContextPtr::new(
@@ -1602,13 +1597,8 @@ impl Win32Window {
             };
 
             // Make OpenGL context current
-            #[cfg(target_os = "windows")]
-            {
-                use winapi::um::wingdi::wglMakeCurrent;
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                (wgl.wglMakeCurrent)(hdc, hglrc);
             }
 
             if !layout_was_regenerated {
@@ -1767,8 +1757,7 @@ impl Win32Window {
                 if let Some(gl) = self.common.gl_context_ptr.as_ref() {
                     gl.finish();
                 }
-                use winapi::um::wingdi::SwapBuffers;
-                SwapBuffers(hdc as winapi::shared::windef::HDC);
+                (self.win32.gdi32.SwapBuffers)(hdc);
             }
 
             // Show window after first successful render
@@ -1893,18 +1882,15 @@ impl Win32Window {
         } = &self.render_mode
         {
             // Make OpenGL context current BEFORE generate_frame
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
 
             if let (Some(layout_window), Some(render_api), Some(document_id)) = (
@@ -1963,18 +1949,15 @@ impl Win32Window {
         } = &self.render_mode
         {
             // Make OpenGL context current BEFORE generate_frame
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
 
             if let (Some(layout_window), Some(render_api), Some(document_id)) = (
@@ -3570,7 +3553,7 @@ fn win32_msg_name(msg: u32) -> &'static str {
     }
 }
 
-// Helper function for default window processing when Win32 libraries aren't available
+// Default processing for messages that arrive before WM_NCCREATE cached the window's tables.
 #[inline]
 unsafe fn default_window_proc(
     hwnd: HWND,
@@ -3578,14 +3561,9 @@ unsafe fn default_window_proc(
     wparam: dlopen::WPARAM,
     lparam: dlopen::LPARAM,
 ) -> dlopen::LRESULT {
-    #[cfg(target_os = "windows")]
-    {
-        use winapi::um::winuser::DefWindowProcW;
-        DefWindowProcW(hwnd as winapi::shared::windef::HWND, msg, wparam, lparam)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        0
+    match dlopen::Win32Libraries::shared() {
+        Some(win32) => (win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam),
+        None => 0,
     }
 }
 
@@ -7072,18 +7050,15 @@ impl Win32Window {
             hdc: stored_hdc,
         } = &self.render_mode
         {
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
         }
         self.common.deinit_renderer();

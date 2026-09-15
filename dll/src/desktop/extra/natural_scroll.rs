@@ -59,24 +59,28 @@ fn macos() -> Option<bool> {
 
 #[cfg(target_os = "windows")]
 fn windows() -> Option<bool> {
-    use windows::{
-        core::w,
-        Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD},
-    };
+    const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+    const RRF_RT_REG_DWORD: u32 = 0x0000_0010;
+    let advapi32 = crate::desktop::shell2::windows::dlopen::Win32Libraries::shared()?.advapi32?;
+    let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\PrecisionTouchPad"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let name: Vec<u16> = "ScrollDirection".encode_utf16().chain(Some(0)).collect();
     let mut value: u32 = 0;
     let mut size: u32 = core::mem::size_of::<u32>() as u32;
     let status = unsafe {
-        RegGetValueW(
+        (advapi32.RegGetValueW)(
             HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\Windows\\CurrentVersion\\PrecisionTouchPad"),
-            w!("ScrollDirection"),
+            key.as_ptr(),
+            name.as_ptr(),
             RRF_RT_REG_DWORD,
-            None,
-            Some((&mut value as *mut u32).cast()),
-            Some(&mut size),
+            core::ptr::null_mut(),
+            (&mut value as *mut u32).cast(),
+            &mut size,
         )
     };
-    if status.is_ok() {
+    if status == 0 {
         // 0 = downwards motion scrolls down (natural); 0x100 = reversed.
         Some(value == 0)
     } else {
