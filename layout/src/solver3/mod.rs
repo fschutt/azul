@@ -1568,10 +1568,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     _ => {}
                 }
             }
-            // The CASCADE EPOCH is the gate, not context equality: it covers
-            // the context (every accepted change bumps it) AND the restyles
-            // and user overrides a context comparison could never see.
-            cache.last_cascade_epoch == ctx.styled_dom.get_css_property_cache().cascade_epoch
+            // The CASCADE EPOCH covers the restyles and user overrides a
+            // context comparison could never see, and every context change
+            // bumps it, but only WITHIN one StyledDom. The epoch counts per
+            // instance from 0, and this arm compares ACROSS instances: the
+            // app's `layout()` hands us a new StyledDom, and after a theme flip
+            // that one can carry the old instance's epoch while cascading under
+            // the other theme. The patch then spliced the light list into the
+            // dark tree (AzWriter: page sheets over the ribbon, 23 chrome items
+            // missing). So the context itself must match as well.
+            let context_unchanged = match (cur, cache.last_dynamic_context.as_ref()) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => true,
+                _ => false,
+            };
+            context_unchanged
+                && cache.last_cascade_epoch
+                    == ctx.styled_dom.get_css_property_cache().cascade_epoch
         };
         let structure_ok = cache.last_reconcile_was_skipped
             || (cache.last_reconcile_structure_preserved

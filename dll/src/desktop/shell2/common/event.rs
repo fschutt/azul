@@ -9657,14 +9657,21 @@ pub trait PlatformWindow {
             lw.set_system_style(Arc::clone(&new_style));
         }
 
+        // Both branches drop the incremental caches: they hold a display list
+        // and a solved tree built against the OLD style. The restyle below
+        // re-solves the existing StyledDom; the full rebuild gets a NEW one
+        // from `layout()`, whose cascade epoch can equal the old one's (both
+        // counted from 0), so the patch gate could splice the old list into
+        // it. AzWriter's live dark->light switch did exactly that: the page
+        // sheets painted over the ribbon and 23 chrome items went missing.
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.layout_cache.reset_incremental();
+        }
+
         if needs_full {
             self.get_common_mut()
                 .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
             return true;
-        }
-
-        if let Some(lw) = self.get_layout_window_mut() {
-            lw.layout_cache.reset_incremental();
         }
         let mut debug_messages = None;
         if let Err(e) =
