@@ -337,6 +337,22 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         style.accessibility.prefers_high_contrast = true;
     }
 
+    // The theme came from the registry, the colours from GetSysColor — and
+    // GetSysColor keeps reporting the classic LIGHT system colours when dark
+    // mode is on. Left alone, a dark system produced dark-theme text on a white
+    // window background. Take the palette that matches the discovered theme.
+    // Not under high contrast: there the system colours ARE the user's choice
+    // and must win.
+    if hc != BoolCondition::True {
+        let theme = style.theme;
+        azul_css::system::adopt_theme_palette(
+            &mut style,
+            theme,
+            defaults::windows_11_light,
+            defaults::windows_11_dark,
+        );
+    }
+
     if let Some(sheet) = load_app_specific_stylesheet() {
         style.app_specific_stylesheet = Some(Box::new(sheet));
     }

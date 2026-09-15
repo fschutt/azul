@@ -25,7 +25,7 @@
 #
 # Runs on Linux, macOS and Windows (MSYS/MinGW) unchanged: build the library,
 # compile each example against it, run it twice under the AZ_E2E scenario
-# runner — once pinned light, once pinned dark — and keep the native window
+# runner — once with the desktop in light mode, once in dark — and keep the native window
 # capture from each run.
 #
 # Output per example, in target/examples-temp/<example>/:
@@ -49,12 +49,11 @@
 # someone else built. Adding `debug-server` is what used to force both.
 #
 # ── Why two processes and not one theme toggle ───────────────────────────────
-# The theme is pinned with AZ_THEME=light|dark, read as the window is created.
-# Nothing touches the user's desktop. The old script toggled the DESKTOP's
-# appearance (gsettings / osascript / the Windows registry) and captured both
-# frames from one process, which on any desktop that does not keep its
-# appearance in gsettings — KDE reads ~/.config/kdeglobals, XFCE reads xfconf —
-# silently produced two identical light captures.
+# Each theme gets its own run: the desktop is switched first, then the example
+# starts and has to DISCOVER the system theme itself (see "Desktop light/dark
+# switching" below). One process toggled mid-run silently produced two
+# identical light captures on any desktop that does not keep its appearance
+# where the old script looked — KDE reads ~/.config/kdeglobals, XFCE xfconf.
 
 set -e
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
@@ -300,7 +299,7 @@ write_scenario() {
     cat > "$dir/screenshot.e2e.json" <<EOF
 {
   "name": "screenshot_${name//-/_}",
-  "description": "Capture the native window of the ${name} example for the website. The theme is pinned from outside with AZ_THEME, so this one scenario serves both the light and the dark run.",
+  "description": "Capture the native window of the ${name} example for the website. The theme comes from the desktop (or AZ_THEME where there is none), so this one scenario serves both the light and the dark run.",
   "steps": [
     { "op": "wait", "ms": $(settle_ms "$name"), "real": true },
     { "op": "wait_frame" },
@@ -323,14 +322,40 @@ EOF
 #    the desktop makes the app DISCOVER it, through `discover()` and the
 #    portal, the same way it would for a user.
 #
-# `AZ_THEME` is still set, as a backstop for environments with no desktop to
-# switch — Xvfb, a bare WM — where it at least themes the client area.
+# So `AZ_THEME` is NOT set when the desktop can be switched: a pin would answer
+# the question this run exists to ask, and a light/dark pair produced under one
+# proves nothing about whether the app follows the system. It is set only as a
+# backstop where there is no desktop to switch — Xvfb, a bare WM — where it at
+# least themes the client area.
 #
 # The desktop is put back the way it was found on ANY exit path (see the trap):
 # a script that leaves the machine in dark mode because that happened to be the
 # last capture is one nobody runs twice.
 DESKTOP_THEME_TOOL=""
 SAVED_DESKTOP_THEME=""
+
+# Switch Windows between light (1) and dark (0) the way the Settings app does.
+#
+# The two `Personalize` registry values are only the STORED setting. Writing
+# them changes nothing on screen: Explorer, the taskbar and every running app
+# keep their current appearance until someone broadcasts WM_SETTINGCHANGE with
+# "ImmersiveColorSet", which is what Settings sends after writing the same two
+# values. Without it only a freshly started process that re-reads the registry
+# noticed — the desktop around the capture never went dark, and the live
+# theme-change path in the app (its WM_SETTINGCHANGE handler) was never
+# exercised at all.
+windows_set_light_theme() {
+    local v=$1
+    powershell -NoProfile -Command "
+        \$k = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        New-ItemProperty -Path \$k -Name AppsUseLightTheme    -Value $v -Type Dword -Force | Out-Null
+        New-ItemProperty -Path \$k -Name SystemUsesLightTheme -Value $v -Type Dword -Force | Out-Null
+        Add-Type -Namespace Az -Name U32 -MemberDefinition '[DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr h, uint m, System.UIntPtr w, string l, uint f, uint t, out System.UIntPtr r);'
+        \$r = [System.UIntPtr]::Zero
+        # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s per window
+        [void][Az.U32]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'ImmersiveColorSet', 2, 5000, [ref]\$r)
+    " >/dev/null 2>&1
+}
 
 detect_theme_tool() {
     if is_macos; then
@@ -404,7 +429,7 @@ set_desktop_theme() {
         windows)
             local v=1
             [ "$theme" = "dark" ] && v=0
-            powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value $v -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value $v -Type Dword -Force" >/dev/null 2>&1
+            windows_set_light_theme "$v"
             ;;
         *) return 1 ;;
     esac
@@ -429,7 +454,7 @@ restore_desktop_theme() {
             fi
             ;;
         windows)
-            powershell -Command "New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme -Value $SAVED_DESKTOP_THEME -Type Dword -Force; New-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name SystemUsesLightTheme -Value $SAVED_DESKTOP_THEME -Type Dword -Force" >/dev/null 2>&1
+            windows_set_light_theme "$SAVED_DESKTOP_THEME"
             ;;
     esac
     log_info "Desktop appearance restored to $SAVED_DESKTOP_THEME"
@@ -630,8 +655,15 @@ run_theme() {
         export PATH="$LIB_DIR:$PATH"
     fi
 
+    # Pin only when there is no desktop to switch; see "Desktop light/dark
+    # switching" above.
+    local -a theme_pin=()
+    if [ -z "$DESKTOP_THEME_TOOL" ]; then
+        theme_pin=(AZ_THEME="$theme")
+    fi
+
     local rc=0
-    env AZ_THEME="$theme" AZ_E2E="$dir/screenshot.e2e.json" AZ_E2E_SHOT_DIR="$shot_dir" \
+    env "${theme_pin[@]}" AZ_E2E="$dir/screenshot.e2e.json" AZ_E2E_SHOT_DIR="$shot_dir" \
         timeout "$RUN_TIMEOUT" "${launcher[@]}" "$bin" \
         > "$dir/stdout.$theme.log" 2> "$dir/stderr.$theme.log" &
     local launcher_pid=$!
@@ -658,7 +690,7 @@ run_theme() {
     wait "$launcher_pid" || rc=$?
 
     if [ $rc -ne 0 ]; then
-        log_error "$name exited $rc under AZ_THEME=$theme"
+        log_error "$name exited $rc in the $theme run"
         tail -40 "$dir/stderr.$theme.log" || true
         return 1
     fi
@@ -714,7 +746,7 @@ capture_example() {
     local light="$dir/${name}.${OS_TAG}.light.png"
     local dark="$dir/${name}.${OS_TAG}.dark.png"
     if cmp -s "$light" "$dark"; then
-        log_error "$name: light and dark captures are byte-identical - AZ_THEME was not honoured"
+        log_error "$name: light and dark captures are byte-identical - the app did not follow the theme switch"
         return 1
     fi
 

@@ -947,6 +947,9 @@ impl Win32Window {
                         .windows_options,
                 );
             }
+            // Same deadline for the caption colour: set before the first show,
+            // or a dark window flashes a light title bar.
+            result.apply_titlebar_theme();
 
             let regen_epoch_seen = result.common.regen_epoch();
             if let Err(e) = result.regenerate_layout() {
@@ -2708,6 +2711,40 @@ impl Win32Window {
         }
     }
 
+    /// Make the DWM-drawn title bar and frame follow the window's theme.
+    ///
+    /// A Win32 caption is light unless the window opts in with
+    /// `DWMWA_USE_IMMERSIVE_DARK_MODE`; the system's dark-mode setting alone
+    /// does not reach it. Without this a dark-themed window kept a light title
+    /// bar above a dark client area. Called before the first show and again
+    /// whenever the theme changes, from the system or from the app.
+    ///
+    /// Attribute 20 is the documented value from Windows 10 20H1 on; builds
+    /// before that shipped the same switch undocumented as 19, so a rejected 20
+    /// retries with 19. Anything older has no dark caption and ignores both.
+    pub fn apply_titlebar_theme(&self) {
+        let Some(ref dwmapi) = self.win32.dwmapi_funcs else {
+            return;
+        };
+        let dark: i32 = i32::from(matches!(
+            self.common.current_window_state().theme,
+            azul_core::window::WindowTheme::DarkMode
+        ));
+        unsafe {
+            let set = |attr: u32| {
+                (dwmapi.DwmSetWindowAttribute)(
+                    self.hwnd,
+                    attr,
+                    &dark as *const i32 as *const core::ffi::c_void,
+                    core::mem::size_of::<i32>() as u32,
+                )
+            };
+            if set(dlopen::DWMWA_USE_IMMERSIVE_DARK_MODE) != 0 {
+                let _ = set(19);
+            }
+        }
+    }
+
     /// Synchronize window state with Windows OS
     ///
     /// Applies changes from current_window_state to the OS window.
@@ -2725,6 +2762,12 @@ impl Win32Window {
             Some(pair) => pair,
             None => return, // First frame, nothing to sync
         };
+
+        // Theme changed by the app (a system change arrives through
+        // WM_SETTINGCHANGE, which re-applies it there).
+        if previous.theme != current.theme {
+            self.apply_titlebar_theme();
+        }
 
         // Title changed?
         if previous.title != current.title {
@@ -6815,6 +6858,9 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.theme = new_theme,
             );
+            // OS-sourced, so the sync diff above never sees it: follow the
+            // system with the caption here.
+            window.apply_titlebar_theme();
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
             // Full rebuild or restyle, decided from what the app's `layout()`
