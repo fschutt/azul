@@ -4314,6 +4314,7 @@ jobs:
             scripts/verify_install_commands.sh
             scripts/prune_dead_release_links.py
             scripts/publish_upstream.sh
+            scripts/dependency-justifications.toml
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
