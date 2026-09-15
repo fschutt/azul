@@ -203,14 +203,20 @@ body.ui-landing {
     height: auto;
     display: block;
 }
-img.showcase { display: none; }
-img.showcase.windows { display: initial; }
+.showcase { display: none; }
+.showcase.windows { display: block; }
+/* Follows the page theme (data-theme), not just the OS. */
+.showcase .shot-dark { display: none; }
+:root[data-theme="dark"] .showcase .shot-light { display: none; }
+:root[data-theme="dark"] .showcase .shot-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .showcase .shot-light { display: none; }
+    :root:not([data-theme="light"]) .showcase .shot-dark { display: block; }
+}
 /* Every screenshot carries its own window frame and its own shadow, baked
    into the PNG. A card behind it double-frames the window and puts a pale
    slab where the page should show through. All three render bare. */
-.feature-image img.showcase.windows,
-.feature-image img.showcase.linux,
-.feature-image img.showcase.mac {
+.feature-image .showcase img {
     background: transparent;
     border: 0;
     border-radius: 0;
