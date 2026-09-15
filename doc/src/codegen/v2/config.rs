@@ -793,17 +793,7 @@ impl PythonConfig {
     /// - Clone/Drop via transmute (no C-ABI calls)
     /// - Python-specific type filtering
     pub fn python_extension() -> Self {
-        // Types that cause "infinite size" errors in PyO3
-        let skip_types: BTreeSet<String> = [
-            "XmlNode",
-            "XmlNodeChild",
-            "XmlNodeChildVec",
-            "Xml",
-            "ResultXmlXmlError",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        let skip_types: BTreeSet<String> = BTreeSet::new();
 
         // VecRef types that need special handling
         let vecref_types: BTreeSet<String> = [

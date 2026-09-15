@@ -2214,13 +2214,7 @@ fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
 
 /// Recursive types that cause "infinite size" errors in PyO3
 /// These would need Box<> indirection which the C-API doesn't have
-const RECURSIVE_TYPE_NAMES: &[&str] = &[
-    "XmlNode",
-    "XmlNodeChild",
-    "XmlNodeChildVec",
-    "Xml",
-    "ResultXmlXmlError",
-];
+const RECURSIVE_TYPE_NAMES: &[&str] = &[];
 
 /// VecRef types - raw pointer slice wrappers
 /// These need special trampolines and are skipped in Python for now
