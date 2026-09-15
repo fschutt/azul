@@ -173,6 +173,12 @@ pub struct CaretTweenTrack {
     pub to: LogicalRect,
     /// When the tween (re)started.
     pub start: Instant,
+    /// The caret moves because text was TYPED at it: the glyphs between
+    /// `from` and `to` are new and are revealed by the caret as it slides
+    /// over them, clipped at its centre, instead of appearing whole before it
+    /// arrives. False for a plain caret move (arrow keys, a click), where the
+    /// text it passes was already on screen and must stay visible.
+    pub reveal: bool,
 }
 
 /// One in-flight selection tween (same contract as [`CaretTweenTrack`],
@@ -228,6 +234,14 @@ pub struct TextTweenState {
     /// Shared "a tween is in flight" flag: written by the post-pass, read
     /// by `caret_tween_timer_callback` (via its `RefAny`) to self-terminate.
     pub tick_flag: Arc<AtomicBool>,
+    /// Text was just INSERTED at the primary caret and no caret glide has
+    /// consumed that yet: the next glide the caret makes is the one the
+    /// insertion causes, so it reveals the new glyphs
+    /// ([`CaretTweenTrack::reveal`]). A flag set by the insertion itself,
+    /// not a revision compared per pass: `apply_text_changeset` rebuilds the
+    /// list once BEFORE the relayout moves the caret, and that pass would
+    /// otherwise consume the edit with the caret still standing still.
+    pub reveal_pending: bool,
 }
 
 /// Cloning a manager must NOT share the original's tween-timer flag: the two
@@ -252,6 +266,7 @@ impl Clone for TextTweenState {
             tick_flag: Arc::new(AtomicBool::new(
                 self.tick_flag.load(AtomicOrdering::Acquire),
             )),
+            reveal_pending: self.reveal_pending,
         }
     }
 }
@@ -273,6 +288,7 @@ impl TextTweenState {
     /// Reset all tracking (focus lost / editing cleared / dom switched).
     pub fn reset(&mut self) {
         self.dom_id = None;
+        self.reveal_pending = false;
         self.node = None;
         self.focus_scope = None;
         self.caret = None;
@@ -290,6 +306,7 @@ impl TextTweenState {
     /// `node` goes with them: it anchors the caret/selection geometry, not the
     /// ring.
     pub fn reset_text_tweens(&mut self) {
+        self.reveal_pending = false;
         self.node = None;
         self.focus_scope = None;
         self.caret = None;
@@ -3072,6 +3089,7 @@ mod autotest_generated {
             from: rect(10.0, 0.0),
             to: rect(40.0, 0.0),
             start: instant(),
+            reveal: false,
         });
         m.tween.last_caret = Some(rect(25.0, 0.0));
         m.tween.selection = Some(SelectionTweenTrack {

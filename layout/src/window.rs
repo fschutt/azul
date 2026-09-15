@@ -9028,6 +9028,8 @@ impl LayoutWindow {
 
         // ---- caret ----
         let mut caret_patch: Option<(usize, LogicalRect)> = None;
+        // (from, to, rendered) of a caret glide revealing typed glyphs.
+        let mut caret_reveal: Option<(LogicalRect, LogicalRect, LogicalRect)> = None;
         if let Some(idx) = caret_idx.filter(|_| text_tweens_ok) {
             let current = match &display_list.items[idx] {
                 solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => bounds.0,
@@ -9044,6 +9046,7 @@ impl LayoutWindow {
                         trk.from = tween.last_caret.unwrap_or(current);
                         trk.to = current;
                         trk.start = now.clone();
+                        trk.reveal = core::mem::take(&mut tween.reveal_pending);
                     }
                     Some(_) => {
                         // In flight toward a stable target: let t advance.
@@ -9055,6 +9058,7 @@ impl LayoutWindow {
                                     from: last,
                                     to: current,
                                     start: now.clone(),
+                                    reveal: core::mem::take(&mut tween.reveal_pending),
                                 });
                             }
                         }
@@ -9072,7 +9076,12 @@ impl LayoutWindow {
                                 current,
                                 t,
                             };
-                            (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info)
+                            let rendered =
+                                (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info);
+                            if trk.reveal {
+                                caret_reveal = Some((trk.from, current, rendered));
+                            }
+                            rendered
                         }
                     }
                     None => current,
@@ -9089,6 +9098,8 @@ impl LayoutWindow {
 
         // ---- selection ----
         let mut sel_patch: Vec<(usize, LogicalRect)> = Vec::new();
+        // (current, rendered) bands of a selection glide in flight.
+        let mut selection_split: Option<(Vec<LogicalRect>, Vec<LogicalRect>)> = None;
         if !text_tweens_ok || sel_idx.is_empty() {
             tween.selection = None;
             tween.last_selection.clear();
@@ -9142,6 +9153,7 @@ impl LayoutWindow {
                             // one rect per current rect; anything else falls
                             // back to the unanimated current geometry.
                             if out.len() == current.len() {
+                                selection_split = Some((current.clone(), out.clone()));
                                 out
                             } else {
                                 current.clone()
@@ -9183,6 +9195,7 @@ impl LayoutWindow {
                                     from: last,
                                     to: current,
                                     start: now.clone(),
+                                    reveal: false,
                                 });
                             }
                         }
@@ -9317,6 +9330,20 @@ impl LayoutWindow {
                 // push at the very end can ignore them.
                 dl_mut.insert_item(at, ring, None);
             }
+        }
+
+        // Glyphs the gliding caret / highlight edge is crossing: painted in
+        // both configurations, split at the animated edge. LAST, because it
+        // replaces Text items and so moves the indices the patches above
+        // address.
+        if caret_reveal.is_some() || selection_split.is_some() {
+            solver3::display_list::split_text_for_glides(
+                Arc::make_mut(display_list),
+                caret_reveal,
+                selection_split
+                    .as_ref()
+                    .map(|(current, rendered)| (current.as_slice(), rendered.as_slice())),
+            );
         }
     }
 
@@ -16604,6 +16631,10 @@ impl LayoutWindow {
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
+        // The caret glide this insertion causes reveals the typed glyphs.
+        if is_primary_seat && !changeset.inserted_text.as_str().is_empty() {
+            self.text_edit_manager.tween.reveal_pending = true;
+        }
 
         // Record this operation to the undo/redo manager AFTER successful mutation
 
@@ -25965,6 +25996,7 @@ mod tween_clock_unit_tests {
             from: far_from(target),
             to: target,
             start,
+            reveal: false,
         });
     }
 
@@ -26065,6 +26097,7 @@ mod tween_clock_unit_tests {
             from: far_from(target),
             to: target,
             start: start.clone(),
+            reveal: false,
         });
 
         let t = progress_at(&mut win, after_nanos(&start, 900_000));

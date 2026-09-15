@@ -406,6 +406,16 @@ fn default_selection_tween_pairs_rects_by_line_not_by_index() {
 
 /// body=0, then (div=1, text=2), (div=3, text=4), (div=5, text=6).
 fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
+    build_three_paragraphs_themed(animations, None, azul_core::window::WindowTheme::LightMode)
+}
+
+/// [`build_three_paragraphs`] under a desktop's system style and window theme,
+/// where the selection colours come from in a real session.
+fn build_three_paragraphs_themed(
+    animations: SystemAnimations,
+    system_style: Option<azul_css::system::SystemStyle>,
+    theme: azul_core::window::WindowTheme,
+) -> LayoutWindow {
     const P_CSS: &str = r#"
         * { margin: 0; padding: 0; }
         body { font-size: 14px; width: 600px; }
@@ -440,8 +450,12 @@ fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
     let styled_dom = StyledDom::create(&mut dom, css);
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
     lw.system_animations_override = Some(animations);
+    if let Some(style) = system_style {
+        lw.set_system_style(std::sync::Arc::new(style));
+    }
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    window_state.theme = theme;
     lw.current_window_state = window_state.clone();
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
@@ -658,4 +672,214 @@ fn a_caret_after_trailing_spaces_stands_after_them() {
     eprintln!("  [verify] text clip: 'hello'={clip:?} 'hello '={clip1:?}");
     assert!(one.origin.x > end.origin.x + 1.0, "a trailing space did not move the caret");
     assert!(two.origin.x > one.origin.x + 1.0, "a second trailing space did not move the caret");
+}
+
+// ---------------------------------------------------------------------------
+// Glyph reveal / selection split while a glide is in flight
+// ---------------------------------------------------------------------------
+
+fn text_items(lw: &LayoutWindow) -> Vec<(Vec<f32>, LogicalRect, azul_css::props::basic::ColorU)> {
+    lw.get_layout_result(&DomId::ROOT_ID)
+        .expect("layout result")
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text {
+                glyphs,
+                clip_rect,
+                color,
+                ..
+            } => Some((glyphs.iter().map(|g| g.point.x).collect(), clip_rect.0, *color)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// An INSERTION marks the caret glide it causes as a reveal. The flag is set
+/// by the edit itself, because `apply_text_changeset` rebuilds the list before
+/// the relayout moves the caret, and a per-pass "an edit happened" test would
+/// be spent on that still-standing caret.
+#[test]
+fn inserting_text_marks_the_next_caret_glide_as_a_reveal() {
+    let mut lw = tween_window(10_000, 0);
+    rebuild(&mut lw);
+    assert!(!lw.text_edit_manager.tween.reveal_pending, "harness: nothing typed yet");
+    move_caret(&mut lw, 5);
+    rebuild(&mut lw);
+    assert!(
+        !lw.text_edit_manager.tween.reveal_pending,
+        "a plain caret move is not an insertion"
+    );
+    let _ = lw.record_text_input("abc");
+    let _ = lw.apply_text_changeset();
+    assert!(
+        lw.text_edit_manager.tween.reveal_pending,
+        "typing marks the next caret glide as a reveal"
+    );
+}
+
+/// A revealing glide clips the glyphs the caret has not reached yet at its
+/// CENTRE; text before its starting point and text past its target stay
+/// whole.
+#[test]
+fn a_revealing_glide_clips_the_glyphs_ahead_of_the_caret_centre() {
+    let mut lw = tween_window(10_000, 0);
+    move_caret(&mut lw, 6);
+    rebuild(&mut lw);
+    let from = caret_rect(&lw);
+    // What the insertion leaves behind (pinned by the test above), then the
+    // caret glide it causes: over "world" (bytes 6..11).
+    lw.text_edit_manager.tween.reveal_pending = true;
+    move_caret(&mut lw, 11);
+    rebuild(&mut lw);
+    assert!(
+        lw.text_edit_manager.tween.caret.as_ref().is_some_and(|t| t.reveal),
+        "the pending insertion arms a REVEAL glide"
+    );
+    assert!(!lw.text_edit_manager.tween.reveal_pending, "the glide consumed it");
+    let to = true_caret_rect_at(11);
+    let rendered = caret_rect(&lw);
+    let centre = rendered.origin.x + rendered.size.width * 0.5;
+    assert!(
+        rendered.origin.x < from.origin.x + 3.0,
+        "harness: t ~ 0 of a 10s glide renders the caret near its start"
+    );
+
+    let items = text_items(&lw);
+    let right = |c: &LogicalRect| c.origin.x + c.size.width;
+    let mut ahead = 0;
+    for (xs, clip, _) in &items {
+        let has_ahead = xs.iter().any(|x| *x > from.origin.x + 0.01 && *x < to.origin.x - 0.01);
+        let has_past_target = xs.iter().any(|x| *x > to.origin.x + 0.01);
+        if has_ahead {
+            ahead += 1;
+            assert!(
+                right(clip) <= centre + 0.5,
+                "a glyph ahead of the caret (x {xs:?}) is painted past its centre {centre}: {clip:?}"
+            );
+            assert!(!has_past_target, "text past the target shares a clipped run: {xs:?}");
+        }
+    }
+    assert!(ahead > 0, "the glyphs between the start and the target are in the list: {items:?}");
+    assert!(
+        items
+            .iter()
+            .any(|(xs, clip, _)| xs.iter().any(|x| *x > to.origin.x + 0.01) && right(clip) > to.origin.x + 40.0),
+        "text past the target keeps its full clip: {items:?}"
+    );
+}
+
+/// A caret glide WITHOUT a text edit (arrow keys, a click) hides nothing: the
+/// text it slides over was already on screen.
+#[test]
+fn a_plain_caret_glide_reveals_nothing() {
+    let mut lw = tween_window(10_000, 0);
+    move_caret(&mut lw, 0);
+    rebuild(&mut lw);
+    move_caret(&mut lw, 11);
+    rebuild(&mut lw);
+    assert!(
+        lw.text_edit_manager.tween.caret.as_ref().is_some_and(|t| !t.reveal),
+        "harness: a plain move arms a non-revealing glide"
+    );
+    let items = text_items(&lw);
+    let widest = items
+        .iter()
+        .map(|(_, c, _)| c.size.width)
+        .fold(0.0f32, f32::max);
+    for (xs, clip, _) in &items {
+        assert!(
+            (clip.size.width - widest).abs() < 0.01,
+            "a plain caret glide clipped text (x {xs:?}): {clip:?}"
+        );
+    }
+}
+
+/// Pieces of one glyph run, split at a rendered band edge: same glyphs, clips
+/// meeting at an edge. Returns `(pieces meeting at an edge, those whose two
+/// colours differ)`.
+fn edge_splits(lw: &LayoutWindow) -> (usize, usize) {
+    let bands = selection_bands(lw);
+    let items = text_items(lw);
+    let mut meeting = 0;
+    let mut two_colours = 0;
+    for (i, a) in items.iter().enumerate() {
+        for b in items.iter().skip(i + 1) {
+            if a.0 != b.0 {
+                continue;
+            }
+            let a_right = a.1.origin.x + a.1.size.width;
+            let b_right = b.1.origin.x + b.1.size.width;
+            let edge = if (a_right - b.1.origin.x).abs() < 0.01 {
+                a_right
+            } else if (b_right - a.1.origin.x).abs() < 0.01 {
+                b_right
+            } else {
+                continue;
+            };
+            if bands.iter().any(|r| {
+                (r.origin.x - edge).abs() < 0.01 || (r.origin.x + r.size.width - edge).abs() < 0.01
+            }) {
+                meeting += 1;
+                if a.2 != b.2 {
+                    two_colours += 1;
+                }
+            }
+        }
+    }
+    (meeting, two_colours)
+}
+
+/// While the selection highlight glides, the glyphs at its moving edge are
+/// painted twice, unselected and in the selection text colour, split exactly
+/// at the rendered band edge. The colours are the THEME's: the system style's
+/// selection text and the themed text colour, in light and in dark.
+#[test]
+fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
+    use azul_core::window::WindowTheme;
+    use azul_css::system::defaults;
+
+    let ops = |lw: &mut LayoutWindow| {
+        select_p1_to(lw, 3, 6);
+        rebuild(lw);
+        select_p1_to(lw, 5, 5);
+        rebuild(lw);
+    };
+    let gliding = SystemAnimations {
+        caret_tween_duration_ms: 0,
+        selection_tween_duration_ms: 10_000,
+        ..SystemAnimations::default()
+    };
+
+    for (name, style, theme, colours_differ) in [
+        ("light", defaults::windows_11_light(), WindowTheme::LightMode, true),
+        // Dark text is already white, like the selection text: the split
+        // must still happen, it just paints the same colour twice.
+        ("dark", defaults::windows_11_dark(), WindowTheme::DarkMode, false),
+    ] {
+        let selection_text = style.colors.selection_text.as_option().copied();
+        let mut lw = build_three_paragraphs_themed(gliding.clone(), Some(style.clone()), theme);
+        ops(&mut lw);
+        assert!(lw.text_edit_manager.tween.selection.is_some(), "{name}: glide armed");
+        let (meeting, two_colours) = edge_splits(&lw);
+        assert!(
+            meeting > 0,
+            "{name}: no glyph run is split at a rendered band edge; bands {:?}, text {:?}",
+            selection_bands(&lw),
+            text_items(&lw)
+        );
+        if colours_differ {
+            assert!(two_colours > 0, "{name}: the split pieces must be painted in both colours");
+        }
+        // Every piece is painted in a colour the theme produced.
+        let mut truth = build_three_paragraphs_themed(SystemAnimations::disabled(), Some(style), theme);
+        ops(&mut truth);
+        let mut theme_colours: Vec<_> = text_items(&truth).iter().map(|t| t.2).collect();
+        theme_colours.extend(selection_text);
+        for (_, _, c) in text_items(&lw) {
+            assert!(theme_colours.contains(&c), "{name}: a piece painted in {c:?}, not a theme colour");
+        }
+        assert_eq!(edge_splits(&truth).0, 0, "{name}: without a glide every glyph is painted once");
+    }
 }

@@ -4017,6 +4017,7 @@ mod scroll_shift_tests {
             fixed_position_item_ranges: Vec::new(),
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
+            text_selection_colors: Vec::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {

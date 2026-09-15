@@ -404,6 +404,17 @@ pub struct DisplayList {
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
     pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
+    /// Per-item `(unselected, selected)` text colours of a `Text` item emitted
+    /// under a `::selection` recolour, `None` elsewhere. Parallel to `items`.
+    ///
+    /// The list carries each run in ONE colour — its final selection state.
+    /// While the selection highlight glides (`LayoutWindow::apply_text_tweens`)
+    /// the glyphs its edge crosses must be painted in BOTH colours, split at
+    /// the animated edge, or white text shows on the background (or black text
+    /// inside the highlight) until the glide ends. This table is where the
+    /// post-pass finds the colour the run is NOT painted in. It lives on the
+    /// list, like `uniform_text_bgs`, so the `Text` variant stays unchanged.
+    pub text_selection_colors: Vec<Option<(ColorU, ColorU)>>,
     /// Per-item (layout-tree index, emission phase) — the DL-PATCHING key.
     /// `node_mapping` attributes items to DOM ids, but patching substitutes
     /// per LAYOUT-NODE PAINT CALL: on a resize-skip pass the tree object and
@@ -439,6 +450,7 @@ impl DisplayList {
         // appended without extending them), so grow before indexing.
         Self::insert_parallel(&mut self.node_mapping, at, node);
         Self::insert_parallel(&mut self.uniform_text_bgs, at, None);
+        Self::insert_parallel(&mut self.text_selection_colors, at, None);
         Self::insert_parallel(&mut self.layout_node_mapping, at, None);
         for (start, end) in &mut self.fixed_position_item_ranges {
             // A range that CONTAINS the insertion point grows; one entirely
@@ -461,6 +473,65 @@ impl DisplayList {
         v.insert(at, value);
     }
 
+    /// Replace item `at` with `replacement` (each with its own proven text
+    /// background), keeping every parallel table and every fixed-position
+    /// range aligned. The new items inherit the replaced item's DOM and
+    /// layout attribution and its selection colours: they are pieces of the
+    /// same paint call. An empty `replacement` removes the item.
+    ///
+    /// For post-passes that split one item (the tween's glyph reveal and
+    /// selection split). Splicing from the BACK of the list keeps the
+    /// indices of earlier items valid.
+    pub fn splice_item(
+        &mut self,
+        at: usize,
+        replacement: Vec<(DisplayListItem, Option<(ColorU, WindowLogicalRect)>)>,
+    ) {
+        if at >= self.items.len() {
+            return;
+        }
+        let n = replacement.len();
+        let node = self.node_mapping.get(at).copied().flatten();
+        let layout = self.layout_node_mapping.get(at).copied().flatten();
+        let colors = self.text_selection_colors.get(at).copied().flatten();
+        // Side tables may be shorter than `items`; pad before splicing.
+        let len = self.items.len();
+        if self.node_mapping.len() < len {
+            self.node_mapping.resize(len, None);
+        }
+        if self.uniform_text_bgs.len() < len {
+            self.uniform_text_bgs.resize(len, None);
+        }
+        if self.text_selection_colors.len() < len {
+            self.text_selection_colors.resize(len, None);
+        }
+        if self.layout_node_mapping.len() < len {
+            self.layout_node_mapping.resize(len, None);
+        }
+        let (items, bgs): (Vec<DisplayListItem>, Vec<Option<(ColorU, WindowLogicalRect)>>) =
+            replacement.into_iter().unzip();
+        self.items.splice(at..=at, items);
+        self.node_mapping.splice(at..=at, core::iter::repeat_n(node, n));
+        self.uniform_text_bgs.splice(at..=at, bgs);
+        self.text_selection_colors
+            .splice(at..=at, core::iter::repeat_n(colors, n));
+        self.layout_node_mapping
+            .splice(at..=at, core::iter::repeat_n(layout, n));
+        // One item became `n`: ranges after it slide by n - 1, a range
+        // containing it grows (or shrinks) by the same amount.
+        let grow = n as isize - 1;
+        if grow != 0 {
+            for (start, end) in &mut self.fixed_position_item_ranges {
+                if *start > at {
+                    *start = start.saturating_add_signed(grow);
+                }
+                if *end > at {
+                    *end = end.saturating_add_signed(grow);
+                }
+            }
+        }
+    }
+
     /// Approximate heap bytes retained by this display list — the
     /// item vec + parallel vecs + every item's owned heap. The memory
     /// report used to charge a FLAT 2 KiB for a cached display list;
@@ -480,6 +551,7 @@ impl DisplayList {
             + self.forced_page_breaks.capacity() * size_of::<ForcedBreak>()
             + self.fixed_position_item_ranges.capacity() * size_of::<(usize, usize)>()
             + self.uniform_text_bgs.capacity() * size_of::<Option<(ColorU, WindowLogicalRect)>>()
+            + self.text_selection_colors.capacity() * size_of::<Option<(ColorU, ColorU)>>()
             + self.layout_node_mapping.capacity() * size_of::<Option<(usize, EmitPhase)>>();
         let mut text_instances = 0usize;
         for item in &self.items {
@@ -599,6 +671,196 @@ pub(crate) fn translate_item(mut item: DisplayListItem, delta: LogicalPosition) 
         _ => {}
     }
     item
+}
+
+/// Paint the glyphs a gliding caret or selection edge is crossing in BOTH of
+/// their configurations, split exactly at the animated edge.
+///
+/// The display list holds text in its FINAL state, while
+/// `LayoutWindow::apply_text_tweens` animates only the caret and highlight
+/// rects. Without this, a typed glyph appeared whole while the caret was
+/// still sliding towards it, and a glyph changed colour the moment a
+/// selection started to grow, long before the highlight reached it (white on
+/// the page, or black inside the blue).
+///
+/// * `caret` = `(from, to, rendered)` of a glide caused by TYPING
+///   ([`crate::managers::text_edit::CaretTweenTrack::reveal`]). On the caret's
+///   line, glyphs whose origin lies in `[from.x - font_size, to.x)` are the
+///   ones being revealed: they are clipped at the rendered caret's CENTRE and
+///   appear as it passes over them. The `font_size` margin keeps a glyph that
+///   straddled an earlier glide's edge continuous across a retarget.
+/// * `selection` = `(current, rendered)` highlight bands, one pair per line.
+///   Glyphs near an edge that moves get three pieces clipped at the rendered
+///   band: unselected colour left of it, `::selection` colour inside it,
+///   unselected colour right of it. The colours come from
+///   [`DisplayList::text_selection_colors`]; a run without them is left
+///   alone.
+///
+/// Only the x extent of a piece is clipped. Its glyphs are filtered to one
+/// line, so ink above or below the line box is untouched.
+#[allow(clippy::too_many_lines)]
+pub fn split_text_for_glides(
+    dl: &mut DisplayList,
+    caret: Option<(LogicalRect, LogicalRect, LogicalRect)>,
+    selection: Option<(&[LogicalRect], &[LogicalRect])>,
+) {
+    type Piece = (Vec<GlyphInstance>, ColorU, LogicalRect, Option<(ColorU, WindowLogicalRect)>);
+
+    /// `clip` narrowed to `[x0, x1)`, or `None` when nothing is left.
+    fn clip_x(clip: LogicalRect, x0: f32, x1: f32) -> Option<LogicalRect> {
+        let left = clip.origin.x.max(x0);
+        let right = (clip.origin.x + clip.size.width).min(x1);
+        (right > left).then_some(LogicalRect {
+            origin: LogicalPosition {
+                x: left,
+                y: clip.origin.y,
+            },
+            size: LogicalSize {
+                width: right - left,
+                height: clip.size.height,
+            },
+        })
+    }
+    fn on_line(g: &GlyphInstance, top: f32, bottom: f32) -> bool {
+        g.point.y >= top && g.point.y <= bottom
+    }
+
+    // A caret glide reveals only on its own line and only while moving
+    // forward: text typed at a caret pushes it right, and the glyphs behind a
+    // backward move were deleted, not hidden.
+    let caret = caret.filter(|(from, to, _)| {
+        (from.origin.y - to.origin.y).abs() < to.size.height * 0.5
+            && to.origin.x > from.origin.x + 0.5
+    });
+    let selection = selection.filter(|(current, rendered)| {
+        current.len() == rendered.len() && current.iter().zip(rendered.iter()).any(|(c, r)| c != r)
+    });
+    if caret.is_none() && selection.is_none() {
+        return;
+    }
+
+    for i in (0..dl.items.len()).rev() {
+        let DisplayListItem::Text {
+            glyphs,
+            font_hash,
+            font_size_px,
+            color,
+            clip_rect,
+            source_node_index,
+        } = &dl.items[i]
+        else {
+            continue;
+        };
+        let (font_hash, font_size, source_node_index) = (*font_hash, *font_size_px, *source_node_index);
+        let margin = font_size.max(1.0);
+        let bg = dl.uniform_text_bgs.get(i).copied().flatten();
+        let mut pieces: Vec<Piece> = vec![(glyphs.clone(), *color, clip_rect.0, bg)];
+        let mut changed = false;
+
+        if let (Some((current, rendered)), Some((unselected, selected))) =
+            (selection, dl.text_selection_colors.get(i).copied().flatten())
+        {
+            let mut next: Vec<Piece> = Vec::new();
+            for (piece_glyphs, piece_color, clip, piece_bg) in pieces {
+                let mut rest = Vec::new();
+                let mut per_band: Vec<Vec<GlyphInstance>> = vec![Vec::new(); current.len()];
+                for g in piece_glyphs {
+                    let band = current.iter().zip(rendered.iter()).position(|(c, r)| {
+                        if c == r {
+                            return false;
+                        }
+                        let top = c.origin.y.min(r.origin.y);
+                        let bottom = (c.origin.y + c.size.height).max(r.origin.y + r.size.height);
+                        if !on_line(&g, top, bottom) {
+                            return false;
+                        }
+                        // The x ranges where the rendered band disagrees
+                        // with the final one: between the two left edges
+                        // and between the two right edges.
+                        let (cl, rl) = (c.origin.x, r.origin.x);
+                        let (cr, rr) = (c.origin.x + c.size.width, r.origin.x + r.size.width);
+                        let in_zone = |a: f32, b: f32| {
+                            let (lo, hi) = (a.min(b), a.max(b));
+                            hi - lo > 0.01 && g.point.x >= lo - margin && g.point.x < hi
+                        };
+                        in_zone(cl, rl) || in_zone(cr, rr)
+                    });
+                    match band {
+                        Some(b) => per_band[b].push(g),
+                        None => rest.push(g),
+                    }
+                }
+                if !rest.is_empty() {
+                    next.push((rest, piece_color, clip, piece_bg));
+                }
+                for (b, band_glyphs) in per_band.into_iter().enumerate() {
+                    if band_glyphs.is_empty() {
+                        continue;
+                    }
+                    changed = true;
+                    let r = rendered[b];
+                    let (left, right) = (r.origin.x, r.origin.x + r.size.width);
+                    // The proven background under an unselected glyph is the
+                    // run's own, under a selected one the highlight.
+                    let unselected_bg = if piece_color == unselected { piece_bg } else { None };
+                    if let Some(c) = clip_x(clip, f32::NEG_INFINITY, left) {
+                        next.push((band_glyphs.clone(), unselected, c, unselected_bg));
+                    }
+                    if let Some(c) = clip_x(clip, left, right) {
+                        next.push((band_glyphs.clone(), selected, c, None));
+                    }
+                    if let Some(c) = clip_x(clip, right, f32::INFINITY) {
+                        next.push((band_glyphs, unselected, c, unselected_bg));
+                    }
+                }
+            }
+            pieces = next;
+        }
+
+        if let Some((from, to, rendered)) = caret {
+            let edge = rendered.origin.x + rendered.size.width * 0.5;
+            let (top, bottom) = (to.origin.y, to.origin.y + to.size.height);
+            let mut next: Vec<Piece> = Vec::new();
+            for (piece_glyphs, piece_color, clip, piece_bg) in pieces {
+                let (revealing, rest): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
+                    piece_glyphs.into_iter().partition(|g| {
+                        on_line(g, top, bottom)
+                            && g.point.x >= from.origin.x - margin
+                            && g.point.x < to.origin.x
+                    });
+                if !rest.is_empty() {
+                    next.push((rest, piece_color, clip, piece_bg));
+                }
+                if !revealing.is_empty() {
+                    changed = true;
+                    if let Some(c) = clip_x(clip, f32::NEG_INFINITY, edge) {
+                        next.push((revealing, piece_color, c, piece_bg));
+                    }
+                }
+            }
+            pieces = next;
+        }
+
+        if changed {
+            let replacement = pieces
+                .into_iter()
+                .map(|(glyphs, color, clip, bg)| {
+                    (
+                        DisplayListItem::Text {
+                            glyphs,
+                            font_hash,
+                            font_size_px: font_size,
+                            color,
+                            clip_rect: clip.into(),
+                            source_node_index,
+                        },
+                        bg,
+                    )
+                })
+                .collect();
+            dl.splice_item(i, replacement);
+        }
+    }
 }
 
 /// Whether an item may appear in a PATCHED (copied+translated) run. The
@@ -2287,6 +2549,10 @@ struct DisplayListBuilder {
     /// `push_text_run` / the patch copy just before pushing a Text item).
     next_text_bg: Option<(ColorU, WindowLogicalRect)>,
     uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
+    /// One-shot: the `(unselected, selected)` colours for the NEXT pushed
+    /// item — see [`DisplayList::text_selection_colors`].
+    pub(crate) next_text_selection_colors: Option<(ColorU, ColorU)>,
+    text_selection_colors: Vec<Option<(ColorU, ColorU)>>,
 }
 
 impl DisplayListBuilder {
@@ -2308,6 +2574,8 @@ impl DisplayListBuilder {
             layout_node_mapping: Vec::new(),
             next_text_bg: None,
             uniform_text_bgs: Vec::new(),
+            next_text_selection_colors: None,
+            text_selection_colors: Vec::new(),
         }
     }
 
@@ -2334,6 +2602,7 @@ impl DisplayListBuilder {
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
+            text_selection_colors: self.text_selection_colors,
         }
     }
 
@@ -2488,6 +2757,8 @@ impl DisplayListBuilder {
         self.node_mapping.push(attr);
         self.layout_node_mapping.push(self.current_layout);
         self.uniform_text_bgs.push(self.next_text_bg.take());
+        self.text_selection_colors
+            .push(self.next_text_selection_colors.take());
     }
 
     pub(crate) fn build(self) -> DisplayList {
@@ -2498,6 +2769,7 @@ impl DisplayListBuilder {
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
+            text_selection_colors: self.text_selection_colors,
         }
     }
 
@@ -3014,6 +3286,8 @@ impl DisplayListBuilder {
                 source_node_index,
             });
         } else {
+            // Nothing pushed: the one-shot must not land on the next item.
+            self.next_text_selection_colors = None;
             self.debug_log(format!(
                 "[push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
                 glyphs.is_empty(),
@@ -3711,6 +3985,8 @@ where
         for i in run.0..run.1 {
             builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
             builder.next_text_bg = patch.prev.uniform_text_bgs.get(i).copied().flatten();
+            builder.next_text_selection_colors =
+                patch.prev.text_selection_colors.get(i).copied().flatten();
             let item = translate_item(patch.prev.items[i].clone(), delta);
             builder.push_item(item);
         }
@@ -7668,6 +7944,7 @@ where
                     let (selected, normal): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
                         offset_glyphs.into_iter().partition(inside);
                     if !normal.is_empty() {
+                        builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             normal,
                             FontHash::from_hash(glyph_run.font_hash),
@@ -7679,6 +7956,7 @@ where
                         );
                     }
                     if !selected.is_empty() {
+                        builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             selected,
                             FontHash::from_hash(glyph_run.font_hash),
@@ -9776,6 +10054,7 @@ fn paginate_pages_impl(
             // on the WINDOWED cached DL, never on page slices.
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
+            text_selection_colors: Vec::new(),
         });
     }
 
