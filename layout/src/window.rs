@@ -941,6 +941,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         focus_manager: _,
         text_edit_manager: _,
         last_revealed_caret_rect: _,
+        last_revealed_caret_key: _,
         // NOT WALKED: transient reconcile input, alive only between the
         // funnel's stash and the next re-materialization; typically empty at
         // report time.
@@ -1355,6 +1356,18 @@ pub struct LayoutWindow {
     /// it (the reveal works in static coordinates and compares against a
     /// scrolled `visible_area`), while typing, clicking and reflow do.
     pub last_revealed_caret_rect: Option<LogicalRect>,
+    /// The caret's LOGICAL identity the automatic reveal last acted on:
+    /// `(contenteditable_key, primary cursor, document_text_revision)`.
+    ///
+    /// The static rect alone is not a caret-move signal inside a
+    /// `VirtualView`: scrolling re-materializes the page window, the nested
+    /// DOM is rebuilt and the page's content shifts within it, so the caret's
+    /// rect changes while the user did nothing but turn the wheel. The reveal
+    /// then dragged the view back to the caret on every wheel step. Like a
+    /// browser, the reveal belongs to a change of the CARET: a new cursor
+    /// position, an edit (the revision), or a different editable. The key
+    /// survives DOM rebuilds (`contenteditable_key` is stable across them).
+    pub last_revealed_caret_key: Option<(u64, TextCursor, u64)>,
     /// Anchor of an in-flight text-selection drag: where the PRESS that began
     /// it landed, latched — and only set when that press was on an editable.
     ///
@@ -2048,6 +2061,7 @@ impl LayoutWindow {
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             last_revealed_caret_rect: None,
+            last_revealed_caret_key: None,
             text_selection_drag_anchor: None,
             previous_child_arenas: BTreeMap::new(),
             prev_left_down: false,
@@ -13729,7 +13743,21 @@ impl LayoutWindow {
         // user cannot scroll away from a focused text field: every frame drags
         // the view back to the cursor.
         let current = self.get_focused_cursor_rect();
-        if current.is_none() || current == self.last_revealed_caret_rect {
+        if current.is_none() {
+            return false;
+        }
+        let key = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
+            let cursor = self.text_edit_manager.get_primary_cursor()?;
+            Some((mc.contenteditable_key, cursor, self.document_text_revision))
+        });
+        let unchanged = match key {
+            // The caret did not change; its rect may have (a VirtualView
+            // re-materialized under a wheel scroll). The user's scroll wins.
+            Some(_) => key == self.last_revealed_caret_key,
+            // No logical identity to key on: the rect is the only signal.
+            None => current == self.last_revealed_caret_rect,
+        };
+        if unchanged {
             return false;
         }
         // Do NOT latch a reveal that cannot structurally run. `find_scrollable_
@@ -13750,6 +13778,7 @@ impl LayoutWindow {
             return false;
         }
         self.last_revealed_caret_rect = current;
+        self.last_revealed_caret_key = key;
         // Redirect to unified scroll system
         self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant)
     }
@@ -20809,6 +20838,8 @@ impl LayoutWindow {
             // dropping it costs one redundant reveal after a reconcile; keeping
             // it would compare against a rect that no longer means anything.
             last_revealed_caret_rect: _,
+            // Logical, survives the remap: kept as it is.
+            last_revealed_caret_key: _,
             text_selection_drag_anchor: _,
             // OLD-arena data BY DESIGN: this is the reconcile INPUT for child
             // doms, keyed by DomId and holding pre-remap NodeIds on purpose.

@@ -176,3 +176,64 @@ fn typing_at_a_visible_caret_leaves_the_view_alone() {
         "a caret already in view must not scroll the container"
     );
 }
+
+/// Re-run layout on the retained StyledDom, as the shell's incremental
+/// relayout does.
+fn relayout(lw: &mut LayoutWindow) {
+    let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
+    let window_state = lw.current_window_state.clone();
+    lw.layout_and_generate_display_list(
+        result.styled_dom,
+        &window_state,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut Some(Vec::new()),
+    )
+    .unwrap();
+}
+
+/// The user's scroll wins over the caret reveal until the CARET changes.
+///
+/// A `VirtualView` re-materializes its page window while the wheel turns, so
+/// the caret's static rect moves although the user never moved the caret. The
+/// reveal compared that rect, saw a "move", and dragged the view back to the
+/// caret on every wheel step. A changed rect without a changed caret (no new
+/// cursor position, no edit) must not reveal.
+#[test]
+fn a_moved_caret_rect_without_a_caret_change_does_not_undo_a_user_scroll() {
+    let mut lw = editable_with_many_lines();
+    register_scroll(&mut lw);
+    edit_at_last_line(&mut lw);
+    let _ = lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+    relayout(&mut lw);
+    register_scroll(&mut lw);
+    assert!(offset_y(&lw) > 0.0, "harness: typing below the fold revealed the caret");
+
+    // The user wheels back to the top.
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        NodeId::new(EDITABLE),
+        azul_core::geom::LogicalPosition::zero(),
+        now(),
+    );
+    assert_eq!(offset_y(&lw), 0.0, "harness: the user scrolled to the top");
+
+    // The caret's rect shifts (re-materialization), the caret does not.
+    lw.last_revealed_caret_rect = lw.last_revealed_caret_rect.map(|mut r| {
+        r.origin.y += 17.0;
+        r
+    });
+    relayout(&mut lw);
+    assert_eq!(
+        offset_y(&lw),
+        0.0,
+        "a layout pass pulled the view back to an unchanged caret, undoing the user's scroll"
+    );
+
+    // A real caret change still reveals.
+    let _ = lw.record_text_input("Y");
+    let _ = lw.apply_text_changeset();
+    relayout(&mut lw);
+    assert!(offset_y(&lw) > 0.0, "typing again must reveal the caret again");
+}
