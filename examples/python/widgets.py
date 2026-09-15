@@ -84,9 +84,6 @@ def ribbon(data):
             .dom())
 
 def layout(data, info):
-    # The widget theme, one constant for the whole showcase: the checkbox
-    # switches it (checked = Flora, unchecked = the default Flat), and the
-    # toggle's RefreshDom re-skins every widget built with it.
     theme = UiTheme.Flora if data.checkbox_checked else UiTheme.Flat
 
     button = (Button.create("Click me!")

@@ -1,17 +1,8 @@
-// Hello World: a counter and a button that increments it.
-//
-// Build (azul.d and libazul next to this file):
-//   dmd hello-world.d azul.d -L-L. -L-lazul
-//
-// The file name has a hyphen, which is not a D identifier, so the module
-// needs a name of its own.
 module hello_world;
 
 import azul;
 import std.conv : to;
 
-// The application state is an ordinary D class. libazul keeps it alive and
-// hands it back to every callback with its own type.
 final class Counter
 {
     int count = 5;

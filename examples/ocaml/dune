@@ -1,14 +1,3 @@
-; ============================================================================
-; Dune build manifest for the OCaml hello-world example.
-; ============================================================================
-
-; The generated azul bindings defined as a local library: `azul.ml` is the
-; facade this example opens, `azul_*.ml` the per-module units it includes
-; (one per api.json module, one per dependency slice for the types). dune
-; wraps the library, so only `Azul` is visible here.
-; The codegen emits many declarations that are unused by any given consumer;
-; that's fine for an FFI-binding library. Suppress warning 32 (unused
-; value declaration) so the build doesn't fail on a stable, complete API.
 (library
  (name azul)
  (flags (:standard -w -32-26-27-33-34-35-37-39))

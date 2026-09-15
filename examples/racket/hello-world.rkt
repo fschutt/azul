@@ -1,8 +1,4 @@
 #lang racket/base
-;;;; GC-RETENTION GOTCHA: a Racket procedure passed as a callback becomes a
-;;;; libffi closure that lives only while the procedure stays reachable. Keep
-;;;; `on-click` / `layout` as module-level `define`s (a permanent root) — a
-;;;; callback stored only in an escaping let gets GC'd and the next click crashes.
 
 (require "azul.rkt")
 
@@ -32,8 +28,6 @@
   (dom-add-child body btn-dom)
   body)
 
-;; AzWindowCreateOptions_create takes a bare fn-ptr and discards the ctx, so we
-;; splice the registered layout wrapper (which carries it) into the window state.
 (define (run-app)
   (define data (refany-create model))
   (define app (app-create data (app-config-create)))

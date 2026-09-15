@@ -18,7 +18,6 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
-# rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
 [lib]
 name = "azmeet"
 path = "src/lib.rs"
@@ -32,6 +31,5 @@ path = "src/main.rs"
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
 ctor = "0.2"
 
-# iOS and Android link the engine statically
 [target.'cfg(target_os = "ios")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }

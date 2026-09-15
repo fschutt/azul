@@ -214,10 +214,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     size_t active_tab = d.ptr->active_tab;
     bool checked = d.ptr->checkbox_checked;
     float progress_value = d.ptr->progress_value;
-    /* The widget THEME, one constant for the whole showcase: the checkbox
-     * switches it (checked = Flora, unchecked = the default Flat). Every
-     * themed widget below is built with it, so a toggle re-skins the whole
-     * window through `AzUpdate_RefreshDom`. */
     AzUiTheme theme = checked ? AzUiTheme_Flora : AzUiTheme_Flat;
 
     AzButton btn = AzButton_withTheme(AzButton_create(str("Click me!")), theme);
@@ -308,9 +304,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&browser, list_view);
 
     AzDom content = AzDom_createDiv();
-    /* No hardcoded background: the window's own background follows the system
-     * theme, and painting white over it left a light panel full of dark
-     * widgets on a dark desktop. */
     AzDom_setCss(&content, str("flex-grow: 1; padding: 20px; overflow: auto;"));
     AzDom_addChild(&content, button);
     AzDom_addChild(&content, checkbox);

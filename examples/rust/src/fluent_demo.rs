@@ -1,20 +1,3 @@
-//! Fluent Localization Demo for Azul GUI Framework (Rust)
-//!
-//! This example demonstrates:
-//! - Loading Fluent translations from strings
-//! - Loading Fluent translations from ZIP archives
-//! - Plural rules with select expressions
-//! - Syntax checking for .fluent files
-//! - Creating ZIP archives of translations
-//!
-//! Run with:
-//!   cd examples/rust && cargo run --example fluent_demo --features fluent
-
-// The Fluent localizer + format-arg types are exposed through azul's Rust API
-// re-exports: the localizer handle lives in `azul::fluent`, and the format-arg
-// types (`FmtArg`/`FmtValue`, used to fill `{ $name }`-style placeholders) in
-// `azul::fmt`. The syntax checker and ZIP packaging helpers are free functions
-// in the `azul::desktop::fluent` / `azul::desktop::zip` modules.
 use azul::{
     desktop::{
         fluent::{check_fluent_syntax, create_fluent_zip, FluentSyntaxCheckResult},
@@ -27,10 +10,8 @@ use azul::{
 fn main() {
     println!("=== Fluent Localization Demo ===\n");
 
-    // Create a localizer
     let localizer = FluentLocalizerHandle::create("en-US");
 
-    // Add English translations
     let en_ftl = r#"
 # English translations
 hello = Hello, world!
@@ -42,7 +23,6 @@ emails = You have { $count ->
 welcome = Welcome to { $app }!
 "#;
 
-    // Add German translations
     let de_ftl = r#"
 # German translations
 hello = Hallo, Welt!
@@ -54,7 +34,6 @@ emails = Du hast { $count ->
 welcome = Willkommen bei { $app }!
 "#;
 
-    // Add French translations
     let fr_ftl = r#"
 # French translations
 hello = Bonjour le monde!
@@ -145,7 +124,6 @@ welcome = Bienvenue dans { $app }!
         Ok(zip_data) => {
             println!("Created ZIP archive: {} bytes", zip_data.len());
 
-            // Test loading from ZIP
             let localizer2 = FluentLocalizerHandle::create("en-US");
             let result = localizer2.load_from_zip(zip_data.as_slice().into());
             println!(
@@ -154,37 +132,24 @@ welcome = Bienvenue dans { $app }!
             );
 
             if result.files_failed > 0 {
-                // Each error printed on its own line, variant and payload.
-                // `{:?}` on the element works because api.json declares
-                // `derive: ["Debug", "Clone"]` for FluentLoadError and codegen
-                // now actually emits it: the mirror's Debug delegates to
-                // `azul_layout::fluent::FluentLoadError`'s own. Previously the
-                // derive was declared and silently dropped, so this loop could
-                // not be written at all — no Display, no as_str(), no Debug, and
-                // matching on the variant fails because the vec yields
-                // `AzFluentLoadError` while the nameable path
-                // `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type.
                 println!("  {} error(s):", result.errors.len());
                 for err in result.errors.iter() {
                     println!("    - {err:?}");
                 }
             }
 
-            // Debug: Check what locales were loaded
             let loaded = localizer2.get_loaded_locales();
             println!(
                 "Locales in ZIP: {:?}",
                 loaded.iter().map(|s| s.as_str()).collect::<Vec<_>>()
             );
 
-            // Verify it works
             let hello = localizer2.translate("en-US", "hello", Vec::<FmtArg>::new());
             println!("Verification (en-US): '{}'", hello.as_str());
 
             let hello_de = localizer2.translate("de-DE", "hello", Vec::<FmtArg>::new());
             println!("Verification (de-DE): '{}'", hello_de.as_str());
 
-            // Check if message exists
             let has_hello = localizer2.has_message("en-US", "hello");
             println!("has_message('en-US', 'hello'): {}", has_hello);
         }
@@ -192,14 +157,12 @@ welcome = Bienvenue dans { $app }!
     }
 
     println!("\n--- Fallback behavior ---");
-    // Try to translate a message that doesn't exist
     let missing = localizer.translate("en-US", "nonexistent", Vec::<FmtArg>::new());
     println!(
         "Missing message (returns message ID): '{}'",
         missing.as_str()
     );
 
-    // Try an unknown locale (should fall back to default)
     let unknown = localizer.translate("zh-CN", "hello", Vec::<FmtArg>::new());
     println!(
         "Unknown locale 'zh-CN' (falls back to 'en-US'): '{}'",

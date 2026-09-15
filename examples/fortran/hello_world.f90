@@ -1,7 +1,4 @@
 module hello_impl
-  ! `only:` is not decoration: a bare `use azul` makes gfortran resolve every
-  ! one of the binding's ~12k procedures for this unit (416 s for this file
-  ! in 2026-09) where the named list takes seconds.
   use azul, only: ref_any_t, layout_callback_info_t, callback_info_t, dom_t, button_t, &
                   dom_create_p_with_text, dom_create_body, button_create, &
                   ButtonType_Primary, Update_RefreshDom

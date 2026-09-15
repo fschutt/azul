@@ -1,25 +1,3 @@
-/**
- * JSON Query Demo for Azul GUI Framework
- *
- * This example ports the jq tutorial from https://jqlang.org/tutorial/
- * It demonstrates:
- * - HTTP GET requests to fetch JSON from GitHub API
- * - JSON parsing and pretty printing
- * - JSON pointer queries (similar to jq expressions)
- * - Wildcard queries with jq_all()
- *
- * HTTP is asynchronous: AzHttpRequestConfig_httpGet only REQUESTS the
- * transfer and delivers the response later, through the event loop, to a
- * resume callback (a browser can only answer it asynchronously). So this tool
- * is a tiny azul app: the layout callback issues the first request exactly
- * once, the resume runs the current demo on the response and issues the
- * request for the next demo, and after the last one the process exits like a
- * CLI tool would. The JSON handling itself is unchanged and synchronous.
- *
- * Compile with:
- *   clang -o jq jq.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
- */
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,12 +6,10 @@
 #define COMMITS_URL "https://api.github.com/repos/jqlang/jq/commits?per_page=5"
 #define DEMO_COUNT 5
 
-// Helper to create AzString from C string
 AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-// Helper struct for managing null-terminated C strings from AzString
 typedef struct {
     AzU8Vec vec;
 } CStr;
@@ -53,7 +29,6 @@ void cstr_free(CStr* c) {
     AzU8Vec_delete(&c->vec);
 }
 
-// Print a separator line
 void print_separator(const char* title) {
     printf("\n");
     printf("============================================================\n");
@@ -61,7 +36,6 @@ void print_separator(const char* title) {
     printf("============================================================\n\n");
 }
 
-// Parse the response body as JSON (consumes the response)
 static bool parse_response(AzHttpResponse response, AzJson* out) {
     AzU8VecRef body_ref = AzU8Vec_asRefVec(&response.body);
     AzResultJsonJsonParseError parse_result = AzJson_parseBytes(body_ref);
@@ -77,10 +51,6 @@ static bool parse_response(AzHttpResponse response, AzJson* out) {
     return true;
 }
 
-// ============================================================================
-// Demo 1: Fetch and pretty-print JSON (like: curl ... | jq '.')
-// ============================================================================
-
 void demo_pretty_print_begin(void) {
     print_separator("Demo 1: Pretty-print JSON (jq '.')");
 
@@ -91,13 +61,11 @@ void demo_pretty_print(AzHttpResponse response) {
     printf("Status: %u\n", response.status_code);
     printf("Content-Length: %llu bytes\n\n", (unsigned long long)response.content_length);
 
-    // Parse response body as JSON
     AzJson json;
     if (!parse_response(response, &json)) {
         return;
     }
 
-    // Pretty-print the JSON (like jq '.')
     CStr pretty = cstr_new(AzJson_toStringPretty(&json));
     const char* json_str = cstr_ptr(&pretty);
     size_t len = strlen(json_str);
@@ -112,10 +80,6 @@ void demo_pretty_print(AzHttpResponse response) {
     AzJson_delete(&json);
 }
 
-// ============================================================================
-// Demo 2: Get first element (like: jq '.[0]')
-// ============================================================================
-
 void demo_first_element_begin(void) {
     print_separator("Demo 2: Get first commit (jq '.[0]')");
 
@@ -128,7 +92,6 @@ void demo_first_element(AzHttpResponse response) {
         return;
     }
 
-    // Use jq() to get first element: /0
     AzJson first = AzJson_jq(&json, az_str("/0"));
     AzJson_delete(&json);
 
@@ -152,10 +115,6 @@ void demo_first_element(AzHttpResponse response) {
     AzJson_delete(&first);
 }
 
-// ============================================================================
-// Demo 3: Extract specific fields (like: jq '.[0] | {message: .commit.message}')
-// ============================================================================
-
 void demo_extract_fields_begin(void) {
     print_separator("Demo 3: Extract commit message and author");
 
@@ -168,7 +127,6 @@ void demo_extract_fields(AzHttpResponse response) {
         return;
     }
 
-    // Get first commit's message and author using jq()
     AzJson msg = AzJson_jq(&json, az_str("/0/commit/message"));
     AzJson name = AzJson_jq(&json, az_str("/0/commit/committer/name"));
     AzJson_delete(&json);
@@ -190,10 +148,6 @@ void demo_extract_fields(AzHttpResponse response) {
     AzJson_delete(&name);
 }
 
-// ============================================================================
-// Demo 4: Use wildcard to iterate (like: jq '.[].commit.message')
-// ============================================================================
-
 void demo_wildcard_iterate_begin(void) {
     print_separator("Demo 4: Wildcard iteration with jq_all()");
 
@@ -207,7 +161,6 @@ void demo_wildcard_iterate(AzHttpResponse response) {
         return;
     }
 
-    // Use jq_all() with wildcard to get all commit messages
     AzJsonVec messages = AzJson_jqAll(&json, az_str("/*/commit/message"));
     AzJson_delete(&json);
 
@@ -218,7 +171,6 @@ void demo_wildcard_iterate(AzHttpResponse response) {
         CStr msg_str = cstr_new(AzJson_toString(msg));
         const char* s = cstr_ptr(&msg_str);
 
-        // Truncate long messages
         size_t len = strlen(s);
         if (len > 80) {
             printf("  %zu. %.77s...\n", i + 1, s);
@@ -230,10 +182,6 @@ void demo_wildcard_iterate(AzHttpResponse response) {
 
     AzJsonVec_delete(&messages);
 }
-
-// ============================================================================
-// Demo 5: Nested wildcard (like: jq '.[].parents[].html_url')
-// ============================================================================
 
 void demo_nested_wildcard_begin(void) {
     print_separator("Demo 5: Nested wildcards");
@@ -248,7 +196,6 @@ void demo_nested_wildcard(AzHttpResponse response) {
         return;
     }
 
-    // Get all parent URLs from first commit
     AzJsonVec parent_urls = AzJson_jqAll(&json, az_str("/0/parents/*/html_url"));
     AzJson_delete(&json);
 
@@ -264,14 +211,9 @@ void demo_nested_wildcard(AzHttpResponse response) {
     AzJsonVec_delete(&parent_urls);
 }
 
-// ============================================================================
-// Request/resume chain: one GET per demo, each resume starts the next demo
-// ============================================================================
-
 typedef void (*DemoBegin)(void);
 typedef void (*DemoRun)(AzHttpResponse response);
 
-// What each demo prints before its request, and what it does with the response
 static const DemoBegin DEMO_BEGIN[DEMO_COUNT] = {
     demo_pretty_print_begin,
     demo_first_element_begin,
@@ -288,8 +230,8 @@ static const DemoRun DEMO_RUN[DEMO_COUNT] = {
 };
 
 typedef struct {
-    bool started;   // the layout callback issued the first request
-    int step;       // demo whose response is in flight
+    bool started;
+    int step;
 } JqDemo;
 
 void JqDemo_destructor(void* p) { (void)p; }
@@ -297,7 +239,6 @@ AZ_REFLECT(JqDemo, JqDemo_destructor);
 
 AzUpdate on_commits_fetched(AzRefAny data, AzCallbackInfo info, AzRefAny result);
 
-// Every demo queries the same five commits; the response arrives in on_commits_fetched
 static void fetch_step(AzRefAny data, int step) {
     DEMO_BEGIN[step]();
 
@@ -306,7 +247,6 @@ static void fetch_step(AzRefAny data, int step) {
     AzHttpRequestConfig_delete(&config);
 }
 
-// All demos ran: print the summary and leave the event loop like a CLI tool would
 static void finish(void) {
     printf("\n");
     print_separator("Demo Complete!");
@@ -351,8 +291,6 @@ AzUpdate on_commits_fetched(AzRefAny data, AzCallbackInfo info, AzRefAny result)
     return AzUpdate_DoNothing;
 }
 
-// Issues the first request exactly once; every later one is issued by the
-// resume of the request before it.
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     (void)info;
 
@@ -371,10 +309,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     return body;
 }
 
-// ============================================================================
-// Main
-// ============================================================================
-
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -383,7 +317,6 @@ int main(int argc, char** argv) {
     printf("Based on: https://jqlang.org/tutorial/\n");
     printf("Using GitHub API: https://api.github.com/repos/jqlang/jq/commits\n");
 
-    // The requests need the event loop: run the demos as an app
     JqDemo state = { .started = false, .step = 0 };
     AzRefAny data = JqDemo_upcast(state);
 
@@ -393,7 +326,7 @@ int main(int argc, char** argv) {
     window.window_state.size.dimensions.height = 120.0;
 
     AzApp app = AzApp_create(data, AzAppConfig_create());
-    AzApp_run(&app, window);   // the last resume calls exit(0)
+    AzApp_run(&app, window);
     AzApp_delete(&app);
 
     return 0;

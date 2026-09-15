@@ -1,19 +1,3 @@
-//! AzPaint — a simple drawing app built on the azul painting API.
-//!
-//! Architecture (the "dumb widget" / video-widget pattern):
-//!   * **App data** (`PaintState`) holds only the source of truth: the list of strokes + their
-//!     config (color / eraser), the undo + redo stacks, the in-flight stroke, and a `rev` counter
-//!     that bumps on every change.
-//!   * The **canvas** is a single `<img>` node whose pixels come from a `RenderImageCallback`. The
-//!     GPU `Texture` (or a CPU `RawImage`) is a *derived cache* living in the node's own dataset
-//!     (`CanvasCache`); a **merge callback** carries that cache across DOM rebuilds, and the render
-//!     callback re-rasterizes the strokes only when `rev` changed (reconciling the cached texture
-//!     against the current strokes/config).
-//!   * Pen pressure scales the brush radius; barrel-roll is reserved for later.
-//!
-//! Undo/redo just move strokes between `strokes` and `undone` and bump `rev`;
-//! the texture is recreated from the strokes on the next frame.
-
 use azul::{
     callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo},
     css::PhysicalSizeU32,
@@ -28,69 +12,37 @@ use azul::{
     vec::{F32VecRef, StringVec, U8VecRef},
 };
 
-// ───────── Model (the source of truth) ────────────────────────────────
-
 #[derive(Debug, Clone, Copy)]
 struct StrokePoint {
     x: f32,
     y: f32,
-    /// `0.0..=1.0`, normalized. Finger touches default to `0.5`.
     pressure: f32,
-    /// Pen tilt (left/right, fore/aft). Drives the metaball's elongation +
-    /// orientation so a tilted pen paints a directional, stretched blob.
     tilt_x: f32,
     tilt_y: f32,
-    /// Pen twist (barrel roll) in radians; rotates the elongated dab/metaball.
     barrel_roll_rad: f32,
 }
 
 #[derive(Clone)]
 struct Stroke {
     points: Vec<StrokePoint>,
-    /// Brush color for this stroke (config travels with the stroke).
     color: ColorU,
-    /// Eraser strokes paint the canvas background instead of `color`.
     is_eraser: bool,
 }
 
-/// Base brush radius (px) at full pressure.
 const BASE_RADIUS: f32 = 6.0;
 
-// ───────── Metaball field — ONE kernel for the CPU raster and the GLSL shader ──
-//
-// The field used to be `1 / (q + 0.18)`: infinite support (decays like 1/d²,
-// never zero) summed only inside an axis-aligned box of half-width 2.2·r. At
-// the box edge it still contributed 10-20 % of the iso threshold, so every dab
-// injected a STEP into the summed field along its four box lines — exactly
-// where blobs merge that step pushed the contour across the threshold along a
-// pixel row or column: flat cuts, stair-steps, spurs ending at a box edge
-// (the "weird edges on metaball merge" screenshot). A slowly drawn stroke
-// also ballooned, because a line of 1/d² dabs only decays like 1/d.
-//
-// Wyvill's soft-object kernel `(1 − q/S²)³` is EXACTLY zero at q = S², so the
-// box clip is exact and the field is C² everywhere; strokes stay the brush's
-// width. `METABALL_FS_BODY` carries the same constants — a test pins them.
-
-/// Support radius of a dab's field, in units of its own radius: zero at and
-/// beyond `METABALL_SUPPORT × r`.
 const METABALL_SUPPORT: f32 = 2.0;
-/// Iso-surface threshold: an isolated dab shows a radius of
-/// `r · S · sqrt(1 − ISO^(1/3))` ≈ 0.908 r — the same visible size the old
-/// kernel's 1.0 threshold gave (0.905 r), so brushes did not change size.
 const METABALL_ISO: f32 = 0.5;
-/// Half-width of the anti-aliasing band around the threshold.
 const METABALL_AA: f32 = 0.05;
 
-/// Field contribution of one dab at squared ellipse-normalised distance `q`.
 fn metaball_kernel(q: f32) -> f32 {
     let s2 = METABALL_SUPPORT * METABALL_SUPPORT;
     if q.is_nan() || q >= s2 {
-        return 0.0; // outside the support (or NaN): exactly nothing
+        return 0.0;
     }
     let t = 1.0 - q / s2;
     t * t * t
 }
-/// Canvas background — also the eraser color.
 fn canvas_bg() -> ColorU {
     ColorU {
         r: 250,
@@ -100,8 +52,6 @@ fn canvas_bg() -> ColorU {
     }
 }
 
-/// Milliseconds since first call — a shared monotonic clock for the
-/// AZ_PAINT_DEBUG timing lines, so callback and render timestamps correlate.
 fn dbg_ms() -> u128 {
     use std::sync::OnceLock;
     static START: OnceLock<std::time::Instant> = OnceLock::new();
@@ -111,17 +61,11 @@ fn dbg_ms() -> u128 {
         .as_millis()
 }
 
-/// Live pen telemetry for the header readout — QUANTIZED so `PartialEq`
-/// dampens the redraw rate: a DOM rebuild happens when a displayed digit
-/// would change, not per 140 Hz pen packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PenHud {
-    /// Measured report rate, rounded to 5Hz steps so EMA jitter does not
-    /// churn the (RefreshDom-driving) readout.
     rate_hz5: u16,
     tilt_x_deg: i8,
     tilt_y_deg: i8,
-    /// Barrel roll / twist, degrees.
     twist_deg: i16,
     is_eraser: bool,
     barrel: bool,
@@ -130,56 +74,18 @@ struct PenHud {
 }
 
 struct PaintState {
-    /// Committed strokes — the source of truth (re-rasterized into the cache).
     strokes: Vec<Stroke>,
-    /// Redo stack (strokes popped by undo).
     undone: Vec<Stroke>,
-    /// The stroke currently being drawn.
     current: Option<Stroke>,
-    /// Current brush color (config).
     color: ColorU,
-    /// Last-seen pen state, displayed live in the header (`None` = no pen in
-    /// proximity — mouse/touch input shows no readout).
     hud: Option<PenHud>,
-    /// One-line description of the attached tablet from
-    /// `CallbackInfo::get_tablet_devices()` (name, vendor, physical size).
-    /// Resolved on the first pointer callback; `None` until then or when no
-    /// tablet is attached.
     device_line: Option<String>,
-    /// When true, strokes render as 2D **metaballs** (a scalar field summed from
-    /// every dab + thresholded, so nearby blobs merge organically) instead of
-    /// alpha-over brush dabs. A separate, binary-only effect from the core brush.
     metaball_mode: bool,
-    /// An imported image (PNG/JPEG/...) painted underneath the strokes. Part of
-    /// the canvas *input*, like the strokes -- not the derived texture.
     background: Option<RawImage>,
-    /// A pending Export request: the render callback drains this, reads the
-    /// finished canvas back to RGBA8 (`Texture::copy_to_raw_image` on the GPU,
-    /// else the CPU `RawImage`), PNG-encodes it and writes it to this path.
     export_path: Option<String>,
-    /// Bumps on every change so the canvas cache knows to re-rasterize.
     rev: u64,
-    /// MARKER stamped on the header's pressure `ProgressBar`
-    /// (`Dom::with_marker`): a FRESH `Uuid::short()` string minted at every
-    /// `layout()` and carried here - in the same `RefAny` the canvas pointer
-    /// callbacks receive - so those callbacks can resolve the bar's node
-    /// again (`CallbackInfo::get_node_id_by_marker`) and drive it through
-    /// `ProgressBar::update_progress`: the inter-widget FAST PATH (see
-    /// `push_pressure_to_meter`). A UUID collides with nothing by
-    /// construction, and markers are excluded from node equality, so the
-    /// per-rebuild re-mint never churns the DOM diff.
     pressure_marker: String,
-    /// MARKER on the canvas image node - same mint/reuse discipline as
-    /// `pressure_marker`. The stroke callbacks resolve it and call
-    /// `update_image_callback` instead of returning `RefreshDom`: a stroke
-    /// point re-renders THE CANVAS IMAGE (rev-diffed, incremental) with no
-    /// relayout at all - the user's "I only painted, the app didn't move,
-    /// why a 10ms layout per point" ruling (Wayland session 2026-08-29).
     canvas_marker: String,
-    /// Last pressure pushed through the fast path, ONLY so a full rebuild
-    /// (heavy path) seeds the fresh `ProgressBar` at the current value
-    /// instead of flashing back to zero. Deliberately NOT part of `PenHud`:
-    /// pressure changes alone must never trigger a `RefreshDom`.
     last_pressure: f32,
 }
 
@@ -201,8 +107,8 @@ impl PaintState {
             background: None,
             export_path: None,
             rev: 1,
-            pressure_marker: String::new(), // minted in layout() - Uuid::short()
-            canvas_marker: String::new(),   // minted in layout() - Uuid::short()
+            pressure_marker: String::new(),
+            canvas_marker: String::new(),
             last_pressure: 0.0,
         }
     }
@@ -219,8 +125,6 @@ impl PaintState {
 
     fn request_export(&mut self, path: String) {
         self.export_path = Some(path);
-        // Bump so the render callback re-runs and drains the request even if the
-        // strokes are unchanged.
         self.rev += 1;
     }
 
@@ -230,7 +134,7 @@ impl PaintState {
                 self.strokes.push(active);
             }
         }
-        self.undone.clear(); // a new stroke invalidates the redo stack
+        self.undone.clear();
         self.current = Some(Stroke {
             points: vec![p],
             color: self.color,
@@ -271,7 +175,6 @@ impl PaintState {
 
     fn clear_all(&mut self) {
         if !self.strokes.is_empty() {
-            // keep the cleared strokes on the redo stack so Clear is undoable
             self.undone.append(&mut self.strokes);
         }
         self.current = None;
@@ -279,53 +182,26 @@ impl PaintState {
     }
 }
 
-// ───────── Canvas cache (derived; reconciled by the merge callback) ─────
-
-/// The canvas node's dataset: a derived GPU/CPU image of `paint`'s strokes.
-/// `paint` is a shared clone of the app `PaintState` (so the render callback
-/// can reach the strokes — `info.get_ctx()` is NOT the app data). The merge
-/// callback carries `texture`/`rendered_rev` across DOM rebuilds.
 struct CanvasCache {
-    /// Shared handle to the app's PaintState (source of the strokes).
     paint: RefAny,
-    /// GPU canvas texture (brush mode, when GL is usable); persisted via merge.
     texture: Option<Texture>,
-    /// CPU image (metaball mode, or the GL-unusable brush fallback); persisted
-    /// via merge so an idle relayout doesn't re-rasterize.
     cpu_image: Option<ImageRef>,
-    /// Compiled GPU metaball program (lazy; persisted via merge). `None` until
-    /// first compiled, or if the shader couldn't be built (-> CPU fallback).
     metaball_gpu: Option<MetaballGpu>,
-    /// `PaintState.rev` the cache was last rasterized at.
     rendered_rev: u64,
-    /// INCREMENTAL metaball state (CPU path). A full re-sum is
-    /// O(total dabs x their support area) and measured 807ms/frame after a
-    /// few minutes of painting (Wayland, 2026-08-29) - the field and the
-    /// composited output persist here and only NEW dabs are applied, so a
-    /// stroke point costs O(one dab's support box) no matter how much ink
-    /// the canvas already carries. Rebuilt from scratch when the dab prefix
-    /// shrinks (undo/clear), the canvas box resizes, or the base changes.
     mb: MetaballField,
 }
 
-/// See `CanvasCache::mb`. `dabs`/`strokes` are the applied PREFIX counts:
-/// history only ever grows point-by-point at the tail (begin/extend/commit),
-/// so prefix-count equality identifies "same ink plus new dabs"; any
-/// shrink means an edit (undo/redo/clear) and rebuilds.
 #[derive(Default)]
 struct MetaballField {
     field: Vec<f32>,
     acc: Vec<[f32; 3]>,
-    /// Composited RGBA output, patched only in each new dab's box.
     buf: Vec<u8>,
     size: (u32, u32),
     dabs: usize,
     strokes: usize,
-    /// Identity of the composited base: (background ptr, len) or (0, 0).
     base_sig: (usize, usize),
 }
 
-/// A round brush for a stroke point at the given pressure.
 fn brush_for(color: ColorU, pressure: f32) -> Brush {
     let mut b = Brush::new(color, BASE_RADIUS * pressure.max(0.05).min(1.0));
     b.hardness = 0.6;
@@ -334,8 +210,6 @@ fn brush_for(color: ColorU, pressure: f32) -> Brush {
     b
 }
 
-/// Rasterize a stroke into a target via a `paint_stroke` closure between
-/// consecutive points (shared by the GPU + CPU paths).
 fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(
     stroke: &Stroke,
     bg: ColorU,
@@ -359,14 +233,11 @@ fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(
     }
 }
 
-/// Smoothstep (Hermite) used to anti-alias the metaball threshold edge.
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).max(0.0).min(1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Fill an RGBA8 canvas buffer with the base layer: the imported background
-/// image (nearest-neighbor scaled to fit), else the solid canvas color.
 fn composite_base(buf: &mut [u8], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) {
     if let Some(img) = background {
         if let RawImageData::U8(ref src) = img.pixels {
@@ -409,7 +280,6 @@ fn composite_base(buf: &mut [u8], w: u32, h: u32, bg: ColorU, background: Option
     }
 }
 
-/// CPU brush rasterization into a fresh RGBA8 image over the base layer.
 fn render_brush_cpu(
     strokes: &[Stroke],
     w: u32,
@@ -436,7 +306,6 @@ fn render_brush_cpu(
     img
 }
 
-/// PNG-encode a RawImage and write it to disk (best-effort; logs nothing).
 fn export_png(img: &RawImage, path: &str) {
     let encoded = img.encode_png();
     if let ResultU8VecEncodeImageError::Ok(ref bytes) = encoded {
@@ -444,14 +313,6 @@ fn export_png(img: &RawImage, path: &str) {
     }
 }
 
-/// Serialize committed strokes to a standalone SVG document. Unlike the PNG
-/// export (a readback of the rasterized canvas), this writes the *model*: every
-/// stroke as vector primitives, so the result scales losslessly. The viewBox is
-/// the strokes' bounding box plus pen radius (the model has no canvas size).
-/// Brush strokes become round-capped line segments (width from pressure);
-/// metaball strokes become one ellipse per dab (pressure -> size, tilt ->
-/// elongation + rotation) -- the field-merge between dabs is raster-only and is
-/// approximated by the overlapping ellipses.
 fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
     use std::fmt::Write;
 
@@ -470,7 +331,6 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
         }
     }
     if min_x > max_x {
-        // No points at all: emit a small empty page.
         min_x = 0.0;
         min_y = 0.0;
         max_x = 64.0;
@@ -535,17 +395,6 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
     out
 }
 
-/// CPU 2D-metaball renderer (binary-only effect, separate from the core brush).
-/// Each stroke point becomes an anisotropic "ball" that reacts to the pen:
-/// **pressure -> size**, **tilt -> elongation + orientation**, **barrel-roll ->
-/// extra rotation**. A scalar field `Σ 1/((lx/ax)² + (ly/ay)² + ε)` is summed
-/// over every ball and thresholded at `1.0`, so nearby blobs grow connecting
-/// bridges and merge organically -- the thing alpha-over dabs can't do. Color
-/// is field-weighted so overlapping blobs blend. O(Σ per-ball bbox), not
-/// O(pixels·balls).
-/// One dab's kernel + color contribution into `(field, acc)`. Returns the
-/// integer box it touched (x0, y0, x1, y1 - exclusive); the Wyvill kernel is
-/// exactly zero outside it, so compositing that box alone is EXACT.
 fn apply_metaball_dab(
     field: &mut [f32],
     acc: &mut [[f32; 3]],
@@ -554,20 +403,13 @@ fn apply_metaball_dab(
     (cr, cg, cb): (f32, f32, f32),
     p: &StrokePoint,
 ) -> (usize, usize, usize, usize) {
-    // pressure -> ball size
     let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
-    // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle.
-    // The AZIMUTH of the tilt is atan2(y, x) — the angle from the +X
-    // axis, matching the SVG export. atan2(x, y) measured from the
-    // Y-axis with mirrored handedness, so the dab rotated 90° off the
-    // pen (measured with the real pen, 2026-08-29).
     let tilt_mag = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
     let ecc = (tilt_mag / 60.0).max(0.0).min(0.85);
     let theta = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
     let ax = r * (1.0 + ecc * 1.6);
     let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
     let (st, ct) = theta.sin_cos();
-    // The kernel is exactly zero at this distance, so the box is exact.
     let reach = ax.max(ay) * METABALL_SUPPORT;
     let x0 = (p.x - reach).floor().max(0.0) as usize;
     let y0 = (p.y - reach).floor().max(0.0) as usize;
@@ -577,12 +419,12 @@ fn apply_metaball_dab(
         for x in x0..x1 {
             let dx = x as f32 + 0.5 - p.x;
             let dy = y as f32 + 0.5 - p.y;
-            let lx = dx * ct + dy * st; // into the ball's local frame
+            let lx = dx * ct + dy * st;
             let ly = -dx * st + dy * ct;
             let q = (lx / ax) * (lx / ax) + (ly / ay) * (ly / ay);
             let c = metaball_kernel(q);
             if c <= 0.0 {
-                continue; // the box corners lie outside the support
+                continue;
             }
             let idx = y * wu + x;
             field[idx] += c;
@@ -594,10 +436,6 @@ fn apply_metaball_dab(
     (x0, y0, x1, y1)
 }
 
-/// Composite base layer + thresholded field into `buf`, WITHIN `bx` only.
-/// Same math as the old full-canvas pass, restricted to a region; a dab's
-/// field contribution is zero outside its box, so per-box recomposition
-/// after `apply_metaball_dab` reproduces the full render bit-for-bit.
 fn composite_metaball_region(
     buf: &mut [u8],
     field: &[f32],
@@ -610,8 +448,6 @@ fn composite_metaball_region(
 ) {
     let (x0, y0, x1, y1) = bx;
     let wu = w as usize;
-    // Base sampler: scaled background image pixel, else the solid color -
-    // the region twin of `composite_base`.
     let bg_img = background.and_then(|img| {
         if let RawImageData::U8(ref src) = img.pixels {
             let bgr = matches!(img.data_format, RawImageFormat::BGRA8);
@@ -629,7 +465,6 @@ fn composite_metaball_region(
         for x in x0..x1 {
             let i = y * wu + x;
             let o = i * 4;
-            // 1. base
             let (mut pr, mut pg, mut pb) = (bg.r, bg.g, bg.b);
             if let Some((src, sw, sh, bgr)) = bg_img {
                 let sy = (y * sh) / h as usize;
@@ -643,7 +478,6 @@ fn composite_metaball_region(
                     };
                 }
             }
-            // 2. blob over it (AA rim around the iso-surface)
             let f = field[i];
             let a = smoothstep(METABALL_ISO - METABALL_AA, METABALL_ISO + METABALL_AA, f);
             if a > 0.0 {
@@ -661,12 +495,6 @@ fn composite_metaball_region(
     }
 }
 
-/// The INCREMENTAL metaball renderer: apply only the dabs added since the
-/// previous frame into the persistent field, recomposite just their boxes,
-/// and hand back the full image. A history edit (undo/redo/clear), a canvas
-/// resize, or a changed base rebuilds from scratch - see [`MetaballField`].
-/// The old every-frame full re-sum was O(total dabs x support area):
-/// 807ms/frame after minutes of painting; a stroke point is now O(one box).
 fn metaball_image(
     mb: &mut MetaballField,
     strokes: &[Stroke],
@@ -698,7 +526,6 @@ fn metaball_image(
         mb.base_sig = base_sig;
     }
 
-    // Apply the NEW suffix of the dab sequence (empty on a pure recomposite).
     let mut skip = mb.dabs;
     let mut boxes: Vec<(usize, usize, usize, usize)> = Vec::new();
     for st in strokes {
@@ -722,8 +549,6 @@ fn metaball_image(
     }
 
     if rebuild {
-        // One full composite instead of per-dab boxes: overlapping boxes
-        // would recomposite the same pixels once per dab.
         composite_metaball_region(
             &mut mb.buf,
             &mb.field,
@@ -752,15 +577,8 @@ fn metaball_image(
     }
 }
 
-// ───────── GPU metaballs (custom shader, mirrors the CPU render_metaballs) ──
-
-/// Max balls uploaded to the GPU shader as a uniform array (most-recent N when a
-/// drawing exceeds this; the CPU path is exact/unbounded).
 const MAX_GPU_BALLS: usize = 128;
 
-// Bodies have no `#version` line -- it is prepended at compile time from
-// `get_usable_glsl_version()` so the shader matches the context (desktop 150 vs
-// GLES "300 es"); the body is valid in both.
 static METABALL_VS_BODY: &str = "
 void main() {
     float x = (gl_VertexID >= 2) ? 1.0 : -1.0;
@@ -804,7 +622,6 @@ void main() {
     oFragColor = vec4(mix(uBg, blob, a), 1.0);
 }";
 
-/// Compiled metaball program + uniform locations; cached in `CanvasCache`.
 struct MetaballGpu {
     program: u32,
     u_res: i32,
@@ -821,7 +638,6 @@ const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_TRIANGLE_STRIP: u32 = 0x0005;
 
-/// Compile + link the metaball program once (mirrors core's try_compile_program).
 fn compile_metaball_gpu(gl: &GlContextPtr) -> Option<MetaballGpu> {
     let ver = gl.get_usable_glsl_version();
     let ver = ver.as_str();
@@ -853,7 +669,6 @@ fn compile_metaball_gpu(gl: &GlContextPtr) -> Option<MetaballGpu> {
     })
 }
 
-/// Render the strokes' metaball field into the texture via the shader + an FBO.
 fn render_metaballs_gpu(
     mgpu: &MetaballGpu,
     gl: &GlContextPtr,
@@ -876,7 +691,6 @@ fn render_metaballs_gpu(
             let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
             let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
             let ecc = (tilt / 60.0).max(0.0).min(0.85);
-            // Azimuth = atan2(y, x), same as the CPU raster + SVG export.
             let ang = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
             balls.extend_from_slice(&[p.x, p.y, r, ang]);
             balls2.extend_from_slice(&[ecc, cr, cg, cb]);
@@ -884,7 +698,7 @@ fn render_metaballs_gpu(
     }
     let mut count = balls.len() / 4;
     if count > MAX_GPU_BALLS {
-        let drop = (count - MAX_GPU_BALLS) * 4; // keep the most-recent balls
+        let drop = (count - MAX_GPU_BALLS) * 4;
         balls.drain(0..drop);
         balls2.drain(0..drop);
         count = MAX_GPU_BALLS;
@@ -925,28 +739,7 @@ fn render_metaballs_gpu(
     gl.delete_framebuffers((&[fbo][..]).into());
 }
 
-/// RenderImageCallback: produce the canvas image, re-rasterizing strokes only
-/// when `PaintState.rev` differs from the cache's `rendered_rev`.
 extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
-    // HiDPI: rasterize the canvas in LOGICAL pixels, NOT physical.
-    //
-    // The stroke MODEL is logical: the pointer callbacks hand us logical coords
-    // (`get_cursor_relative_to_node()` -> `CursorNodePosition`, documented as
-    // "logical pixels"; `PenState.position` is a `LogicalPosition`), and the SVG
-    // export (`strokes_to_svg`) treats `StrokePoint.x/y` as resolution-independent
-    // model units. So the raster canvas must live in that SAME logical space.
-    //
-    // Using `get_physical_size()` (= logical * hidpi) sized the buffer 2x larger on
-    // a 2.0 retina display, so a click at logical (x, y) was painted at pixel
-    // (x, y) of a 2x buffer; azul then scales that buffer down into the node's
-    // logical box, making the dab land at (x/2, y/2) — the ~2x offset bug. Sizing
-    // the buffer in logical pixels makes click -> painted-pixel exactly 1:1 on
-    // every DPI (on a 1.0 display logical == physical, so this changes nothing
-    // there). Trade-off: on HiDPI the canvas is rasterized at logical resolution
-    // and the compositor upscales it to the physical backing store (slightly softer
-    // than a native-retina canvas). To regain retina sharpness later, KEEP the
-    // model logical but multiply each point + brush radius by
-    // `get_bounds().get_hidpi_factor()` at raster time (CPU + GPU paths).
     let size = info.get_bounds().get_logical_size();
     let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     let dbg = std::env::var("AZ_PAINT_DEBUG").is_ok();
@@ -995,7 +788,6 @@ fn render_canvas_inner(
     let mut cache = data.downcast_mut::<CanvasCache>()?;
     let cache = &mut *cache;
 
-    // Snapshot strokes + rev + mode + imported background + export request.
     let (rev, strokes, metaball_mode, background, export_path) = {
         let paint = cache.paint.downcast_ref::<PaintState>()?;
         let mut all = paint.strokes.clone();
@@ -1014,18 +806,13 @@ fn render_canvas_inner(
     let bg = canvas_bg();
     let bg_ref = background.as_ref();
 
-    // GPU is used only for the plain brush with no imported background + a usable
-    // GL context. Metaballs and an imported background composite on the CPU.
     let gl = info.get_gl_context().into_option();
     let gl_usable = gl.as_ref().map_or(false, |g| g.is_gl_usable());
-    // Lazy-compile the GPU metaball shader on first use (when GL is usable).
     if metaball_mode && gl_usable && background.is_none() && cache.metaball_gpu.is_none() {
         if let Some(g) = gl.as_ref() {
             cache.metaball_gpu = compile_metaball_gpu(g);
         }
     }
-    // GPU for the brush whenever usable + no imported background; for metaballs
-    // only if the shader compiled (else fall through to the CPU metaball path).
     let use_gpu =
         background.is_none() && gl_usable && (!metaball_mode || cache.metaball_gpu.is_some());
 
@@ -1045,11 +832,10 @@ fn render_canvas_inner(
                 bg,
             );
             cache.texture = Some(tex);
-            cache.rendered_rev = 0; // force a full re-rasterize
+            cache.rendered_rev = 0;
         }
         if cache.rendered_rev != rev {
             if metaball_mode {
-                // GPU metaballs: render the thresholded field into the texture.
                 let tid = cache.texture.as_ref().map(|t| t.texture_id).unwrap_or(0);
                 if let Some(mgpu) = cache.metaball_gpu.as_ref() {
                     render_metaballs_gpu(mgpu, &gl, tid, w, h, &strokes, bg);
@@ -1064,7 +850,6 @@ fn render_canvas_inner(
             }
             cache.rendered_rev = rev;
         }
-        // Export: read the GPU texture back to RGBA8 bytes + PNG-encode it.
         if let Some(path) = export_path.as_ref() {
             if let Some(tex) = cache.texture.as_ref() {
                 export_png(&tex.copy_to_raw_image(), path.as_str());
@@ -1077,12 +862,6 @@ fn render_canvas_inner(
             .map(|t| ImageRef::gl_texture(t.clone()));
     }
 
-    // CPU path: metaballs, or the brush with an imported background / no GL.
-    // Re-rasterise when the canvas BOX changed too (a window resize): the
-    // cached bitmap at the old size was otherwise stretched into the new box
-    // by the rasteriser — blurry strokes, clicks landing off their pixels —
-    // until the next stroke bumped `rev`. The GPU branch above has always
-    // re-allocated on a size change; this is its CPU twin.
     let cached = cache.cpu_image.as_ref().map(|img| {
         let s = img.get_size();
         (s.width as u32, s.height as u32)
@@ -1111,9 +890,6 @@ fn render_canvas_inner(
     cache.cpu_image.clone()
 }
 
-/// Does the CPU canvas need a fresh raster? When the strokes changed (`rev`),
-/// when there is no bitmap yet, when the cached bitmap is not the size of the
-/// canvas box (a window resize), or when an export is pending.
 fn cpu_canvas_needs_raster(
     rendered_rev: u64,
     rev: u64,
@@ -1124,21 +900,13 @@ fn cpu_canvas_needs_raster(
     rendered_rev != rev || cached != Some(target) || exporting
 }
 
-/// Drain a pending Export request from the shared PaintState. Best-effort: if
-/// the RefAny is momentarily borrowed elsewhere the request survives to the next
-/// frame (and just re-writes the same file), which is harmless.
 fn clear_export(cache: &mut CanvasCache) {
     if let Some(mut paint) = cache.paint.downcast_mut::<PaintState>() {
         paint.export_path = None;
     }
 }
 
-/// Merge callback: carry the GPU texture + rendered_rev from the old canvas
-/// node to the new one across DOM rebuilds (so we don't re-allocate/re-paint
-/// every relayout). The new node's `paint` (current PaintState) is kept.
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
-    // Move the (non-Clone) compiled GPU program out of the old cache; clone the
-    // refcounted texture/image handles.
     let (tex, img, rev, mgpu, mb) = match old_data.downcast_mut::<CanvasCache>() {
         Some(mut old) => (
             old.texture.clone(),
@@ -1159,15 +927,6 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
     new_data
 }
 
-// ───────── Layout ──────────────────────────────────────────────────────
-
-// NOTE: `display: flex` is REQUIRED for `flex-direction: row` to take effect —
-// azul's default display is `block` (taffy_bridge: LayoutDisplay::default ->
-// Display::Block), so a div with only `flex-direction: row` lays its children
-// out as block boxes (full-width, stacked vertically). The header used to omit
-// `display: flex`, which is why the toolbar buttons stacked on top of each other.
-// `user-select: none`: the title bar is chrome. A click on it used to open a
-// text-selection session that every later canvas stroke extended.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
                       flex-direction: row; align-items: center; font-family: sans-serif; \
                       font-size: 16px; user-select: none;";
@@ -1175,16 +934,6 @@ const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    // MARKER MINT - at layout() time, the architecture chapter's rule: a
-    // UUID string (nothing hard-coded, collides with nothing), stamped on
-    // the ProgressBar below AND stored in the state the canvas callbacks
-    // read. Minted ONCE, on the first layout(), then REUSED verbatim: the
-    // engine may run layout() more than once per displayed frame (sizing
-    // passes), and a fresh mint per call left the state holding pass K+1's
-    // string while the displayed DOM carried pass K's - every lookup right
-    // after a rebuild missed (verified via AZ_PAINT_DEBUG, 2026-08-29).
-    // Reuse costs nothing: markers are excluded from node equality either
-    // way, and the string is still a layout()-minted UUID.
     let (pressure_marker, canvas_marker) = match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
             if s.pressure_marker.is_empty() {
@@ -1212,12 +961,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .unwrap_or((0, 0, true, None, None, 0.0));
     let _ = n_undone;
 
-    // Actions (Undo/Redo/Clear/Import/Export/effect toggle) live in the menu bar
-    // below — not as inline buttons. The header is the title + live status,
-    // including the PEN TELEMETRY readout: pressure / tilt / twist / eraser /
-    // barrel, straight from `CallbackInfo::get_pen_state()`. This is the
-    // "see it working" surface for tablet verification — if the numbers move,
-    // the platform backend is feeding the engine.
     let mode_label = if metaballs { "Metaballs" } else { "Brush" };
     let title = match device_line {
         Some(dev) => format!(
@@ -1232,7 +975,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let mut header = Dom::create_div()
         .with_css(HEADER)
         .with_child(Dom::create_p_with_text(title.as_str()));
-    // Spacer pushes the pen readout to the right edge.
     header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     match hud {
         Some(h) => {
@@ -1261,17 +1003,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ));
         }
     }
-    // Live pressure meter: a REAL `ProgressBar`, driven through the
-    // inter-widget FAST PATH (`push_pressure_to_meter`): the canvas pointer
-    // callbacks resolve this node by the marker stamped here and update it
-    // per input packet via the widget's own public API + a single-node
-    // VirtualView re-render - NO `RefreshDom`, no full layout(). (Its two
-    // predecessors are ledgered: an inline-width div that never repainted,
-    // then text cells the user rejected.) Always present - a mouse drives it
-    // too, with the same synthetic pressure the stroke path uses - so the
-    // fast path is verifiable without a tablet. `last_pressure` only seeds a
-    // heavy-path rebuild so the bar does not flash to zero when some other
-    // readout digit changes.
     header.add_child(
         Dom::create_div()
             .with_css("width: 140px; margin-left: 12px;")
@@ -1285,9 +1016,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ),
     );
 
-    // The canvas: a single image driven by render_canvas. Its dataset is a
-    // CanvasCache that shares the PaintState; the merge callback persists the
-    // texture across rebuilds. Pointer callbacks mutate the PaintState.
     let cache = RefAny::new(CanvasCache {
         paint: data.clone(),
         texture: None,
@@ -1302,8 +1030,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         cache.clone(),
     ))
     .with_css(CANVAS)
-    // Resolvable from the stroke callbacks: they repaint the canvas via
-    // `update_image_callback` on this node - no relayout per stroke point.
     .with_marker(azul::option::OptionString::Some(canvas_marker.as_str().into()))
     .with_dataset(OptionRefAny::Some(cache))
     .with_merge_callback(DatasetMergeCallback::from(
@@ -1350,21 +1076,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         on_pointer_gone,
     );
 
-    // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
-    // app menu, and on Linux to the GNOME/DBus global menu (X11) or the CPU-rendered
-    // popup fallback (Wayland/KDE — menus aren't render-intensive so software is fine).
-    // Sub-menus exercise the popup path; click actions (with_callback) are a follow-up.
     use azul::menu::{Menu, MenuItem, StringMenuItem};
-    // Functional menu items: each carries the same callback the old inline
-    // toolbar buttons used, so File/Edit/View actually drive the app.
     let action = |label: &str, cb: CallbackType| {
         MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
     };
-    // Keyboard accelerators. `[LWin, O]` is the PRIMARY chord: ⌘O on macOS
-    // (the native menu bar turns it into the item's key equivalent and
-    // AppKit runs the item) and Ctrl+O on Windows / Linux, where the engine's
-    // shared dispatch (`PlatformWindow::dispatch_menu_accelerators`) runs the
-    // item on the key-down — one definition, every platform.
     let action_with_accel = |label: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
         let mut item = StringMenuItem::create(label).with_callback(data.clone(), cb);
         item.accelerator =
@@ -1391,9 +1106,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         )])),
     ]);
 
-    // Right-click context menu on the canvas: switch the paint effect. This is the
-    // runtime test for the context-menu popup path (try_show_context_menu -> show_menu),
-    // positioned at the cursor and clamped on-screen.
     let ctx_menu = Menu::create(vec![
         MenuItem::string(
             StringMenuItem::create("Metaballs mode").with_callback(data.clone(), on_set_metaballs),
@@ -1412,17 +1124,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(canvas)
 }
 
-// ───────── Input ────────────────────────────────────────────────────────
-
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
-    // Coordinates come from the CURSOR in both branches, never from
-    // `PenState.position`: the pen state's position is WINDOW-space, and the
-    // canvas sits below the header, so using it painted every pen stroke
-    // offset upward by the header height. The platform pen paths drive the
-    // pointer (X11 via the master pointer, Wayland via the tablet→pointer
-    // bridge), so the cursor IS the pen tip — already node-relative here.
-    // The pen state contributes what the cursor cannot: pressure, tilt,
-    // twist and the eraser flag.
     let pos_opt = info.get_cursor_relative_to_node().into_option();
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         match &pos_opt {
@@ -1459,8 +1161,6 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
     ))
 }
 
-/// Snapshot the live pen state for the header readout (quantized — see
-/// [`PenHud`]).
 fn hud_from(info: &CallbackInfo) -> Option<PenHud> {
     info.get_pen_state().into_option().map(|p| PenHud {
         rate_hz5: ((p.report_rate_hz / 5.0).round() * 5.0) as u16,
@@ -1474,7 +1174,6 @@ fn hud_from(info: &CallbackInfo) -> Option<PenHud> {
     })
 }
 
-/// Store the latest pen telemetry; `true` when the readout needs a rebuild.
 fn update_hud(state: &mut PaintState, hud: Option<PenHud>) -> bool {
     if state.hud == hud {
         false
@@ -1484,9 +1183,6 @@ fn update_hud(state: &mut PaintState, hud: Option<PenHud>) -> bool {
     }
 }
 
-/// Describe the attached tablet from `get_tablet_devices()` — the device
-/// identity half of the readout (the live axes are the `PenHud`). Picks the
-/// most capable entry (the stylus outranks pad/touch by capability count).
 fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
     let devices = info.get_tablet_devices();
     let devices = devices.as_slice();
@@ -1516,22 +1212,9 @@ fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
     ))
 }
 
-/// THE INTER-WIDGET FAST PATH, end to end (see `layout/widgets/progressbar.rs`
-/// module docs + the guide's architecture chapter): resolve the header's
-/// pressure `ProgressBar` by the MARKER `layout()` stamped on it, then drive
-/// the widget through its own public API. `ProgressBar::update_progress`
-/// downcasts the bar's PRIVATE dataset (this app never sees the type) and
-/// queues a re-render of just that node's `VirtualView` - the meter moves per
-/// pen packet with NO `Update::RefreshDom`, no full layout(), no DOM diff,
-/// and no pressure field in the app's data model. Returns the pushed
-/// percentage so the caller can seed `PaintState::last_pressure` (heavy-path
-/// rebuilds start the fresh bar there instead of at zero).
 fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> {
     let pct = match info.get_pen_state().into_option() {
         Some(pen) => pen.pressure.clamp(0.0, 1.0) * 100.0,
-        // No pen: mirror the stroke path's synthetic 0.5 while the primary
-        // button paints, so the meter (and the fast path behind it) is
-        // verifiable with a plain mouse.
         None => {
             let ms = info.get_current_mouse_state();
             if ms.left_down {
@@ -1546,9 +1229,6 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
         .map(|n| azul::widgets::ProgressBar::update_progress(*info, n, pct))
         .unwrap_or(false);
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        // NodeHierarchyItemId is 1-BASED (0 = None); print the real index.
-        // The raw value once read as "node 20" while the meter was node 19,
-        // and an evening was spent chasing a hit-test bug that wasn't there.
         eprintln!(
             "[paint] t={}ms fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
             dbg_ms(),
@@ -1558,17 +1238,10 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
     ok.then_some(pct)
 }
 
-/// Repaint THE CANVAS after a stroke mutation, without a relayout: resolve
-/// the canvas image node by its marker and queue its `RenderImageCallback`
-/// re-render. The callback re-runs rev-diffed (`CanvasCache.rendered_rev`),
-/// rasters incrementally (`metaball_image`), and damage falls out of the
-/// image identity - the canvas half of the inter-widget fast path.
 fn poke_canvas(info: &mut CallbackInfo, marker: &str) {
     if let Some(node) = info.get_node_id_by_marker(marker.to_string()).into_option() {
         let raw = node.node.into_raw();
         if raw != 0 {
-            // Bindings `NodeId` shares `NodeHierarchyItemId`'s 1-based raw
-            // encoding (0 = None), so a non-zero raw converts directly.
             info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw });
         }
     }
@@ -1578,10 +1251,6 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] t={}ms on_pointer_down FIRED", dbg_ms());
     }
-    // The generic MouseDown filter fires for EVERY button; only the primary
-    // one paints. The right button belongs to the context menu (and the
-    // stylus barrel button), and painting a dab under the opening menu was
-    // exactly the kind of stray mark nobody can explain afterwards.
     {
         let ms = info.get_current_mouse_state();
         if ms.right_down || ms.middle_down {
@@ -1607,9 +1276,6 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
             s.last_pressure = pct;
         }
     }
-    // FAST PATH for the ink too: the first dab repaints the canvas image in
-    // place. Nothing in the DOM changed (the strokes COUNT only moves on
-    // commit), so no relayout - the header readout catches up on stroke end.
     poke_canvas(&mut info, &canvas);
     Update::DoNothing
 }
@@ -1617,10 +1283,6 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
 extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hud = hud_from(&info);
     let point = extract_point(&info);
-    // FAST PATH first, decoupled from the Update below: the meter must track
-    // hover pressure even when this callback returns DoNothing - that is the
-    // whole demonstration (the queued VirtualView re-render repaints the bar
-    // by itself).
     let pushed = data
         .downcast_ref::<PaintState>()
         .map(|s| s.pressure_marker.clone())
@@ -1642,8 +1304,6 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
         state.device_line = device_line;
         hud_changed = true;
     }
-    // The HUD tracks HOVER too — that is the point of the readout: pressure /
-    // tilt move in the header while the pen approaches, before any stroke.
     let hud_changed = update_hud(&mut state, hud) || hud_changed;
     if state.current.is_none() {
         return if hud_changed {
@@ -1657,12 +1317,6 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
             state.extend_stroke(p);
             let canvas = state.canvas_marker.clone();
             drop(state);
-            // Mid-stroke: the canvas image repaints in place (incremental
-            // raster + image-identity damage) and the meter already updated
-            // through its own fast path above. NO relayout per stroke point
-            // - the 10ms-layout-per-painted-pixel class ends here. The hud
-            // text stays frozen during the stroke; end_stroke's RefreshDom
-            // catches it up.
             poke_canvas(&mut info, &canvas);
             Update::DoNothing
         }
@@ -1697,8 +1351,6 @@ extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
     Update::RefreshDom
 }
 
-/// Cursor or pen left: drop the readout (and see the stroke out — a pen that
-/// leaves proximity mid-stroke never delivers a MouseUp).
 extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] on_pointer_gone FIRED");
@@ -1751,7 +1403,6 @@ extern "C" fn on_toggle_mode(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Context-menu actions: set the paint effect explicitly (right-click the canvas).
 extern "C" fn on_set_metaballs(mut data: RefAny, _info: CallbackInfo) -> Update {
     match data.downcast_mut::<PaintState>() {
         Some(mut s) => s.metaball_mode = true,
@@ -1768,12 +1419,6 @@ extern "C" fn on_set_brush(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Import: pick an image file, decode it (PNG/JPEG/...) and set it as the canvas
-// background that strokes/metaballs paint over.
-// A chain of two resumes: the click only ISSUES the open-file request; the
-// picked path is read with a second request; the bytes are decoded in the
-// second resume. Every step is an ordinary callback activation, which is
-// what lets the same code run against the browser's async pickers.
 extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
         "Import image",
@@ -1790,7 +1435,7 @@ extern "C" fn on_import_picked(data: RefAny, _info: CallbackInfo, result: RefAny
         return Update::DoNothing;
     };
     let Some(path) = picked.path.into_option() else {
-        return Update::DoNothing; // cancelled
+        return Update::DoNothing;
     };
     let _request = path.read_bytes(data, on_import_bytes);
     Update::DoNothing
@@ -1816,9 +1461,6 @@ extern "C" fn on_import_bytes(mut data: RefAny, _info: CallbackInfo, result: Ref
     Update::RefreshDom
 }
 
-// Export: pick a destination and request a PNG dump of the finished canvas; the
-// render callback drains the request (Texture::copy_to_raw_image on GPU, else
-// the CPU RawImage) and writes the file.
 extern "C" fn on_export(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::save_file("Export PNG", "canvas.png", data, on_export_target);
     Update::DoNothing
@@ -1829,11 +1471,8 @@ extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: Re
         return Update::DoNothing;
     };
     let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing; // cancelled
+        return Update::DoNothing;
     };
-    // The PNG is produced at render time (GPU readback), so the export needs
-    // a real path to write to later; browsers without the File System Access
-    // API hand out a download target instead, which has none.
     let Some(path) = target.as_path().into_option() else {
         return Update::DoNothing;
     };
@@ -1844,21 +1483,15 @@ extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: Re
     Update::RefreshDom
 }
 
-// Export SVG: serialize the stroke MODEL (vector data) directly — no readback
-// of the rasterized canvas needed, so this writes synchronously here instead
-// of round-tripping through the render callback like the PNG export.
 extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
     let svg = match data.downcast_ref::<PaintState>() {
         Some(s) => strokes_to_svg(&s.strokes, s.metaball_mode),
         None => return Update::DoNothing,
     };
-    // Bytes in, file out: `save_bytes` is the one portable "hand the user a
-    // file" primitive (native save dialog here, a download in the browser).
     let _scheduled = FileDialog::save_bytes("strokes.svg", "image/svg+xml", svg.into_bytes());
     Update::DoNothing
 }
 
-/// Start the app. Desktop/iOS: blocks. Android: stashes window options.
 pub fn start() {
     let data = RefAny::new(PaintState::new());
     let config = AppConfig::create();
@@ -1888,7 +1521,6 @@ mod tests {
         }
     }
 
-    /// Alpha (0..=255) of every pixel in row `y` of a rendered canvas.
     fn row_coverage(img: &RawImage, y: usize, bg: ColorU) -> Vec<u8> {
         let RawImageData::U8(ref px) = img.pixels else {
             panic!("U8 raster")
@@ -1897,15 +1529,12 @@ mod tests {
         (0..img.width)
             .map(|x| {
                 let o = (y * img.width + x) * 4;
-                // The blob is black on the background: coverage = how far the
-                // red channel moved from the background towards 0.
                 let r = px[o] as i32;
                 ((bg.r as i32 - r).max(0) * 255 / bg.r.max(1) as i32) as u8
             })
             .collect()
     }
 
-    /// Number of rising edges (outside → inside) along a coverage profile.
     fn rising_edges(profile: &[u8]) -> usize {
         let inside = |c: u8| c >= 128;
         profile
@@ -1929,12 +1558,6 @@ mod tests {
 
     #[test]
     fn metaball_merges_have_no_box_edges_and_dabs_keep_their_size() {
-        // REPORTED: "weird edges on metaball merge". Two dabs 30 px apart
-        // (the screenshot's spacing): with the old 1/(q+0.18) kernel clipped
-        // at 2.2 r, dab B's box edge cut through dab A's rim and left a notch
-        // on the row through the centres. A continuous field has exactly one
-        // rising edge per blob on every row, and a neighbour 30 px away must
-        // not change a dab's visible radius at all.
         let bg = ColorU {
             r: 250,
             g: 250,
@@ -1942,14 +1565,6 @@ mod tests {
             a: 255,
         };
         let (w, h) = (100u32, 60u32);
-        // `render_metaballs` became `metaball_image` in 7ec9b564e (incremental
-        // metaball field): same trailing arguments, plus the `MetaballField`
-        // cache it now paints into. The test was never updated, so this crate's
-        // lib test has not COMPILED since - and the CI job that would have said
-        // so sits behind a `needs: [clippy]` that has been failing, so nobody
-        // saw it. A FRESH field per call is what the old function did
-        // internally, which keeps the two renders independent exactly as the
-        // assertions below assume.
         let alone = metaball_image(
             &mut MetaballField::default(),
             &[black_dab(30.0, 30.0)],
@@ -1984,8 +1599,6 @@ mod tests {
             );
         }
 
-        // The dab's left rim (x < 30) is the same with and without the
-        // neighbour: a neighbour's field must be ZERO there.
         let left = |row: &[u8]| (0..30).map(|x| row[x]).collect::<Vec<_>>();
         assert_eq!(
             left(&alone_row),
@@ -1993,7 +1606,6 @@ mod tests {
             "a neighbour 30 px away changed a dab's rim"
         );
 
-        // Visible radius ≈ 0.9 r = 0.9 · BASE_RADIUS · (0.6 + 0.5 · 2) = 8.6 px.
         let first_inside = alone_row.iter().position(|c| *c >= 128).expect("blob");
         let radius = 30.0 - first_inside as f32;
         assert!(
@@ -2004,7 +1616,6 @@ mod tests {
 
     #[test]
     fn the_cpu_canvas_re_rasterises_when_its_box_changes() {
-        // REPORTED: "canvas doesn't auto-resize" — same strokes, new box.
         assert!(cpu_canvas_needs_raster(
             3,
             3,
@@ -2032,9 +1643,6 @@ mod tests {
 
     #[test]
     fn the_gpu_metaball_shader_uses_the_cpu_constants() {
-        // One kernel, two implementations: the GLSL body must carry the same
-        // support radius and AA band as the CPU constants, or
-        // AZ_BACKEND=gpu paints a different picture.
         let support_sq = format!("1.0 - q / {:.1}", METABALL_SUPPORT * METABALL_SUPPORT);
         assert!(
             METABALL_FS_BODY.contains(&support_sq),
@@ -2063,7 +1671,6 @@ mod tests {
         assert_eq!(metaball_kernel(s2), 0.0, "exactly zero at the support edge");
         assert_eq!(metaball_kernel(s2 * 4.0), 0.0, "and beyond it");
         assert_eq!(metaball_kernel(f32::NAN), 0.0);
-        // Monotone decreasing and continuous up to the edge.
         let mut prev = 1.0f32;
         for i in 1..=400 {
             let q = s2 * (i as f32 / 400.0);
@@ -2099,7 +1706,6 @@ mod tests {
             "stroke colour must survive: {svg}"
         );
         assert!(svg.contains("stroke-linecap=\"round\""), "{svg}");
-        // viewBox must cover the points (plus radius padding).
         assert!(svg.contains("viewBox=\""), "{svg}");
     }
 

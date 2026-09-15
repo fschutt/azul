@@ -1,12 +1,5 @@
-// Hello World: a counter and a button that increments it.
-//
-// Build (azul.swift, azul.h, module.modulemap and libazul next to this file):
-//   swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so
-//   swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world
 import Azul
 
-// The application state is an ordinary Swift class. libazul keeps it alive
-// and hands it back to every callback with its own type.
 final class Counter {
     var count = 5
 }

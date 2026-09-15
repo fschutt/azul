@@ -1,10 +1,3 @@
-//! The the Office-2013-era look ribbon composition — HOME tab cloned control-by-control.
-//!
-//! Adapted from the verified `azul/examples/rust/src/ribbon.rs` (pixel-close
-//! against the real the Office-2013-era look HOME tab), rebased onto the
-//! public `azul::widgets` ribbon API. The FILE app button opens the
-//! backstage (`crate::on_file_button`).
-
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType, RefAny,
@@ -22,10 +15,6 @@ use azul::{
 
 use crate::{palette::Palette, AppState};
 
-// ---------------------------------------------------------------------------
-// Callbacks
-// ---------------------------------------------------------------------------
-
 extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -35,17 +24,13 @@ extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo, index: usize) -> U
 }
 
 extern "C" fn on_style_select(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    // Gallery cells: 0 Normal, 1 No Spacing, 2 Heading 1, 3 Heading 2,
-    // 4 Title, 5 Subtitle, 6 Subtle Emphasis, 7 Emphasis. Paragraph styles
-    // apply to the block(s) the selection/caret sits in; the two character
-    // styles toggle italic over the selection.
     use crate::ir::{FormatAxis, IrParaStyle};
     let para_style = match index {
         0 | 1 => Some(IrParaStyle::Body),
         2 => Some(IrParaStyle::Heading(1)),
         3 => Some(IrParaStyle::Heading(2)),
-        4 => Some(IrParaStyle::Heading(1)), // Title renders as the top heading
-        5 => Some(IrParaStyle::Heading(3)), // Subtitle as the third level
+        4 => Some(IrParaStyle::Heading(1)),
+        5 => Some(IrParaStyle::Heading(3)),
         _ => None,
     };
     let update = match para_style {
@@ -54,8 +39,6 @@ extern "C" fn on_style_select(mut data: RefAny, mut info: CallbackInfo, index: u
                 return Update::DoNothing;
             };
             let mut changed = crate::sync_ir_text_from_engine(&mut state, &mut info);
-            // Target blocks: every block the selection touches, else the
-            // caret's block.
             let mut blocks: Vec<usize> = Vec::new();
             let spans = info.get_document_selection();
             for span in spans.as_ref() {
@@ -117,8 +100,6 @@ extern "C" fn on_toggle_underline(mut data: RefAny, mut info: CallbackInfo) -> U
     Update::RefreshDom
 }
 
-/// Payload for the four alignment buttons: shared app state + this button's
-/// alignment index.
 struct AlignPayload {
     app: RefAny,
     align: usize,
@@ -146,10 +127,6 @@ extern "C" fn on_font_select(_: RefAny, _: CallbackInfo, state: ComboBoxState) -
     );
     Update::DoNothing
 }
-
-// ---------------------------------------------------------------------------
-// Small builder helpers
-// ---------------------------------------------------------------------------
 
 fn s(v: &str) -> AzString {
     AzString::from(v)
@@ -184,26 +161,15 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
 }
 
 fn cell(preview_css: String, sample: &str, name: &str) -> RibbonGalleryCell {
-    // The preview sits next to the cell's <p> label, so it needs a box of its
-    // own — a DIV, which (unlike <p>) adds no UA margins to the sample.
     RibbonGalleryCell::new(
         Dom::create_div_with_text(sample).with_css(preview_css),
         s(name),
     )
 }
 
-// ---------------------------------------------------------------------------
-// The HOME tab (the the Office-2013-era look default tab, cloned control by control)
-// ---------------------------------------------------------------------------
-
 fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> RibbonTab {
-    // The ribbon chrome is the app's biggest painted surface: the desktop
-    // supplies its neutrals, so the tab strip and every control in it match
-    // the session instead of being a white rectangle pasted into a dark one -
-    // while the FILE button and the active-tab accent stay AzWriter's brand.
     let ribbon_style = crate::palette::widgets::ribbon(pal, sys);
 
-    // -- Clipboard ---------------------------------------------------------
     let clipboard = RibbonGroup::new(s("Clipboard"))
         .with_item(RibbonItem::LargeButton(
             RibbonButton::new(s("content_paste"), s("Paste")).with_arrow(RibbonArrow::Split),
@@ -214,7 +180,6 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
             item("format_paint", "Format Painter"),
         ]));
 
-    // -- Font ----------------------------------------------------------------
     let font_names: Vec<AzString> = [
         "Calibri (Body)",
         "Calibri Light",
@@ -240,7 +205,6 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         },
     );
     let mut size_combo = ribbon_style.styled_combo_box(font_sizes, s("11"), 45);
-    // WORKAROUND(engine): pin the static UI font (see crate::fonts).
     let name_text = name_combo.resolved_text_style();
     crate::fonts::push_ui_font(&mut name_combo.text_style, name_text);
     let size_text = size_combo.resolved_text_style();
@@ -281,7 +245,6 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         ]),
     ]));
 
-    // -- Paragraph -----------------------------------------------------------
     let align_icons = [
         "format_align_left",
         "format_align_center",
@@ -322,18 +285,6 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         row(para_row2),
     ]));
 
-    // -- Styles (in-ribbon gallery) -------------------------------------------
-    // The gallery previews are SAMPLES OF THE DOCUMENT STYLES, and a document
-    // style is a fixed thing: "Heading 1 is 2E74B5" does not become something
-    // else because the desktop theme did. They are the one part of this app's
-    // chrome that is deliberately NOT themed (user ruling) - the preview has
-    // to show what the style will actually be.
-    //
-    // What that ruling does NOT license is illegibility: on a dark session
-    // these inks were painted straight onto the charcoal ribbon and the Title
-    // sample vanished into it. `sample_ink` keeps the hue and lifts only the
-    // lightness, and only until it clears WCAG AA against this palette's
-    // chrome - so on a light desktop every preview is byte-identical to before.
     let ink = |r: u8, g: u8, b: u8| {
         Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal))
     };
@@ -392,7 +343,6 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         .with_item(RibbonItem::Gallery(gallery))
         .with_fills_space(true);
 
-    // -- Editing ---------------------------------------------------------------
     let editing = RibbonGroup::new(s("Editing")).with_item(column(vec![
         item_menu("search", "Find"),
         item("find_replace", "Replace"),
@@ -407,16 +357,12 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         .with_group(editing)
 }
 
-/// The non-HOME tabs only exist as switchable headers with placeholder
-/// content — the HOME tab is the cloning target.
 fn placeholder_tab(label: &str) -> RibbonTab {
     RibbonTab::new(s(label)).with_group(RibbonGroup::new(s("Preview")).with_item(
         RibbonItem::LargeButton(RibbonButton::new(s("layers"), s(label))),
     ))
 }
 
-/// Builds the full ribbon (tab strip + active tab content) for the editor
-/// screen. The FILE button opens the backstage.
 pub fn build(
     state: &AppState,
     data: &RefAny,
@@ -443,16 +389,9 @@ pub fn build(
         .with_active_tab(state.ribbon_tab);
     ribbon.style = crate::palette::widgets::ribbon(pal, sys);
     ribbon.set_on_tab_click(data.clone(), on_tab_click as RibbonOnTabClickCallbackType);
-    // WORKAROUND(engine): pin the static UI font on the ribbon container —
-    // the font inherits into every tab / group / label (see crate::fonts).
     let container = ribbon.style.resolved_container_style();
     crate::fonts::push_ui_font(&mut ribbon.style.container_style, container);
     if compact {
-        // Touch chrome: a full-width active-tab button (tap opens the tab
-        // picker, double-tap collapses the band), the group list on the
-        // dominant-hand side, and ONE group visible at a time. Collapsed to
-        // start, because on a phone the content band eats most of the viewport
-        // and the document is what the user came for.
         ribbon.dom_mobile()
     } else {
         ribbon.dom_desktop()

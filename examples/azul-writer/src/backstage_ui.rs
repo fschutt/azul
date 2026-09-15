@@ -1,12 +1,3 @@
-//! Backstage pane content (the Office-2013-era look "FILE" screen): the Info and Open
-//! panes per the reference screenshots; every other nav entry shows an
-//! empty pane with its title. The chrome (nav column, back ring, Esc
-//! behavior) is the `azul::widgets::Backstage` widget.
-//!
-//! Every label goes through `fonts::text` (programmatic styling — see
-//! ENGINE-ISSUES.md #4 for why inline `with_css` strings on text nodes are
-//! avoided); wrapper DIVs own the margins and layout.
-
 use azul::{
     callbacks::{BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, RefAny},
     css::{EventFilter, HoverEventFilter, SystemStyle},
@@ -18,15 +9,10 @@ use azul::{
 
 use crate::{fonts, palette::Palette, AppState};
 
-/// The nav labels `Backstage::office_2013()` builds its column from (the
-/// widget-crate const is not part of the public api.json surface, so the
-/// list lives here; indices must match the widget's nav order).
 const OFFICE_2013_NAV_LABELS: &[&str] = &[
     "Info", "New", "Open", "Save", "Save As", "Print", "Share", "Export", "Close",
 ];
 
-/// Export pane: "Create PDF/XPS Document" (the Office-2013-era wording), wired to
-/// the engine's DOM->PDF path.
 fn export_pane(state: &AppState, data: &RefAny, pal: &Palette) -> Dom {
     let pages =
         crate::document::paginate_cached(&state.document.content, state.document.generation);
@@ -58,7 +44,6 @@ fn export_pane(state: &AppState, data: &RefAny, pal: &Palette) -> Dom {
         )
 }
 
-/// Big light pane title ("Info", "Open", …).
 fn pane_title(text: &str, pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css("flex-grow: 0; display: flex; flex-direction: row;")
@@ -73,7 +58,6 @@ fn pane_frame(pal: &Palette) -> Dom {
     ))
 }
 
-/// The small accent "W" document icon in the recent-documents list.
 fn doc_icon(pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css(format!(
@@ -84,16 +68,11 @@ fn doc_icon(pal: &Palette) -> Dom {
         .with_child(fonts::text("W", 12, pal.on_brand))
 }
 
-/// A margin-owning wrapper around a text node.
 fn boxed(css: &str, child: Dom) -> Dom {
     Dom::create_div()
         .with_css(format!("display: flex; flex-direction: row; flex-grow: 0; {css}").as_str())
         .with_child(child)
 }
-
-// ---------------------------------------------------------------------------
-// Info pane
-// ---------------------------------------------------------------------------
 
 fn info_action(
     icon: &str,
@@ -214,10 +193,6 @@ fn info_pane(state: &AppState, pal: &Palette) -> Dom {
         )
 }
 
-// ---------------------------------------------------------------------------
-// Open pane
-// ---------------------------------------------------------------------------
-
 fn place_row(icon: &str, label: &str, active: bool, pal: &Palette) -> Dom {
     let bg = if active {
         format!("background: {};", Palette::hex(pal.selected_bg))
@@ -257,7 +232,6 @@ fn recent_row(name: &str, place: &str, pal: &Palette) -> Dom {
         .with_child(text_col)
 }
 
-/// The bordered "Browse" button — opens the native *.md file dialog.
 fn browse_button(data: &RefAny, pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css(format!(
@@ -319,17 +293,9 @@ fn open_pane(data: &RefAny, pal: &Palette) -> Dom {
         )
 }
 
-// ---------------------------------------------------------------------------
-// The backstage screen
-// ---------------------------------------------------------------------------
-
-/// Full-window backstage takeover: widget chrome + the active pane.
 pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
 
-    // The white strip right of the nav column: centered title, help and the
-    // window buttons — no quick-access actions (per the the Office-2013-era look
-    // screenshots, which show "? − ⧉ ✕" top right in the backstage).
     let mut strip = QuickAccessBar::new(AzString::from(title));
     strip.trailing_actions = vec![QuickAccessAction::new(AzString::from("help_outline"))].into();
     strip.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
@@ -366,10 +332,7 @@ pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &Sy
         )
         .with_title_strip(title_strip)
         .with_content(content);
-    // A BRAND nav column over the desktop's window surface: the office blue
-    // is AzWriter's identity, the pane behind it is the session's.
     backstage.style = crate::palette::widgets::backstage(pal, sys);
-    // WORKAROUND(engine): pin the static UI font (inherits into the panes).
     let root = backstage.style.resolved_root_style();
     crate::fonts::push_ui_font(&mut backstage.style.root_style, root);
     backstage.dom()

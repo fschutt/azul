@@ -34,12 +34,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzDom body = AzDom_createBody();
 
-    // === Heading ===
     AzDom h1 = AzDom_createNode(AzNodeType_h1());
     AzDom_addChild(&h1, AzDom_createPWithText(AZ_STR("Accessibility Test Page")));
     AzDom_addChild(&body, h1);
 
-    // === Section 1: Text content ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -57,7 +55,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 2: Buttons ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -78,7 +75,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 3: Links ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -98,7 +94,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 4: Form inputs ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -119,7 +114,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 5: Lists ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -143,7 +137,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 6: Table ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));
@@ -154,7 +147,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
         AzDom table = AzDom_createTable(AZ_STR("Employee Directory"), AzSmallAriaInfo_label(AZ_STR("Employee directory table")));
 
-        // Header row
         AzDom tr_head = AzDom_createTr();
         AzDom th1 = AzDom_createTh();
         AzDom_addChild(&th1, AzDom_createPWithText(AZ_STR("Name")));
@@ -164,7 +156,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&tr_head, th2);
         AzDom_addChild(&table, tr_head);
 
-        // Data rows
         AzDom tr1 = AzDom_createTr();
         AzDom td1a = AzDom_createTd();
         AzDom_addChild(&td1a, AzDom_createPWithText(AZ_STR("Alice")));
@@ -187,7 +178,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, section);
     }
 
-    // === Section 7: Contenteditable ===
     {
         AzDom section = AzDom_createDiv();
         AzDom_addClass(&section, AZ_STR("section"));

@@ -1,28 +1,3 @@
-//! System-tray demo.
-//!
-//! ```sh
-//! cargo run --release -p azul-examples --example tray
-//! ```
-//!
-//! **macOS only for now.** Windows and Linux report the tray as unavailable;
-//! this demo says so and keeps running, which is the behaviour every app needs
-//! anyway - on a vanilla GNOME there is genuinely no tray to talk to.
-//!
-//! Everything here goes through the ordinary public API (`azul::tray::*`,
-//! `App::set_tray`), i.e. the same C ABI every language binding sees. Nothing
-//! reaches into the crate internals.
-//!
-//! What it shows:
-//!
-//! * a tray icon whose image is an **icon-registry spec** - the same string an `<icon>` node takes,
-//!   resolved through the same pass, so any registered icon works (Material Icons is the default
-//!   pack) with no tray-specific icon path;
-//! * a tray **menu**, built from the ordinary `Menu` type the menu bar uses.
-//!
-//! Note the menu is *state*: it is set once as part of `TrayIconData`, not
-//! shown on demand. That shape is forced by Linux, where the panel draws the
-//! menu itself and calls back asking for the layout.
-
 use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
@@ -31,13 +6,9 @@ use azul::{
 
 struct TrayDemo {
     available: bool,
-    /// Bumped by the tray menu, and rendered by the window - the point being
-    /// that a tray callback mutates the SAME state the window draws from.
     clicks: usize,
 }
 
-/// Tray menu callbacks are ordinary azul callbacks: your `RefAny` comes back
-/// as the first argument, and returning `Update::RefreshDom` re-runs layout.
 extern "C" fn on_open(mut data: RefAny, _info: CallbackInfo) -> Update {
     match data.downcast_mut::<TrayDemo>() {
         Some(mut d) => {
@@ -87,9 +58,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 )
                 .with_css(HINT),
             )
-            // The count is what makes the wiring visible: it is bumped by a
-            // callback fired from the TRAY, mutating the same RefAny this
-            // window lays out from.
             .with_child(
                 Dom::create_div_with_text(format!("\"Open\" clicked {clicks} time(s)"))
                     .with_css(HINT),
@@ -101,37 +69,20 @@ fn main() {
     println!("azul - system tray demo");
     println!("=======================");
 
-    // The icon is an icon-registry SPEC, not a bitmap: "settings" resolves
-    // through the same registry and resolver an `<icon>settings</icon>` node
-    // uses, then renders to RGBA at whatever size the platform asks for.
-    // Try any other Material Icons name - "home", "favorite", "cloud".
     let data = RefAny::new(TrayDemo {
-        // Filled in below via App::is_tray_available — a runtime question on
-        // Linux (watcher + host on the session bus), a constant elsewhere.
         available: false,
         clicks: 0,
     });
 
-    // The red heart, same as the app icon: the Material "settings" gear
-    // renders in its default near-black and disappears on a dark panel
-    // (pen-session feedback, 2026-08-29). One colored icon for both slots
-    // also makes the pairing obvious in the tray + taskbar.
     let tray = TrayIconData::new("rs.azul.tray-demo", "Azul Tray Demo")
         .with_named_icon("red-heart")
         .with_tooltip("Azul tray demo")
         .with_menu(Menu::create(vec![
-            // A tray menu item takes the SAME callback a menu-bar item takes:
-            // your own RefAny plus a `CallbackInfo`. Without one the item is
-            // still clickable, but the click only shows up as a `TrayEvent` for
-            // you to poll - attaching a callback is what makes it act.
             MenuItem::String(StringMenuItem::create("Open").with_callback(data.clone(), on_open)),
             MenuItem::Separator,
             MenuItem::String(StringMenuItem::create("Quit").with_callback(data.clone(), on_quit)),
         ]));
 
-    // A DOM registered as an icon. The colour lives HERE, with the icon, not as
-    // a tint parameter threaded through every call site - which is the whole
-    // reason icons resolve on the Dom before the cascade.
     let mut config = AppConfig::create();
     config.icon_provider.register_dom_icon(
         String::from("demo"),
@@ -140,17 +91,12 @@ fn main() {
     );
 
     let mut app = App::create(data.clone(), config);
-    // The runtime answer (Linux: is a StatusNotifier host actually listening?)
-    // so the window text reports what the panel will really show.
     let available = app.is_tray_available();
     if let Some(mut d) = data.clone().downcast_mut::<TrayDemo>() {
         d.available = available;
     }
     println!("[tray] tray available on this desktop: {available}");
     app.set_tray(tray);
-    // The app icon, from the same registry + pipeline as the tray icon. On
-    // macOS this is the Dock tile (process-local, resets next launch); on
-    // X11 it is `_NET_WM_ICON` on every window (titlebar / taskbar / Alt-Tab).
     app.set_app_icon(String::from("red-heart"));
 
     let mut window = WindowCreateOptions::create(layout);

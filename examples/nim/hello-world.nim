@@ -16,8 +16,6 @@ proc azStr(s: string): AzString =
     AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
 
 proc myDataUpcast(model: MyDataModel): AzRefAny =
-  # newC copies the bytes into its own allocation, so a stack pointer is fine;
-  # run_destructor = false means libazul won't free the caller's pointer.
   var local = model
   let blob = AzGlVoidPtrConst(`ptr`: cast[pointer](addr local), run_destructor: false)
   AzRefAny_newC(
@@ -27,8 +25,8 @@ proc myDataUpcast(model: MyDataModel): AzRefAny =
     myDataTypeId(),
     azStr("MyDataModel"),
     myDataDestructor,
-    csize_t(0),   # no serialize_fn
-    csize_t(0))   # no deserialize_fn
+    csize_t(0),
+    csize_t(0))
 
 proc myDataDowncast(refany: ptr AzRefAny): ptr MyDataModel =
   if not AzRefAny_isType(refany, myDataTypeId()):

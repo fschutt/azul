@@ -50,7 +50,6 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     button = AzButton_create(AzStr("Increase counter"))
     AzButton_setButtonType(@button, AzButtonType_Primary)
 
-    ' Clone the RefAny so the button keeps its own reference.
     dataClone = AzRefAny_clone(@data)
     AzButton_setOnClick(@button, dataClone, @on_click)
     buttonDom = AzButton_dom(button)

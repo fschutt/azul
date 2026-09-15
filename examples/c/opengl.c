@@ -425,11 +425,6 @@ static AzUpdate upload_to_gpu(AzRefAny data, AzCallbackInfo* info) {
 
     OpenGlStateRefMut_delete(&d);
 
-    /* No animation timer. The rotation it drove is a property of the GPU
-     * scene, so on a machine with no GL context every tick re-ran the image
-     * callback and got back the exact same placeholder - a 60 Hz repaint of
-     * an unchanged frame. Nothing here needs a clock; the scene is uploaded
-     * once above and drawn by the image callback when the frame is painted. */
     return AzUpdate_RefreshDom;
 }
 

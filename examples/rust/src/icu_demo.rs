@@ -1,19 +1,6 @@
-//! ICU4X Internationalization Demo for Azul GUI Framework (Rust)
-//!
-//! This example demonstrates locale-aware:
-//! - Number formatting (thousands separators, decimal points)
-//! - Date and time formatting
-//! - Plural rules (1 item vs 2 items)
-//! - List formatting ("A, B, and C")
-//! - String collation/sorting
-//!
-//! Run with:
-//!   cd examples/rust && cargo run --example icu_demo --features icu
-
 use azul::desktop::icu::{
     FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuTime, ListType,
 };
-// We use azul_css::AzString directly since azul re-exports it
 use azul_css::AzString;
 
 fn demo_locale(locale_name: &str, locale_code: &str) {
@@ -21,30 +8,26 @@ fn demo_locale(locale_name: &str, locale_code: &str) {
     println!("Locale: {} ({})", locale_name, locale_code);
     println!("{}", "=".repeat(60));
 
-    // Create a shared cache for all ICU operations
-    // The cache will lazily create formatters per-locale as needed
     let cache = IcuLocalizerHandle::new(locale_code);
 
-    // === Number Formatting ===
     println!("\n--- Number Formatting ---");
     let number: i64 = 1234567;
     let formatted = cache.format_integer(locale_code, number);
     println!("Raw:       {}", number);
     println!("Formatted: {}", formatted.as_str());
 
-    // === Plural Rules ===
     println!("\n--- Plural Rules ---");
     for count in [0i64, 1, 2, 5, 21] {
         let category = cache.get_plural_category(locale_code, count);
         let message = cache.pluralize(
             locale_code,
             count,
-            "no items", // zero
-            "1 item",   // one
-            "2 items",  // two
-            "{} items", // few
-            "{} items", // many
-            "{} items", // other
+            "no items",
+            "1 item",
+            "2 items",
+            "{} items",
+            "{} items",
+            "{} items",
         );
         println!(
             "count={:2}: '{}' (category: {:?})",
@@ -54,7 +37,6 @@ fn demo_locale(locale_name: &str, locale_code: &str) {
         );
     }
 
-    // === List Formatting ===
     println!("\n--- List Formatting ---");
     let items = vec![
         AzString::from("Apple"),
@@ -66,7 +48,6 @@ fn demo_locale(locale_name: &str, locale_code: &str) {
     println!("And-list: {}", and_list.as_str());
     println!("Or-list:  {}", or_list.as_str());
 
-    // === String Collation/Sorting ===
     println!("\n--- Locale-Aware Sorting (Collation) ---");
     let unsorted = vec![
         AzString::from("Österreich"),
@@ -85,7 +66,6 @@ fn demo_locale(locale_name: &str, locale_code: &str) {
         sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>()
     );
 
-    // String comparison
     println!("\n--- String Comparison ---");
     let a = "Ägypten";
     let b = "Bahamas";
@@ -97,7 +77,6 @@ fn demo_locale(locale_name: &str, locale_code: &str) {
     };
     println!("'{}' {} '{}' (result: {})", a, cmp_str, b, cmp);
 
-    // === Date/Time Formatting ===
     println!("\n--- Date/Time Formatting ---");
     let date = IcuDate {
         year: 2025,
@@ -150,13 +129,11 @@ fn demo_multi_locale() {
     println!("Multi-Locale Demo (Single Cache)");
     println!("{}", "=".repeat(60));
 
-    // Create a single cache that can handle multiple locales
     let cache = IcuLocalizerHandle::default();
     let number: i64 = 1234567;
 
     println!("\nFormatting {} in different locales:", number);
 
-    // Format the same number in different locales using one cache
     let locales = [
         ("en-US", "English (US)"),
         ("de-DE", "German"),
@@ -169,7 +146,6 @@ fn demo_multi_locale() {
         println!("  {}: {}", name, formatted.as_str());
     }
 
-    // Demonstrate dynamic locale switching for pluralization
     println!("\nPlural rules for count=2 in different locales:");
     for (locale, name) in locales {
         let message = cache.pluralize(
@@ -191,14 +167,12 @@ fn main() {
     println!("NEW: All functions now take a locale parameter, allowing");
     println!("     dynamic language switching per-call!");
 
-    // Demo different locales (each creates its own cache)
     demo_locale("English (US)", "en-US");
     demo_locale("German", "de-DE");
     demo_locale("French", "fr-FR");
     demo_locale("Spanish", "es-ES");
     demo_locale("Japanese", "ja-JP");
 
-    // Demo multi-locale support with a single cache
     demo_multi_locale();
 
     println!("\n{}", "=".repeat(60));

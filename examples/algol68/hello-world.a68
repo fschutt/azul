@@ -39,7 +39,6 @@ BEGIN
   AZBUTTON button := az button create (az str ("Increase counter"));
   az button set button type (button, az button type primary);
 
-  # Clone the RefAny so the button keeps its own reference. #
   AZREFANY data clone := az ref any clone (refany);
   az button set on click (button, data clone, on click);
   AZDOM button dom := az button dom (button);

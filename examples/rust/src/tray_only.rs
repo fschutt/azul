@@ -1,24 +1,3 @@
-//! azul - a system-tray app with NO window at all.
-//!
-//! The ordinary `App::run()` creates a root window unconditionally, so a
-//! menu-bar utility used to have to open (and then hide) a window it never
-//! wanted. `run_tray_only()` skips window creation entirely.
-//!
-//! What that costs, and why it is deliberate:
-//!
-//! * On macOS the process switches to **Accessory** activation - the runtime equivalent of
-//!   `LSUIElement` in an Info.plist. No Dock tile, no application menu bar. A `Regular` app with no
-//!   windows is worse than having one: it owns the menu bar and shows a Dock icon that does
-//!   nothing.
-//! * Because there is no Dock tile, `set_app_icon` has nowhere to draw, so this example does not
-//!   call it.
-//!
-//! Tray menu callbacks still work exactly as they do in a windowed app - the
-//! same `RefAny`, the same `CallbackInfo` - because a headless stub window
-//! supplies the callback context without any OS window existing.
-//!
-//! Run it and look in the menu bar; there is no window and no Dock icon.
-
 use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
@@ -64,6 +43,5 @@ fn main() {
     let mut app = App::create(data, AppConfig::create());
     app.set_tray(tray);
 
-    // NOT `app.run(window)` - there is no window.
     app.run_tray_only();
 }

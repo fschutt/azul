@@ -1,39 +1,13 @@
-//! Command-line arguments.
-//!
-//! Every knob this app has is an ARGUMENT, parsed once in `main` and passed
-//! down explicitly - not an environment variable read wherever it happens to
-//! be needed. The difference is not cosmetic: an env read is invisible at the
-//! call site, ambient across every child process the app spawns, and
-//! impossible to see in a `--help`, which is exactly why harness switches
-//! written as env vars keep leaking into runs that did not want them.
-//!
-//! The two sinks that cannot take a parameter through their own signature
-//! (the frame log inside `perf`, the XML dump inside `document` - free
-//! functions on a path the arguments do not travel) are INITIALISED from the
-//! parsed arguments at startup instead. The value still comes from the
-//! command line; only the last hop is a one-time store.
-//!
-//! `AZWRITER_DUMP_PDF` stays an environment variable on purpose: its only
-//! reader is a #[test], and a test binary has no argv of its own to put a
-//! flag on.
-//!
-//! Android has no argv: `Args::default()` is what the library constructor
-//! starts with there.
-
 use std::path::PathBuf;
 
-/// How much the frame timer prints.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum FrameLog {
     #[default]
     Off,
-    /// Only frames over the budget print.
     Slow,
-    /// Every frame prints.
     All,
 }
 
-/// Which screen the app opens on (the screenshot harness picks one).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Screen {
     #[default]
@@ -44,29 +18,16 @@ pub enum Screen {
 
 #[derive(Clone, Debug, Default)]
 pub struct Args {
-    /// Markdown file to open at startup (positional, or `--open`).
     pub open: Option<PathBuf>,
-    /// The screen to open on.
     pub screen: Screen,
-    /// Initial window size, overriding the 1280x800 restore size.
     pub size: Option<(f32, f32)>,
-    /// Screenshot harness: render, write this PNG, exit.
     pub shot: Option<PathBuf>,
-    /// How long to let the first frame and the async font load settle before
-    /// the screenshot.
     pub shot_delay_ms: u64,
-    /// Paginate the document a second time under a fresh generation at
-    /// startup, so the memo misses twice - separates "pagination is slow"
-    /// from "the FIRST pagination is slow".
     pub paginate_twice: bool,
-    /// Frame-timing output.
     pub frame_log: FrameLog,
-    /// Write the generated document XML here (markdown pipeline debugging).
     pub dump_xml: Option<PathBuf>,
 }
 
-/// The default screenshot delay: enough for the first layout AND the async
-/// font registry to settle, or the PNG catches the fallback face.
 const DEFAULT_SHOT_DELAY_MS: u64 = 2500;
 
 pub const HELP: &str = "\
@@ -87,15 +48,9 @@ OPTIONS:
     -h, --help               Print this help
 ";
 
-/// What went wrong, phrased for a terminal.
 pub type ParseError = String;
 
 impl Args {
-    /// Parse `argv` WITHOUT the program name.
-    ///
-    /// Unknown flags are an ERROR rather than a silent skip: a harness that
-    /// misspells `--shot-delay-ms` and gets a run with no screenshot has lost
-    /// more time than the strictness costs.
     pub fn parse<I, S>(argv: I) -> Result<Self, ParseError>
     where
         I: IntoIterator<Item = S>,
@@ -109,8 +64,6 @@ impl Args {
         let mut i = 0;
         while i < argv.len() {
             let arg = argv[i].as_str();
-            // `--flag=value` and `--flag value` both work; the harness writes
-            // one, a human writes the other.
             let (name, inline) = match arg.split_once('=') {
                 Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
                 _ => (arg, None),
@@ -233,8 +186,6 @@ mod tests {
         assert_eq!(parse(&["--shot-delay-ms=10"]).unwrap().shot_delay_ms, 10);
     }
 
-    /// A misspelt harness switch must FAIL, not silently produce a run with
-    /// the option missing - that is the failure mode env vars are famous for.
     #[test]
     fn a_bad_option_is_rejected_rather_than_ignored() {
         for bad in [

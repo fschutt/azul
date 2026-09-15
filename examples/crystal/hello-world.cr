@@ -1,11 +1,5 @@
-# Hello World: a counter and a button that increments it.
-#
-# Build (with libazul next to this file):
-#   crystal build hello-world.cr --link-flags "-L."
 require "azul"
 
-# The application state is an ordinary Crystal object. libazul keeps it alive
-# and hands it back to every callback with its own type.
 class Counter
   property count : Int32
 

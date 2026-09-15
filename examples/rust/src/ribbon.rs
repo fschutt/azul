@@ -1,13 +1,3 @@
-// cargo run --example ribbon
-//
-// A Word-2013-style window built from the MS-Ribbon widget model:
-// tab strip (FILE app button + tabs), HOME tab with Clipboard / Font /
-// Paragraph / Styles / Editing groups, dialog launchers and an in-ribbon
-// styles gallery. Every button is the regular `Button` widget with ribbon
-// styles injected; the font pickers are the regular `ComboBox` widget
-// restyled through its public style fields (`RibbonStyle::styled_combo_box`).
-// Icons come from the builtin Material Icons pack via `<icon>` nodes.
-
 use azul::{
     css::ColorU,
     dialog::{
@@ -25,13 +15,9 @@ struct DocState {
     bold: bool,
     italic: bool,
     underline: bool,
-    /// 0 = left, 1 = center, 2 = right, 3 = justify
     align: usize,
-    /// Selected cell of the styles gallery
     selected_style: usize,
-    /// Template last applied from the gallery (the app-side signal).
     applied_template: String,
-    /// Font colour picked through the Font dialog launcher.
     font_color: ColorU,
 }
 
@@ -55,10 +41,6 @@ impl Default for DocState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Callbacks
-// ---------------------------------------------------------------------------
-
 extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
     let Some(mut state) = data.downcast_mut::<DocState>() else {
         return Update::DoNothing;
@@ -72,7 +54,6 @@ extern "C" fn on_style_select(mut data: RefAny, _: CallbackInfo, index: usize) -
         return Update::DoNothing;
     };
     state.selected_style = index;
-    // The application signal: "apply this template to the selection".
     let name = TEMPLATE_NAMES.get(index).copied().unwrap_or("Normal");
     println!("[app] apply template: {name}");
     state.applied_template = name.into();
@@ -103,8 +84,6 @@ extern "C" fn on_toggle_underline(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Payload for the four alignment buttons: shared app state + this button's
-/// alignment index.
 struct AlignPayload {
     app: RefAny,
     align: usize,
@@ -123,8 +102,6 @@ extern "C" fn on_align(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Word's dialog-box launchers open the corresponding modal. Azul ships
-/// tiny-file-dialog bindings, so these are REAL dialogs, not stubs.
 struct LauncherPayload {
     app: RefAny,
     which: usize,
@@ -139,12 +116,7 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
     drop(payload);
 
     match which {
-        // Font dialog: pick the font colour with the system colour picker and
-        // remember it on the app model.
         0 => {
-            // The picker answers in `on_font_colour_picked`, a fresh
-            // activation: right after this one on desktop, whenever the
-            // browser's <input type=color> resolves on web.
             let _request = ColorPickerDialog::open(
                 "Font Colour",
                 OptionColorU::Some(ColorU {
@@ -158,12 +130,10 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
             );
             Update::DoNothing
         }
-        // Paragraph dialog.
         1 => {
             MsgBox::info("Paragraph settings\n\n(Indents and Spacing / Line and Page Breaks)");
             Update::DoNothing
         }
-        // Styles dialog: offer to load a style set from disk.
         _ => {
             if MsgBox::yes_no(
                 "Styles",
@@ -208,8 +178,6 @@ extern "C" fn on_style_set_picked(_app: RefAny, _: CallbackInfo, result: RefAny)
     Update::DoNothing
 }
 
-/// The styles gallery reports the picked template to the application - the
-/// "Title" cell tells the app the user wants the Title template applied.
 const TEMPLATE_NAMES: &[&str] = &[
     "Normal",
     "No Spacing",
@@ -229,10 +197,6 @@ extern "C" fn on_font_select(_: RefAny, _: CallbackInfo, state: ComboBoxState) -
     );
     Update::DoNothing
 }
-
-// ---------------------------------------------------------------------------
-// Small builder helpers
-// ---------------------------------------------------------------------------
 
 fn small(icon: &str, label: &str) -> RibbonButton {
     RibbonButton::new(icon, label)
@@ -263,22 +227,15 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
-    // The preview sits next to the cell's <p> label, so it needs a box of
-    // its own — a DIV, which (unlike <p>) adds no UA margins to the sample.
     RibbonGalleryCell::new(
         Dom::create_div_with_text(sample).with_css(preview_css),
         name,
     )
 }
 
-// ---------------------------------------------------------------------------
-// The HOME tab (the the Office-2013-era look default tab, cloned control by control)
-// ---------------------------------------------------------------------------
-
 fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
     let ribbon_style = RibbonStyle::office_2013();
 
-    // -- Clipboard ---------------------------------------------------------
     let clipboard = RibbonGroup::new("Clipboard")
         .with_item(RibbonItem::LargeButton(
             RibbonButton::new("content_paste", "Paste").with_arrow(RibbonArrow::Split),
@@ -296,7 +253,6 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
             on_launcher,
         );
 
-    // -- Font ----------------------------------------------------------------
     let font_names: Vec<azul::str::String> = [
         "Calibri (Body)",
         "Calibri Light",
@@ -313,7 +269,6 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
         .map(|s| (*s).into())
         .collect();
 
-    // The regular ComboBox widget, restyled through its public style fields.
     let mut name_combo = ribbon_style.styled_combo_box(font_names, "Calibri (Body)", 133);
     name_combo.set_on_select(
         data.clone(),
@@ -364,7 +319,6 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
             on_launcher,
         );
 
-    // -- Paragraph -----------------------------------------------------------
     let align_icons = [
         "format_align_left",
         "format_align_center",
@@ -413,7 +367,6 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
             on_launcher,
         );
 
-    // -- Styles (in-ribbon gallery) -------------------------------------------
     let cells = vec![
         cell(
             "font-size: 14px; color: #444444;",
@@ -456,7 +409,6 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
         )
         .with_fills_space(true);
 
-    // -- Editing ---------------------------------------------------------------
     let editing = RibbonGroup::new("Editing").with_item(column(vec![
         item_menu("search", "Find"),
         item("find_replace", "Replace"),
@@ -471,18 +423,12 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
         .with_group(editing)
 }
 
-/// The non-HOME tabs only exist as switchable headers with placeholder
-/// content — the HOME tab is the cloning target.
 fn placeholder_tab(label: &str) -> RibbonTab {
     RibbonTab::new(label).with_group(
         RibbonGroup::new("Preview")
             .with_item(RibbonItem::LargeButton(RibbonButton::new("layers", label))),
     )
 }
-
-// ---------------------------------------------------------------------------
-// Window chrome (title bar with quick-access toolbar) + document area
-// ---------------------------------------------------------------------------
 
 fn qat_icon(name: &str) -> Dom {
     Dom::create_icon(name).with_css("font-size: 16px; color: #6a6a6a; margin-right: 10px;")
@@ -535,10 +481,6 @@ fn title_bar() -> Dom {
         .with_child(right)
 }
 
-// ---------------------------------------------------------------------------
-// Layout + main
-// ---------------------------------------------------------------------------
-
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let state = match data.downcast_ref::<DocState>() {
         Some(s) => (*s).clone(),
@@ -571,8 +513,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
         .with_child(title_bar())
         .with_child(if info.viewport_bigger_than(720.0) {
-            // Structural breakpoint: the framework re-runs layout() on every
-            // resize, so crossing 720px swaps the whole ribbon tree.
             ribbon.dom_desktop()
         } else {
             ribbon.dom_mobile()

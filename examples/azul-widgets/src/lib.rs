@@ -1,25 +1,4 @@
-//! AzulWidgets — a single-window showcase of every built-in Azul widget.
-//!
-//! The window is one scrollable vertical column of labelled sections
-//! (Inputs / Selection / Display / Feedback / Navigation / Overlays /
-//! Date & Time). Each section instantiates widgets with a sensible config and,
-//! where the widget exposes one, a hooked callback (so the callback wiring is
-//! compile-checked and the widgets are interactive).
-//!
-//! All 24 high-level widgets are demoed —
-//!   Switch, Divider, Card, Badge, Slider, Segmented, RadioGroup, Tooltip,
-//!   TextArea, Alert, Accordion, Avatar, Chip, Spinner, Popover, ComboBox,
-//!   Modal, Toast, Breadcrumb, Pagination, Stepper, SplitPane, DatePicker,
-//!   TimePicker
-//! — alongside the common existing ones (Button, CheckBox, ProgressBar,
-//! TextInput, NumberInput, ColorInput, DropDown).
-
-// `WindowDecorations` lives in `azul::css`, not `azul::window`.
 use azul::css::WindowDecorations;
-// The high-level widgets' on_* setters take a *wrapper* callback struct
-// (`{ cb, callable }`) rather than a bare fn pointer; those structs live in
-// `azul::dom`. (The existing widgets — Button/CheckBox/DropDown — instead take
-// a bare fn type, so they need nothing from here.)
 use azul::dom::{
     AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
     BreadcrumbOnNavigateCallback, ChipOnRemoveCallback, ComboBoxOnSelectCallback,
@@ -37,21 +16,11 @@ use azul::{
     window::TransientWindowConfig,
 };
 
-// ───────────────────────── Model (source of truth) ─────────────────────────
-
 #[derive(Clone)]
 struct Showcase {
     switch_on: bool,
     slider_value: f32,
-    /// The `NumberInput`'s value. MUST live here: the widget is rebuilt from
-    /// this on every layout, so a literal would snap the field back to it and
-    /// merge the typed text into the stale value.
     number: f32,
-    /// The `TextInput`'s text. MUST live here for the same reason: a widget is
-    /// rebuilt from host state on every layout, so a `TextInput::create()` with
-    /// no round-trip loses everything typed into it the moment ANY unrelated
-    /// callback returns `RefreshDom` — and the placeholder, hidden imperatively
-    /// on the first keystroke, does not come back either.
     text: azul::str::String,
     checkbox_checked: bool,
     selected_radio: usize,
@@ -60,70 +29,37 @@ struct Showcase {
     progress: f32,
     current_page: usize,
     current_step: usize,
-    /// Bumped by every hooked callback so the UI shows that callbacks fire.
     interactions: usize,
-    /// The colour picked in the `ColorInput`'s popup; the swatch shows it.
     color: ColorU,
-    /// The last menu-bar / context-menu item chosen (shown in the Menus section).
     menu_status: azul::str::String,
-    /// Files the user has dropped onto the drop zone.
     dropped: Vec<azul::str::String>,
-    /// Whether a file is being hovered over the drop zone right now.
     file_hovering: bool,
-    /// VS-style document tabs (labels), reorderable + tear-off-able.
     tabs: Vec<azul::str::String>,
-    /// Which tab is active.
     active_tab: usize,
-    /// The tab index a reorder drag started on (set on `DragStart`, read on
-    /// `Drop`). `usize::MAX` = no drag in flight.
     drag_tab: usize,
-    /// The tab the dragged tab is currently over (the insertion point). Drives
-    /// the drop indicator. `usize::MAX` = none.
     drag_over: usize,
-    /// The DatePicker's selected date. A widget is rebuilt from THIS on every
-    /// layout, so a picker whose date is not stored here resets to its literal
-    /// on the next `RefreshDom` — which is why the pickers looked "dead".
     date: DatePickerState,
-    /// The TimePicker's selected time (same reason).
     time: TimePickerState,
-    /// The ComboBox's current text (same reason).
     combo_text: azul::str::String,
-    /// Which accordion sections are expanded (same reason — a section whose
-    /// flag is not stored here snaps back to its literal on the next rebuild).
     accordion_open: Vec<bool>,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
 
-// ───────────────────────────── DOM helpers ─────────────────────────────────
-
-/// Build an azul `StringVec`-compatible vector from string literals.
 fn strs(items: &[&str]) -> Vec<azul::str::String> {
     items.iter().map(|s| (*s).into()).collect()
 }
 
-/// A small caption above a widget, so each entry in a section is labelled.
 fn labelled(label: &str, widget: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
         .with_child(
-            // The caption is one of two flex items, so the styling has to land
-            // on a real box: a bare text node has none, and the margin, weight
-            // and colour would all be inert. A SPAN rather than a div — this is
-            // a label, and a div says nothing about what the text is.
             Dom::create_span_with_text(label)
                 .with_css("font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px;"),
         )
-        // The caption a sighted user reads IS the control's name, so give it to
-        // the accessibility tree too. A slider is a track and a thumb with no
-        // text of its own, and an icon-only button's label is a glyph: the
-        // widget genuinely cannot know what it is called, only this call site
-        // does. `with_accessibility_name` MERGES, so the role and live value
-        // the widget declared survive.
         .with_child(widget.with_accessibility_name(label))
 }
 
-/// A titled card grouping several labelled widgets.
 fn section(title: &str, items: Vec<Dom>) -> Dom {
     let mut col =
         Dom::create_div()
@@ -140,7 +76,6 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
     col
 }
 
-/// Two dock zones side by side, the panel starting in the left one.
 fn dock_zones() -> Dom {
     let zone = |name: &str, child: Option<Dom>| {
         let mut z = Dom::create_div()
@@ -162,9 +97,6 @@ fn dock_zones() -> Dom {
         TransientWindowConfig::opened()
             .with_dock(TransientDock::inline())
             .with_tearoff(TransientTearoff::zone())
-            // Torn off, the panel is its own frameless window; Transparent
-            // gives it per-pixel alpha so its rounded corners are real (the
-            // same treatment the colour picker's popover uses).
             .with_material(azul::css::WindowBackgroundMaterial::Transparent),
     ))
     .with_attributes(vec![
@@ -207,12 +139,7 @@ fn dock_zones() -> Dom {
         .with_child(zone("dock-right", None))
 }
 
-// ─────────────────────────── Menus + context menu ──────────────────────────
-
-/// A menu item whose click records `label` into `menu_status`. The label is
-/// carried in a tiny per-item RefAny so one callback serves every item.
 fn menu_action(data: &RefAny, label: &'static str) -> StringMenuItem {
-    // Pack (Showcase, label) — the item's callback reads the label back.
     let item_data = RefAny::new((data.clone(), label));
     StringMenuItem::create(label).with_callback(item_data, on_menu_item)
 }
@@ -230,8 +157,6 @@ extern "C" fn on_menu_item(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// The right-click context menu for the Menus box: a couple of actions, a
-/// separator, and a submenu — the same `Menu` a native menu bar uses.
 fn context_menu(data: &RefAny) -> Menu {
     Menu::create(vec![
         MenuItem::string(menu_action(data, "Cut")),
@@ -245,7 +170,6 @@ fn context_menu(data: &RefAny) -> Menu {
     ])
 }
 
-/// The window menu bar: File / Edit, wired to the same status line.
 fn menu_bar(data: &RefAny) -> Menu {
     Menu::create(vec![
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
@@ -261,7 +185,6 @@ fn menu_bar(data: &RefAny) -> Menu {
     ])
 }
 
-/// The Menus section: a box that opens the context menu on right-click.
 fn menus_section(data: &RefAny, status: &str) -> Dom {
     let box_ = Dom::create_div()
         .with_css(
@@ -284,8 +207,6 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
         ],
     )
 }
-
-// ─────────────────────────────── File drop ─────────────────────────────────
 
 extern "C" fn on_file_hover(mut data: RefAny, info: CallbackInfo) -> Update {
     let hovering = info.is_file_drag_active();
@@ -311,7 +232,6 @@ extern "C" fn on_file_drop(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// The Files section: a drop zone that lists the files dropped onto it.
 fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -> Dom {
     let bg = if hovering { "#eef4ff" } else { "#f9fafb" };
     let border = if hovering { "#2970ff" } else { "#98a2b3" };
@@ -363,14 +283,6 @@ fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -
     )
 }
 
-// ──────────────────────────── VS-style tabs ────────────────────────────────
-//
-// A document-tab strip: click to switch, drag a tab onto another to reorder
-// (exercises the drag-source routing — Drag/DragEnd stick to the tab you
-// grabbed, not whatever is under the cursor), and drag a tab out of the strip
-// to tear it into its own window (the transient-window tear-off).
-
-/// Pack `(Showcase, tab_index)` so one set of callbacks serves every tab.
 fn tab_data(data: &RefAny, index: usize) -> RefAny {
     RefAny::new((data.clone(), index))
 }
@@ -383,7 +295,6 @@ fn tab_showcase_of(data: &mut RefAny) -> Option<RefAny> {
         .map(|p| (*p).0.clone())
 }
 
-/// Click a tab header → make it the active document.
 extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo) -> Update {
     let (Some(mut sc), Some(idx)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
         return Update::DoNothing;
@@ -397,12 +308,10 @@ extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// A reorder drag began on this tab: remember which one.
 extern "C" fn on_tab_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (Some(mut sc), Some(idx)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
         return Update::DoNothing;
     };
-    // Populate the drag payload so DragOver/Drop targets have something to read.
     let mime = azul::str::String::from("application/x-azul-tab");
     info.set_drag_data(mime, format!("{idx}").into_bytes());
     if let Some(mut s) = sc.downcast_mut::<Showcase>() {
@@ -411,13 +320,11 @@ extern "C" fn on_tab_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// A tab is over this tab: accept, so a `Drop` will fire here.
 extern "C" fn on_tab_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
     info.accept_drop();
     Update::DoNothing
 }
 
-/// A tab was dropped on this one: move the dragged tab to this slot.
 extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
     let (Some(mut sc), Some(target)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
         return Update::DoNothing;
@@ -430,7 +337,6 @@ extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
         }
         let moving = s.tabs.remove(src);
         s.tabs.insert(target, moving);
-        // Keep the same document active by following its label.
         let active_label = s.tabs.get(target).cloned();
         if let Some(al) = active_label {
             if let Some(pos) = s.tabs.iter().position(|t| t.as_str() == al.as_str()) {
@@ -443,7 +349,6 @@ extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// The VS-style tab section: a reorderable strip over a content pane.
 fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom {
     let mut strip = Dom::create_div().with_css(
         "display: flex; flex-direction: row; gap: 2px; border-bottom: 1px solid #d0d5dd; \
@@ -457,8 +362,6 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
             ("#e4e7ec", "#475467", "normal")
         };
         let mut tab = Dom::create_div()
-            // `Draggable(true)` makes the press a NODE drag (DragStart/Drag/Drop
-            // callbacks) rather than a text selection on the label.
             .with_attributes(vec![AttributeType::draggable(true)])
             .with_css(format!(
                 "display: flex; align-items: center; padding: 8px 16px; cursor: grab; \
@@ -517,15 +420,12 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
     )
 }
 
-// ──────────────────────────── Layout callback ──────────────────────────────
-
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let s = match data.downcast_ref::<Showcase>() {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
     };
 
-    // ── Inputs ──────────────────────────────────────────────────────────
     let inputs = section(
         "Inputs",
         vec![
@@ -590,7 +490,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Selection ───────────────────────────────────────────────────────
     let selection = section(
         "Selection",
         vec![
@@ -629,9 +528,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled(
                 "DropDown",
                 DropDown::create(strs(CHOICES))
-                    // The widget is rebuilt from this state every layout, so the
-                    // index the callback stored has to come back in — without
-                    // this the trigger always showed CHOICES[0].
                     .with_selected(s.selected_choice)
                     .with_on_choice_change(data.clone(), on_dropdown)
                     .dom(),
@@ -640,10 +536,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "ComboBox",
                 ComboBox::new(strs(&["Apple", "Banana", "Cherry", "Date"]))
                     .with_placeholder("Pick a fruit")
-                    // The widget is rebuilt from this state on every layout
-                    // (the comment on `combo_text` says why) — without feeding
-                    // the stored text back in, any `RefreshDom` from anywhere
-                    // blanks the field back to its placeholder.
                     .with_text(s.combo_text.clone())
                     .with_on_select(
                         data.clone(),
@@ -657,7 +549,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Display ─────────────────────────────────────────────────────────
     let display = section(
         "Display",
         vec![
@@ -739,8 +630,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Feedback ────────────────────────────────────────────────────────
-    // Modal is created with `open = false` so it doesn't cover the showcase.
     let feedback = section(
         "Feedback",
         vec![
@@ -792,11 +681,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Docking ─────────────────────────────────────────────────────────
-    // A tool panel that is CONTENT of whichever dock zone it sits in
-    // (`dock="inline"`): drag its grip out of the window to float it, drop
-    // the floating palette on the other zone to move it there. The app's
-    // DOM never changes - the engine re-parents the subtree in the layout.
     let docking = section(
         "Docking",
         vec![labelled(
@@ -805,12 +689,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         )],
     );
 
-    // ── Menus + Files + Tabs ────────────────────────────────────────────
     let menus = menus_section(&data, s.menu_status.as_str());
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
 
-    // ── Navigation ──────────────────────────────────────────────────────
     let navigation = section(
         "Navigation",
         vec![
@@ -877,8 +759,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Overlays ────────────────────────────────────────────────────────
-    // Popover starts closed; SplitPane gets an explicit height to lay out in.
     let overlays = section(
         "Overlays",
         vec![
@@ -919,7 +799,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Date & Time ─────────────────────────────────────────────────────
     let datetime = section(
         "Date & Time",
         vec![
@@ -952,7 +831,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // ── Header ──────────────────────────────────────────────────────────
     let heading = Dom::create_div_with_text("Azul Widget Showcase")
         .with_css("font-size: 26px; font-weight: bold; color: #101828; margin-bottom: 4px;");
     let subtitle = Dom::create_div_with_text(
@@ -964,22 +842,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     )
     .with_css("font-size: 13px; color: #667085; margin-bottom: 20px;");
 
-    // ── Custom (fake) titlebar ──────────────────────────────────────────
-    //
-    // The window is created with `WindowDecorations::NoTitle`, so macOS keeps
-    // the traffic lights but hides the title text and extends the content to
-    // the very top edge. This strip is the replacement title bar, drawn from
-    // the DOM like any other widget.
-    //
-    // `-azul-app-region: drag` is what makes it behave like a real title bar:
-    // the framework turns a DragStart on such a node into a native interactive
-    // move (macOS `performWindowDragWithEvent:`) and a double-click into
-    // maximize/restore — no callbacks involved. Interactive children opt out
-    // with `-azul-app-region: no-drag`, which stops the ancestor walk.
-    //
-    // `padding-left` reserves the traffic-light strip (close/min/max sit at the
-    // window's top-left on macOS); without it the buttons would sit on top of
-    // the title text.
     let titlebar = Dom::create_div()
         .with_css(
             "height: 38px; flex-grow: 0; flex-shrink: 0; display: flex; \
@@ -993,19 +855,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "font-size: 13px; font-weight: bold; color: #101828; flex-grow: 1;",
             ),
         )
-        // A control inside the bar must NOT drag the window.
         .with_child(
             Dom::create_div_with_text("custom titlebar")
                 .with_css("font-size: 11px; color: #98a2b3; -azul-app-region: no-drag;"),
         );
 
-    // ── Scrollable column ───────────────────────────────────────────────
-    //
-    // The body is a flex COLUMN so the title bar takes its 38px and the scroll
-    // area takes the rest. The column used to be `height: 100%`, which — with a
-    // bar above it — would push its bottom off-screen; `flex-grow: 1` plus
-    // `min-height: 0` (so a flex item may shrink below its content size and
-    // actually scroll) is the correct pair.
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
         .with_css(
@@ -1035,14 +889,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         )
 }
 
-// ─────────────────────────────── Callbacks ─────────────────────────────────
-//
-// The high-level-widget callbacks are intentionally near-no-ops: they bump the
-// `interactions` counter (proving the wiring fires + the signatures compile)
-// rather than reading each widget's `State`. The three existing widgets
-// (Button / CheckBox / DropDown) do the natural state update.
-
-/// Shared helper: bump the interactions counter and refresh.
 fn bump(data: &mut RefAny) -> Update {
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
@@ -1053,7 +899,6 @@ fn bump(data: &mut RefAny) -> Update {
     }
 }
 
-// Existing widgets — bare fn-pointer callbacks.
 extern "C" fn on_button(mut data: RefAny, _: CallbackInfo) -> Update {
     bump(&mut data)
 }
@@ -1078,14 +923,6 @@ extern "C" fn on_dropdown(mut data: RefAny, _: CallbackInfo, choice: usize) -> U
     }
 }
 
-// High-level widgets — wrapper-struct callbacks (third arg is the widget State).
-//
-// THE CONTROLLED-WIDGET RULE: a widget reports its new state through the
-// callback, the app STORES it, and the `RefreshDom` rebuilds the widget from
-// the stored value. A callback that only counts and refreshes rebuilds the
-// widget at the OLD value — which is what made the Switch look like it did
-// not respond to clicks, and the slider leave a thumb at 40 under the
-// pointer (demo test 2026-08-21). Every stateful widget below stores first.
 extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, state: SwitchState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
         s.switch_on = state.checked;
@@ -1098,14 +935,6 @@ extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -
     }
     bump(&mut data)
 }
-/// Stores the parsed number WITHOUT asking for a rebuild.
-///
-/// Returning `RefreshDom` here would re-run `NumberInput::create(s.number)`
-/// on every keystroke, and `dom()` rewrites the field from `format!("{}", n)`
-/// — so a half-typed "3." would be reformatted to "3" and the dot eaten. The
-/// engine already renders the typed text; this only has to keep the host copy
-/// current so the NEXT rebuild (for any other reason) shows the real value
-/// instead of the stale literal.
 extern "C" fn on_number(mut data: RefAny, _: CallbackInfo, state: NumberInputState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
         s.number = state.number;
@@ -1114,12 +943,6 @@ extern "C" fn on_number(mut data: RefAny, _: CallbackInfo, state: NumberInputSta
     Update::DoNothing
 }
 
-/// Stores the typed text WITHOUT asking for a rebuild.
-///
-/// `DoNothing` for the same reason as `on_number`: the engine already renders
-/// what was typed, and a rebuild per keystroke would re-emit the field from
-/// this mirror. The host copy only has to be current for the NEXT rebuild,
-/// which is what stops an unrelated `RefreshDom` from blanking the field.
 extern "C" fn on_text_input(
     mut data: RefAny,
     _: CallbackInfo,
@@ -1135,8 +958,6 @@ extern "C" fn on_text_input(
     }
 }
 
-/// The picker reports every change; storing it is what makes the swatch
-/// (and the rest of the UI) follow the pick.
 extern "C" fn on_color(mut data: RefAny, _: CallbackInfo, state: ColorInputState) -> Update {
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
@@ -1226,9 +1047,6 @@ extern "C" fn on_timepicker(mut data: RefAny, _: CallbackInfo, state: TimePicker
     bump(&mut data)
 }
 
-// ───────────────────────────────── Entry ───────────────────────────────────
-
-/// Start the app. Desktop/iOS: blocks. Android: stashes window options.
 pub fn start() {
     let data = RefAny::new(Showcase {
         switch_on: true,
@@ -1279,11 +1097,6 @@ pub fn start() {
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();
-    // NoTitle: hide the OS title text and extend the content to the top edge,
-    // but KEEP the traffic lights — the demo draws its own title bar (see
-    // `titlebar` in the layout fn). Set at CREATION, never toggled at runtime:
-    // switching decorations on a live macOS window drops the Resizable mask,
-    // which also costs the window its ability to become key.
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }

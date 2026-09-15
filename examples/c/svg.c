@@ -1,11 +1,3 @@
-// SVG Renderer - C API Example
-// Demonstrates: load SVG file → parse → render to RawImage → encode PNG → save to disk
-//
-// Build:
-//   cc -o svg svg.c -I../../target/codegen -L../../target/release -lazul -Wl,-rpath,../../target/release
-// Run:
-//   DYLD_LIBRARY_PATH=../../target/release ./svg <filename
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +7,6 @@ int main(int argc, char** argv) {
     const char* svg_path = "../../examples/assets/svg/tiger.svg";
     if (argc > 1) svg_path = argv[1];
 
-    // Read SVG file
     FILE* f = fopen(svg_path, "rb");
     if (!f) {
         fprintf(stderr, "ERROR: Cannot open %s\n", svg_path);
@@ -30,7 +21,6 @@ int main(int argc, char** argv) {
 
     printf("Read %ld bytes from %s\n", file_size, svg_path);
 
-    // Parse SVG
     AzU8VecRef svg_ref = { .ptr = svg_bytes, .len = (size_t)file_size };
     AzSvgParseOptions opts = AzSvgParseOptions_default();
     AzResultParsedSvgSvgParseError result = AzParsedSvg_fromBytes(svg_ref, opts);
@@ -43,7 +33,6 @@ int main(int argc, char** argv) {
     }
     printf("SVG parsed successfully\n");
 
-    // Render to RawImage (900x900)
     AzSvgRenderOptions render_opts = AzSvgRenderOptions_default();
     AzLayoutSize target_size = { .width = 900.0f, .height = 900.0f };
     render_opts.target_size.Some = (AzOptionLayoutSizeVariant_Some){
@@ -62,7 +51,6 @@ int main(int argc, char** argv) {
     AzRawImage raw = raw_opt.Some.payload;
     printf("Rendered to %zux%zu RGBA image\n", raw.width, raw.height);
 
-    // Encode to PNG
     AzResultU8VecEncodeImageError png_result = AzRawImage_encodePng(&raw);
     const AzU8Vec* png_data;
     if (!AzResultU8VecEncodeImageError_matchRefOk(&png_result, &png_data)) {
@@ -73,7 +61,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Save PNG
     const char* out_path = "/tmp/azul_tiger_c_api.png";
     FILE* out = fopen(out_path, "wb");
     if (out) {
@@ -84,7 +71,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "ERROR: Cannot write %s\n", out_path);
     }
 
-    // Open the image
 #ifdef __APPLE__
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "open %s", out_path);
@@ -95,7 +81,6 @@ int main(int argc, char** argv) {
     system(cmd);
 #endif
 
-    // Cleanup
     AzResultU8VecEncodeImageError_delete(&png_result);
     AzRawImage_delete(&raw);
     AzResultParsedSvgSvgParseError_delete(&result);

@@ -16,8 +16,6 @@ my_data_destructor :: proc "c" (_: rawptr) {
 }
 
 my_data_upcast :: proc(model: MyDataModel) -> azul.AzRefAny {
-	// newC copies the bytes into its own allocation, so a stack pointer is
-	// fine; run_destructor=false means libazul won't free the caller's pointer.
 	local := model
 	type_name_bytes := "MyDataModel"
 	type_name := azul.AzString_fromUtf8(raw_data(type_name_bytes), uint(len(type_name_bytes)))
@@ -29,8 +27,8 @@ my_data_upcast :: proc(model: MyDataModel) -> azul.AzRefAny {
 		my_data_type_id(),
 		type_name,
 		my_data_destructor,
-		0, // no serialize_fn
-		0, // no deserialize_fn
+		0,
+		0,
 	)
 }
 
@@ -45,8 +43,6 @@ my_data_downcast :: proc "contextless" (refany: ^azul.AzRefAny) -> ^MyDataModel 
 	return cast(^MyDataModel)ptr
 }
 
-// Click callback — must be `proc "c"` so it is a bare C function pointer.
-
 on_click :: proc "c" (data: azul.AzRefAny, info: azul.AzCallbackInfo) -> azul.AzUpdate {
 	d := data
 	m := my_data_downcast(&d)
@@ -57,7 +53,6 @@ on_click :: proc "c" (data: azul.AzRefAny, info: azul.AzCallbackInfo) -> azul.Az
 	return azul.AzUpdate.RefreshDom
 }
 
-// Contextless u32 -> decimal, so `layout` needs no Odin `context`.
 u32_write :: proc "contextless" (n: u32, buf: []u8) -> int {
 	if n == 0 {
 		buf[0] = '0'

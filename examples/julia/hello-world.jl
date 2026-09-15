@@ -14,9 +14,6 @@ my_data_destructor(::Ptr{Cvoid})::Cvoid = nothing
 vptr(r::Ref) = Ptr{Cvoid}(pointer_from_objref(r))
 
 function my_data_upcast(model::MyDataModel)
-    # AzRefAny_newC copies the bytes into its own heap allocation, so a
-    # pointer to a Ref-boxed local is fine; run_destructor=false ⇒ libazul
-    # won't free ours.
     local_ref = Ref(model)
     return GC.@preserve local_ref begin
         wrapper = Azul.AzGlVoidPtrConst(vptr(local_ref), false)
@@ -34,8 +31,6 @@ function my_data_upcast(model::MyDataModel)
     end
 end
 
-# `dref` must be kept alive by the caller (GC.@preserve) for the duration
-# of the returned pointer's use.
 function my_data_ptr(dref::Ref{Azul.AzRefAny})
     p = vptr(dref)
     Azul.AzRefAny_isType(p, my_data_type_id()) || return Ptr{MyDataModel}(C_NULL)
@@ -95,8 +90,6 @@ function main()
     layout_ptr = @cfunction(layout, Azul.AzDom, (Azul.AzRefAny, Azul.AzLayoutCallbackInfo))
     window = Azul.AzWindowCreateOptions_create(layout_ptr)
 
-    # isbits structs are immutable — customize the window with functional
-    # updates (`setfields`) instead of field assignment.
     ws = window.window_state
     window = Azul.setfields(window;
         window_state = Azul.setfields(ws;

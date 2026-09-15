@@ -1,43 +1,3 @@
-//! DOM transitions with **no timer and no animation state in the app**.
-//!
-//! Read `anim.rs` first, then this. They produce comparable motion from opposite
-//! directions:
-//!
-//! * `anim.rs` installs a `Timer`, keeps a frame counter in app state, and computes a position from
-//!   it every tick. The app owns the animation.
-//! * this file has no timer, no counter, no interpolation and no notion of time. It returns a
-//!   DIFFERENT DOM, and the engine animates the difference.
-//!
-//! That is the whole model: `layout()` stays a pure `f(&State) -> Dom`, the DOM
-//! diff already computes which node became which, and any node whose rect moved
-//! between the old and new layout gets a composited FLIP transform. The
-//! application is **descriptive** — it says what the UI IS, never how it should
-//! travel there.
-//!
-//! Three transitions, one per button, exercising different shapes of change:
-//!
-//! 1. **Sidebar** — a REAL unmount with a declared presence animation: `-azul-animation-out:
-//!    sidebarFlyOut 0.5s` names a function the sidebar ATTACHED TO ITS OWN NODE
-//!    (`with_animation_callback`) — the component ships its animation; there are no engine builtins
-//!    and no global registry. The callback receives a full `TimerCallbackInfo` (the live dom,
-//!    change queue, momentum API) plus the zombie info (raw `t`, the CSS-requested timing, the
-//!    retained tree) and owns the easing math, while the content, laid out at its final width
-//!    immediately, slides into the space. `-azul-animation-in: sidebarFlyIn` brings it back; a
-//!    stylesheet `@keyframes` of the same name would shadow the function.
-//! 2. **Screen swap** — two "pages" of an SPA. The header card is present in both but lands
-//!    somewhere different, so it flies between positions instead of disappearing and reappearing.
-//!    This is the case that needs reconciliation identity rather than tree position: the card is a
-//!    different `NodeId` in the two DOMs.
-//! 3. **Reorder** — the same list, shuffled. Every row is matched to its new slot and animates
-//!    there, which is what makes a sort look like motion rather than a repaint.
-//!
-//! Run:
-//!
-//!     cargo run --release --example transitions
-//!
-//! Then click the buttons. The only mention of time in this file is the two
-//! declarative `0.5s` durations in the sidebar's CSS.
-
 use azul::{
     dom::{IdOrClass, ZombieAnimCallback},
     image::ZombieAnimInfo,
@@ -46,17 +6,10 @@ use azul::{
     widgets::{Button, ZombieFrame},
 };
 
-/// Which demo screen is showing, and the toggles each one owns.
-///
-/// Note what is NOT here: no frame counter, no elapsed time, no "is animating"
-/// flag, no per-node animation handles. This struct is the same size whether
-/// something is moving or not.
 struct AppState {
     sidebar_open: bool,
     screen: Screen,
-    /// Row labels in their current order. Reordering means permuting this.
     rows: Vec<&'static str>,
-    /// Bumped on each shuffle so the order visibly changes with one button.
     shuffles: usize,
 }
 
@@ -84,22 +37,11 @@ const TOOLBAR: &str = "display: flex; flex-direction: row; padding: 12px; backgr
 const BTN: &str = "padding: 8px 14px; margin-right: 10px; border-radius: 6px; background: \
                    #2a2a3a; color: #e6e6f0; font-size: 14px;";
 const BODY: &str = "display: flex; flex-direction: row; flex-grow: 1;";
-// The presence animations belong to THE COMPONENT: the names below resolve
-// to functions the sidebar attaches to its own node (see sidebar_fly_out /
-// sidebar_fly_in). A stylesheet `@keyframes` of the same name would shadow
-// them — the web mechanism is the only default name source.
 const SIDEBAR_OPEN: &str = "width: 220px; background: #1b1b26; border-right: 1px solid #2a2a3a; \
                             padding: 16px; display: flex; flex-direction: column; \
                             -azul-animation-out: sidebarFlyOut 0.5s; -azul-animation-in: \
                             sidebarFlyIn 0.5s;";
 
-/// The sidebar's exit, shipped WITH the sidebar (USER ruling: no engine
-/// builtins, no global registry — the component attaches its own animation
-/// functions to its own node): slide left by our own width. `z.t` is RAW
-/// linear progress and `z.timing` the CSS-requested curve — the callback
-/// owns the easing math (`evaluate` honours it; a `cubic-bezier(...)` in
-/// the CSS would arrive here too). The `TimerCallbackInfo` gives the
-/// callback the LIVE dom, the change queue and the momentum API.
 extern "C" fn sidebar_fly_out(
     _data: &mut RefAny,
     _live: &mut TimerCallbackInfo,
@@ -110,11 +52,10 @@ extern "C" fn sidebar_fly_out(
         translate_y: 0.0,
         opacity: 1.0,
         width: OptionF32::None,
-        clip_to_frozen_rect: true, // the slide must not paint over the body
+        clip_to_frozen_rect: true,
     }
 }
 
-/// …and its entrance: the same path reversed.
 extern "C" fn sidebar_fly_in(
     _data: &mut RefAny,
     _live: &mut TimerCallbackInfo,
@@ -140,7 +81,6 @@ extern "C" fn on_toggle_sidebar(mut data: RefAny, _: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<AppState>() {
         s.sidebar_open = !s.sidebar_open;
     }
-    // The app's entire contribution to the animation: "the DOM changed".
     Update::RefreshDom
 }
 
@@ -156,9 +96,6 @@ extern "C" fn on_swap_screen(mut data: RefAny, _: CallbackInfo) -> Update {
 
 extern "C" fn on_shuffle(mut data: RefAny, _: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        // Deterministic rotation rather than a random shuffle: a demo that
-        // reorders the same way every run is one you can actually eyeball, and
-        // the e2e test can assert against it.
         s.rows.rotate_left(1);
         s.shuffles += 1;
     }
@@ -171,26 +108,12 @@ fn button(label: &str, cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: 
     b.dom().with_css(BTN)
 }
 
-/// Give a node a stable identity for reconciliation, via its CSS id.
-///
-/// The diff matches on explicit key first and CSS id second. The FFI `Dom` the
-/// bindings expose has NEITHER a `with_key` nor an id setter — only `NodeData`
-/// does — so a node has to be built data-first to be identifiable at all. That
-/// is a real gap for engine-driven transitions: without stable identity the
-/// diff matches structurally, and a reordered list looks like five nodes whose
-/// text changed rather than five nodes that moved.
 fn div_with_id(id: &str, css: &str) -> Dom {
     let mut nd = NodeData::create_div();
     nd.set_ids_and_classes(vec![IdOrClass::Id(id.to_string().into())]);
     Dom::create_from_data(nd).with_css(css)
 }
 
-/// The card that exists on BOTH screens.
-///
-/// Same CSS id, so reconciliation matches it across the swap even though
-/// it sits at a different depth and index in the two trees. Without a stable
-/// identity the diff would call this "one node removed, one added" and there
-/// would be nothing to animate BETWEEN.
 fn shared_card(title: &str) -> Dom {
     let mut card = div_with_id("shared-card", CARD);
     card.add_child(Dom::create_div_with_text(title));
@@ -217,8 +140,6 @@ fn detail(state: &AppState) -> Dom {
     );
     spacer.add_child(Dom::create_p_with_text("Detail header"));
     content.add_child(spacer);
-    // The shared card is BELOW a header here and at the very top on Overview,
-    // so swapping screens moves it — that displacement is the animation.
     content.add_child(shared_card("Detail"));
     let mut note = Dom::create_div().with_css(CARD);
     note.add_child(Dom::create_p_with_text(
@@ -240,11 +161,6 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     toolbar.add_child(button("Reorder list", on_shuffle, &data));
 
     let mut body = Dom::create_div().with_css(BODY);
-    // Transition 1 is a REAL unmount: closed means the node does not exist.
-    // The engine retains the departing subtree and plays its declared
-    // `-azul-animation-out`; the content area is laid out at its final width
-    // immediately (text reflows once, no squash) while the exit paints on
-    // top. Reopening mounts a fresh node, driven by `-azul-animation-in`.
     if state.sidebar_open {
         let mut sidebar = div_with_id("sidebar", SIDEBAR_OPEN)
             .with_animation_callback(

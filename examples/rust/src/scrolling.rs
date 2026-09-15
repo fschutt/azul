@@ -1,19 +1,3 @@
-//! #22 repro: mouse-scroll a VERY LARGE div — BOTH code paths side by side.
-//!
-//! LEFT (red border)   = plain `overflow-y: auto` div containing one huge
-//!                       content column (the non-VirtualView scroll-frame
-//!                       path). 500 rows × 100px = 50,000px of content.
-//! RIGHT (green border) = a VirtualView that MATERIALIZES only the visible
-//!                       rows but declares the same 50,000px
-//!                       `virtual_scroll_size` (the VirtualView path).
-//!
-//! Both sides must: paint a proportional scrollbar, scroll with the mouse
-//! wheel, and keep CONTENT moving with the thumb. Live-run bug (2026-08-12):
-//! the wheel moved the SCROLLBAR but not the CONTENT — this window isolates
-//! that for both paths at once. The VV node carries `overflow-y: auto` like
-//! the working infinity example; if the plain side scrolls and the VV side
-//! does not, the delta is in the VirtualView wheel routing itself.
-
 use azul::{option::OptionDom, prelude::*};
 
 const ROWS: usize = 500;
@@ -46,9 +30,6 @@ extern "C" fn vv_rows(mut _data: RefAny, info: VirtualViewCallbackInfo) -> Virtu
         col.add_child(row(i));
     }
 
-    // Each size+offset pair is one rect now: `materialized` is the slice
-    // actually rendered and where it sits, `virtual_rect` is the whole
-    // document the scrollbar represents.
     VirtualViewReturn {
         dom: OptionDom::Some(col),
         materialized: LogicalRect::create(
@@ -63,7 +44,6 @@ extern "C" fn vv_rows(mut _data: RefAny, info: VirtualViewCallbackInfo) -> Virtu
 }
 
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
-    // LEFT: the plain overflow path — one enormous real DOM.
     let mut content = Dom::create_div();
     content.set_css("display: block;");
     for i in 0..ROWS {
@@ -75,7 +55,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     );
     plain.add_child(content);
 
-    // RIGHT: the VirtualView path — only ~visible rows exist at a time.
     let vview = Dom::create_virtual_view(data.clone(), vv_rows)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto;");
     let mut vv_wrap = Dom::create_div();

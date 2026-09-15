@@ -1,16 +1,7 @@
-//! Loading a tree of files and cutting each into PAGES.
-//!
-//! Pagination, not scrolling, is deliberate. Paper gives spatial memory — "the
-//! Mutex question was top-right of the third sheet" — and continuous scrolling
-//! destroys it. Fixed page boundaries per session mean ink stays where you
-//! remember putting it.
-
 use std::path::{Path, PathBuf};
 
-/// Code lines per page. Fixed for the session so page boundaries are stable.
 pub const LINES_PER_PAGE: usize = 46;
 
-/// Extensions worth reviewing. Everything else is noise in the file browser.
 const REVIEWABLE: &[&str] = &[
     "rs", "toml", "md", "c", "h", "cpp", "hpp", "py", "js", "ts", "sh", "yml", "yaml", "json",
 ];
@@ -18,7 +9,6 @@ const REVIEWABLE: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     pub path: PathBuf,
-    /// Path shown in the UI, relative to the review root.
     pub display: String,
     pub lines: Vec<String>,
 }
@@ -28,7 +18,6 @@ impl SourceFile {
         self.lines.len().div_ceil(LINES_PER_PAGE).max(1)
     }
 
-    /// Lines of one page, plus the 1-based number of the first of them.
     pub fn page(&self, page: usize) -> (usize, &[String]) {
         let start = page * LINES_PER_PAGE;
         if start >= self.lines.len() {
@@ -39,11 +28,6 @@ impl SourceFile {
     }
 }
 
-/// Load a review target: either a whole repo or a single directory.
-///
-/// One entry point for both because the difference is only which paths get
-/// skipped — a git repo has `target/` and `.git/` worth ignoring, a plain
-/// directory (say `doc/guide/`) usually has neither.
 pub fn load_tree(root: &Path, limit: usize) -> Vec<SourceFile> {
     let mut out = Vec::new();
     walk(root, root, &mut out, limit, 0);
@@ -52,8 +36,6 @@ pub fn load_tree(root: &Path, limit: usize) -> Vec<SourceFile> {
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<SourceFile>, limit: usize, depth: usize) {
-    // A repo can hold hundreds of thousands of files; a review session opens a
-    // handful. Bound both so a mistyped root cannot hang the UI.
     if out.len() >= limit || depth > 12 {
         return;
     }
@@ -89,8 +71,6 @@ fn is_reviewable(p: &Path) -> bool {
 
 fn load_file(root: &Path, p: &Path) -> Option<SourceFile> {
     let text = std::fs::read_to_string(p).ok()?;
-    // A generated or minified file is one enormous line; rendering it as a
-    // page of code is useless and slow.
     if text.lines().count() > 20_000 {
         return None;
     }
