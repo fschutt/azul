@@ -5137,6 +5137,32 @@ impl CssProperty {
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
+            // A single solid colour on both ends is a colour, and a colour
+            // tweens (a switch track fading between its off and on colours).
+            // Gradients, images, layers and unresolved system colours still
+            // take the half-way jump below.
+            (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
+                use crate::props::style::background::StyleBackgroundContent as B;
+                let solid = |v: &StyleBackgroundContentVecValue| match v
+                    .get_property()
+                    .map(StyleBackgroundContentVec::as_slice)
+                {
+                    Some([B::Color(c)]) => Some(*c),
+                    _ => None,
+                };
+                match (solid(start), solid(end)) {
+                    (Some(a), Some(b)) => {
+                        Self::background_content(vec![B::Color(a.interpolate(&b, t))].into())
+                    }
+                    _ => {
+                        if t > 0.5 {
+                            other.clone()
+                        } else {
+                            self.clone()
+                        }
+                    }
+                }
+            }
             /*
             animate transform:
             CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
@@ -9315,6 +9341,46 @@ mod autotest_generated {
             (px - 50.0).abs() < 1.0,
             "linear midpoint of 0px..100px should be ~50px, got {px}"
         );
+    }
+
+    #[test]
+    fn interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps() {
+        use crate::props::style::background::{LinearGradient, StyleBackgroundContent as B};
+        let r = resolver();
+        let solid = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
+        let off = ColorU {
+            r: 200,
+            g: 200,
+            b: 200,
+            a: 255,
+        };
+        let on = ColorU {
+            r: 0,
+            g: 100,
+            b: 255,
+            a: 255,
+        };
+
+        // A switch track fading from its off to its on colour passes through
+        // the colours in between instead of snapping at the half-way mark.
+        let mid = solid(off).interpolate(&solid(on), 0.5, &r);
+        let CssProperty::BackgroundContent(CssPropertyValue::Exact(layers)) = &mid else {
+            panic!("expected an exact background, got {mid:?}");
+        };
+        let [B::Color(c)] = layers.as_slice() else {
+            panic!("expected one solid colour layer, got {layers:?}");
+        };
+        assert!(
+            (99..=101).contains(&c.r) && (149..=151).contains(&c.g) && (227..=228).contains(&c.b),
+            "the half-way colour lies between the ends, got {c:?}"
+        );
+
+        // A gradient has no colour to tween: it keeps the nearer endpoint.
+        let gradient = CssProperty::background_content(
+            vec![B::LinearGradient(LinearGradient::default())].into(),
+        );
+        assert_eq!(solid(off).interpolate(&gradient, 0.25, &r), solid(off));
+        assert_eq!(solid(off).interpolate(&gradient, 0.75, &r), gradient);
     }
 
     #[test]

@@ -397,6 +397,20 @@ pub extern "C" fn caret_tween_timer_callback(
     }
 }
 
+/// Inert marker callback of the CSS animation driver
+/// ([`LayoutWindow::create_css_animation_timer`]). The dispatcher advances the
+/// animations and disarms the timer when nothing is left to move.
+#[must_use]
+pub extern "C" fn css_animation_timer_callback(
+    _data: RefAny,
+    _info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    azul_core::callbacks::TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
+    }
+}
+
 // ============================================================================
 // Tooltip Delay Timer Callback
 // ============================================================================
@@ -7329,19 +7343,6 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::Unchanged,
             };
         }
-        if !override_only {
-            // Keep the node's inline style in sync so the reconcile
-            // fingerprint sees the change on the next generation. UPSERT each
-            // patched property — this used to REPLACE the whole inline style
-            // with just the patch, so a panel toggled to `display: flex` lost
-            // its `position: absolute; top: ...` (and every other inline
-            // property the widget had set) and flowed into the row instead of
-            // overlaying it. See NodeData::upsert_inline_css_property.
-            let node = &mut layout_result.styled_dom.node_data.as_container_mut()[node_id];
-            for prop in &props {
-                node.upsert_inline_css_property(prop.clone());
-            }
-        }
         // An IMPERATIVE property change honours a declared `animation` exactly
         // like a change the reconciler discovers does. `set_css_property` used
         // to write the new value straight into the property cache, so a widget
@@ -7423,6 +7424,24 @@ impl LayoutWindow {
             }
         };
 
+        // AFTER the transitions are seeded: `from` must be read while the
+        // node still resolves to its OLD value. The inline write used to come
+        // first, so the resolver already answered the new value, `from ==
+        // to`, and nothing was seeded: the first write of a property never
+        // animated.
+        if !override_only {
+            // Keep the node's inline style in sync so the reconcile
+            // fingerprint sees the change on the next generation. UPSERT each
+            // patched property — this used to REPLACE the whole inline style
+            // with just the patch, so a panel toggled to `display: flex` lost
+            // its `position: absolute; top: ...` (and every other inline
+            // property the widget had set) and flowed into the row instead of
+            // overlaying it. See NodeData::upsert_inline_css_property.
+            let node = &mut layout_result.styled_dom.node_data.as_container_mut()[node_id];
+            for prop in &props {
+                node.upsert_inline_css_property(prop.clone());
+            }
+        }
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes
         // are visible on the next DL build. The returned restyle result is
@@ -8770,6 +8789,29 @@ impl LayoutWindow {
             interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(caret_tween_timer_callback),
+        }
+    }
+
+    /// The CSS animation frame driver: a 16ms interval timer whose callback is
+    /// an inert marker ([`azul_core::task::CSS_ANIMATION_TIMER_ID`]). The
+    /// shared dispatcher does the ticking when it expires, because a timer
+    /// callback only holds an immutable `CallbackInfo`.
+    #[must_use]
+    pub fn create_css_animation_timer(&self) -> Timer {
+        use azul_core::refany::RefAny;
+
+        use crate::timer::{Timer, TimerCallback};
+
+        Timer {
+            refany: RefAny::new(()),
+            node_id: None.into(),
+            created: Instant::now(),
+            run_count: 0,
+            last_run: azul_core::task::OptionInstant::None,
+            delay: azul_core::task::OptionDuration::None,
+            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
+            timeout: azul_core::task::OptionDuration::None,
+            callback: TimerCallback::create(css_animation_timer_callback),
         }
     }
 
@@ -11539,7 +11581,15 @@ impl LayoutWindow {
             now.duration_since(prev).as_millis_u64() as f32 / 1000.0
         });
         self.last_anim_tick = Some(now);
-        self.tick_animations(dt)
+        let still_animating = self.tick_animations(dt);
+        // The tick that settles the last animation clears the stamp itself.
+        // Nothing is owed a frame afterwards, so no idle tick comes along to
+        // clear it, and the NEXT animation's first tick would measure the
+        // whole idle gap as its step and land in one frame.
+        if self.animations.is_empty() && !self.has_track_work() {
+            self.last_anim_tick = None;
+        }
+        still_animating
     }
 
     /// Advance layout animations by `dt` seconds and publish the result to the

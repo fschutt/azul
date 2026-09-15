@@ -3849,6 +3849,120 @@ pub trait PlatformWindow {
     fn arm_animation_drivers_if_needed(&mut self) {
         self.arm_caret_tween_timer_if_needed();
         self.arm_scroll_physics_timer_if_needed();
+        self.arm_css_animation_timer_if_needed();
+    }
+
+    /// Arm the CSS animation frame driver while a transition or keyframe
+    /// track is in flight. Without it, only the WebRender frame path ever
+    /// advanced CSS animations; on the CPU renderer a declared `animation`
+    /// sat on its start value and a switch froze after its first toggle.
+    fn arm_css_animation_timer_if_needed(&mut self) {
+        use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        let needs = self
+            .get_layout_window()
+            .is_some_and(|lw| {
+                lw.needs_animation_frame() && !lw.timers.contains_key(&CSS_ANIMATION_TIMER_ID)
+            });
+        if !needs {
+            return;
+        }
+        let timer = self
+            .get_layout_window()
+            .map(azul_layout::window::LayoutWindow::create_css_animation_timer);
+        if let Some(timer) = timer {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.insert(CSS_ANIMATION_TIMER_ID, timer.clone());
+            }
+            self.start_timer(CSS_ANIMATION_TIMER_ID.id, timer);
+        }
+    }
+
+    /// One frame of the CSS animation driver: advance by the WALL CLOCK
+    /// (`tick_animations_now`, whose last-tick stamp the WebRender frame path
+    /// shares, so a GPU window driven by both never runs faster than real
+    /// time), schedule the work the applied values need, and disarm the
+    /// driver once nothing is left to move (the settled value still gets
+    /// this frame).
+    fn advance_css_animations_now(&mut self) -> ProcessEventResult {
+        use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        let (had_work, dt) = {
+            let Some(lw) = self.get_layout_window_mut() else {
+                return ProcessEventResult::DoNothing;
+            };
+            let had_work = lw.needs_animation_frame();
+            // The same step `tick_animations_now` takes: real time since the
+            // previous tick, a 16 ms frame after an idle period.
+            #[allow(clippy::cast_precision_loss)] // milliseconds between two frames
+            let dt = lw.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
+                azul_core::task::Instant::now()
+                    .duration_since(prev)
+                    .as_millis_u64() as f32
+                    / 1000.0
+            });
+            lw.tick_animations_now();
+            (had_work, dt)
+        };
+        if !had_work {
+            self.disarm_css_animation_timer_if_idle();
+            return ProcessEventResult::DoNothing;
+        }
+
+        // The keyframe tracks (`-azul-animation-in` on a mounted node,
+        // `-azul-animation-out` on a zombie) for THIS frame. They may invoke
+        // component animation functions; their changes apply like timer
+        // changes, exactly as the WebRender frame path samples them.
+        let mut result = ProcessEventResult::DoNothing;
+        if self.get_layout_window().is_some_and(LayoutWindow::has_track_work) {
+            let track_changes = {
+                let borrows = self.prepare_callback_invocation();
+                let system_callbacks = ExternalSystemCallbacks::rust_internal();
+                let frame_start = (system_callbacks.get_system_time_fn.cb)();
+                borrows.layout_window.run_track_frames(
+                    dt,
+                    frame_start,
+                    &borrows.window_handle,
+                    borrows.gl_context_ptr,
+                    borrows.system_style.clone(),
+                    &system_callbacks,
+                    borrows.previous_window_state,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                )
+            };
+            for change in &track_changes {
+                result = result.max(self.apply_user_change(change));
+            }
+        }
+
+        let (needs_relayout, patched) = match self.get_layout_window_mut() {
+            Some(lw) => (lw.take_transition_relayout(), lw.take_transition_patched()),
+            None => (false, false),
+        };
+        // A settled step still owes this frame, so the final value reaches
+        // the screen; only then does the driver go idle.
+        self.disarm_css_animation_timer_if_idle();
+        result.max(if needs_relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else if patched {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        })
+    }
+
+    /// Stop the CSS animation driver once nothing is left to move.
+    fn disarm_css_animation_timer_if_idle(&mut self) {
+        use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        let idle = match self.get_layout_window_mut() {
+            Some(lw) if !lw.needs_animation_frame() => {
+                lw.timers.remove(&CSS_ANIMATION_TIMER_ID);
+                true
+            }
+            _ => false,
+        };
+        if idle {
+            self.stop_timer(CSS_ANIMATION_TIMER_ID.id);
+        }
     }
 
     /// Deliver the text notifications a pass left in the layout window — the
@@ -12392,10 +12506,30 @@ pub trait PlatformWindow {
         // a caret that stops blinking, a hover style that lands a second late.
         // `request_relayout_only` now raises BOTH, and since every frame path
         // tests relayout-only first, the DOM is still not rebuilt.
+        //
+        // The flag is also only HALF of the tier: every frame path's
+        // relayout-only branch skips layout because the event arms have run
+        // it already — each of them calls `incremental_relayout_dispatching`
+        // before raising the flag. This arm raised the flag alone, so a
+        // layout-affecting change made by a timer staged its dirt and was
+        // never laid out: the CSS animation driver tweened a switch knob's
+        // `margin-left` from 16px to 0px while its box never left 16px.
         if max_changes_result >= ProcessEventResult::ShouldIncrementalRelayout
             && !needs_layout_regeneration
         {
-            self.request_relayout_only();
+            let mut debug_messages = None;
+            if let Err(e) =
+                self.incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+            {
+                crate::log_warn!(
+                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                    "timer-driven incremental relayout failed: {e} — falling back to a full \
+                     regeneration"
+                );
+                self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            } else {
+                self.request_relayout_only();
+            }
             needs_redraw = true;
         }
 
@@ -12748,6 +12882,11 @@ pub trait PlatformWindow {
         let drag_autoscroll_fired = expired_timer_ids
             .iter()
             .any(|t| *t == azul_core::task::DRAG_AUTOSCROLL_TIMER_ID);
+        // The CSS animation driver's callback is an inert marker; the frame
+        // is advanced below, after the timer loop.
+        let css_animation_fired = expired_timer_ids
+            .iter()
+            .any(|t| *t == azul_core::task::CSS_ANIMATION_TIMER_ID);
 
         let mut all_results = Vec::new();
         let mut changes_result = ProcessEventResult::DoNothing;
@@ -12784,6 +12923,10 @@ pub trait PlatformWindow {
             }
 
             all_results.push(update);
+        }
+
+        if css_animation_fired {
+            changes_result = changes_result.max(self.advance_css_animations_now());
         }
 
         if drag_autoscroll_fired {

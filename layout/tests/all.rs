@@ -300,6 +300,8 @@ mod subtree_relayout;
 mod svg_paint;
 #[path = "svg_tessellation.rs"]
 mod svg_tessellation;
+#[path = "switch_animation.rs"]
+mod switch_animation;
 #[path = "synthetic_events.rs"]
 mod synthetic_events;
 #[path = "table_cell_width.rs"]

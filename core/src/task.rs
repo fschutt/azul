@@ -107,6 +107,16 @@ pub const LONG_PRESS_TIMER_ID: TimerId = TimerId { id: 0x0006 };
 /// callback terminates itself the tick after the tween state goes idle.
 pub const CARET_TWEEN_TIMER_ID: TimerId = TimerId { id: 0x0007 };
 
+/// Reserved timer ID for the CSS animation frame driver (~16ms).
+///
+/// Armed by the shared event dispatcher whenever a CSS transition or keyframe
+/// track is in flight (`LayoutWindow::needs_animation_frame`). Its callback is
+/// an inert marker: when it expires, the dispatcher advances the animations by
+/// the wall clock and schedules the frame, then disarms it once nothing moves.
+/// The `WebRender` frame path ticks on its own; the CPU-rendered shells had no
+/// driver at all, so a declared `animation` never ran there.
+pub const CSS_ANIMATION_TIMER_ID: TimerId = TimerId { id: 0x0008 };
+
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;
 
