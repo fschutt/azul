@@ -9,17 +9,18 @@
 //! `position.y + ascent_px`. Two runs share a baseline iff their (y + ascent)
 //! agree.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
-    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
-    UnifiedConstraints, UnifiedLayout, VerticalAlign,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::cache::{
+        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+        LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+        UnifiedConstraints, UnifiedLayout, VerticalAlign,
+    },
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 

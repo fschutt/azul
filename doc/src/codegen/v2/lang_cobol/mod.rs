@@ -4,23 +4,19 @@
 //! `COPY "azul.cpy".` from inside their `WORKING-STORAGE SECTION`. The
 //! copybook contains:
 //!
-//! 1. A header banner pinning the GnuCOBOL dialect (>= 3.0) and recording
-//!    that the example must be compiled with `cobc -x` (executable, not a
-//!    callable subprogram).
-//! 2. A block of level-78 constants for every unit-only enum variant
-//!    (`78 AZ-BUTTON-TYPE-PRIMARY VALUE 0.`).
-//! 3. A block of level-78 constants holding the canonical, case-sensitive
-//!    C symbol name for every C-ABI function (`78 FN-AZ-APP-CREATE
-//!    VALUE "AzApp_create".`). The user calls `CALL FN-AZ-APP-CREATE
-//!    USING ... RETURNING ...` rather than typing the literal C symbol —
-//!    this preserves the case the C linker expects without forcing the
-//!    COBOL author to remember it.
-//! 4. A block of level-01 typedef records for every plain struct and
-//!    every tagged union. Tagged unions use `REDEFINES` to overlay each
-//!    variant payload on the same memory after the discriminant tag, so
-//!    the COBOL record matches the Rust `#[repr(C)]` enum layout.
-//! 5. A block of level-01 typedef records for callback function-pointer
-//!    typedefs, declared as `USAGE PROGRAM-POINTER`.
+//! 1. A header banner pinning the GnuCOBOL dialect (>= 3.0) and recording that the example must be
+//!    compiled with `cobc -x` (executable, not a callable subprogram).
+//! 2. A block of level-78 constants for every unit-only enum variant (`78 AZ-BUTTON-TYPE-PRIMARY
+//!    VALUE 0.`).
+//! 3. A block of level-78 constants holding the canonical, case-sensitive C symbol name for every
+//!    C-ABI function (`78 FN-AZ-APP-CREATE VALUE "AzApp_create".`). The user calls `CALL
+//!    FN-AZ-APP-CREATE USING ... RETURNING ...` rather than typing the literal C symbol — this
+//!    preserves the case the C linker expects without forcing the COBOL author to remember it.
+//! 4. A block of level-01 typedef records for every plain struct and every tagged union. Tagged
+//!    unions use `REDEFINES` to overlay each variant payload on the same memory after the
+//!    discriminant tag, so the COBOL record matches the Rust `#[repr(C)]` enum layout.
+//! 5. A block of level-01 typedef records for callback function-pointer typedefs, declared as
+//!    `USAGE PROGRAM-POINTER`.
 //!
 //! No procedure-division code is emitted: COBOL has no native concept of
 //! a class with a destructor, and OO-COBOL is too rare to target. Users
@@ -36,11 +32,10 @@
 //! respectively. We therefore:
 //!
 //! - Convert `Az_App_create` -> `AZ-APP-CREATE` ([`to_cobol_case`]).
-//! - Truncate names longer than 30 chars to 30, with collisions resolved
-//!   by appending a 4-char hex suffix derived from a stable hash
-//!   ([`mangle_identifier`]). The original C symbol is still preserved
-//!   verbatim inside the level-78 string literal so the linker can find
-//!   it; only the COBOL-side identifier is shortened.
+//! - Truncate names longer than 30 chars to 30, with collisions resolved by appending a 4-char hex
+//!   suffix derived from a stable hash ([`mangle_identifier`]). The original C symbol is still
+//!   preserved verbatim inside the level-78 string literal so the linker can find it; only the
+//!   COBOL-side identifier is shortened.
 //!
 //! # Wiring
 //!
@@ -54,9 +49,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod managed;
@@ -164,7 +157,7 @@ pub fn to_cobol_case(s: &str) -> String {
             let next = chars.get(i + 1).copied();
             let boundary = prev.is_lowercase()
                 || prev.is_ascii_digit()
-                || (prev.is_uppercase() && next.map_or(false, |n| n.is_lowercase()));
+                || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase()));
             if boundary && !out.ends_with('-') {
                 out.push('-');
             }
@@ -340,7 +333,7 @@ pub fn sanitize_cobol_identifier(name: &str) -> String {
     // COBOL identifiers must start with a letter (not a digit). Tuple
     // struct fields from Rust come through with numeric names `0`,
     // `1`, ... — prefix them with `FIELD-` so the result is valid.
-    let upper = if upper.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+    let upper = if upper.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         format!("FIELD-{}", upper)
     } else {
         upper
@@ -361,7 +354,7 @@ pub fn sanitize_cobol_identifier(name: &str) -> String {
 /// `*>` anywhere (free format). We use the fixed-format form throughout
 /// the copybook for maximum tooling compatibility.
 pub fn sanitize_doc(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// Wrap a long doc string into multiple fixed-format COBOL comment lines.

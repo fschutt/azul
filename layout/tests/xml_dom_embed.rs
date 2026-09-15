@@ -5,12 +5,10 @@
 //! and measured zero height, while sibling `create_div`/`create_text`
 //! canaries rendered fine.
 
-use azul_core::dom::Dom;
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::window::LayoutWindow;
-use azul_layout::window_state::FullWindowState;
+use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 fn xml_content(fragment_body: &str) -> Dom {
@@ -84,8 +82,8 @@ fn xml_built_content_renders_inside_an_app_dom() {
     let xml_texts = text_items_of(xml_content("<h1>Title</h1><p>Hello world paragraph</p>"));
     assert!(
         xml_texts >= 2,
-        "xml-built content must render like the control, got {xml_texts} text items \
-         (miniword: parsed document present in the DOM but painted nothing)"
+        "xml-built content must render like the control, got {xml_texts} text items (miniword: \
+         parsed document present in the DOM but painted nothing)"
     );
 }
 
@@ -104,25 +102,24 @@ fn xml_built_content_renders_inside_the_word_shell_shape() {
 
     let sheet = Dom::create_div()
         .with_css(
-            "width: 794px; height: 1123px; background: white; flex-grow: 0; \
-             flex-shrink: 0; border: 1px solid #a6a6a6; margin-bottom: 16px; \
-             box-sizing: border-box; padding: 96px; overflow: hidden;",
+            "width: 794px; height: 1123px; background: white; flex-grow: 0; flex-shrink: 0; \
+             border: 1px solid #a6a6a6; margin-bottom: 16px; box-sizing: border-box; padding: \
+             96px; overflow: hidden;",
         )
         .with_child(canary)
         .with_child(xml);
 
     let canvas = Dom::create_div()
         .with_css(
-            "flex-grow: 1; min-height: 0px; background: #e3e3e3; display: flex; \
-             flex-direction: column; align-items: center; padding-top: 18px; \
-             overflow: hidden;",
+            "flex-grow: 1; min-height: 0px; background: #e3e3e3; display: flex; flex-direction: \
+             column; align-items: center; padding-top: 18px; overflow: hidden;",
         )
         .with_child(sheet);
 
     let editor = Dom::create_div()
         .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; \
-             min-height: 0px; background: white; font-family: \"Liberation Sans\";",
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; background: \
+             white; font-family: \"Liberation Sans\";",
         )
         .with_child(Dom::create_div().with_css("height: 148px; flex-shrink: 0;"))
         .with_child(canvas)
@@ -130,9 +127,8 @@ fn xml_built_content_renders_inside_the_word_shell_shape() {
 
     let mut dom = Dom::create_body()
         .with_css(
-            "display: flex; flex-direction: column; margin: 0; padding: 0; \
-             height: 100%; background: white; font-family: \"Liberation Sans\"; \
-             font-size: 12px; color: #444444;",
+            "display: flex; flex-direction: column; margin: 0; padding: 0; height: 100%; \
+             background: white; font-family: \"Liberation Sans\"; font-size: 12px; color: #444444;",
         )
         .with_child(editor);
 
@@ -164,8 +160,7 @@ fn xml_built_content_renders_inside_the_word_shell_shape() {
         .collect();
     assert!(
         texts.len() >= 3,
-        "canary + h1 + p must all produce text items in the Word shell \
-         shape, got {} ({texts:?})",
+        "canary + h1 + p must all produce text items in the Word shell shape, got {} ({texts:?})",
         texts.len()
     );
 }

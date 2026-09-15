@@ -59,3 +59,9 @@ features = ["python-extension"]
 # Build a single abi3 wheel (forward-compatible across CPython 3.x) instead of
 # one wheel per interpreter version.
 # (pyo3's `abi3` feature in dll/Cargo.toml makes the produced .so abi3-tagged.)
+# The distribution profile, like every other shipped libazul (the macOS and
+# Windows extensions are built with it too). maturin otherwise builds with
+# `release`, which keeps debug=1 line tables and does not strip: the Linux
+# wheel came out at 120 MB against ~20 MB for the others and pushed the
+# website's package mirror over the Pages size gate.
+profile = "prod-release"

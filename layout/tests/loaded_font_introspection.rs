@@ -13,9 +13,10 @@
 #![cfg(feature = "text_layout")]
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::text3::cache::FontManager;
-use azul_layout::text3::default::PathLoader;
+use azul_layout::{
+    font::parsed::ParsedFont,
+    text3::{cache::FontManager, default::PathLoader},
+};
 // FontManager keys its `parsed_fonts` map by `rust_fontconfig::FontId`, not the
 // `azul_layout::font_traits::FontId` newtype.
 use rust_fontconfig::FontId;

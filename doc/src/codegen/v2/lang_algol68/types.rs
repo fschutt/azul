@@ -2,22 +2,19 @@
 //!
 //! Strategy for each IR construct:
 //!
-//! - **Plain struct** -> `MODE AZFOO = STRUCT (INT a, REAL b, REF AZBAR c);`
-//!   Algol 68 STRUCT field syntax is `MODE name`, comma-separated, parens.
-//! - **Empty / opaque struct** -> a one-INT-field struct
-//!   `MODE AZFOO = STRUCT (INT opaque dummy);` so it can still be passed
-//!   by reference. Algol 68 has no zero-sized records.
-//! - **Unit enum** -> a sequence of named INT constants:
-//!   `INT azbuttontype primary = 0, azbuttontype secondary = 1;`
-//!   Algol 68 has no `enum` keyword.
-//! - **Tagged-union enum** -> Algol 68 *does* have a native `UNION` MODE:
-//!   `MODE AZFOOPAYLOAD = UNION (INT, REAL, REF VOID);` plus a tagged
-//!   wrapper `MODE AZFOO = STRUCT (INT tag, AZFOOPAYLOAD payload);`.
-//!   Discriminator integer constants are emitted alongside.
-//! - **Callback typedef** -> a `MODE AZFOOCALLBACK = PROC (...) RET;`
-//!   declaration; Algol 68's procedure-mode syntax matches what we need.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with `# SKIPPED: <reason> #` comments.
+//! - **Plain struct** -> `MODE AZFOO = STRUCT (INT a, REAL b, REF AZBAR c);` Algol 68 STRUCT field
+//!   syntax is `MODE name`, comma-separated, parens.
+//! - **Empty / opaque struct** -> a one-INT-field struct `MODE AZFOO = STRUCT (INT opaque dummy);`
+//!   so it can still be passed by reference. Algol 68 has no zero-sized records.
+//! - **Unit enum** -> a sequence of named INT constants: `INT azbuttontype primary = 0,
+//!   azbuttontype secondary = 1;` Algol 68 has no `enum` keyword.
+//! - **Tagged-union enum** -> Algol 68 *does* have a native `UNION` MODE: `MODE AZFOOPAYLOAD =
+//!   UNION (INT, REAL, REF VOID);` plus a tagged wrapper `MODE AZFOO = STRUCT (INT tag,
+//!   AZFOOPAYLOAD payload);`. Discriminator integer constants are emitted alongside.
+//! - **Callback typedef** -> a `MODE AZFOOCALLBACK = PROC (...) RET;` declaration; Algol 68's
+//!   procedure-mode syntax matches what we need.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `# SKIPPED:
+//!   <reason> #` comments.
 //!
 //! Algol 68 is single-pass: every MODE referenced in a STRUCT body must
 //! already be declared. We keep this honest by emitting in topological
@@ -26,13 +23,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, StructDef, TypeCategory,
+        },
+    },
     algol_mode_name, camel_or_snake_to_spaced_lower_pub, map_type_to_algol, ptr_type,
     sanitize_comment, sanitize_identifier,
 };
@@ -304,9 +303,8 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         union_modes.push("INT".to_string());
     }
 
-    // 3. Emit the UNION mode and its STRUCT wrapper. Algol 68 UNION
-    //    requires >= 2 distinct member modes; if we only have one,
-    //    skip the UNION layer entirely and store the payload directly.
+    // 3. Emit the UNION mode and its STRUCT wrapper. Algol 68 UNION requires >= 2 distinct member
+    //    modes; if we only have one, skip the UNION layer entirely and store the payload directly.
     if union_modes.len() < 2 {
         builder.line(&format!(
             "MODE {} = STRUCT (INT tag, {} payload);",

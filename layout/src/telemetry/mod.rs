@@ -13,8 +13,7 @@
 //!
 //! Nothing leaves the machine unless **both** keys are turned:
 //!
-//! 1. the *developer* compiles the `telemetry` feature in and configures an
-//!    endpoint, and
+//! 1. the *developer* compiles the `telemetry` feature in and configures an endpoint, and
 //! 2. the *user* selects a consent tier at or above the one the data needs.
 //!
 //! The default tier is [`TelemetryTier::Off`]. Linking this module in does not
@@ -1198,11 +1197,11 @@ fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
 /// Two durable artifacts, gated on tier `Crashes` (metrics consent NOT
 /// required — this is exactly the "telemetry off, crash reports on" mode):
 ///
-/// * a `Severity::Error` LOG record (red in Loki, `event.kind="crash"`),
-///   queued for the OTLP `/v1/logs` path when an endpoint exists;
-/// * a self-contained JSON CRASH DUMP queued as [`PingKind::Crash`] — never
-///   uploaded over OTLP, it is the payload the `crash-mail` backup transport
-///   attaches for deployments with no collector at all.
+/// * a `Severity::Error` LOG record (red in Loki, `event.kind="crash"`), queued for the OTLP
+///   `/v1/logs` path when an endpoint exists;
+/// * a self-contained JSON CRASH DUMP queued as [`PingKind::Crash`] — never uploaded over OTLP, it
+///   is the payload the `crash-mail` backup transport attaches for deployments with no collector at
+///   all.
 ///
 /// Nothing is uploaded in-hook: a hook that blocks on the network turns a
 /// recoverable panic into a hang. The next launch (or the crash mailer)
@@ -1224,8 +1223,8 @@ pub fn install_panic_hook() {
             let doc_size = document_size();
             let client_id = config_snapshot().client_id;
 
-            // 1. The Loki-facing log record. Severity ERROR renders red;
-            //    FATAL maps to Grafana's purple "critical" band.
+            // 1. The Loki-facing log record. Severity ERROR renders red; FATAL maps to Grafana's
+            //    purple "critical" band.
             let mut record =
                 LogRecord::new(Severity::Error, format!("crash: {message} (at {location})"))
                     .with_attribute("event.kind", "crash")
@@ -1242,10 +1241,9 @@ pub fn install_panic_hook() {
             }
             push_log(record);
 
-            // 2. Durability, WITHOUT the metrics-tier gate `persist()`
-            //    carries: encode the buffered log records and the crash dump
-            //    straight into the queue. At tier `Crashes` this is the ONLY
-            //    write path that runs.
+            // 2. Durability, WITHOUT the metrics-tier gate `persist()` carries: encode the buffered
+            //    log records and the crash dump straight into the queue. At tier `Crashes` this is
+            //    the ONLY write path that runs.
             if let Some((resource, Some(queue))) = inner().read().ok().and_then(|slot| {
                 slot.as_ref()
                     .map(|state| (state.resource.clone(), state.queue.clone()))
@@ -1397,9 +1395,9 @@ mod tests {
     fn strip_user_paths_removes_home_and_shortens_absolutes() {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home/testuser".into());
         let input = format!(
-            "panicked at {home}/Development/azul/layout/src/window.rs:42\n\
-             at /rustc/abcdef1234567890abcdef1234567890abcdef12/library/std/src/panic.rs:10\n\
-             at /very/long/absolute/path/to/some/crate/src/lib.rs:7"
+            "panicked at {home}/Development/azul/layout/src/window.rs:42\nat \
+             /rustc/abcdef1234567890abcdef1234567890abcdef12/library/std/src/panic.rs:10\nat \
+             /very/long/absolute/path/to/some/crate/src/lib.rs:7"
         );
         let out = super::strip_user_paths(&input);
         assert!(!out.contains(&home), "home dir must not survive: {out}");
@@ -1490,9 +1488,13 @@ mod tests {
         ));
         let queue = PingQueue::new(dir.clone());
         drop(queue.enqueue(PingKind::Logs, "{}"));
-        let first = queue.enqueue(PingKind::Crash, "{\"n\":1}").expect("enqueue");
+        let first = queue
+            .enqueue(PingKind::Crash, "{\"n\":1}")
+            .expect("enqueue");
         std::thread::sleep(std::time::Duration::from_millis(20));
-        let second = queue.enqueue(PingKind::Crash, "{\"n\":2}").expect("enqueue");
+        let second = queue
+            .enqueue(PingKind::Crash, "{\"n\":2}")
+            .expect("enqueue");
         // Make the ordering explicit even on coarse-mtime filesystems.
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
         drop(std::fs::File::open(&second).and_then(|f| f.set_modified(later)));
@@ -1505,5 +1507,4 @@ mod tests {
         );
         drop(std::fs::remove_dir_all(&dir));
     }
-
 }

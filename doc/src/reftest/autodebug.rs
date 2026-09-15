@@ -4,23 +4,26 @@
 //! diagnostic prompts, and dispatches Claude agents in parallel to analyze
 //! and fix each bug.
 
-use std::collections::VecDeque;
-use std::fmt::Write as FmtWrite;
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    fmt::Write as FmtWrite,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
 
 use rayon::prelude::*;
 
-use crate::spec::executor::{
-    self, AgentResult, WorktreeSlot, CODEBASE_CONTEXT, SHUTDOWN_REQUESTED,
-};
-
 use super::{
     find_test_files, generate_chrome_screenshot, get_chrome_path, pixels_similar, DebugData,
+};
+use crate::spec::executor::{
+    self, AgentResult, WorktreeSlot, CODEBASE_CONTEXT, SHUTDOWN_REQUESTED,
 };
 
 // ── Configuration ──────────────────────────────────────────────────────
@@ -96,12 +99,14 @@ fn reports_dir(project_root: &Path) -> PathBuf {
 // Chrome for every test file.
 
 pub(crate) mod cdp {
-    use std::io::{BufRead, BufReader};
-    use std::net::TcpStream;
-    use std::path::Path;
-    use std::process::{Child, Command, Stdio};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{Duration, Instant};
+    use std::{
+        io::{BufRead, BufReader},
+        net::TcpStream,
+        path::Path,
+        process::{Child, Command, Stdio},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, Instant},
+    };
 
     use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 
@@ -131,7 +136,10 @@ pub(crate) mod cdp {
 
     impl std::fmt::Display for ChromePerformanceTiming {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "style={:.0}µs layout={:.0}µs fcp={:.0}µs total={:.0}µs (nodes={}, layouts={}, recalcs={})",
+            write!(
+                f,
+                "style={:.0}µs layout={:.0}µs fcp={:.0}µs total={:.0}µs (nodes={}, layouts={}, \
+                 recalcs={})",
                 self.recalc_style_us,
                 self.layout_us,
                 self.first_contentful_paint_us,
@@ -623,8 +631,8 @@ pub fn analyze_pixel_diff(
 
     // Build per-pixel diff data: delta values
     const BLOCK_SIZE: u32 = 16;
-    let block_cols = ((width + BLOCK_SIZE - 1) / BLOCK_SIZE) as usize;
-    let block_rows = ((height + BLOCK_SIZE - 1) / BLOCK_SIZE) as usize;
+    let block_cols = width.div_ceil(BLOCK_SIZE) as usize;
+    let block_rows = height.div_ceil(BLOCK_SIZE) as usize;
 
     // For each block: count differing pixels and accumulate deltas
     let mut block_diff_counts = vec![0u32; block_cols * block_rows];
@@ -1086,7 +1094,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                         }
 
                         let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                        if done.is_multiple_of(20) || i + 1 == pending_jobs.len() {
                             println!("    Chrome: {}/{}", done, jobs.len());
                         }
                     }
@@ -1113,7 +1121,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                             chrome_errors += 1;
                         }
                         let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                        if done.is_multiple_of(20) || i + 1 == pending_jobs.len() {
                             println!("    Chrome: {}/{}", done, jobs.len());
                         }
                     }
@@ -1169,7 +1177,10 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         .load(std::sync::atomic::Ordering::Acquire)
     {
         if Instant::now() > deadline {
-            eprintln!("    Warning: font registry build timed out after 30s, proceeding with partial cache");
+            eprintln!(
+                "    Warning: font registry build timed out after 30s, proceeding with partial \
+                 cache"
+            );
             break;
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -1223,7 +1234,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
 
         let done = azul_done.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 20 == 0 || done == jobs.len() {
+        if done.is_multiple_of(20) || done == jobs.len() {
             println!("    Azul: {}/{}", done, jobs.len());
         }
     });
@@ -1376,12 +1387,8 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     fn box_line(content: &str) {
         // Box inner width = 60 chars (between ║ and ║)
         let visible_len = content.chars().count();
-        let pad = if visible_len < 60 {
-            60 - visible_len
-        } else {
-            0
-        };
-        println!("║{}{}║", content, " ".repeat(pad));
+        let pad = 60_i32.saturating_sub(visible_len.try_into().unwrap());
+        println!("║{}{}║", content, " ".repeat(pad.try_into().unwrap()));
     }
 
     println!("\n╔════════════════════════════════════════════════════════════════╗");
@@ -1648,10 +1655,11 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
     // Working directory
     writeln!(
         prompt,
-        "## Working Directory\n\n\
-         You are in a git worktree. ALL file paths are relative to your current working directory.\n\
-         Do NOT `cd` anywhere else — your commits will be lost if you do.\n",
-    ).unwrap();
+        "## Working Directory\n\nYou are in a git worktree. ALL file paths are relative to your \
+         current working directory.\nDo NOT `cd` anywhere else — your commits will be lost if you \
+         do.\n",
+    )
+    .unwrap();
 
     // Test information
     writeln!(prompt, "## Test Under Analysis\n").unwrap();
@@ -1737,7 +1745,12 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
     )
     .unwrap();
     writeln!(prompt, "# Create enhanced pixel diff:").unwrap();
-    writeln!(prompt, "magick composite /tmp/azul_crop.png /tmp/chrome_crop.png -compose difference /tmp/diff.png").unwrap();
+    writeln!(
+        prompt,
+        "magick composite /tmp/azul_crop.png /tmp/chrome_crop.png -compose difference \
+         /tmp/diff.png"
+    )
+    .unwrap();
     writeln!(
         prompt,
         "magick /tmp/diff.png -auto-level /tmp/diff_enhanced.png"
@@ -1792,7 +1805,12 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
         "You are debugging a CSS layout rendering bug in the Azul layout engine."
     )
     .unwrap();
-    writeln!(prompt, "The screenshots above show how Chrome renders this test (reference) vs how Azul renders it.").unwrap();
+    writeln!(
+        prompt,
+        "The screenshots above show how Chrome renders this test (reference) vs how Azul renders \
+         it."
+    )
+    .unwrap();
     writeln!(
         prompt,
         "The pixel diff analysis highlights which regions differ and why.\n"
@@ -2072,21 +2090,22 @@ fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> 
     if !dry_run {
         // Refuse to run inside an existing Claude Code session
         if std::env::var("CLAUDECODE").is_ok() {
-            return Err("Cannot run inside a Claude Code session.\n\
-                 The executor spawns claude CLI subprocesses which would conflict.\n\
-                 Run this command from a regular terminal:\n\
-                 \n\
-                 ./target/release/azul-doc autodebug claude-exec"
-                .to_string());
+            return Err(
+                "Cannot run inside a Claude Code session.\nThe executor spawns claude CLI \
+                 subprocesses which would conflict.\nRun this command from a regular \
+                 terminal:\n\n./target/release/azul-doc autodebug claude-exec"
+                    .to_string(),
+            );
         }
         println!("  [OK] Not running inside Claude Code");
 
         // Check that ANTHROPIC_API_KEY is NOT set
         if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            return Err("ANTHROPIC_API_KEY is set in environment.\n\
-                 This would route claude CLI through the paid API.\n\
-                 Unset it first: unset ANTHROPIC_API_KEY"
-                .to_string());
+            return Err(
+                "ANTHROPIC_API_KEY is set in environment.\nThis would route claude CLI through \
+                 the paid API.\nUnset it first: unset ANTHROPIC_API_KEY"
+                    .to_string(),
+            );
         }
         println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
 
@@ -2111,8 +2130,8 @@ fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> 
     let solver_dir = workspace_root.join("layout/src/solver3");
     if !solver_dir.is_dir() {
         return Err(format!(
-            "Working directory does not look like the azul repo.\n\
-             Expected layout/src/solver3/ in: {}",
+            "Working directory does not look like the azul repo.\nExpected layout/src/solver3/ \
+             in: {}",
             workspace_root.display()
         ));
     }

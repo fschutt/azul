@@ -1,14 +1,16 @@
+use agg_rust::{
+    basics::{FillingRule, PATH_FLAGS_NONE},
+    color::Rgba8,
+    conv_stroke::ConvStroke,
+    conv_transform::ConvTransform,
+    path_storage::PathStorage,
+    trans_affine::TransAffine,
+};
+use azul_core::resources::ImageRef;
+
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use super::*;
-
-use agg_rust::basics::{FillingRule, PATH_FLAGS_NONE};
-use agg_rust::color::Rgba8;
-use agg_rust::conv_stroke::ConvStroke;
-use agg_rust::conv_transform::ConvTransform;
-use agg_rust::path_storage::PathStorage;
-use agg_rust::trans_affine::TransAffine;
-use azul_core::resources::ImageRef;
 
 /// Render raw SVG bytes to a PNG image ON AN OPAQUE WHITE BACKGROUND.
 ///
@@ -29,7 +31,12 @@ pub fn render_svg_to_png(
     target_width: u32,
     target_height: u32,
 ) -> Result<Vec<u8>, String> {
-    render_svg_to_png_over(svg_data, target_width, target_height, Some((255, 255, 255, 255)))
+    render_svg_to_png_over(
+        svg_data,
+        target_width,
+        target_height,
+        Some((255, 255, 255, 255)),
+    )
 }
 
 /// [`render_svg_to_png`] over an explicit backdrop.
@@ -239,7 +246,8 @@ fn presentation_property(node: &azul_core::xml::XmlNode, name: &str) -> Option<S
 
 #[cfg(all(feature = "std", feature = "xml"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn render_svg_group_with_style(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -298,8 +306,8 @@ fn render_svg_group_with_style(
                         });
 
                 // Fill: element overrides group
-                let fill_attr = presentation_property(child_node, "fill")
-                    .or_else(|| group_style.fill.clone());
+                let fill_attr =
+                    presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
                 let fill_color = match fill_attr.as_deref() {
                     Some("none") => None,
                     Some(c) => parse_svg_color(c),
@@ -370,7 +378,8 @@ fn render_svg_group_with_style(
 
 /// Build an agg `PathStorage` from an SVG shape element's attributes.
 #[cfg(all(feature = "std", feature = "xml"))]
-#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker
+                                           // cast
 fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     const KAPPA: f64 = 0.552_284_749_8;
     let tag = node.node_type.as_str().to_lowercase();
@@ -2150,12 +2159,7 @@ mod autotest_generated {
         );
         let mut p = pixmap(8, 8);
         p.fill(255, 255, 255, 255);
-        render_svg_group_with_style(
-            &svg,
-            &mut p,
-            &TransAffine::new(),
-            &style,
-        );
+        render_svg_group_with_style(&svg, &mut p, &TransAffine::new(), &style);
         assert_eq!(px(&p, 4, 4), [255, 0, 0, 255], "the passed-in fill wins");
     }
 
@@ -2376,8 +2380,8 @@ mod autotest_generated {
 
     #[test]
     fn render_svg_to_png_unicode_content_does_not_panic() {
-        let svg = "<svg viewBox=\"0 0 8 8\"><title>\u{1F600} \u{4F60}\u{597D} e\u{301}</title>\
-                   <rect width=\"8\" height=\"8\" fill=\"red\"/></svg>";
+        let svg = "<svg viewBox=\"0 0 8 8\"><title>\u{1F600} \u{4F60}\u{597D} \
+                   e\u{301}</title><rect width=\"8\" height=\"8\" fill=\"red\"/></svg>";
         let png = render_svg_to_png(svg.as_bytes(), 8, 8).expect("unicode text must not break");
         assert!(png.starts_with(PNG_MAGIC));
     }

@@ -95,14 +95,14 @@ fn on_click(_d: RefAny, _i: CallbackInfo, _idx: usize) -> Update {
     Update::RefreshDom
 }
 
-let root = TreeViewNode::new("Project".into())
+let root = TreeViewNode::create("Project".into())
     .with_expanded(true)
-    .with_child(TreeViewNode::new("src".into()).with_expanded(true)
-        .with_child(TreeViewNode::new("main.rs".into()))
-        .with_child(TreeViewNode::new("lib.rs".into())))
-    .with_child(TreeViewNode::new("Cargo.toml".into()));
+    .with_child(TreeViewNode::create("src".into()).with_expanded(true)
+        .with_child(TreeViewNode::create("main.rs".into()))
+        .with_child(TreeViewNode::create("lib.rs".into())))
+    .with_child(TreeViewNode::create("Cargo.toml".into()));
 
-let dom = TreeView::new(root)
+let dom = TreeView::create(root)
     .with_on_node_click(RefAny::new(()), on_click)
     .dom();
 ```
@@ -153,14 +153,14 @@ dividers and stack their title below the content.
 ```rust,no_run
 use azul::prelude::*;
 
-let home = RibbonTab::new("Home".into())
-    .with_group(RibbonGroup::new("Clipboard".into()).with_item(clipboard_item()))
-    .with_group(RibbonGroup::new("Font".into()).with_item(font_item()));
+let home = RibbonTab::create("Home".into())
+    .with_group(RibbonGroup::create("Clipboard".into()).with_item(clipboard_item()))
+    .with_group(RibbonGroup::create("Font".into()).with_item(font_item()));
 
-let view = RibbonTab::new("View".into())
-    .with_group(RibbonGroup::new("Zoom".into()).with_item(zoom_item()));
+let view = RibbonTab::create("View".into())
+    .with_group(RibbonGroup::create("Zoom".into()).with_item(zoom_item()));
 
-let dom = Ribbon::new(RibbonTabVec::from_vec(vec![home, view]))
+let dom = Ribbon::create(RibbonTabVec::from_vec(vec![home, view]))
     .dom();
 ```
 

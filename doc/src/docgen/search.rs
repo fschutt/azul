@@ -342,7 +342,7 @@ fn markdown_to_search_text(md: &str) -> String {
             continue;
         }
         let cleaned: String = t
-            .trim_start_matches(|c| c == '#' || c == '>' || c == '-' || c == '*' || c == ' ')
+            .trim_start_matches(['#', '>', '-', '*', ' '])
             .chars()
             .filter(|c| !matches!(c, '`' | '|' | '[' | ']' | '(' | ')' | '_'))
             .collect();

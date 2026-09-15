@@ -1320,8 +1320,8 @@ mod autotest_generated {
             let at_eight = l.get_plural_category(8);
             assert_eq!(
                 at_min, at_eight,
-                "{tag}: i64::MIN must land in the same category as 8 — the \
-                 CLDR rules only look at |n| % 100, which is 8 for both",
+                "{tag}: i64::MIN must land in the same category as 8 — the CLDR rules only look \
+                 at |n| % 100, which is 8 for both",
             );
         }
     }

@@ -115,9 +115,7 @@ pub fn boot_emulator(
         );
     }
     if !tc.avd_exists(avd) {
-        anyhow::bail!(
-            "no AVD named '{avd}' — run `azul-doc mobile install android --avd {avd}`"
-        );
+        anyhow::bail!("no AVD named '{avd}' — run `azul-doc mobile install android --avd {avd}`");
     }
 
     let mut args: Vec<String> = vec![
@@ -195,8 +193,8 @@ pub fn boot_simulator(
 ) -> anyhow::Result<(String, Driver)> {
     if !tc.has_xcode() {
         anyhow::bail!(
-            "no full Xcode selected, so there is no iOS simulator on this host. \
-             `xcode-select -p` = {}. Run `azul-doc mobile install ios` for the steps.",
+            "no full Xcode selected, so there is no iOS simulator on this host. `xcode-select -p` \
+             = {}. Run `azul-doc mobile install ios` for the steps.",
             tc.xcode_developer_dir
                 .as_ref()
                 .map(|p| p.display().to_string())
@@ -221,14 +219,13 @@ pub fn boot_simulator(
         ));
     }
 
-    let available =
-        super::toolchain::capture("xcrun", &["simctl", "list", "devices", "available"])
-            .unwrap_or_default();
+    let available = super::toolchain::capture("xcrun", &["simctl", "list", "devices", "available"])
+        .unwrap_or_default();
     let udid = match device {
         Some(name) => available
             .lines()
             .find(|l| l.contains(name))
-            .and_then(|l| udid_of(l))
+            .and_then(udid_of)
             .ok_or_else(|| anyhow::anyhow!("no available simulator matching '{name}'"))?,
         None => available
             .lines()
@@ -236,8 +233,8 @@ pub fn boot_simulator(
             .find_map(udid_of)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "no available iPhone simulator. Since Xcode 14 the iOS runtime is a \
-                     separate download: run `xcodebuild -downloadPlatform iOS`."
+                    "no available iPhone simulator. Since Xcode 14 the iOS runtime is a separate \
+                     download: run `xcodebuild -downloadPlatform iOS`."
                 )
             })?,
     };
@@ -380,7 +377,10 @@ impl Device {
 
     pub fn stop(&self, bundle_id: &str) -> anyhow::Result<()> {
         match self.platform {
-            Platform::Android => self.adb_cmd(&["shell", "am", "force-stop"]).arg(bundle_id).run(),
+            Platform::Android => self
+                .adb_cmd(&["shell", "am", "force-stop"])
+                .arg(bundle_id)
+                .run(),
             Platform::Ios => Cmd::new("xcrun")
                 .arg("simctl")
                 .arg("terminate")
@@ -402,7 +402,9 @@ impl Device {
                     .arg(local.display().to_string())
                     .arg(&remote)
                     .output()?;
-                self.adb_cmd(&["shell", "chmod", "644"]).arg(&remote).run()?;
+                self.adb_cmd(&["shell", "chmod", "644"])
+                    .arg(&remote)
+                    .run()?;
                 Ok(remote)
             }
             Platform::Ios => {
@@ -533,10 +535,9 @@ impl Device {
     /// target available from outside the process.
     pub fn describe_ui(&self) -> anyhow::Result<String> {
         match self.platform {
-            Platform::Android => {
-                self.adb_cmd(&["shell", "uiautomator", "dump", "/dev/tty"])
-                    .output()
-            }
+            Platform::Android => self
+                .adb_cmd(&["shell", "uiautomator", "dump", "/dev/tty"])
+                .output(),
             Platform::Ios => match self.driver {
                 Driver::Baguette => Cmd::new("baguette")
                     .arg("describe-ui")
@@ -621,15 +622,18 @@ impl Device {
                 .arg(format!("{}", y.round() as i32))
                 .run(),
             Platform::Ios => anyhow::bail!(
-                "individual motion samples are not expressible through baguette; \
-                 use a swipe or run the scenario in-process with `azul-doc e2e`"
+                "individual motion samples are not expressible through baguette; use a swipe or \
+                 run the scenario in-process with `azul-doc e2e`"
             ),
         }
     }
 
     pub fn key(&self, code: &str) -> anyhow::Result<()> {
         match self.platform {
-            Platform::Android => self.adb_cmd(&["shell", "input", "keyevent"]).arg(code).run(),
+            Platform::Android => self
+                .adb_cmd(&["shell", "input", "keyevent"])
+                .arg(code)
+                .run(),
             Platform::Ios => Cmd::new("baguette")
                 .arg("key")
                 .arg("--udid")

@@ -1458,7 +1458,10 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 // selector. No realistic stylesheet nests this deep; this bounds parse time.
 const MAX_NESTING_DEPTH: usize = 1024;
 
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // CSS parser/formatter/dispatch
+                                                               // table (one branch per
+                                                               // property/variant)
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,
@@ -1531,7 +1534,8 @@ fn new_from_str_inner<'a>(
     let mut at_rule_stack: Vec<(Vec<DynamicSelector>, usize)> = Vec::new();
     // Pending @-rule that needs to be combined with AtStr tokens
     let mut pending_at_rule: Option<&str> = None;
-    // Collect multiple AtStr tokens (e.g., "screen", "(min-width: 800px)" for compound media queries)
+    // Collect multiple AtStr tokens (e.g., "screen", "(min-width: 800px)" for compound media
+    // queries)
     let mut pending_at_str_parts: Vec<String> = Vec::new();
     let mut keyframes_capture: Option<KfCapture> = None;
 
@@ -2892,9 +2896,8 @@ mod autotest_generated {
                             | CssPathSelector::GeneralSibling
                     )
                 ),
-                "BUG: the unknown type tag was dropped, leaving a dangling combinator; \
-                 `div definitelynotatag` now matches every descendant of div. \
-                 selectors = {selectors:?}"
+                "BUG: the unknown type tag was dropped, leaving a dangling combinator; `div \
+                 definitelynotatag` now matches every descendant of div. selectors = {selectors:?}"
             );
         }
     }
@@ -3049,9 +3052,9 @@ mod autotest_generated {
                 Some(DynamicSelector::ViewportWidth(r)) => {
                     assert!(
                         r.min().is_some() || r.max().is_some(),
-                        "BUG: {feature:?} parsed into a ViewportWidth with no bounds at all \
-                         (the NaN collided with MinMaxRange's `absent` sentinel), so the \
-                         media query silently matches every viewport"
+                        "BUG: {feature:?} parsed into a ViewportWidth with no bounds at all (the \
+                         NaN collided with MinMaxRange's `absent` sentinel), so the media query \
+                         silently matches every viewport"
                     );
                 }
                 Some(other) => panic!("unexpected selector for {feature:?}: {other:?}"),
@@ -3129,9 +3132,9 @@ mod autotest_generated {
             if let Some(px) = parse_px_value(input) {
                 assert!(
                     px.is_finite(),
-                    "BUG: parse_px_value({input:?}) returned the non-finite value {px}; \
-                     a non-finite length is not valid CSS and collides with MinMaxRange's \
-                     NaN `absent` sentinel"
+                    "BUG: parse_px_value({input:?}) returned the non-finite value {px}; a \
+                     non-finite length is not valid CSS and collides with MinMaxRange's NaN \
+                     `absent` sentinel"
                 );
             }
         }
@@ -3189,9 +3192,8 @@ mod autotest_generated {
             if let Some(r) = parse_ratio_value(input) {
                 assert!(
                     !r.is_nan(),
-                    "BUG: parse_ratio_value({input:?}) returned NaN, which MinMaxRange \
-                     reads back as `no bound` -- the aspect-ratio query silently matches \
-                     everything"
+                    "BUG: parse_ratio_value({input:?}) returned NaN, which MinMaxRange reads back \
+                     as `no bound` -- the aspect-ratio query silently matches everything"
                 );
             }
         }
@@ -3650,9 +3652,9 @@ mod autotest_generated {
                 catch(|| ErrorLocation { original_pos: pos }.get_line_column_from_error(css))
             {
                 panic!(
-                    "BUG: get_line_column_from_error panicked for original_pos={pos} on a \
-                     {}-byte string (unchecked `css_string[0..error_location]` slice); it \
-                     should clamp instead: {msg}",
+                    "BUG: get_line_column_from_error panicked for original_pos={pos} on a {}-byte \
+                     string (unchecked `css_string[0..error_location]` slice); it should clamp \
+                     instead: {msg}",
                     css.len()
                 );
             }
@@ -3777,8 +3779,8 @@ mod autotest_generated {
         };
         if let Err(msg) = catch(|| format!("{err}")) {
             panic!(
-                "BUG: Display for CssParseError panicked while formatting an error whose CSS \
-                 ends in a multi-byte char (unchecked slicing in get_line_column_from_error / \
+                "BUG: Display for CssParseError panicked while formatting an error whose CSS ends \
+                 in a multi-byte char (unchecked slicing in get_line_column_from_error / \
                  get_error_string): {msg}"
             );
         }
@@ -4540,8 +4542,8 @@ mod env_tests {
         // A `var()` next to it is still substituted at parse time; the env()
         // must come out the other side still Dynamic.
         let (parsed, warnings) = new_from_str(
-            ":root { --gap: 3px; } div { margin-left: var(--gap); \
-             padding-bottom: env(safe-area-inset-bottom, 7px); }",
+            ":root { --gap: 3px; } div { margin-left: var(--gap); padding-bottom: \
+             env(safe-area-inset-bottom, 7px); }",
         );
         assert!(warnings.is_empty(), "{warnings:?}");
         let div = parsed

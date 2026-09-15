@@ -545,7 +545,9 @@ impl U8Vec {
     /// - `start + len` must not overflow
     #[inline] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the
+    // documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force
+    // unsafe blocks into the generated dll bindings.
     #[must_use]
     pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
@@ -752,13 +754,11 @@ struct StringArenaInner {
 }
 
 // Safety:
-// - Mutation through `UnsafeCell` only happens via `&mut StringArena`,
-//   which owns the sole external reference to `Arc<StringArenaInner>`
-//   held in a `StringArena`. Other `Arc` references live inside AzString
-//   destructors and never touch chunks — they only drop the Arc.
-// - `Arc<T>` itself needs `T: Send + Sync` to cross threads; since the
-//   destructor can run on any thread, we claim Send+Sync and rely on the
-//   single-writer invariant for mutation safety.
+// - Mutation through `UnsafeCell` only happens via `&mut StringArena`, which owns the sole external
+//   reference to `Arc<StringArenaInner>` held in a `StringArena`. Other `Arc` references live
+//   inside AzString destructors and never touch chunks — they only drop the Arc.
+// - `Arc<T>` itself needs `T: Send + Sync` to cross threads; since the destructor can run on any
+//   thread, we claim Send+Sync and rely on the single-writer invariant for mutation safety.
 unsafe impl Send for StringArenaInner {}
 unsafe impl Sync for StringArenaInner {}
 

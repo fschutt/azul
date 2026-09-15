@@ -3,14 +3,12 @@
 //! For every IR struct that has a matching `<TypeName>_delete` C
 //! function we emit:
 //!
-//! - A `(defclass <name> () ((ptr :initarg :ptr :reader <name>-ptr)))`
-//!   that wraps the foreign pointer.
-//! - A `(defmethod close-<name> ((obj <name>)))` that calls the
-//!   matching `%az-<name>-delete` and nulls out the pointer slot. CL
-//!   has no RAII; users invoke this manually or via the macro below.
-//! - A `(defmacro with-<name> ((var ...) &body body) ...)` that wraps
-//!   the constructor call in `unwind-protect` so the close method runs
-//!   on non-local exit.
+//! - A `(defclass <name> () ((ptr :initarg :ptr :reader <name>-ptr)))` that wraps the foreign
+//!   pointer.
+//! - A `(defmethod close-<name> ((obj <name>)))` that calls the matching `%az-<name>-delete` and
+//!   nulls out the pointer slot. CL has no RAII; users invoke this manually or via the macro below.
+//! - A `(defmacro with-<name> ((var ...) &body body) ...)` that wraps the constructor call in
+//!   `unwind-protect` so the close method runs on non-local exit.
 //! - Idiomatic functions:
 //!   - `(make-<name> ...)` for `Constructor` / `Default`.
 //!   - `(<name>-<method> obj ...)` for `Method` / `MethodMut`.
@@ -26,13 +24,17 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
+            TypeCategory,
+        },
+    },
+    ident_to_kebab, idiomatic_class_name, raw_fn_name, to_kebab_case,
 };
-use super::{ident_to_kebab, idiomatic_class_name, raw_fn_name, to_kebab_case};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,
@@ -210,8 +212,8 @@ fn emit_static_or_ctor(builder: &mut CodeBuilder, class: &str, func: &FunctionDe
         _ => format!("{}-{}", class, lisp_method),
     };
 
-    let (param_list, mut call_args) = build_param_lists(&func.args, ir, /*has_self*/ false);
-    substitute_callback_args(&func.args, &mut call_args, /*self_offset*/ 0);
+    let (param_list, mut call_args) = build_param_lists(&func.args, ir, /* has_self */ false);
+    substitute_callback_args(&func.args, &mut call_args, /* self_offset */ 0);
 
     if !func.doc.is_empty() {
         for d in &func.doc {
@@ -266,7 +268,7 @@ fn emit_instance_method(
         }
     }
 
-    let (mut param_list, mut call_args) = build_param_lists(&func.args, ir, /*has_self*/ true);
+    let (mut param_list, mut call_args) = build_param_lists(&func.args, ir, /* has_self */ true);
 
     // The first arg from the IR is implicit `self` (named after the
     // lowercased class). Replace it with `obj` and pass the inner ptr.
@@ -274,7 +276,7 @@ fn emit_instance_method(
         param_list[0] = "obj".to_string();
         call_args[0] = format!("({}-ptr obj)", class);
     }
-    substitute_callback_args(&func.args, &mut call_args, /*self_offset*/ 0);
+    substitute_callback_args(&func.args, &mut call_args, /* self_offset */ 0);
 
     let returns_self = func
         .return_type
@@ -415,12 +417,10 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 ));
                 builder.indent();
                 builder.line(&format!(
-                    "(setf (cffi:foreign-slot-value (cffi:foreign-slot-pointer u '(:union azul-internal::{}) '{}) '(:struct azul-internal::{}-variant-{}) 'azul-internal::tag) :{})",
-                    union_kebab,
-                    variant,
-                    union_kebab,
-                    variant,
-                    variant
+                    "(setf (cffi:foreign-slot-value (cffi:foreign-slot-pointer u '(:union \
+                     azul-internal::{}) '{}) '(:struct azul-internal::{}-variant-{}) \
+                     'azul-internal::tag) :{})",
+                    union_kebab, variant, union_kebab, variant, variant
                 ));
                 builder.line("u))");
                 builder.dedent();
@@ -430,7 +430,8 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
                 builder.line(&format!(
-                    ";; SKIPPED: variant {}.{} has payload -- construct via cffi:foreign-alloc + slot setters.",
+                    ";; SKIPPED: variant {}.{} has payload -- construct via cffi:foreign-alloc + \
+                     slot setters.",
                     class, v.name
                 ));
             }
@@ -504,5 +505,5 @@ fn idiomatic_method_name(method_name: &str) -> String {
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

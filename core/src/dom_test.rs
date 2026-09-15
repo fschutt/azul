@@ -110,12 +110,13 @@ mod autotest_generated {
     /// stay bounded under repeated toggles.
     #[test]
     fn upsert_inline_css_property_replaces_only_the_unconditional_same_type() {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType},
+            props::{
+                layout::{display::LayoutDisplay, position::LayoutPosition},
+                property::{CssProperty, CssPropertyType},
+            },
         };
-        use azul_css::props::layout::display::LayoutDisplay;
-        use azul_css::props::layout::position::LayoutPosition;
-        use azul_css::props::property::{CssProperty, CssPropertyType};
 
         let mut node = NodeData::create_div();
         node.set_css_props(
@@ -2207,8 +2208,8 @@ mod autotest_generated {
         assert_ne!(
             d.node_count(),
             0,
-            "wrapping to 0 would claim an empty DOM — the one answer callers \
-             act on without checking"
+            "wrapping to 0 would claim an empty DOM — the one answer callers act on without \
+             checking"
         );
     }
 
@@ -2364,7 +2365,6 @@ mod autotest_generated {
         assert_eq!(AttributeType::Autofocus.name(), "autofocus");
         assert_eq!(AttributeType::Autofocus.value().as_str(), "true");
     }
-
 
     // =====================================================================
     // Markers

@@ -4,10 +4,11 @@
 // is equivalent to:
 // .button:hover { color: red; }
 
-use azul_css::css::{CssPathPseudoSelector, CssPathSelector};
-use azul_css::dynamic_selector::DynamicSelector;
-use azul_css::dynamic_selector::OsCondition;
-use azul_css::parser2::new_from_str;
+use azul_css::{
+    css::{CssPathPseudoSelector, CssPathSelector},
+    dynamic_selector::{DynamicSelector, OsCondition},
+    parser2::new_from_str,
+};
 
 /// Test basic pseudo-class nesting: .button { :hover { color: red; } }
 #[test]

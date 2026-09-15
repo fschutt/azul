@@ -3,10 +3,13 @@
 //! inside the `lib LibAzul` block, so they are emitted at one indentation
 //! level (two leading spaces).
 //!
-//! Crystal `lib`-scope declarations are order-independent, so we simply
-//! walk the IR and emit each type once. Skipped categories (recursive /
-//! generic template) get an opaque `alias AzName = Void*` so any
-//! by-pointer reference still resolves, mirroring the Odin backend.
+//! Crystal resolves `lib`-scope NAMES regardless of order, but it does NOT
+//! lay structs out correctly regardless of order: a struct embedding by
+//! value a type declared later in the file gets a wrong size/offsets. So
+//! every declaration is emitted in the IR's topological `sort_order`, the
+//! same order the C header uses. Skipped categories (recursive / generic
+//! template) get an opaque `alias AzName = Void*` so any by-pointer
+//! reference still resolves, mirroring the Odin backend.
 //!
 //! Tagged unions follow the tested `lang_c` layout exactly: one struct
 //! per variant, each beginning with the discriminant `tag` field,
@@ -17,13 +20,15 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind, MonomorphizedTypeDef,
-    StructDef, TypeAliasDef,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind,
+            MonomorphizedTypeDef, StructDef, TypeAliasDef,
+        },
+    },
     enum_member_name, ffi_type_name, field_type_for_ref_kind, include_enum, include_struct,
     map_type_to_crystal, sanitize_identifier,
 };
@@ -39,63 +44,75 @@ pub fn generate_types(
     b.line("  # --------------------------------------------------------------------------");
     b.blank();
 
-    // Enums (simple + tagged unions).
+    // ONE list in dependency order. Crystal lays a `lib` struct out lazily,
+    // and a struct that embeds by value a type declared LATER in the file
+    // gets the wrong size and field offsets (measured: 1470 of 5633 types,
+    // e.g. `AzAppConfig` 2392 bytes vs 2400 in C, which made
+    // `AzAppConfig_create` write past its slot into the neighbouring RefAny).
+    // The IR already carries the topological `sort_order` the C header uses,
+    // so emit in exactly that order. The per-category walk below only picks
+    // which declaration wins a name clash (enum, struct, alias, callback -
+    // the historic precedence); the emission order is `sort_order`.
+    enum Decl<'a> {
+        Enum(&'a EnumDef),
+        Struct(&'a StructDef),
+        Alias(&'a TypeAliasDef),
+        Callback(&'a CallbackTypedefDef),
+    }
+    let mut decls: Vec<(usize, Decl)> = Vec::new();
     for e in &ir.enums {
-        let name = ffi_type_name(&e.name);
-        if !emitted.insert(name.clone()) {
-            continue;
-        }
-        if !include_enum(e, config) {
-            emit_opaque(b, &name, &e.name);
-            continue;
-        }
-        if e.is_union {
-            emit_tagged_union(b, e, ir);
-        } else {
-            emit_simple_enum(b, e);
+        if emitted.insert(ffi_type_name(&e.name)) {
+            decls.push((e.sort_order, Decl::Enum(e)));
         }
     }
-
-    // Structs (POD records + callback-wrapper pairs).
     for s in &ir.structs {
-        let name = ffi_type_name(&s.name);
-        if !emitted.insert(name.clone()) {
-            continue;
+        if emitted.insert(ffi_type_name(&s.name)) {
+            decls.push((s.sort_order, Decl::Struct(s)));
         }
-        if !include_struct(s, config) {
-            emit_opaque(b, &name, &s.name);
-            continue;
-        }
-        emit_struct(b, s, ir);
     }
-
-    // Type aliases: monomorphized generics become concrete records /
-    // enums; simple aliases become `alias AzName = <target>`.
     for ta in &ir.type_aliases {
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        let name = ffi_type_name(&ta.name);
-        if !emitted.insert(name.clone()) {
-            continue;
-        }
-        match &ta.monomorphized_def {
-            Some(mono) => emit_monomorphized_alias(b, ta, mono, ir),
-            None => {
-                let target = map_type_to_crystal(&ta.target, ir);
-                b.line(&format!("  alias {} = {}", name, target));
-                b.blank();
-            }
+        if emitted.insert(ffi_type_name(&ta.name)) {
+            decls.push((ta.sort_order, Decl::Alias(ta)));
         }
     }
-
-    // Callback typedefs -> Crystal proc-type aliases (C function pointers).
     for cb in &ir.callback_typedefs {
-        let name = ffi_type_name(&cb.name);
-        if !emitted.insert(name.clone()) {
-            continue;
+        if emitted.insert(ffi_type_name(&cb.name)) {
+            decls.push((cb.sort_order, Decl::Callback(cb)));
         }
-        emit_callback_typedef(b, cb, ir);
+    }
+    decls.sort_by_key(|(order, _)| *order);
+
+    for (_, decl) in decls {
+        match decl {
+            Decl::Enum(e) => {
+                if !include_enum(e, config) {
+                    emit_opaque(b, &ffi_type_name(&e.name), &e.name);
+                } else if e.is_union {
+                    emit_tagged_union(b, e, ir);
+                } else {
+                    emit_simple_enum(b, e);
+                }
+            }
+            Decl::Struct(s) => {
+                if !include_struct(s, config) {
+                    emit_opaque(b, &ffi_type_name(&s.name), &s.name);
+                } else {
+                    emit_struct(b, s, ir);
+                }
+            }
+            Decl::Alias(ta) => match &ta.monomorphized_def {
+                Some(mono) => emit_monomorphized_alias(b, ta, mono, ir),
+                None => {
+                    let target = map_type_to_crystal(&ta.target, ir);
+                    b.line(&format!("  alias {} = {}", ffi_type_name(&ta.name), target));
+                    b.blank();
+                }
+            },
+            Decl::Callback(cb) => emit_callback_typedef(b, cb, ir),
+        }
     }
 }
 
@@ -192,7 +209,7 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 }
 
 /// Union member (field) names must be lowercase-initial in Crystal.
-fn union_field_name(name: &str) -> String {
+pub fn union_field_name(name: &str) -> String {
     let mut chars = name.chars();
     match chars.next() {
         Some(first) => {
@@ -248,20 +265,35 @@ fn emit_field(b: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
 // Callback typedef -> Crystal proc type alias
 // ============================================================================
 
-fn emit_callback_typedef(
-    b: &mut CodeBuilder,
-    cb: &super::super::ir::CallbackTypedefDef,
-    ir: &CodegenIR,
-) {
+fn emit_callback_typedef(b: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     for d in &cb.doc {
         b.line(&format!("  # {}", sanitize_comment(d)));
     }
     let name = ffi_type_name(&cb.name);
 
+    // Pointer args to azul types are spelled `Void*` here, never `AzFoo*`.
+    //
+    // Crystal lays `lib` structs out lazily, on first use, and a proc type
+    // naming `AzFoo*` makes it build `AzFoo` while it is still in the middle
+    // of building whatever contains the proc. Every `*VecDestructor` is such
+    // a cycle - `AzStringVec` embeds `AzStringVecDestructor`, whose
+    // `External` variant holds `(AzStringVec*) -> Void` - and it came out
+    // 1 byte instead of 16, shrinking 1470 of 5633 types, depending only on
+    // which type a program happened to touch first. Declaration order cannot
+    // fix that; `Void*` breaks the cycle, and a function pointer's pointer
+    // args are all the same size to the C ABI anyway. The idiomatic layer's
+    // trampolines cast them back to the typed pointer.
     let params: Vec<String> = cb
         .args
         .iter()
-        .map(|a| super::arg_type_for_ref_kind(&a.type_name, &a.ref_kind, ir))
+        .map(|a| {
+            let ty = super::arg_type_for_ref_kind(&a.type_name, &a.ref_kind, ir);
+            if ty.starts_with("Az") && ty.ends_with('*') {
+                "Void*".to_string()
+            } else {
+                ty
+            }
+        })
         .collect();
 
     // Crystal proc types always name a return type; void -> `Void`.
@@ -372,7 +404,7 @@ fn enum_backing(repr: Option<&str>) -> &'static str {
 /// Discriminant field width for a tagged union. Rust `#[repr(C, u8)]`
 /// tagged unions use a 1-byte tag; a plain `#[repr(C)]` data enum uses a
 /// C-`int` tag.
-fn tag_type(repr: Option<&str>) -> &'static str {
+pub fn tag_type(repr: Option<&str>) -> &'static str {
     match repr {
         Some(r) if r.contains("u8") => "UInt8",
         Some(r) if r.contains("u16") => "UInt16",
@@ -383,5 +415,5 @@ fn tag_type(repr: Option<&str>) -> &'static str {
 
 /// Strip characters that would break a Crystal `#` line comment.
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

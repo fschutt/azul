@@ -3,26 +3,25 @@
 //!
 //! Continuous + push-driven, like geolocation:
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/sensors/<plat>.rs`)
-//!   subscribes to `CoreMotion` (`CMMotionManager`) / Android `SensorManager`
-//!   and calls [`push_sensor_reading`] on every sample (arbitrary thread).
-//! - The dll **layout pass** drains the channel via
-//!   [`drain_sensor_readings`] and folds each into the manager through
-//!   [`SensorManager::set_reading`].
-//! - **Callbacks** read `reading(kind)` synchronously (via
-//!   `CallbackInfo::get_sensor_reading`) to drive tilt / shake / compass UI.
+//! - The **platform backend** (`dll/src/desktop/extra/sensors/<plat>.rs`) subscribes to
+//!   `CoreMotion` (`CMMotionManager`) / Android `SensorManager` and calls [`push_sensor_reading`]
+//!   on every sample (arbitrary thread).
+//! - The dll **layout pass** drains the channel via [`drain_sensor_readings`] and folds each into
+//!   the manager through [`SensorManager::set_reading`].
+//! - **Callbacks** read `reading(kind)` synchronously (via `CallbackInfo::get_sensor_reading`) to
+//!   drive tilt / shake / compass UI.
 //!
 //! One reading slot per [`SensorKind`]. No platform deps
 //! (`SUPER_PLAN_2` §0.5); the channel mirrors `geolocation.rs` verbatim.
 
 use alloc::vec::Vec;
 
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
-};
 pub use azul_core::sensors::{SensorKind, SensorReading};
-use azul_core::task::Instant;
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
+};
 
 /// Cross-platform sensor state. One per `App` — the OS exposes a single
 /// per-process sensor subscription, not per-window.
@@ -509,8 +508,8 @@ mod autotest_generated {
             let stored = mgr.reading(kind).unwrap();
             assert!(
                 stored != sample,
-                "{kind:?}: sanity — NaN fields make PartialEq report inequality, \
-                 which is exactly why set_reading must compare bit patterns"
+                "{kind:?}: sanity — NaN fields make PartialEq report inequality, which is exactly \
+                 why set_reading must compare bit patterns"
             );
         }
     }
@@ -546,13 +545,13 @@ mod autotest_generated {
                     let stored = mgr.reading(kind).expect("just written");
                     assert!(
                         bits_identical(&stored, &sample),
-                        "{kind:?}: stored sample must be bit-identical to the input \
-                         (x = {x:?}, ts = {ts})"
+                        "{kind:?}: stored sample must be bit-identical to the input (x = {x:?}, \
+                         ts = {ts})"
                     );
                     assert!(
                         !mgr.set_reading(sample),
-                        "{kind:?}: resending the identical sample must not advance \
-                         (x = {x:?}, ts = {ts})"
+                        "{kind:?}: resending the identical sample must not advance (x = {x:?}, ts \
+                         = {ts})"
                     );
                 }
             }

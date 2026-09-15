@@ -35,8 +35,10 @@ mod autotest_generated {
     use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtOrdering};
     use std::{ffi::CStr, sync::PoisonError};
 
-    use crate::host_invoker::{tests::TEST_LOCK, *};
-    use crate::refany::OptionRefAny;
+    use crate::{
+        host_invoker::{tests::TEST_LOCK, *},
+        refany::OptionRefAny,
+    };
 
     /// Lock the shared slot mutex, tolerating poisoning from an earlier failed
     /// test (otherwise one genuine failure cascades into N spurious ones).

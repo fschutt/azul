@@ -188,7 +188,6 @@ pub struct GamepadState {
     pub touchpad2_active: bool,
 }
 
-
 impl GamepadButton {
     /// This button's bit in [`GamepadState::buttons`].
     #[must_use]

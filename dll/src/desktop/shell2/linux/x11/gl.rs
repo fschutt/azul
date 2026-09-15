@@ -6,17 +6,19 @@ use super::{
     defines::*,
     dlopen::{Egl, Xlib},
 };
-use crate::desktop::shell2::common::{debug_server::LogCategory, WindowError};
-use crate::{log_debug, log_warn};
+use crate::{
+    desktop::shell2::common::{debug_server::LogCategory, WindowError},
+    log_debug, log_warn,
+};
 
 /// Detected EGL partial-present capabilities for a display (shared by the
 /// X11 and Wayland GL contexts — both load EGL through [`Egl`]).
 ///
-/// - `buffer_age_supported` (EGL_EXT_buffer_age): the back buffer's age can
-///   be queried, so WebRender can render only the accumulated dirty region
-///   (see `wr_translate2::PartialPresentDamage`).
-/// - `swap_with_damage` (EGL_KHR/EXT_swap_buffers_with_damage): the swap can
-///   carry the damaged region so the compositor only recomposites it.
+/// - `buffer_age_supported` (EGL_EXT_buffer_age): the back buffer's age can be queried, so
+///   WebRender can render only the accumulated dirty region (see
+///   `wr_translate2::PartialPresentDamage`).
+/// - `swap_with_damage` (EGL_KHR/EXT_swap_buffers_with_damage): the swap can carry the damaged
+///   region so the compositor only recomposites it.
 ///
 /// Either can be present without the other; absence of both means full
 /// render + full swap, exactly as before.
@@ -117,8 +119,8 @@ impl GlContext {
             // ContextCreationFailed carries no payload, so name the stage +
             // EGL error here or the CPU-fallback log downstream has no cause.
             crate::plog_warn!(
-                "[EGL] eglBindAPI(EGL_OPENGL_API) failed (EGL error 0x{:04x}) — \
-                 GL context unavailable, this window will fall back to CPU rendering",
+                "[EGL] eglBindAPI(EGL_OPENGL_API) failed (EGL error 0x{:04x}) — GL context \
+                 unavailable, this window will fall back to CPU rendering",
                 unsafe { (egl.eglGetError)() }
             );
             return Err(WindowError::ContextCreationFailed);
@@ -159,9 +161,9 @@ impl GlContext {
             // The common "no matching framebuffer config" case — say which it
             // was, ContextCreationFailed alone names neither stage nor reason.
             crate::plog_warn!(
-                "[EGL] eglChooseConfig found no usable config (result={}, \
-                 num_config={}, EGL error 0x{:04x}) — GL context unavailable, this \
-                 window will fall back to CPU rendering",
+                "[EGL] eglChooseConfig found no usable config (result={}, num_config={}, EGL \
+                 error 0x{:04x}) — GL context unavailable, this window will fall back to CPU \
+                 rendering",
                 choose_result,
                 num_config,
                 unsafe { (egl.eglGetError)() }

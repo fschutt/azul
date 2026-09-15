@@ -279,9 +279,9 @@ pub fn encode_logs(records: &[LogRecord], resource: &ResourceInfo) -> Option<Str
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::Value;
 
+    use super::*;
     use crate::telemetry::metrics::{HistogramData, InstrumentKey, MetricLabels, Series};
 
     fn parse(s: &str) -> Result<Value, serde_json::Error> {

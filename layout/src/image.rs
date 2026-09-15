@@ -609,29 +609,20 @@ pub mod encode {
         ($func:ident, $encoder:ident, $feature:expr) => {
             #[cfg(feature = $feature)]
             pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
-                let width = match u32::try_from(image.width) {
-                    Ok(w) => w,
-                    Err(_) => {
+                let Ok(width) = u32::try_from(image.width) else {
                         return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
-                    }
-                };
-                let height = match u32::try_from(image.height) {
-                    Ok(h) => h,
-                    Err(_) => {
+                    };
+                let Ok(height) = u32::try_from(image.height) else {
                         return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
-                    }
-                };
+                    };
                 let mut result = Vec::<u8>::new();
 
                 {
                     let mut cursor = Cursor::new(&mut result);
                     let mut encoder = $encoder::new(&mut cursor);
-                    let pixels = match image.pixels.get_u8_vec_ref() {
-                        Some(s) => s,
-                        None => {
+                    let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                             return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                        }
-                    };
+                        };
 
                     let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
                     let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
@@ -664,17 +655,12 @@ pub mod encode {
     encode_func!(encode_pnm, PnmEncoder, "pnm");
 
     #[cfg(feature = "png")]
+    #[must_use] 
     pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         use image::ImageEncoder;
 
-        let width = match u32::try_from(image.width) {
-            Ok(w) => w,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
-        let height = match u32::try_from(image.height) {
-            Ok(h) => h,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
+        let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
+        let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let mut result = Vec::<u8>::new();
 
         {
@@ -684,15 +670,12 @@ pub mod encode {
                 image::codecs::png::CompressionType::Best,
                 image::codecs::png::FilterType::Adaptive,
             );
-            let pixels = match image.pixels.get_u8_vec_ref() {
-                Some(s) => s,
-                None => {
+            let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                }
-            };
+                };
 
             let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-            let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
+            let pixel_bytes = swapped.as_deref().unwrap_or_else(|| pixels.as_ref());
 
             if let Err(e) = encoder.write_image(
                 pixel_bytes,
@@ -714,29 +697,21 @@ pub mod encode {
     }
 
     #[cfg(feature = "jpeg")]
+    #[must_use] 
     pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
-        let width = match u32::try_from(image.width) {
-            Ok(w) => w,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
-        let height = match u32::try_from(image.height) {
-            Ok(h) => h,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
+        let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
+        let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let mut result = Vec::<u8>::new();
 
         {
             let mut cursor = Cursor::new(&mut result);
             let mut encoder = JpegEncoder::new_with_quality(&mut cursor, quality);
-            let pixels = match image.pixels.get_u8_vec_ref() {
-                Some(s) => s,
-                None => {
+            let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                }
-            };
+                };
 
             let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-            let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
+            let pixel_bytes = swapped.as_deref().unwrap_or_else(|| pixels.as_ref());
 
             if let Err(e) = encoder.encode(
                 pixel_bytes,

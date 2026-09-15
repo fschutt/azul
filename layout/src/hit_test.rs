@@ -15,16 +15,16 @@
 //!
 //! ## Design Principles
 //!
-//! 1. **Frontmost priority**: The node closest to the user (lowest depth) takes
-//!    precedence. This matches browser behavior where a button's cursor:pointer
-//!    overrides any parent's cursor setting.
+//! 1. **Frontmost priority**: The node closest to the user (lowest depth) takes precedence. This
+//!    matches browser behavior where a button's cursor:pointer overrides any parent's cursor
+//!    setting.
 //!
-//! 2. **Text-child inheritance**: Text nodes are inline and don't get hit-test areas.
-//!    Their container inherits the text node's cursor if the container has no explicit
-//!    cursor property. This shows I-beam cursor over text containers.
+//! 2. **Text-child inheritance**: Text nodes are inline and don't get hit-test areas. Their
+//!    container inherits the text node's cursor if the container has no explicit cursor property.
+//!    This shows I-beam cursor over text containers.
 //!
-//! 3. **Explicit cursor wins**: If a container has an explicit cursor property
-//!    (like `cursor:pointer` on a button), it overrides any text-child cursor.
+//! 3. **Explicit cursor wins**: If a container has an explicit cursor property (like
+//!    `cursor:pointer` on a button), it overrides any text-child cursor.
 
 // Re-export FullHitTest for use by other layout modules
 pub use azul_core::hit_test::FullHitTest;
@@ -186,7 +186,8 @@ const fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> 
 }
 
 /// Translate CSS cursor value to `MouseCursorType`
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
     use azul_css::props::style::effects::StyleCursor;
 
@@ -226,9 +227,9 @@ const fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
 
 #[cfg(test)]
 mod tests {
+    use azul_core::dom::{DomNodeId, OptionDomNodeId};
+
     use super::*;
-    use azul_core::dom::DomNodeId;
-    use azul_core::dom::OptionDomNodeId;
 
     #[test]
     fn test_full_hit_test_empty() {
@@ -543,14 +544,14 @@ mod autotest_generated {
         assert_eq!(
             cursor_of(PLAIN_DIV),
             None,
-            "a plain div must have no cursor property, or the contenteditable / \
-             text-child fallbacks are unreachable"
+            "a plain div must have no cursor property, or the contenteditable / text-child \
+             fallbacks are unreachable"
         );
         assert_eq!(
             cursor_of(EDITABLE_DIV),
             None,
-            "contenteditable must NOT get a cursor from CSS — the I-beam has to \
-             come from the node-data fallback branch"
+            "contenteditable must NOT get a cursor from CSS — the I-beam has to come from the \
+             node-data fallback branch"
         );
     }
 
@@ -612,8 +613,8 @@ mod autotest_generated {
             assert_eq!(
                 is_default_icon,
                 ct == CursorType::Default,
-                "{ct:?}: a non-Default CursorType that maps to the Default icon \
-                 would be silently skipped by CursorTypeHitTest::new"
+                "{ct:?}: a non-Default CursorType that maps to the Default icon would be silently \
+                 skipped by CursorTypeHitTest::new"
             );
         }
     }

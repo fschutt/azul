@@ -546,43 +546,6 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     builder.blank();
 }
 
-/// Emit the public surface (azul_refany_create / azul_refany_get) into
-/// the module interface. Internal helpers (`_azul_handles`,
-/// `_azul_alloc_handle`, per-kind invoker pins, etc.) stay
-/// implementation-private.
-pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
-    builder.blank();
-    builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
-    builder.line("(* Managed-FFI public helpers (host-invoker pattern).                    *)");
-    builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
-    builder.blank();
-    builder.line("val azul_refany_create : 'a -> az_ref_any Ctypes.structure");
-    builder.line("val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option");
-    builder.line("val azul_consume : 'a -> unit");
-    builder.line(
-        "val azul_window_create_options_with_layout : 'a -> az_window_create_options Ctypes.structure",
-    );
-    // Per-kind callback registration helpers (mirror those emitted by
-    // emit_managed_module). User passes a host-side closure; we
-    // return the Az<Kind> struct (with cb=static-thunk + ctx=host
-    // handle) ready to hand to the C ABI.
-    for cb in host_invoker_kinds(ir) {
-        let wrapper = wrapper_name(cb);
-        let snake = to_snake_lower(wrapper);
-        let fn_suffix = snake.strip_suffix("_callback").unwrap_or(&snake);
-        let fn_name = if fn_suffix.is_empty() || fn_suffix == "callback" {
-            "azul_register_callback".to_string()
-        } else {
-            format!("azul_register_{}_callback", fn_suffix)
-        };
-        builder.line(&format!(
-            "val {} : 'a -> az_{} Ctypes.structure",
-            fn_name, snake
-        ));
-    }
-    builder.blank();
-}
-
 /// Convert a wrapper name (PascalCase) to snake_case lowercase for use as
 /// an OCaml identifier (Foreign / let binding name).
 /// Mirror of `types.rs::sanitize_field_identifier`: snake-case the IR

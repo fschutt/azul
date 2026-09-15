@@ -9,13 +9,12 @@
 //! without touching this file.
 //!
 //! Implementations:
-//! - [`StubTranspiler`] — always available pure-Rust fallback. Returns
-//!   `TranspileError` from both lift methods so the web backend falls back
-//!   to server-side callback execution (POST → run natively → return HTML).
-//! - [`RemillTranspiler`] — opt-in via the `web-transpiler` Cargo feature
-//!   (pulls in the `third_party/remill-rs` submodule). Lifts x86-64 → LLVM
-//!   IR → WASM. Lives in a sibling file (`transpiler_remill.rs`) so the
-//!   remill toolchain only links when the feature is on.
+//! - [`StubTranspiler`] — always available pure-Rust fallback. Returns `TranspileError` from both
+//!   lift methods so the web backend falls back to server-side callback execution (POST → run
+//!   natively → return HTML).
+//! - [`RemillTranspiler`] — opt-in via the `web-transpiler` Cargo feature (pulls in the
+//!   `third_party/remill-rs` submodule). Lifts x86-64 → LLVM IR → WASM. Lives in a sibling file
+//!   (`transpiler_remill.rs`) so the remill toolchain only links when the feature is on.
 
 /// Error returned when a function cannot be transpiled.
 #[derive(Debug, Clone)]
@@ -62,13 +61,10 @@ pub trait Transpiler {
     /// - `fn_name`: The symbol name (e.g., "on_click", "AzDom_addChild")
     /// - `fn_addr`: The function's address in the running process
     /// - `fn_size`: Estimated size in bytes (from dladdr or DWARF)
-    /// - `kind`: Callback-typedef tag from api.json (e.g. `"Callback"`,
-    ///   `"LayoutCallback"`, `"CheckBoxOnToggleCallback"`). Drives
-    ///   wrapper signature synthesis via the implementation's
-    ///   per-kind PCS table — picks how args land in registers and
-    ///   whether the return uses a hidden destination buffer (X8
-    ///   PCS for `>16B` aggregate returns like `LayoutCallback`'s
-    ///   `AzDom`).
+    /// - `kind`: Callback-typedef tag from api.json (e.g. `"Callback"`, `"LayoutCallback"`,
+    ///   `"CheckBoxOnToggleCallback"`). Drives wrapper signature synthesis via the implementation's
+    ///   per-kind PCS table — picks how args land in registers and whether the return uses a hidden
+    ///   destination buffer (X8 PCS for `>16B` aggregate returns like `LayoutCallback`'s `AzDom`).
     fn lift_function(
         &self,
         fn_name: &str,

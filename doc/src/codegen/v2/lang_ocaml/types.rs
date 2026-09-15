@@ -2,182 +2,46 @@
 //! field/seal definitions, and enum / tagged-union accessors.
 //!
 //! Strategy:
-//! - **Two-pass struct emission**: Ctypes requires a struct's typ value
-//!   to exist before fields are added (because field types may
-//!   reference other structs). Pass 1 emits the bare typ stub; pass 2
-//!   adds fields and seals.
-//! - **Unit enums** (`is_union == false`) -> a polymorphic-variant
-//!   alias (`type t = [ \`A | \`B ]`) plus integer mapping helpers
-//!   `to_int` / `of_int` that pin the C ABI numbering.
-//! - **Tagged-union enums** (`is_union == true`) -> the FFI-side
-//!   `structure` with a `tag : uint32_t` field plus a `payload` byte
-//!   array sized for the largest variant. The OCaml-side polymorphic
-//!   variant + conversion helpers live in `wrappers.rs`.
-//! - **Skipped categories** (`Recursive`, `VecRef`,
-//!   `DestructorOrClone`, `GenericTemplate`) emit a
+//! - **Two-pass struct emission**: Ctypes requires a struct's typ value to exist before fields are
+//!   added (because field types may reference other structs). Pass 1 emits the bare typ stub; pass
+//!   2 adds fields and seals.
+//! - **Unit enums** (`is_union == false`) -> a polymorphic-variant alias (`type t = [ \`A | \`B ]`)
+//!   plus integer mapping helpers `to_int` / `of_int` that pin the C ABI numbering.
+//! - **Tagged-union enums** (`is_union == true`) -> the FFI-side `structure` with a `tag :
+//!   uint32_t` field plus a `payload` byte array sized for the largest variant. The OCaml-side
+//!   polymorphic variant + conversion helpers live in `wrappers.rs`.
+//! - **Skipped categories** (`Recursive`, `VecRef`, `DestructorOrClone`, `GenericTemplate`) emit a
 //!   `(* SKIPPED: ... *)` comment for traceability.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory, FunctionKind};
-use super::{map_type_to_ocaml, ocaml_ffi_type_name, sanitize_doc, sanitize_identifier};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, FunctionKind, StructDef, TypeCategory},
+    },
+    map_type_to_ocaml, ocaml_ffi_type_name, sanitize_doc, sanitize_identifier,
+};
 
 // ============================================================================
-// Interface (.mli) emission
+// One plan chunk = stubs, then unit enums, then fields/seal
 // ============================================================================
 
-pub fn emit_interface_types(
+/// Every declaration of the types `belongs` accepts, in the order Ctypes
+/// needs: the `structure` stubs (so mutually recursive references resolve),
+/// then the unit enums (struct fields name their typ values), then the
+/// fields + `seal` of structs and tagged unions in dependency order. The
+/// types a chunk references but does not declare live in chunks the caller
+/// `open`ed.
+pub fn emit_types_chunk(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder
-        .line("(* FFI type stubs (interface).                                                *)");
-    builder
-        .line("(* -------------------------------------------------------------------------- *)");
-    builder.blank();
-
-    builder.line("open Ctypes");
-    builder.blank();
-
-    for s in &ir.structs {
-        if !should_emit_struct(s, config) {
-            if !s.generic_params.is_empty() {
-                builder.line(&format!(
-                    "(* SKIPPED: generic struct {} (no OCaml equivalent over the C ABI) *)",
-                    s.name
-                ));
-            }
-            continue;
-        }
-        let ffi = ocaml_ffi_type_name(&s.name);
-        builder.line(&format!("type {}", ffi));
-        builder.line(&format!("val {} : {} structure typ", ffi, ffi));
-    }
-
-    for e in &ir.enums {
-        if !should_emit_enum(e, config) {
-            if !e.generic_params.is_empty() {
-                builder.line(&format!(
-                    "(* SKIPPED: generic enum {} (no OCaml equivalent over the C ABI) *)",
-                    e.name
-                ));
-            }
-            continue;
-        }
-        let ffi = ocaml_ffi_type_name(&e.name);
-        if e.is_union {
-            builder.line(&format!("type {}", ffi));
-            builder.line(&format!("val {} : {} structure typ", ffi, ffi));
-            // I.5.6 (OCaml): expose the Option/Result payload extractor
-            // signatures so users can call `Azul.az_option_dom_intoSome opt`
-            // from outside the umbrella module. The .ml emits the bodies
-            // (`emit_tagged_union_storage_decl`); without matching val
-            // declarations here they're confined to umbrella-internal use.
-            emit_into_signature_if_option_or_result(builder, e, ir);
-        } else {
-            // For unit enums we don't need a `structure` — they're plain
-            // ints at the FFI boundary. Still need a `type` declaration
-            // so other val signatures can name them
-            // (`val ok : ... -> az_msg_box_icon -> unit`); declare the
-            // type as an alias for int.
-            builder.line(&format!("type {} = int", ffi));
-            builder.line(&format!("val {} : {} typ", ffi, ffi));
-            builder.line(&format!("val {}_to_int : int -> int", ffi));
-            builder.line(&format!("val {}_of_int : int -> int", ffi));
-            // Expose per-variant integer constants so hello-worlds can
-            // write `Azul.az_button_type_variant_primary` rather than
-            // bare literals. The .ml emits these (line ~530); the .mli
-            // needs the matching `val` declarations.
-            for v in &e.variants {
-                let lit = sanitize_identifier(&super::to_snake_case(&v.name));
-                builder.line(&format!("val {}_variant_{} : int", ffi, lit));
-            }
-            // Idiomatic module counterpart: the .ml defines
-            // `module Update = struct let refresh_dom : int = 1 ... end`
-            // (emit_unit_enum below), but without a matching signature
-            // here the module is hidden by this interface and the
-            // az_*_variant_* prefixed constants were the only reachable
-            // spelling (BINDINGS_REVIEW_2026_07_04 addendum item 8).
-            // Keep the two surfaces in sync.
-            // The module MOVED to the late idiomatic pass (see
-            // `wrappers.rs::emit_enum_modules`). It has to live after the
-            // `foreign` bindings, because its capabilities call them and OCaml
-            // is order-sensitive; emitting it here and the capabilities there
-            // would mean two `module X`, which is a duplicate. Nothing in the
-            // file references these modules internally, so moving them is safe.
-        }
-    }
-
-    // Callback typedefs need declarations too — they're referenced as
-    // value-level types from function signatures (`val with_resolver :
-    // az_icon_resolver_callback_type -> t`) but were never declared in
-    // the interface, raising "Unbound type constructor". Emit a stub
-    // type plus a `<name> : <name> typ` value so other val signatures
-    // can name them. Functions actually marshalling these typedefs go
-    // through `static_funptr` or `Foreign.funptr` at call sites.
-    for cb in &ir.callback_typedefs {
-        let ffi = ocaml_ffi_type_name(&cb.name);
-        builder.line(&format!("type {}", ffi));
-        builder.line(&format!("val {} : {} typ", ffi, ffi));
-    }
-
-    // Filtered-out struct/enum categories (Recursive, VecRef,
-    // DestructorOrClone) are still referenced by name from other
-    // variants' val signatures. Emit phantom type stubs so those
-    // references resolve.
-    for s in &ir.structs {
-        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
-            continue;
-        }
-        if matches!(
-            s.category,
-            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
-        ) {
-            let ffi = ocaml_ffi_type_name(&s.name);
-            builder.line(&format!("type {}", ffi));
-            builder.line(&format!("val {} : {} typ", ffi, ffi));
-        }
-    }
-    for e in &ir.enums {
-        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
-            continue;
-        }
-        if matches!(
-            e.category,
-            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
-        ) {
-            let ffi = ocaml_ffi_type_name(&e.name);
-            // Match the implementation: tagged-union DestructorOrClone
-            // enums get a structure typ (16 bytes); others get a
-            // void-pointer placeholder.
-            if e.is_union && matches!(e.category, TypeCategory::DestructorOrClone) {
-                builder.line(&format!("type {}", ffi));
-                builder.line(&format!("val {} : {} structure typ", ffi, ffi));
-            } else {
-                builder.line(&format!("type {}", ffi));
-                builder.line(&format!("val {} : {} typ", ffi, ffi));
-            }
-        }
-    }
-
-    // Monomorphized type aliases need types too (e.g.
-    // `az_physical_position_i32` referenced from struct fields).
-    for ta in &ir.type_aliases {
-        if !config.should_include_type(&ta.name) {
-            continue;
-        }
-        let ffi = ocaml_ffi_type_name(&ta.name);
-        builder.line(&format!("type {}", ffi));
-        builder.line(&format!("val {} : {} typ", ffi, ffi));
-    }
-
-    builder.blank();
-    Ok(())
+    emit_forward_struct_decls(builder, ir, config, belongs);
+    emit_struct_fields_and_enums(builder, ir, config, belongs)
 }
 
 // ============================================================================
@@ -188,6 +52,7 @@ pub fn emit_forward_struct_decls(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -196,7 +61,7 @@ pub fn emit_forward_struct_decls(
         .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_emit_struct(s, config) {
             continue;
         }
@@ -212,7 +77,7 @@ pub fn emit_forward_struct_decls(
         ));
     }
 
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
             continue;
         }
@@ -232,7 +97,7 @@ pub fn emit_forward_struct_decls(
     // az_icon_resolver_callback_type -> t`) only need the type token
     // to exist; actual marshalling happens via `static_funptr` /
     // `Foreign.funptr` at call sites.
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         let ffi = ocaml_ffi_type_name(&cb.name);
         builder.line(&format!("type {} = unit ptr", ffi));
         builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
@@ -240,7 +105,7 @@ pub fn emit_forward_struct_decls(
 
     // Filtered-out / monomorphized types — same placeholders as the
     // .mli so the implementation side has matching declarations.
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
             continue;
         }
@@ -253,7 +118,7 @@ pub fn emit_forward_struct_decls(
             builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
         }
     }
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
             continue;
         }
@@ -301,7 +166,7 @@ pub fn emit_forward_struct_decls(
             }
         }
     }
-    for ta in &ir.type_aliases {
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
         if !config.should_include_type(&ta.name) {
             continue;
         }
@@ -320,6 +185,7 @@ pub fn emit_struct_fields_and_enums(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -331,7 +197,7 @@ pub fn emit_struct_fields_and_enums(
     // Unit enums FIRST — struct fields reference them by typ value
     // (`field s \"frame\" az_window_frame`) so the typ binding must
     // be in scope before any struct field declaration uses it.
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
             continue;
         }
@@ -351,7 +217,7 @@ pub fn emit_struct_fields_and_enums(
         Union(&'a EnumDef),
     }
     let mut items: Vec<(usize, Item)> = Vec::new();
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
                 builder.line(&format!("(* SKIPPED: generic struct {} *)", s.name));
@@ -366,7 +232,7 @@ pub fn emit_struct_fields_and_enums(
         }
         items.push((s.sort_order, Item::Struct(s)));
     }
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
                 builder.line(&format!("(* SKIPPED: generic enum {} *)", e.name));
@@ -569,7 +435,8 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
             builder.indent();
             builder.line("let raw_ptr = Ctypes.addr r in");
             builder.line(&format!(
-                "let tag_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr Ctypes.uint8_t) raw_ptr in",
+                "let tag_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr Ctypes.uint8_t) raw_ptr \
+                 in",
                 ffi
             ));
             builder.line(&format!(
@@ -638,7 +505,8 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                         builder.indent();
                         builder.line("let raw_ptr = Ctypes.addr r in");
                         builder.line(&format!(
-                            "let byte_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr Ctypes.char) raw_ptr in",
+                            "let byte_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr \
+                             Ctypes.char) raw_ptr in",
                             ffi
                         ));
                         // `max 1` guards primitive-aligned payloads
@@ -650,7 +518,8 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                         builder
                             .line("let payload_byte_ptr = Ctypes.(+@) byte_ptr payload_align in");
                         builder.line(&format!(
-                            "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr {}) payload_byte_ptr in",
+                            "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr \
+                             {}) payload_byte_ptr in",
                             payload_ffi
                         ));
                         builder.line("Some (Ctypes.(!@) payload_ptr)");
@@ -663,75 +532,6 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     }
 
     builder.blank();
-}
-
-/// Lay out a `size`-byte, `align`-aligned blob inside an OCaml Ctypes
-/// `structure` definition as a sequence of fields whose composite
-/// size and alignment match the C ABI exactly. The fields are named
-/// `_<ffi>_blob_<i>` and aren't intended to be read by user code —
-/// the wrappers use `_create` / `_match` helpers from libazul.
-/// I.5.6 (OCaml) — `.mli` val signature for the Option/Result payload
-/// extractors. Only emits when the .ml-side `emit_tagged_union_storage_decl`
-/// would have emitted the matching `let` (same shape predicate).
-fn emit_into_signature_if_option_or_result(
-    builder: &mut CodeBuilder,
-    e: &super::super::ir::EnumDef,
-    ir: &CodegenIR,
-) {
-    if !e.is_union {
-        return;
-    }
-    let is_option_or_result = e.name.starts_with("Option") || e.name.starts_with("Result");
-    if !is_option_or_result {
-        return;
-    }
-    let some_or_ok_idx = e
-        .variants
-        .iter()
-        .position(|v| v.name == "Some" || v.name == "Ok");
-    let none_or_err_idx = e
-        .variants
-        .iter()
-        .position(|v| v.name == "None" || v.name == "Err");
-    let (Some(positive_idx), Some(_)) = (some_or_ok_idx, none_or_err_idx) else {
-        return;
-    };
-    let ffi = super::ocaml_ffi_type_name(&e.name);
-    let positive_var = &e.variants[positive_idx];
-    let super::super::ir::EnumVariantKind::Tuple(types) = &positive_var.kind else {
-        return;
-    };
-    let Some((payload_ty, _)) = types.first() else {
-        return;
-    };
-    let payload_is_proper_struct = ir
-        .find_struct(payload_ty)
-        .map(|s| {
-            !matches!(
-                s.category,
-                super::super::ir::TypeCategory::VecRef
-                    | super::super::ir::TypeCategory::Boxed
-                    | super::super::ir::TypeCategory::Recursive
-                    | super::super::ir::TypeCategory::DestructorOrClone
-                    | super::super::ir::TypeCategory::GenericTemplate
-            )
-        })
-        .unwrap_or(false);
-    if !payload_is_proper_struct {
-        return;
-    }
-    let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
-    let into_name = if e.name.starts_with("Option") {
-        "intoSome"
-    } else if positive_var.name == "Ok" {
-        "intoOk"
-    } else {
-        "intoErr"
-    };
-    builder.line(&format!(
-        "val {}_{} : {} structure -> {} structure option",
-        ffi, into_name, ffi, payload_ffi
-    ));
 }
 
 fn emit_byte_blob_fields(builder: &mut CodeBuilder, ffi: &str, size: usize, align: usize) {
@@ -866,14 +666,14 @@ fn c_size_of_struct(s: &StructDef, ir: &CodegenIR, visiting: &mut Vec<String>) -
             max_align = fa;
         }
         // Align offset up to fa.
-        offset = (offset + fa - 1) / fa * fa;
+        offset = offset.div_ceil(fa) * fa;
         offset += fs;
     }
     if max_align == 0 {
         max_align = 1;
     }
     // Round size up to struct alignment.
-    let size = (offset + max_align - 1) / max_align * max_align;
+    let size = offset.div_ceil(max_align) * max_align;
     (size, max_align)
 }
 
@@ -899,11 +699,11 @@ fn c_size_of_tagged_enum(
                     if fa > al {
                         al = fa;
                     }
-                    off = (off + fa - 1) / fa * fa;
+                    off = off.div_ceil(fa) * fa;
                     off += fs;
                 }
                 let sz = if al > 0 {
-                    (off + al - 1) / al * al
+                    off.div_ceil(al) * al
                 } else {
                     off
                 };
@@ -920,11 +720,11 @@ fn c_size_of_tagged_enum(
                     if fa > al {
                         al = fa;
                     }
-                    off = (off + fa - 1) / fa * fa;
+                    off = off.div_ceil(fa) * fa;
                     off += fs;
                 }
                 let sz = if al > 0 {
-                    (off + al - 1) / al * al
+                    off.div_ceil(al) * al
                 } else {
                     off
                 };
@@ -944,13 +744,13 @@ fn c_size_of_tagged_enum(
     let head = if max_payload_align == 0 {
         1
     } else {
-        ((1 + max_payload_align - 1) / max_payload_align) * max_payload_align
+        1_usize.div_ceil(max_payload_align) * max_payload_align
     };
     let total = head + max_payload_size;
     let aligned = if max_payload_align == 0 {
         total
     } else {
-        (total + max_payload_align - 1) / max_payload_align * max_payload_align
+        total.div_ceil(max_payload_align) * max_payload_align
     };
     (aligned, max_payload_align.max(1))
 }
@@ -1082,7 +882,9 @@ fn unit_enum_caps(e: &EnumDef, ir: &CodegenIR) -> Vec<(FunctionKind, String)> {
                 | FunctionKind::Cmp
                 | FunctionKind::PartialCmp
                 | FunctionKind::Default
-        ) && !out.iter().any(|(k, _): &(FunctionKind, String)| *k == f.kind)
+        ) && !out
+            .iter()
+            .any(|(k, _): &(FunctionKind, String)| *k == f.kind)
         {
             out.push((f.kind, super::functions::ocaml_binding_name(&f.c_name)));
         }
@@ -1151,14 +953,17 @@ fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codeg
                 let del = super::functions::ocaml_binding_name("AzString_delete");
                 builder.line("let to_string (t : int) : string =");
                 builder.indent();
-                builder.line(&format!(
-                    "let __s = {} (Ctypes.allocate {} t) in",
-                    raw, ffi
-                ));
+                builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
                 builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
                 builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
-                builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
-                builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                builder.line(
+                    "let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in",
+                );
+                builder.line(
+                    "let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else \
+                     Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) \
+                     ~length:vec_len in",
+                );
                 builder.line(&format!("{} (Ctypes.addr __s);", del));
                 builder.line("__out");
                 builder.dedent();
@@ -1170,7 +975,8 @@ fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codeg
                 builder.line("let compare (a : int) (b : int) : int =");
                 builder.indent();
                 builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
+                     b)) with",
                     raw, ffi, ffi
                 ));
                 builder.line("| 0 -> -1");
@@ -1182,7 +988,8 @@ fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codeg
                 builder.line("let partial_compare (a : int) (b : int) : int option =");
                 builder.indent();
                 builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
+                     b)) with",
                     raw, ffi, ffi
                 ));
                 builder.line("| 0 -> Some (-1)");

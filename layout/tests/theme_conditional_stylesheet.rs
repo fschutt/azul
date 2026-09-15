@@ -91,20 +91,19 @@ fn a_theme_dark_block_overrides_the_base_rule_only_in_the_dark_theme() {
     let light_again = text_color_at(&mut styled_dom, root, Theme::Light);
     assert_eq!(
         light, light_again,
-        "switching back to light must restore the base rule, not strand the \
-         document in the dark palette"
+        "switching back to light must restore the base rule, not strand the document in the dark \
+         palette"
     );
 
     assert_eq!(
         light, LIGHT_INK,
-        "the base rule must survive in the light theme - an override that \
-         applies unconditionally is not a theme override"
+        "the base rule must survive in the light theme - an override that applies unconditionally \
+         is not a theme override"
     );
     assert_eq!(
         dark, DARK_INK,
-        "the @theme(dark) block must win in the dark theme; the SAME StyledDom \
-         is asked twice, because a theme switch does NOT rebuild the cached \
-         document DOM this stylesheet lives in"
+        "the @theme(dark) block must win in the dark theme; the SAME StyledDom is asked twice, \
+         because a theme switch does NOT rebuild the cached document DOM this stylesheet lives in"
     );
 }
 
@@ -179,7 +178,7 @@ fn a_theme_dark_block_survives_the_dom_from_parsed_xml_path() {
     assert_eq!(
         text_color_at(&mut styled_dom, p, Theme::Dark),
         DARK_INK,
-        "the @theme(dark) block must survive create_from_parsed_xml + \
-         create_from_dom - this is the path the document sheet takes"
+        "the @theme(dark) block must survive create_from_parsed_xml + create_from_dom - this is \
+         the path the document sheet takes"
     );
 }

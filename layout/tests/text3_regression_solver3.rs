@@ -7,18 +7,22 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · 'A' 700u => 14px · space 5px ·
 //! line-height normal 20px. FakeFallback covers Greek α/β/γ/δ + '#' at 16px.
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 
 use crate::fakefont::{simple_fallback_font, simple_test_font, FAKE_FALLBACK_FAMILY, FAKE_FAMILY};
 
@@ -225,9 +229,9 @@ fn text_transform_uppercase_widens_to_56() {
     // CSS Text §2.1: text-transform:uppercase maps "aaaa" (48px) to "AAAA"
     // (4 * 14px = 56px) BEFORE shaping, in the DOM layer.
     let html = format!(
-        "<html><head><style>.t {{ display: inline-block; text-transform: uppercase; \
-            font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"t\">aaaa</span></body></html>"
+        "<html><head><style>.t {{ display: inline-block; text-transform: uppercase; font-size: \
+         20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}</style></head><body><span \
+         class=\"t\">aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -244,9 +248,9 @@ fn text_transform_lowercase_narrows_to_16() {
     // the transform NARROWS the run from 40px to 4 * 4 = 16px. (A monospace mock
     // could not reveal the transform, since 'I' and 'i' would share a width.)
     let html = format!(
-        "<html><head><style>.t {{ display: inline-block; text-transform: lowercase; \
-            font-size: 20px; font-family: '{PROP}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"t\">IIII</span></body></html>"
+        "<html><head><style>.t {{ display: inline-block; text-transform: lowercase; font-size: \
+         20px; font-family: '{PROP}'; margin: 0; padding: 0; }}</style></head><body><span \
+         class=\"t\">IIII</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -262,7 +266,8 @@ fn fixed_width_wraps_three_words_to_two_lines() {
     // (101px) on line 0 and wraps the third word, auto-heighting to 40px.
     let html = format!(
         "<html><head><style>.b {{ width: 110px; font-size: 20px; font-family: {FAKE_FAMILY}; \
-            margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa aaaa aaaa</div></body></html>"
+         margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa aaaa \
+         aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -277,9 +282,9 @@ fn white_space_nowrap_keeps_one_line_box() {
     // CSS Text §3: white-space:nowrap keeps "aaaa aaaa" on one 20px line even in a
     // 60px box (it overflows horizontally); the block is 60x20.
     let html = format!(
-        "<html><head><style>.b {{ width: 60px; white-space: nowrap; font-size: 20px; \
-            font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+        "<html><head><style>.b {{ width: 60px; white-space: nowrap; font-size: 20px; font-family: \
+         {FAKE_FAMILY}; margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa \
+         aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -295,7 +300,8 @@ fn br_forces_second_line_box() {
     // so a 200px block auto-heights to 40px.
     let html = format!(
         "<html><head><style>.b {{ width: 200px; font-size: 20px; font-family: {FAKE_FAMILY}; \
-            margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa<br/>aaaa</div></body></html>"
+         margin: 0; padding: 0; }}</style></head><body><div \
+         class=\"b\">aaaa<br/>aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -311,8 +317,8 @@ fn word_spacing_widens_max_content() {
     // (50px in Azul Mock Mono: 20 + 10 + 20) measures 53px at max-content.
     let html = format!(
         "<html><head><style>.b {{ display: inline-block; word-spacing: 3px; font-size: 20px; \
-            font-family: '{MONO}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"b\">aa aa</span></body></html>"
+         font-family: '{MONO}'; margin: 0; padding: 0; }}</style></head><body><span \
+         class=\"b\">aa aa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -328,8 +334,8 @@ fn letter_spacing_widens_max_content_after_every_cluster() {
     // 40 (Azul Mock Mono, 4*10px) + 4*2 = 48px at max-content.
     let html = format!(
         "<html><head><style>.b {{ display: inline-block; letter-spacing: 2px; font-size: 20px; \
-            font-family: '{MONO}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"b\">aaaa</span></body></html>"
+         font-family: '{MONO}'; margin: 0; padding: 0; }}</style></head><body><span \
+         class=\"b\">aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -345,8 +351,8 @@ fn border_reduces_content_width_like_padding() {
     // "aaaa aaaa" wraps to 2 lines; the border box is 70 wide and 40 + 2*5 = 50 tall.
     let html = format!(
         "<html><head><style>.b {{ width: 70px; border: 5px solid; box-sizing: border-box; \
-            font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
+         font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; \
+         }}</style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -361,9 +367,10 @@ fn two_block_divs_stack_to_double_height() {
     // CSS block flow: two block <div>s each hold one 20px line, so their 100px-wide
     // container auto-heights to 40px.
     let html = format!(
-        "<html><head><style>.wrap {{ width: 100px; margin: 0; padding: 0; }}\
-            .wrap div {{ font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><div class=\"wrap\"><div>aaaa</div><div>aaaa</div></div></body></html>"
+        "<html><head><style>.wrap {{ width: 100px; margin: 0; padding: 0; }}.wrap div {{ \
+         font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; \
+         }}</style></head><body><div \
+         class=\"wrap\"><div>aaaa</div><div>aaaa</div></div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
@@ -383,9 +390,9 @@ fn font_fallback_covers_uncovered_codepoint() {
     // (a registered mock + a disjoint in-memory font), and the 16px α width is
     // reachable from no other font, so it is unmistakably from the fallback.
     let html = format!(
-        "<html><head><style>.b {{ display: inline-block; font-size: 20px; \
-            font-family: '{MONO}', '{FAKE_FALLBACK_FAMILY}'; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"b\">a\u{03B1}</span></body></html>"
+        "<html><head><style>.b {{ display: inline-block; font-size: 20px; font-family: '{MONO}', \
+         '{FAKE_FALLBACK_FAMILY}'; margin: 0; padding: 0; }}</style></head><body><span \
+         class=\"b\">a\u{03B1}</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(

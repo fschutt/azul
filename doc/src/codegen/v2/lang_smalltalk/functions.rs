@@ -21,13 +21,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::types::class_header;
 use super::{
-    map_type_to_uffi, method_category_line, sanitize_identifier, snake_to_lower_camel, FFI_MODULE,
-    NATIVE_CLASS, PACKAGE_NATIVE,
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_uffi, method_category_line, sanitize_identifier, snake_to_lower_camel,
+    types::class_header,
+    FFI_MODULE, NATIVE_CLASS, PACKAGE_NATIVE,
 };
 
 pub fn generate_native_methods(

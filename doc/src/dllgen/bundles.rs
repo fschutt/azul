@@ -11,16 +11,16 @@
 //! Per release this module writes, next to the loose files and from the same
 //! inputs (so the two cannot drift):
 //!
-//! * `azul-<lang>-<ver>.tar.gz` — one per language (or C++ dialect group) that
-//!   declares a `bundle` map in api.json (`installation.languages.<lang>.bundle`:
-//!   release file → path inside the bundle). The map is the install steps'
-//!   source of truth: the steps say `tar xzf`, the map says what comes out.
-//! * `azul-rust-<ver>.tar.gz` — a self-contained `azul` crate whose generated
-//!   sources live INSIDE `src/`, so rust-analyzer resolves every type without a
-//!   generator or a build script. `azul-<ver>.crate` is the same crate in the
-//!   layout cargo's sparse registry protocol expects (azul.rs/ui/cargo).
-//! * `bindings-<ver>.tar.gz` — every rendered binding, the headers, api.json
-//!   and the Rust crate, for agents and for "give me everything".
+//! * `azul-<lang>-<ver>.tar.gz` — one per language (or C++ dialect group) that declares a `bundle`
+//!   map in api.json (`installation.languages.<lang>.bundle`: release file → path inside the
+//!   bundle). The map is the install steps' source of truth: the steps say `tar xzf`, the map says
+//!   what comes out.
+//! * `azul-rust-<ver>.tar.gz` — a self-contained `azul` crate whose generated sources live INSIDE
+//!   `src/`, so rust-analyzer resolves every type without a generator or a build script.
+//!   `azul-<ver>.crate` is the same crate in the layout cargo's sparse registry protocol expects
+//!   (azul.rs/ui/cargo).
+//! * `bindings-<ver>.tar.gz` — every rendered binding, the headers, api.json and the Rust crate,
+//!   for agents and for "give me everything".
 //!
 //! tar.gz, not zip: macOS, every Linux and Windows 10+ (bsdtar) unpack it with
 //! `tar xzf`, so no install step needs `unzip`. The archives are written by the
@@ -64,11 +64,15 @@ pub struct TarGz {
 
 impl TarGz {
     pub fn create(path: &Path) -> Result<Self> {
-        let file = File::create(path)
-            .with_context(|| format!("cannot create {}", path.display()))?;
+        let file =
+            File::create(path).with_context(|| format!("cannot create {}", path.display()))?;
         // GzEncoder's default header carries mtime 0 and no filename: stable.
         let gz = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-        Ok(TarGz { gz, entries: 0, bytes: 0 })
+        Ok(TarGz {
+            gz,
+            entries: 0,
+            bytes: 0,
+        })
     }
 
     /// Append one regular file. `name` is the path inside the archive
@@ -160,15 +164,27 @@ fn rust_crate_files(
         }
     }
     let mut files = vec![
-        ("Cargo.toml".to_string(), rust_crate_manifest(version).into_bytes()),
+        (
+            "Cargo.toml".to_string(),
+            rust_crate_manifest(version).into_bytes(),
+        ),
         ("build.rs".to_string(), rust_crate_build_rs().into_bytes()),
-        ("README.md".to_string(), rust_crate_readme(version).into_bytes()),
-        ("src/lib.rs".to_string(), rust_crate_lib_rs(version).into_bytes()),
+        (
+            "README.md".to_string(),
+            rust_crate_readme(version).into_bytes(),
+        ),
+        (
+            "src/lib.rs".to_string(),
+            rust_crate_lib_rs(version).into_bytes(),
+        ),
         (
             "src/generated/dll_api_external.rs".to_string(),
             fs::read(&external)?,
         ),
-        ("src/generated/reexports.rs".to_string(), fs::read(&reexports)?),
+        (
+            "src/generated/reexports.rs".to_string(),
+            fs::read(&reexports)?,
+        ),
     ];
     if let Some(ex) = example {
         files.push(("examples/hello-world.rs".to_string(), ex.to_vec()));
@@ -388,6 +404,7 @@ pub fn rust_crate_name(version: &str) -> String {
 
 /// Per-language bundle maps, with C++ dialect variants merged into their group
 /// (`cpp03`…`cpp23` → `cpp`): key → (release file → path inside the archive).
+/// A `"<dir>/": "<dir>/"` entry ships a whole directory of the release tree.
 pub fn bundle_maps(installation: &Installation) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut out: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     for (lang, cfg) in &installation.languages {
@@ -477,6 +494,27 @@ pub fn create_bindings_bundles(
                 }
                 continue;
             }
+            if src.ends_with('/') && dst.ends_with('/') {
+                // "<dir>/": "<dir>/" — a whole directory of the release tree
+                // (`azul-go/`), every file under it, so a generator that adds
+                // a file cannot ship an incomplete package. "<dir>/": "./"
+                // unpacks the directory's files at the archive root (the
+                // per-module Fortran/OCaml bindings sit next to the example).
+                if !src_path.is_dir() {
+                    missing_here += 1;
+                    report.missing.push(format!("{name}: {src}"));
+                    continue;
+                }
+                let prefix = if dst == "./" { "" } else { dst.as_str() };
+                for file in walk_files(&src_path)? {
+                    let rel = file
+                        .strip_prefix(&src_path)
+                        .map(|r| r.to_string_lossy().replace('\\', "/"))
+                        .unwrap_or_default();
+                    tar.add_path(&format!("{prefix}{rel}"), &file)?;
+                }
+                continue;
+            }
             if !src_path.is_file() {
                 missing_here += 1;
                 report.missing.push(format!("{name}: {src}"));
@@ -486,7 +524,10 @@ pub fn create_bindings_bundles(
         }
         let (n, _) = tar.finish()?;
         if missing_here > 0 {
-            eprintln!("  [WARN] {name}: {missing_here} of {} files missing", map.len());
+            eprintln!(
+                "  [WARN] {name}: {missing_here} of {} files missing",
+                map.len()
+            );
         }
         println!("  - Created {name} ({n} files)");
         report.written.push(name);
@@ -508,9 +549,10 @@ pub fn create_bindings_bundles(
             n_codegen += 1;
         }
     } else {
-        report
-            .missing
-            .push(format!("{union}: codegen dir {} (run `azul-doc codegen all`)", codegen_dir.display()));
+        report.missing.push(format!(
+            "{union}: codegen dir {} (run `azul-doc codegen all`)",
+            codegen_dir.display()
+        ));
     }
     let api_json = version_dir.join("api.json");
     if api_json.is_file() {
@@ -581,14 +623,20 @@ mod tests {
         assert_eq!(field(&h, 0, 100), "azul-haskell/src/Azul/Internal/FFI.hs");
         assert_eq!(field(&h, 100, 108), "0000644");
         assert_eq!(u64::from_str_radix(&field(&h, 124, 136), 8).unwrap(), 1234);
-        assert_eq!(u64::from_str_radix(&field(&h, 136, 148), 8).unwrap(), ARCHIVE_MTIME);
+        assert_eq!(
+            u64::from_str_radix(&field(&h, 136, 148), 8).unwrap(),
+            ARCHIVE_MTIME
+        );
         assert_eq!(h[156], b'0');
         assert_eq!(&h[257..263], b"ustar\0");
         // The checksum is the byte sum with the checksum field read as spaces.
         let mut copy = h;
         copy[148..156].copy_from_slice(b"        ");
         let expected: u32 = copy.iter().map(|&b| u32::from(b)).sum();
-        assert_eq!(u32::from_str_radix(&field(&h, 148, 156), 8).unwrap(), expected);
+        assert_eq!(
+            u32::from_str_radix(&field(&h, 148, 156), 8).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -639,7 +687,183 @@ mod tests {
         // The shared link logic really is embedded, with the entry point the
         // in-repo build.rs calls.
         let b = rust_crate_build_rs();
-        assert!(b.contains("fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBuf])"));
+        assert!(b.contains(
+            "fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBuf])"
+        ));
         assert!(b.contains("fn emit_static_system_deps"));
+    }
+
+    /// Every ustar entry name in a `.tar.gz` written by [`TarGz`].
+    fn tar_names(path: &Path) -> Vec<String> {
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(File::open(path).unwrap())
+            .read_to_end(&mut raw)
+            .unwrap();
+        let mut names = Vec::new();
+        let mut at = 0usize;
+        while at + 512 <= raw.len() {
+            let h = &raw[at..at + 512];
+            if h.iter().all(|&b| b == 0) {
+                break;
+            }
+            let name = field(h.try_into().unwrap(), 0, 100);
+            let prefix = field(h.try_into().unwrap(), 345, 500);
+            names.push(if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            });
+            let size = u64::from_str_radix(&field(h.try_into().unwrap(), 124, 136), 8).unwrap();
+            at += 512 + (size as usize).div_ceil(512) * 512;
+        }
+        names
+    }
+
+    /// `"azul-go/": "azul-go/"` in a bundle map ships the whole directory —
+    /// every file under it, however the generator names them — next to the
+    /// flat entries. (The Go bundle used to be `azul.h` + `main.go`, and the
+    /// five-file flat list it replaced missed the two files `main.go`
+    /// imports.)
+    #[test]
+    fn a_directory_bundle_entry_ships_every_file_under_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(version_dir.join("azul-go/internal")).unwrap();
+        fs::write(version_dir.join("main.go"), b"package main").unwrap();
+        fs::write(version_dir.join("go.mod"), b"module hello-world").unwrap();
+        fs::write(version_dir.join("azul-go/azul.go"), b"package azul").unwrap();
+        fs::write(version_dir.join("azul-go/callbacks_export.go"), b"package azul").unwrap();
+        fs::write(version_dir.join("azul-go/go.mod"), b"module github.com/azul/azul-go").unwrap();
+        fs::write(version_dir.join("azul-go/internal/x.go"), b"package internal").unwrap();
+
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "go".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Go".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([
+                    ("main.go".to_string(), "main.go".to_string()),
+                    ("go.mod".to_string(), "go.mod".to_string()),
+                    ("azul-go/".to_string(), "azul-go/".to_string()),
+                ])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        let report = create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        let name = language_bundle_name("go", "0.0.0");
+        assert!(report.written.contains(&name), "{report:?}");
+        assert!(
+            !report.missing.iter().any(|m| m.starts_with(&name)),
+            "{report:?}"
+        );
+        let names = tar_names(&version_dir.join(&name));
+        assert_eq!(
+            names,
+            vec![
+                "azul-go/azul.go",
+                "azul-go/callbacks_export.go",
+                "azul-go/go.mod",
+                "azul-go/internal/x.go",
+                "go.mod",
+                "main.go",
+            ]
+        );
+    }
+
+    /// `"azul-fortran/": "./"` unpacks the directory's files at the archive
+    /// root, where the documented `tar xzf` + `make` expect them next to the
+    /// hello-world — no `./` prefix on the entry names.
+    #[test]
+    fn a_directory_entry_mapped_to_dot_slash_is_flattened_into_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(version_dir.join("azul-fortran")).unwrap();
+        fs::write(version_dir.join("hello_world.f90"), b"program hello").unwrap();
+        for f in ["azul.f90", "azul_types_css.f90", "Makefile"] {
+            fs::write(version_dir.join("azul-fortran").join(f), b"x").unwrap();
+        }
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "fortran".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Fortran".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([
+                    ("azul-fortran/".to_string(), "./".to_string()),
+                    ("hello_world.f90".to_string(), "hello_world.f90".to_string()),
+                ])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        let names = tar_names(&version_dir.join(language_bundle_name("fortran", "0.0.0")));
+        assert_eq!(
+            names,
+            vec!["Makefile", "azul.f90", "azul_types_css.f90", "hello_world.f90"]
+        );
+    }
+
+    /// A directory entry whose directory is absent is reported as missing,
+    /// like a missing file — never silently an empty package.
+    #[test]
+    fn a_missing_bundle_directory_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(&version_dir).unwrap();
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "go".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Go".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([(
+                    "azul-go/".to_string(),
+                    "azul-go/".to_string(),
+                )])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        let report = create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        assert!(
+            report
+                .missing
+                .iter()
+                .any(|m| m == "azul-go-0.0.0.tar.gz: azul-go/"),
+            "{report:?}"
+        );
     }
 }

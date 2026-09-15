@@ -507,12 +507,12 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// 1. OptionFoo -> "option" (MUST come first to handle OptionFooVec correctly)
 /// 2. FooVec, FooVecDestructor, FooVecDestructorType -> "vec"
 /// 3. FooError, ResultFoo -> "error"
-/// 4. Known-difficult names (`DIFFICULT_TYPE_MODULES`) — manual overrides for
-///    collisions the keyword heuristic gets wrong
+/// 4. Known-difficult names (`DIFFICULT_TYPE_MODULES`) — manual overrides for collisions the
+///    keyword heuristic gets wrong
 /// 5. Find all matching keywords across all modules, pick the longest match On tie, pick the first
 ///    module in MODULES order
 /// 6. "misc" (with warning)
-/// Known-difficult type names, matched BEFORE any keyword heuristic.
+///    Known-difficult type names, matched BEFORE any keyword heuristic.
 ///
 /// The keyword matcher is a substring search ranked by match length. That
 /// works for the overwhelming majority of names and is deliberately kept, but
@@ -658,11 +658,10 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
 
     // First check module names themselves as keywords
     for (order, module) in MODULES.iter().enumerate() {
-        if *module != "vec" && *module != "option" && *module != "error" {
-            if lower_name.contains(module) {
+        if *module != "vec" && *module != "option" && *module != "error"
+            && lower_name.contains(module) {
                 matches.push((module, module, module.len(), order, true));
             }
-        }
     }
 
     // Then check all keywords
@@ -691,14 +690,12 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     // stronger evidence than a shared word — "FilePath" contains the module
     // name "file" AND svg's generic keyword "path", both length 4: `file`
     // must win); remaining ties fall to module order (first in MODULES wins).
-    matches.sort_by(|a, b| {
-        match b.2.cmp(&a.2) {
-            std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
-                std::cmp::Ordering::Equal => a.3.cmp(&b.3),
-                other => other,
-            },
+    matches.sort_by(|a, b| match b.2.cmp(&a.2) {
+        std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
+            std::cmp::Ordering::Equal => a.3.cmp(&b.3),
             other => other,
-        }
+        },
+        other => other,
     });
 
     (matches[0].0.to_string(), false)
@@ -796,7 +793,8 @@ pub fn get_correct_module_with_path(
     None
 }
 
-/// Derive the api.json module name from a Rust external path like "azul_css::css::BoxOrStaticString".
+/// Derive the api.json module name from a Rust external path like
+/// "azul_css::css::BoxOrStaticString".
 fn module_from_external_path(path: &str) -> Option<String> {
     // azul_css::* → css (all CSS types)
     if path.starts_with("azul_css::") {
@@ -1147,28 +1145,92 @@ mod tests {
         };
         // Phase 0 - the primitive.
         stays("RequestId", "task", "azul_core::task::RequestId");
-        stays("ResumeCallbackType", "callbacks", "azul_layout::callbacks::ResumeCallbackType");
-        stays("ResumeCallback", "callbacks", "azul_layout::callbacks::ResumeCallback");
+        stays(
+            "ResumeCallbackType",
+            "callbacks",
+            "azul_layout::callbacks::ResumeCallbackType",
+        );
+        stays(
+            "ResumeCallback",
+            "callbacks",
+            "azul_layout::callbacks::ResumeCallback",
+        );
         // Phase 1 - result structs pinned by their source module; by name
         // alone the `result` keyword would send every one of them to `error`.
-        stays("FileOpenResult", "dialog", "azul_layout::desktop::dialogs::FileOpenResult");
-        stays("FileOpenMultiResult", "dialog", "azul_layout::desktop::dialogs::FileOpenMultiResult");
-        stays("ColorPickResult", "dialog", "azul_layout::desktop::dialogs::ColorPickResult");
-        stays("FileReadBytesResult", "file", "azul_layout::file::FileReadBytesResult");
-        stays("FileReadStringResult", "file", "azul_layout::file::FileReadStringResult");
-        stays("ImageDecodeResult", "image", "azul_layout::image::ImageDecodeResult");
-        stays("FilePathVecSlice", "file", "azul_layout::file::FilePathVecSlice");
+        stays(
+            "FileOpenResult",
+            "dialog",
+            "azul_layout::desktop::dialogs::FileOpenResult",
+        );
+        stays(
+            "FileOpenMultiResult",
+            "dialog",
+            "azul_layout::desktop::dialogs::FileOpenMultiResult",
+        );
+        stays(
+            "ColorPickResult",
+            "dialog",
+            "azul_layout::desktop::dialogs::ColorPickResult",
+        );
+        stays(
+            "FileReadBytesResult",
+            "file",
+            "azul_layout::file::FileReadBytesResult",
+        );
+        stays(
+            "FileReadStringResult",
+            "file",
+            "azul_layout::file::FileReadStringResult",
+        );
+        stays(
+            "ImageDecodeResult",
+            "image",
+            "azul_layout::image::ImageDecodeResult",
+        );
+        stays(
+            "FilePathVecSlice",
+            "file",
+            "azul_layout::file::FilePathVecSlice",
+        );
         // Phase 2.
         stays("HttpGetResult", "http", "azul_layout::http::HttpGetResult");
-        stays("HttpBytesResult", "http", "azul_layout::http::HttpBytesResult");
-        stays("HttpReachableResult", "http", "azul_layout::http::HttpReachableResult");
+        stays(
+            "HttpBytesResult",
+            "http",
+            "azul_layout::http::HttpBytesResult",
+        );
+        stays(
+            "HttpReachableResult",
+            "http",
+            "azul_layout::http::HttpReachableResult",
+        );
         // Phase 3.
-        stays("SaveTarget", "dialog", "azul_layout::desktop::dialogs::SaveTarget");
-        stays("SaveTargetKind", "dialog", "azul_layout::desktop::dialogs::SaveTargetKind");
-        stays("SaveTargetResult", "dialog", "azul_layout::desktop::dialogs::SaveTargetResult");
-        stays("FileDirListResult", "file", "azul_layout::file::FileDirListResult");
+        stays(
+            "SaveTarget",
+            "dialog",
+            "azul_layout::desktop::dialogs::SaveTarget",
+        );
+        stays(
+            "SaveTargetKind",
+            "dialog",
+            "azul_layout::desktop::dialogs::SaveTargetKind",
+        );
+        stays(
+            "SaveTargetResult",
+            "dialog",
+            "azul_layout::desktop::dialogs::SaveTargetResult",
+        );
+        stays(
+            "FileDirListResult",
+            "file",
+            "azul_layout::file::FileDirListResult",
+        );
         // Phase 4.
-        stays("AudioDeviceListResult", "audio", "azul_dll::unified::audio::AudioDeviceListResult");
+        stays(
+            "AudioDeviceListResult",
+            "audio",
+            "azul_dll::unified::audio::AudioDeviceListResult",
+        );
         // These two sit next to `DecodedVideo` / `ScreenRecorder`, whose Rust
         // home maps to `video`; the keyword verdict (not the path) keeps them.
         stays(
@@ -1186,13 +1248,29 @@ mod tests {
         stays("DbOpenResult", "db", "azul_core::db::DbOpenResult");
         stays("DbSyncStatus", "db", "azul_core::db::DbSyncStatus");
         stays("DbMergeCallback", "db", "azul_core::db::DbMergeCallback");
-        stays("DbMergeCallbackType", "db", "azul_core::db::DbMergeCallbackType");
+        stays(
+            "DbMergeCallbackType",
+            "db",
+            "azul_core::db::DbMergeCallbackType",
+        );
         stays("DbConflict", "db", "azul_core::db::DbConflict");
-        stays("DbCollectionScopeVecSlice", "db", "azul_core::db::DbCollectionScopeVecSlice");
-        stays("DbOpenResult", "db", "azul_dll::unified::sqlite::DbOpenResult");
+        stays(
+            "DbCollectionScopeVecSlice",
+            "db",
+            "azul_core::db::DbCollectionScopeVecSlice",
+        );
+        stays(
+            "DbOpenResult",
+            "db",
+            "azul_dll::unified::sqlite::DbOpenResult",
+        );
         // Structural verdicts are not pins and must keep winning.
         stays("FilePathVec", "vec", "azul_layout::file::FilePathVec");
-        stays("OptionFileOpenResult", "option", "azul_layout::desktop::dialogs::OptionFileOpenResult");
+        stays(
+            "OptionFileOpenResult",
+            "option",
+            "azul_layout::desktop::dialogs::OptionFileOpenResult",
+        );
         stays("ResultDbDbError", "error", "azul_core::db::ResultDbDbError");
         stays("DbError", "error", "azul_core::db::DbError");
     }

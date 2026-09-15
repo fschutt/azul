@@ -28,28 +28,58 @@ use super::super::config::CodegenConfig;
 use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef};
 use super::super::managed_host_invoker;
 
-/// Top-level entry: produce the full `cbits/azul_shims.c` source as a
-/// single string, including the necessary `#include`s.
+/// The whole shim layer as one C file (the pre-split shape; the generator
+/// emits one file per api.json module through
+/// [`generate_c_shims_for_module`] plus [`generate_host_shims`]).
 pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
-    let mut out = String::with_capacity(64 * 1024);
-    out.push_str(
-        "/* ============================================================ */\n\
+    let mut out = generate_c_shims_for(ir, config, &|_| true);
+    emit_host_invoker_shims(&mut out, ir, config);
+    out
+}
+
+/// `cbits/azul_<module>.c`: the `_via` shims of the module's classes, the
+/// inbound trampolines of its callback typedefs and the layout-oracle
+/// functions of its types.
+pub fn generate_c_shims_for_module(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &super::Split,
+    api_module: &str,
+) -> String {
+    generate_c_shims_for(ir, config, &|name| split.module_of(name) == api_module)
+}
+
+/// `cbits/azul_host.c`: the host-invoker protocol, which is not per
+/// module.
+pub fn generate_host_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
+    let mut out = String::with_capacity(16 * 1024);
+    out.push_str(C_HEADER);
+    emit_host_invoker_shims(&mut out, ir, config);
+    out
+}
+
+const C_HEADER: &str = "/* ============================================================ */\n\
          /* Auto-generated C shims for the Haskell Azul bindings.        */\n\
          /* GHC's FFI doesn't support struct-by-value across the         */\n\
          /* boundary; every function whose C signature uses one gets a   */\n\
          /* `<name>_via` wrapper that takes/returns through pointers.   */\n\
          /* ============================================================ */\n\n\
          #include <stddef.h>\n\
-         #include \"azul.h\"\n\n",
-    );
-    for func in &ir.functions {
+         #include \"azul.h\"\n\n";
+
+fn generate_c_shims_for(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) -> String {
+    let mut out = String::with_capacity(64 * 1024);
+    out.push_str(C_HEADER);
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_shim_for(func, ir, config) {
             continue;
         }
         emit_one(&mut out, func, ir);
     }
-
-    emit_host_invoker_shims(&mut out, ir, config);
 
     // Inbound trampolines: per callback typedef, emit a C function that
     // matches the C ABI's by-value-struct signature and forwards to a
@@ -68,14 +98,14 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
          /* splice into AzLayoutCallback / button.with_on_click / etc.   */\n\
          /* ============================================================ */\n\n",
     );
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !should_emit_inbound_trampoline(cb, config) {
             continue;
         }
         emit_inbound_trampoline(&mut out, cb);
     }
 
-    emit_layout_oracle(&mut out, ir, config);
+    emit_layout_oracle(&mut out, ir, config, belongs);
     out
 }
 
@@ -93,7 +123,12 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
 /// (AzOptionDom is 288) and read every member at the unpadded running
 /// sum; anything that `alloca`d or peeked a struct through those instances
 /// was wrong, and the hello-world overflowed its stack (2026-09-07).
-fn emit_layout_oracle(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
+fn emit_layout_oracle(
+    out: &mut String,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) {
     out.push_str(
         "\n\
          /* ============================================================ */\n\
@@ -103,7 +138,10 @@ fn emit_layout_oracle(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) 
          /* ABI exactly on the platform the cbits are compiled for.      */\n\
          /* ============================================================ */\n\n",
     );
-    for t in super::types::layout_oracle(ir, config) {
+    for t in super::types::layout_oracle(ir, config)
+        .into_iter()
+        .filter(|t| belongs(&t.ir_name))
+    {
         out.push_str(&format!(
             "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
              size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",

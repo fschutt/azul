@@ -12,26 +12,34 @@
 //! NOTE: GL code - compile-verified here; the actual texture rendering must be
 //! verified on a machine with a window + GPU.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
-use azul_core::callbacks::Update;
-use azul_core::geom::PhysicalSizeU32;
-use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
-use azul_core::gl::{GlContextPtr, OptionU8VecRef, U8VecRef};
-use azul_core::refany::RefAny;
-use azul_css::AzString;
-use azul_core::resources::ImageRef;
-use azul_core::resources::UpdateImageType;
-use azul_core::task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg};
-use azul_core::video::{ConsumerFrame, FrameConsumer, VideoFrame};
-use azul_css::impl_option_inner; // brought into scope for impl_widget_callback!'s impl_option!
-use azul_css::props::basic::ColorU;
+use azul_core::{
+    callbacks::Update,
+    geom::PhysicalSizeU32,
+    gl::{
+        gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE},
+        GlContextPtr, OptionU8VecRef, U8VecRef,
+    },
+    refany::RefAny,
+    resources::{ImageRef, UpdateImageType},
+    task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg},
+    video::{ConsumerFrame, FrameConsumer, VideoFrame},
+};
+use azul_css::impl_option_inner; /* brought into scope for impl_widget_callback!'s
+                                   * impl_option! */
+use azul_css::{props::basic::ColorU, AzString};
 
-use crate::callbacks::CallbackInfo;
-use crate::image_scale::{self, ResampleFn, SrcImage};
-use crate::thread::{
-    ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback, WriteBackCallbackType,
+use crate::{
+    callbacks::CallbackInfo,
+    image_scale::{self, ResampleFn, SrcImage},
+    thread::{
+        ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
+        WriteBackCallbackType,
+    },
 };
 
 /// User hook fired once per captured/decoded frame - the backreference
@@ -130,12 +138,7 @@ pub fn invoke_on_frame(
 pub fn next_capture_marker(kind: &str) -> AzString {
     use core::sync::atomic::AtomicU64;
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    format!(
-        "azul-{}-{:x}",
-        kind,
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    )
-    .into()
+    format!("azul-{}-{:x}", kind, NEXT.fetch_add(1, Ordering::Relaxed)).into()
 }
 
 /// Present `frame` for a video-ish widget.
@@ -490,13 +493,12 @@ pub fn poll_capture_control(recv: &mut ThreadReceiver, targets: &mut CaptureTarg
 /// The size the device should capture at: the covering size of everything
 /// that wants frames.
 ///
-/// * `floor` — the configured size when the app set one explicitly, or the
-///   widget's default when an `on_frame` hook wants the source frame (the
-///   hook sees what the config promised, so the capture never shrinks below
-///   it);
+/// * `floor` — the configured size when the app set one explicitly, or the widget's default when an
+///   `on_frame` hook wants the source frame (the hook sees what the config promised, so the capture
+///   never shrinks below it);
 /// * the preview tile (device px) and every consumer;
-/// * `fallback` when none of the above is known yet (before the first
-///   layout, no hook, no consumers).
+/// * `fallback` when none of the above is known yet (before the first layout, no hook, no
+///   consumers).
 ///
 /// "Client Bob wants 500x200, the preview is 100x200, no hook" -> 500x200.
 /// "Only a 300x200 preview" -> 300x200: the camera is told to capture a
@@ -517,8 +519,8 @@ pub fn required_capture_size(
 /// Should a running source be reconfigured / reopened for `required`?
 ///
 /// * `requested` — the size the source was last opened / reconfigured for;
-/// * `delivered` — the size its frames actually have (backends snap up to a
-///   preset, so this is often larger than `requested`);
+/// * `delivered` — the size its frames actually have (backends snap up to a preset, so this is
+///   often larger than `requested`);
 /// * `required` — [`required_capture_size`] now.
 ///
 /// Reopen when the consumers need MORE than the source delivers (quality), or
@@ -599,7 +601,8 @@ pub fn present_captured(
 /// the laid-out logical size times the window's hidpi factor. `None` before
 /// layout. Logical pixels would undersize a Retina preview by 2x.
 #[must_use]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 pub fn preview_size_for_node(info: &CallbackInfo) -> Option<(u32, u32)> {
     let size = info.get_node_size(info.get_hit_node())?;
     let dpi = info
@@ -666,15 +669,12 @@ fn millis_since(since: &azul_core::task::Instant) -> u64 {
 
 /// THE capture worker: one loop for the camera and the screen widgets.
 ///
-/// 1. Learn the targets (wait briefly for the first preview size so the
-///    device is opened at the size the tile needs, not at a default that is
-///    reopened a frame later).
-/// 2. Open the backend at [`required_capture_size`]; on failure the test
-///    pattern.
-/// 3. Per frame: poll the control channel (new targets / terminate),
-///    reconfigure or reopen when [`needs_reopen`] says so (rate-limited), read
-///    a frame, drop it if the previous one is still in flight, else cut the
-///    preview and every consumer from it OFF the main thread
+/// 1. Learn the targets (wait briefly for the first preview size so the device is opened at the
+///    size the tile needs, not at a default that is reopened a frame later).
+/// 2. Open the backend at [`required_capture_size`]; on failure the test pattern.
+/// 3. Per frame: poll the control channel (new targets / terminate), reconfigure or reopen when
+///    [`needs_reopen`] says so (rate-limited), read a frame, drop it if the previous one is still
+///    in flight, else cut the preview and every consumer from it OFF the main thread
 ///    ([`image_scale::fan_out`]) and queue one [`CapturedFrames`] writeback.
 /// 4. `Ended` / a dead main thread / terminate -> close + return.
 #[allow(clippy::too_many_lines)] // one loop, documented step by step above
@@ -1611,7 +1611,12 @@ mod autotest_generated {
         // not panic and must not corrupt the returned id.
         let styled = dom_with_markers(Some(CAM_MARKER), None);
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, CAM_MARKER.into(), Some(2), &frame_raw(0, 0, Vec::new()))
+            present_frame(
+                info,
+                CAM_MARKER.into(),
+                Some(2),
+                &frame_raw(0, 0, Vec::new()),
+            )
         });
 
         assert_eq!(id, Some(2));
@@ -1658,8 +1663,8 @@ mod autotest_generated {
                 "the cpurender path must always hand back current_id"
             ),
             Err(_) => eprintln!(
-                "NOTE: present_frame panicked (usize overflow of width*height*4) for a \
-                 2^31 x 2^31 frame — a malformed capture backend can take the process down"
+                "NOTE: present_frame panicked (usize overflow of width*height*4) for a 2^31 x \
+                 2^31 frame — a malformed capture backend can take the process down"
             ),
         }
     }
@@ -1686,8 +1691,8 @@ mod autotest_generated {
         );
         assert_eq!(
             installs[0].1, 2,
-            "the frame must land on the node carrying ITS marker, not the first \
-             capture node in document order"
+            "the frame must land on the node carrying ITS marker, not the first capture node in \
+             document order"
         );
     }
 

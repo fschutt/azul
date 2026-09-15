@@ -1,21 +1,23 @@
-use super::*;
-
-use agg_rust::basics::{FillingRule, VertexSource};
-use agg_rust::color::Rgba8;
-use agg_rust::conv_transform::ConvTransform;
-use agg_rust::gradient_lut::GradientLut;
-use agg_rust::path_storage::PathStorage;
-use agg_rust::pixfmt_rgba::PixfmtRgba32;
-use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-use agg_rust::renderer_base::RendererBase;
-use agg_rust::renderer_scanline::{render_scanlines_aa, render_scanlines_aa_solid};
-use agg_rust::rendering_buffer::RowAccessor;
-use agg_rust::scanline_u::ScanlineU8;
-use agg_rust::span_allocator::SpanAllocator;
-use agg_rust::span_gradient::{GradientFunction, SpanGradient};
-use agg_rust::span_interpolator_linear::SpanInterpolatorLinear;
-use agg_rust::trans_affine::TransAffine;
+use agg_rust::{
+    basics::{FillingRule, VertexSource},
+    color::Rgba8,
+    conv_transform::ConvTransform,
+    gradient_lut::GradientLut,
+    path_storage::PathStorage,
+    pixfmt_rgba::PixfmtRgba32,
+    rasterizer_scanline_aa::RasterizerScanlineAa,
+    renderer_base::RendererBase,
+    renderer_scanline::{render_scanlines_aa, render_scanlines_aa_solid},
+    rendering_buffer::RowAccessor,
+    scanline_u::ScanlineU8,
+    span_allocator::SpanAllocator,
+    span_gradient::{GradientFunction, SpanGradient},
+    span_interpolator_linear::SpanInterpolatorLinear,
+    trans_affine::TransAffine,
+};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+use super::*;
 
 pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 
@@ -487,7 +489,8 @@ pub fn blit_pixmap_projective_clipped(
 }
 
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph
+                                                             // cast
 pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     use core::cmp::Ordering;
     let w = pixmap.width as i32;
@@ -717,7 +720,8 @@ impl AzulPixmap {
 
     /// Fill a rectangular region with a single color (pixel coordinates).
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
-    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived
+                                             // names
     pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
         let pw = self.width as i32;
         let ph = self.height as i32;
@@ -1356,7 +1360,9 @@ pub fn agg_fill_path_clipped(
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn agg_fill_transformed_path(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,
@@ -1367,7 +1373,9 @@ fn agg_fill_transformed_path(
     agg_fill_transformed_path_clipped(pixmap, path, color, rule, transform, None);
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
 fn agg_fill_transformed_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,

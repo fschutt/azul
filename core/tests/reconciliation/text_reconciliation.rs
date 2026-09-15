@@ -5,12 +5,14 @@
 // 2. Record old/new text (TextChange)
 // 3. Reconcile cursor position (reconcile_cursor_position)
 
-use azul_core::diff::{
-    compute_node_changes, get_node_text_content, reconcile_cursor_position, ChangeAccumulator,
-    NodeChangeSet, TextChange,
+use azul_core::{
+    diff::{
+        compute_node_changes, get_node_text_content, reconcile_cursor_position, ChangeAccumulator,
+        NodeChangeSet, TextChange,
+    },
+    dom::NodeData,
+    id::NodeId,
 };
-use azul_core::dom::NodeData;
-use azul_core::id::NodeId;
 
 // =========================================================================
 // GET NODE TEXT CONTENT

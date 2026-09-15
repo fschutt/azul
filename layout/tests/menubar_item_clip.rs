@@ -1,11 +1,10 @@
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
+use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
 /// Reproduction for the menubar "View" -> "V" clip bug.
 ///
 /// Structure mirrors layout/src/widgets/menubar.rs:
@@ -16,10 +15,15 @@ use azul_layout::solver3::pagination::FakePageConfig;
 /// Bug (task #11): a flex item whose single child is text gets its main-axis
 /// (width) constrained to the cross-axis (height = 26px), clipping the text.
 use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 fn fresh_cache() -> Solver3LayoutCache {
     Solver3LayoutCache {
@@ -46,9 +50,11 @@ fn fresh_cache() -> Solver3LayoutCache {
 /// system: namespace. This is the actual path the app uses.
 #[test]
 fn test_real_menubar_widget_not_clipped() {
-    use azul_core::dom::Dom;
-    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{
+        dom::Dom,
+        menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+        styled_dom::StyledDom,
+    };
 
     let item = |label: &str| MenuItem::String(StringMenuItem::create(label.into()));
     let menu = Menu::create(MenuItemVec::from_vec(vec![
@@ -174,9 +180,11 @@ fn test_real_menubar_widget_not_clipped() {
 /// the paged-path None bug.
 #[test]
 fn test_app_path_menubar_not_clipped() {
-    use azul_core::dom::Dom;
-    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{
+        dom::Dom,
+        menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+        styled_dom::StyledDom,
+    };
     use azul_layout::solver3::getters::{
         collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
         compute_fonts_to_load, load_fonts_from_disk,
@@ -249,7 +257,7 @@ fn test_app_path_menubar_not_clipped() {
         true,
         Vec::new(),
         Default::default(), // owner_colors (U1)
-        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii)
+        Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii)
         false,              // paint_selection_handles (U2-a)
         None,
         &azul_core::resources::ImageCache::default(),
@@ -341,13 +349,17 @@ fn test_app_path_menubar_not_clipped() {
 /// word-specific or structural (e.g. cache-key collision).
 #[test]
 fn test_probe_words_glyph_counts() {
-    use azul_core::dom::Dom;
-    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
-    use azul_core::styled_dom::StyledDom;
-    use azul_layout::solver3::display_list::DisplayListItem;
-    use azul_layout::solver3::getters::{
-        collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
-        compute_fonts_to_load, load_fonts_from_disk,
+    use azul_core::{
+        dom::Dom,
+        menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+        styled_dom::StyledDom,
+    };
+    use azul_layout::solver3::{
+        display_list::DisplayListItem,
+        getters::{
+            collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
+            compute_fonts_to_load, load_fonts_from_disk,
+        },
     };
 
     let words = [
@@ -412,7 +424,7 @@ fn test_probe_words_glyph_counts() {
         true,
         Vec::new(),
         Default::default(), // owner_colors (U1)
-        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii)
+        Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii)
         false,              // paint_selection_handles (U2-a)
         None,
         &azul_core::resources::ImageCache::default(),
@@ -462,9 +474,14 @@ fn test_probe_words_glyph_counts() {
     for (i, (node, gc)) in text_runs.iter().enumerate() {
         let word = words.get(i).copied().unwrap_or("?");
         assert_eq!(
-            *gc, word.chars().count(),
-            "word {:?} (node {}) emitted {} glyphs, expected {} — kerning/max-content truncation regressed (#11)",
-            word, node, gc, word.chars().count()
+            *gc,
+            word.chars().count(),
+            "word {:?} (node {}) emitted {} glyphs, expected {} — kerning/max-content truncation \
+             regressed (#11)",
+            word,
+            node,
+            gc,
+            word.chars().count()
         );
     }
 }
@@ -606,7 +623,8 @@ fn test_menubar_item_text_not_clipped() {
     for (idx, w) in &item_widths {
         assert!(
             *w > 30.0,
-            "menubar item node {idx} width {w} is clipped to ~cross-axis-height (bug #11); expected >30"
+            "menubar item node {idx} width {w} is clipped to ~cross-axis-height (bug #11); \
+             expected >30"
         );
     }
     assert_eq!(

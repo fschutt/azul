@@ -799,7 +799,7 @@ impl AutofixPatch {
                                 // the codegen validator rejects the added type
                                 // ("expected repr(C, u8)").
                                 let has_data_variant =
-                                    a.enum_variants.as_ref().map_or(false, |vs| {
+                                    a.enum_variants.as_ref().is_some_and(|vs| {
                                         vs.iter().any(|v| v.variant_type.is_some())
                                     });
                                 if has_data_variant {
@@ -1050,7 +1050,7 @@ impl AutofixPatch {
                         .iter()
                         .map(|arg| CallbackArgData {
                             r#type: arg.arg_type.clone(),
-                            ref_kind: arg.ref_kind.clone(),
+                            ref_kind: arg.ref_kind,
                             doc: None,
                         })
                         .collect();
@@ -1080,7 +1080,7 @@ impl AutofixPatch {
                     if let Some(ref mut callback_def) = patch.callback_typedef {
                         if let Some(arg) = callback_def.fn_args.get_mut(*arg_index) {
                             arg.r#type = new_type.clone();
-                            arg.ref_kind = new_ref.clone();
+                            arg.ref_kind = *new_ref;
                         }
                     }
                 }
@@ -1313,10 +1313,10 @@ fn insert_class_patch(
     api_patch
         .versions
         .entry(version.to_string())
-        .or_insert_with(VersionPatch::default)
+        .or_default()
         .modules
         .entry(module.to_string())
-        .or_insert_with(ModulePatch::default)
+        .or_default()
         .classes
         .insert(class_name.to_string(), class_patch);
 }
@@ -1493,9 +1493,10 @@ mod tests {
 /// * `dependency_type` - The type name to generate (e.g., "OptionMenuItem" or "MenuItemVecSlice")
 /// * `dependency_kind` - Either "option" or "slice"
 /// * `element_type` - The element type this depends on (e.g., "MenuItem")
-/// * `element_external_path` - The external path of the element type (e.g., "azul_layout::widgets::ribbon::RibbonSection"),
-///   used to derive the correct module path for the generated Option/Slice type.
-///   If None, falls back to `azul_core::option::` for options and `azul_css::` for slices.
+/// * `element_external_path` - The external path of the element type (e.g.,
+///   "azul_layout::widgets::ribbon::RibbonSection"), used to derive the correct module path for the
+///   generated Option/Slice type. If None, falls back to `azul_core::option::` for options and
+///   `azul_css::` for slices.
 ///
 /// # Returns
 /// A ClassPatch that can be applied to add the type to api.json

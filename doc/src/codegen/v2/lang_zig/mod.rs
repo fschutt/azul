@@ -1,53 +1,47 @@
 //! Zig binding generator.
 //!
-//! Emits a single `azul.zig` source file that exposes the C-ABI of
-//! `libazul` to Zig programs via `@cImport(@cInclude("azul.h"))`.
+//! Emits two source files:
 //!
-//! # Why so small?
+//! * `azul_c.zig` — the C ABI of `libazul` pre-translated to Zig (see [`c_decls`]): every
+//!   struct/union/enum, callback typedef, constant and `pub extern fn`, with the names and
+//!   layouts of `azul.h`.
+//! * `azul.zig` — `pub const C = @import("azul_c.zig");` plus idiomatic wrapper structs with
+//!   `deinit()` methods around the heap-owning types, so users can write `defer app.deinit();`
+//!   instead of `defer C.AzApp_delete(&app);`.
 //!
-//! Zig parses the existing C header directly. The compiler walks
-//! `azul.h` at build-time and exposes every `typedef`, `struct`, `enum`,
-//! `union`, function declaration, and macro it understands under the
-//! `C` namespace. This means *we don't have to translate the FFI
-//! surface at all* — the Zig compiler does it for us, and the result
-//! is always in lockstep with the canonical C header.
+//! # Why not `@cImport(@cInclude("azul.h"))`?
 //!
-//! Our job is therefore narrow: emit a tiny module that
-//!
-//! 1. imports the C header via `@cImport`,
-//! 2. re-exports the raw `C` namespace as `pub const C = ...;` for
-//!    power users who want direct access to the FFI surface,
-//! 3. provides idiomatic Zig wrapper structs with `deinit()` methods
-//!    around the heap-owning types so users can write
-//!    `defer app.deinit();` instead of `defer C.AzApp_delete(&app);`.
-//!
-//! That's it. No type emission, no preprocessor stripping, no manual
-//! `extern fn` redeclarations.
+//! That is what this generator did first, and it is the smallest possible binding: Zig
+//! translates the C header itself. But `azul.h` is 5.6 MB (the types, ~20k `extern`
+//! declarations and ~100k lines of `static inline` helpers), and Zig re-translates and
+//! analyses the whole translation unit on every cold build — 91–123 s for a hello-world,
+//! ~5 s warm, 28 s in `ReleaseSafe`. Emitting the declarations from the IR, the way every
+//! other binding gets them, costs a few seconds instead and drops the header from the
+//! include path entirely. The pre-translation keeps the `translate-c` spellings (`[*c]`
+//! pointers, `c_uint` enums with `c_int` constants, zeroed struct defaults), so code that was
+//! written against the `@cImport` namespace compiles unchanged.
 //!
 //! # Build / link requirements
 //!
 //! Users must:
 //!
-//! 1. place `azul.h` somewhere on the C include path
-//!    (e.g. `exe.addIncludePath(.{ .path = "." });` in `build.zig`),
-//! 2. link the `azul` system library
-//!    (e.g. `exe.linkSystemLibrary("azul");` and
+//! 1. keep `azul.zig` and `azul_c.zig` next to each other (the import is relative),
+//! 2. link the `azul` system library (e.g. `exe.linkSystemLibrary("azul");` and
 //!    `exe.addLibraryPath(.{ .path = "." });`),
-//! 3. link `libc` (`exe.linkLibC();`) — required for `@cImport`.
+//! 3. link `libc` (`exe.linkLibC();`).
 //!
 //! See [`build_zig::generate_build_zig`] for a ready-to-use example
 //! `build.zig`.
 
 pub mod build_zig;
+pub mod c_decls;
 pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
-/// The C library name used in `linkSystemLibrary("azul")` / `@cImport`.
+/// The C library name used in `linkSystemLibrary("azul")`.
 /// Must match the prebuilt artifact name (`libazul.so` / `libazul.dylib`
 /// / `azul.dll`).
 pub const LIB_NAME: &str = "azul";
@@ -56,12 +50,12 @@ pub const LIB_NAME: &str = "azul";
 ///
 /// The output has three layers, top-to-bottom:
 ///
-/// 1. A doc-comment header explaining the `@cImport` strategy and the
-///    user-side build/link requirements.
-/// 2. `pub const C = @cImport({ @cInclude("azul.h"); });` — the entire
-///    FFI surface, transparently parsed from the C header.
-/// 3. Idiomatic wrapper structs with `deinit()` and method delegates
-///    (see [`wrappers::generate_wrappers`]).
+/// 1. A doc-comment header explaining the two-file layout and the user-side build/link
+///    requirements.
+/// 2. `pub const C = @import("azul_c.zig");` — the entire FFI surface, pre-translated by
+///    [`c_decls::generate_c_decls`].
+/// 3. Idiomatic wrapper structs with `deinit()` and method delegates (see
+///    [`wrappers::generate_wrappers`]).
 ///
 /// `config` is currently unused (Zig bindings have no per-target
 /// dialects) but is taken by reference to match the signatures of
@@ -70,10 +64,15 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     let mut builder = CodeBuilder::new("    ");
 
     emit_header(&mut builder);
-    emit_cimport(&mut builder);
+    emit_c_import(&mut builder);
     builder.raw(&wrappers::generate_wrappers(ir));
 
     Ok(builder.finish())
+}
+
+/// Generate the companion `azul_c.zig` (the pre-translated C ABI).
+pub fn generate_c_decls(ir: &CodegenIR, config: &CodegenConfig) -> String {
+    c_decls::generate_c_decls(ir, config)
 }
 
 // ============================================================================
@@ -86,17 +85,17 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// Auto-generated by azul-doc codegen v2 (lang_zig). DO NOT EDIT MANUALLY.");
     b.line("// ============================================================================");
     b.line("//");
-    b.line("// Strategy: Zig's `@cImport` directive parses the existing `azul.h` C");
-    b.line("// header directly and exposes every type and function it finds under");
-    b.line("// the `C` namespace. We don't redeclare anything — the C header is the");
-    b.line("// single source of truth for the FFI surface.");
+    b.line("// Strategy: the C ABI of libazul is pre-translated into the companion file");
+    b.line("// `azul_c.zig` (every type, constant and `extern fn` of `azul.h`, in the");
+    b.line("// spelling `zig translate-c` would produce) and re-exported here as `C`.");
+    b.line("// No `@cImport`: the 5.6 MB header is not translated or analysed at build");
+    b.line("// time, and `azul.h` does not need to be on the include path.");
     b.line("//");
     b.line("// Build / link requirements:");
-    b.line("//   * `azul.h` must be on the C include path");
-    b.line("//     (e.g. `exe.addIncludePath(.{ .path = \".\" });`)");
+    b.line("//   * `azul_c.zig` must sit next to this file (the import is relative)");
     b.line("//   * the `azul` shared library must be linkable");
     b.line("//     (e.g. `exe.linkSystemLibrary(\"azul\");`)");
-    b.line("//   * `libc` must be linked (`exe.linkLibC();`) — required by @cImport.");
+    b.line("//   * `libc` must be linked (`exe.linkLibC();`).");
     b.line("//");
     b.line("// The wrapper structs at the bottom of this file follow Zig conventions:");
     b.line("//   * heap-owning types expose `deinit()` (call it via `defer x.deinit();`)");
@@ -111,16 +110,14 @@ fn emit_header(b: &mut CodeBuilder) {
     b.blank();
 }
 
-fn emit_cimport(b: &mut CodeBuilder) {
-    b.line("/// The raw C-ABI of libazul, as parsed from `azul.h`.");
+fn emit_c_import(b: &mut CodeBuilder) {
+    b.line("/// The raw C-ABI of libazul, pre-translated from the IR into `azul_c.zig`.");
     b.line("///");
-    b.line("/// Every `typedef`, `struct`, `enum`, `union`, function declaration,");
-    b.line("/// and integer-constant `#define` from the C header is exposed here.");
-    b.line("/// Power users can call C functions directly via `azul.C.AzApp_create(...)`;");
-    b.line("/// most users should prefer the idiomatic wrapper structs below.");
-    b.line("pub const C = @cImport({");
-    b.line("    @cInclude(\"azul.h\");");
-    b.line("});");
+    b.line("/// Every struct, union, enum, callback typedef, integer constant and exported");
+    b.line("/// function of `azul.h` is declared there under its C name. Power users can");
+    b.line("/// call C functions directly via `azul.C.AzApp_create(...)`; most users should");
+    b.line("/// prefer the idiomatic wrapper structs below.");
+    b.line(&format!("pub const C = @import(\"{}\");", c_decls::C_DECLS_FILE));
     b.blank();
 }
 

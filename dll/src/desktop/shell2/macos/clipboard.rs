@@ -11,33 +11,28 @@
 //!
 //! # Four things about `NSPasteboard` that are easy to get wrong
 //!
-//! * **A pasteboard holds *items*, not formats.** `-[NSPasteboard types]` is
-//!   the union of every item's types and `-[NSPasteboard dataForType:]` only
-//!   reaches the *first* item offering that type. Copy three files in Finder
-//!   and the pasteboard holds three items each carrying one `public.file-url`;
-//!   the pasteboard-level API shows one URL and silently drops the other two.
-//!   [`read_payload`] therefore walks `-pasteboardItems` and records which item
-//!   each representation came from.
-//! * **Types are promises.** `dataForType:` returns nil for a type that is
-//!   genuinely on offer when the owning application declared it lazily and then
-//!   declined — Safari advertises `com.apple.linkpresentation.metadata` and
-//!   never provides it. Skipped, not an error.
-//! * **Every modern UTI has a byte-identical legacy twin** (`public.rtf` and
-//!   `NeXT Rich Text Format v1.0 pasteboard type`, and six more). The registry
-//!   resolves both to one `Flavor`, so a payload carrying both would decode
-//!   everything twice — [`read_payload`] drops the second spelling.
-//! * **Ask the size before copying.** The bytes are already resident and owned
-//!   by the pasteboard server, so `-[NSData length]` costs nothing and happens
-//!   *before* `to_vec()`. A flavor past the cap is skipped and the decode falls
-//!   through to the next-best one.
+//! * **A pasteboard holds *items*, not formats.** `-[NSPasteboard types]` is the union of every
+//!   item's types and `-[NSPasteboard dataForType:]` only reaches the *first* item offering that
+//!   type. Copy three files in Finder and the pasteboard holds three items each carrying one
+//!   `public.file-url`; the pasteboard-level API shows one URL and silently drops the other two.
+//!   [`read_payload`] therefore walks `-pasteboardItems` and records which item each representation
+//!   came from.
+//! * **Types are promises.** `dataForType:` returns nil for a type that is genuinely on offer when
+//!   the owning application declared it lazily and then declined — Safari advertises
+//!   `com.apple.linkpresentation.metadata` and never provides it. Skipped, not an error.
+//! * **Every modern UTI has a byte-identical legacy twin** (`public.rtf` and `NeXT Rich Text Format
+//!   v1.0 pasteboard type`, and six more). The registry resolves both to one `Flavor`, so a payload
+//!   carrying both would decode everything twice — [`read_payload`] drops the second spelling.
+//! * **Ask the size before copying.** The bytes are already resident and owned by the pasteboard
+//!   server, so `-[NSData length]` costs nothing and happens *before* `to_vec()`. A flavor past the
+//!   cap is skipped and the decode falls through to the next-best one.
 
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
 use objc2_foundation::{NSArray, NSData, NSString};
 use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 
-use super::super::common::clipboard::MAX_FLAVOR_BYTES;
-use super::super::common::debug_server::LogCategory;
+use super::super::common::{clipboard::MAX_FLAVOR_BYTES, debug_server::LogCategory};
 use crate::log_warn;
 
 /// Read every flavor on the general pasteboard.
@@ -113,7 +108,8 @@ fn take_bytes(data: &NSData, native: &str) -> Option<Vec<u8>> {
     if len > MAX_FLAVOR_BYTES {
         log_warn!(
             LogCategory::Resources,
-            "[macOS] skipping pasteboard flavor `{native}`: {len} bytes exceeds the {MAX_FLAVOR_BYTES}-byte cap"
+            "[macOS] skipping pasteboard flavor `{native}`: {len} bytes exceeds the \
+             {MAX_FLAVOR_BYTES}-byte cap"
         );
         return None;
     }

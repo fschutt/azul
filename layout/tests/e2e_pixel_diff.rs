@@ -26,10 +26,11 @@
     feature = "font_loading"
 ))]
 mod tests {
+    use std::path::PathBuf;
+
     use azul_core::dom::{Dom, IdOrClass};
     use azul_css::css::Css;
     use azul_layout::cpurender::{pixel_diff, render_dom_to_image, AzulPixmap};
-    use std::path::PathBuf;
 
     /// Build a CSS from one or more `selector { decls }` blocks.
     fn make_css(rules: &str) -> Css {
@@ -105,8 +106,7 @@ mod tests {
             // Save actual for debugging
             std::fs::write(&actual_path, &png_bytes).ok();
             panic!(
-                "[{}] Dimension mismatch: reference={}x{}, actual={}x{}\n\
-                 Actual saved to: {}",
+                "[{}] Dimension mismatch: reference={}x{}, actual={}x{}\nActual saved to: {}",
                 name,
                 result.ref_width,
                 result.ref_height,
@@ -120,9 +120,8 @@ mod tests {
             // Save actual for debugging
             std::fs::write(&actual_path, &png_bytes).ok();
             panic!(
-                "[{}] Pixel diff: {}/{} pixels differ (max_delta={}, ratio={:.4})\n\
-                 Reference: {}\n\
-                 Actual:    {}",
+                "[{}] Pixel diff: {}/{} pixels differ (max_delta={}, ratio={:.4})\nReference: \
+                 {}\nActual:    {}",
                 name,
                 result.diff_count,
                 result.total_pixels,
@@ -163,9 +162,9 @@ mod tests {
         let inner = classed_div("inner");
         let outer = classed_div("outer").with_child(inner);
         let css = make_css(
-            ".outer { width:100px;height:100px;background-color:#cccccc;\
-                     display:flex;justify-content:center;align-items:center; } \
-             .inner { width:40px;height:40px;background-color:green; }",
+            ".outer { width:100px;height:100px;background-color:#cccccc;display:flex;\
+             justify-content:center;align-items:center; } .inner { \
+             width:40px;height:40px;background-color:green; }",
         );
         assert_pixel_match("nested_boxes", outer, css, 100.0, 100.0, 0);
     }
@@ -188,10 +187,10 @@ mod tests {
             .with_child(child("green"))
             .with_child(child("blue"));
         let css = make_css(
-            ".parent { width:200px;height:50px;display:flex;background-color:white; } \
-             .red { width:30px;height:30px;background-color:red;margin:5px; } \
-             .green { width:30px;height:30px;background-color:green;margin:5px; } \
-             .blue { width:30px;height:30px;background-color:blue;margin:5px; }",
+            ".parent { width:200px;height:50px;display:flex;background-color:white; } .red { \
+             width:30px;height:30px;background-color:red;margin:5px; } .green { \
+             width:30px;height:30px;background-color:green;margin:5px; } .blue { \
+             width:30px;height:30px;background-color:blue;margin:5px; }",
         );
         assert_pixel_match("multiple_children_flex", parent, css, 200.0, 50.0, 0);
     }
@@ -201,8 +200,8 @@ mod tests {
         let dom = classed_div("t");
         let css = class_css(
             "t",
-            "width:60px;height:60px;background-color:white;\
-             box-shadow:4px 4px 8px rgba(0,0,0,0.5);margin:20px;",
+            "width:60px;height:60px;background-color:white;box-shadow:4px 4px 8px \
+             rgba(0,0,0,0.5);margin:20px;",
         );
         // Threshold of 3 for anti-aliased shadow edges
         assert_pixel_match("box_shadow", dom, css, 120.0, 120.0, 3);

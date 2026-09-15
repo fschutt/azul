@@ -1,153 +1,490 @@
 //! Swift binding generator.
 //!
-//! Emits a single `azul.swift` source file plus a short `module.modulemap`
-//! (available via [`module_map`]) that together expose the C-ABI of
-//! `libazul` to Swift programs.
+//! Two layers, one of them free:
 //!
-//! # Why Swift consumes the C header (unlike the Odin backend)
+//! * `CAzul` - the C ABI, read by Swift's Clang importer from the generated
+//!   `azul.h` through a module map. Swift cannot declare a `#[repr(C)]` tagged
+//!   union itself and does not promise a C layout for its own structs, so the
+//!   binding never re-declares a C type: every `AzFoo` has clang's layout.
+//! * `Azul` - what a Swift developer writes against: a `final class`, `struct`
+//!   or `enum` per api.json type, native `String` / `T?` / `[T]` / `throws` at
+//!   member boundaries, closures for callbacks, any class instance as
+//!   application data, `deinit` for `Drop`, and `description` / `==` / `<` /
+//!   `hash(into:)` / `copy()` / `init()` for the derived traits. See
+//!   `wrappers.rs` (emitter), `model.rs` (type mapping) and `runtime.rs`
+//!   (ownership base classes and closure handles).
 //!
-//! Odin, Zig and Go can each *redeclare* every `AzFoo` struct / tagged
-//! union in-language because the language guarantees a C-compatible
-//! record layout. **Swift does not**: the layout of a native Swift
-//! `struct` is deliberately unspecified (the compiler may reorder or pad
-//! fields), and Swift has no way to spell a `#[repr(C)]` tagged union at
-//! all. Redeclaring azul's many `struct #raw_union` types in pure Swift
-//! would therefore be unsound.
+//! Output (paths relative to `target/codegen`):
 //!
-//! So — exactly like the Zig backend consumes `azul.h` through
-//! `@cImport` — the Swift binding imports the generated C header through a
-//! Clang module map (`module CAzul { header "azul.h" }`). Every `AzFoo`
-//! struct, enum, tagged union and every exported symbol is therefore seen
-//! by Swift with its *authoritative* C layout, for free. `azul.swift`
-//! itself is the thin idiomatic layer over that imported `CAzul` module.
-//!
-//! # Callbacks are C-direct (the archetype-A simplification)
-//!
-//! A Swift function with a C-compatible signature converts implicitly to
-//! a `@convention(c)` function pointer — a real C function pointer. So the
-//! counter's `onClick` / `layout` callbacks are plain top-level Swift
-//! funcs passed straight to `AzButton_setOnClick` /
-//! `AzWindowCreateOptions_create` (which the C header declares as taking
-//! the bare `AzButtonOnClickCallbackType` / `AzLayoutCallbackType` fn
-//! pointer). There is NO host-invoker table and NO handle registration —
-//! exactly the model used by `examples/zig/hello-world.zig` and
-//! `examples/odin/hello-world.odin`.
-//!
-//! # What `azul.swift` emits
-//!
-//! - `@_exported import CAzul` — re-exports the whole C surface, so any
-//!   file compiled with `azul.swift` sees the `AzFoo` types and `Az*`
-//!   functions directly (and external importers of the compiled module do
-//!   too).
-//! - Idiomatic procedure aliases without the `Az` prefix
-//!   (`public let App_create = AzApp_create`), mirroring the Odin backend.
-//!   The raw `Az*` symbols remain available through the imported module.
-//!
-//! # Build / link requirements
-//!
-//! `azul.swift`, `module.modulemap` and the generated `azul.h` sit in one
-//! directory; the driver is compiled with:
-//!
-//! ```sh
-//! swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world
-//! ```
-//!
-//! `-I.` lets Swift discover `module.modulemap` (and thus `import CAzul`);
-//! `-L. -lazul` links the native library. On macOS the AppKit / OpenGL /
-//! CoreText frameworks are added (see the shipped example README).
+//! * `azul.swift` + `module.modulemap` - the `Azul` module as one file next to
+//!   `azul.h`, what the website bundle ships and the e2e lane compiles:
+//!   `swiftc -emit-library -emit-module -module-name Azul -I. azul.swift ...`.
+//! * `swift/` - a SwiftPM package: `Package.swift`, a system-library target
+//!   `CAzul` (module map + its own copy of `azul.h`, written by the caller)
+//!   and the `Azul` target (`Sources/Azul/*.swift`, one file per api.json
+//!   module so the compiler can type-check them in parallel), plus a README.
 
-pub mod functions;
-pub mod types;
+pub mod model;
+pub mod runtime;
 pub mod wrappers;
-
-use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{CodegenIR, FunctionDef, TypeCategory};
+use super::{
+    config::CodegenConfig,
+    ir::{CodegenIR, FunctionDef, TypeCategory},
+};
 
-/// The Clang module name the C header is exposed under
-/// (`module CAzul { header "azul.h" }`).
+/// The Clang module name the C header is exposed under.
 pub const C_MODULE_NAME: &str = "CAzul";
+
+/// The Swift module name (`import Azul`).
+pub const SWIFT_MODULE_NAME: &str = "Azul";
 
 /// The native library name used in the link step (`-lazul`).
 pub const LIB_NAME: &str = "azul";
 
-/// The `module.modulemap` that exposes the generated `azul.h` as the
-/// `CAzul` Clang module. Shipped alongside `azul.swift` and `azul.h`.
+/// The `module.modulemap` next to `azul.h` and `azul.swift`. It does not name
+/// the library: the release ships `azul.dll.lib` on Windows, which an
+/// autolinked `azul.lib` would not find, so the link step names it.
 pub fn module_map() -> String {
     format!(
-        "// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT MANUALLY.\n\
-         // Exposes the generated C header `azul.h` to Swift as the `{module}`\n\
-         // Clang module. `azul.swift` does `@_exported import {module}`.\n\
-         module {module} {{\n\
-         \theader \"azul.h\"\n\
-         \texport *\n\
-         }}\n",
-        module = C_MODULE_NAME
+        "// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT.\n// Exposes the \
+         generated C header `azul.h` to Swift as the `{m}` Clang module;\n// `azul.swift` \
+         (module `{s}`) is written against it.\nmodule {m} {{\n    header \"azul.h\"\n    \
+         export *\n}}\n",
+        m = C_MODULE_NAME,
+        s = SWIFT_MODULE_NAME
     )
 }
 
-/// Generate the full `azul.swift` source file.
+/// The package's module map: a system library that links libazul.
+fn package_module_map() -> String {
+    format!(
+        "// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT.\nmodule {m} \
+         [system] {{\n    header \"azul.h\"\n    link \"{l}\"\n    export *\n}}\n",
+        m = C_MODULE_NAME,
+        l = LIB_NAME
+    )
+}
+
+/// The generated parts of the binding.
+pub struct Parts {
+    /// Source per api.json module.
+    pub modules: Vec<(String, String)>,
+    /// Trampolines (shared by every module).
+    pub shared: String,
+    pub skipped: Vec<String>,
+    pub stats: wrappers::Stats,
+}
+
+pub fn parts(ir: &CodegenIR, config: &CodegenConfig) -> Result<Parts> {
+    let model = model::Model::new(ir, config);
+    let out = wrappers::generate(&model);
+    Ok(Parts {
+        modules: out.modules.into_iter().collect(),
+        shared: out.shared,
+        skipped: out.skipped,
+        stats: out.stats,
+    })
+}
+
+/// Generate the single-file `azul.swift`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    // Swift idiom is 4-space indentation.
-    let mut b = CodeBuilder::new("    ");
-
-    emit_header(&mut b);
-    b.line(&format!("@_exported import {}", C_MODULE_NAME));
-    b.blank();
-
-    // Track every emitted top-level alias name so a duplicate can never
-    // produce a Swift "invalid redeclaration" error.
-    let mut emitted: BTreeSet<String> = BTreeSet::new();
-
-    types::generate_types(&mut b, ir, config);
-    functions::generate_aliases(&mut b, ir, config, &mut emitted);
-    wrappers::generate_wrappers(&mut b, ir, config);
-
-    Ok(b.finish())
+    let p = parts(ir, config)?;
+    Ok(amalgamate(&p, &ir.api_version))
 }
 
-fn emit_header(b: &mut CodeBuilder) {
-    b.line("// ============================================================================");
-    b.line("// azul.swift — Swift bindings for the Azul GUI framework");
-    b.line("// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT MANUALLY.");
-    b.line("// ============================================================================");
-    b.line("//");
-    b.line("// The C-ABI surface is consumed through the generated `azul.h`, exposed as");
-    b.line("// the `CAzul` Clang module by the accompanying `module.modulemap`. Swift's");
-    b.line("// C interop imports every AzFoo struct / enum / tagged union with its");
-    b.line("// authoritative C layout, plus every exported symbol (AzApp_create, ...).");
-    b.line("//");
-    b.line("// This is the same strategy the Zig binding uses (@cImport): Swift cannot");
-    b.line("// safely redeclare #[repr(C)] tagged unions in-language, so it imports the");
-    b.line("// C header rather than translating the FFI surface by hand.");
-    b.line("//");
-    b.line("// Callbacks are C-direct: a plain Swift func with a C-compatible signature");
-    b.line("// converts to a `@convention(c)` function pointer and is passed straight to");
-    b.line("// AzButton_setOnClick / AzWindowCreateOptions_create — no host-invoker table,");
-    b.line("// exactly like the Zig / Odin / C bindings.");
-    b.line("//");
-    b.line("// Idiomatic aliases without the `Az` prefix (App_create = AzApp_create) are");
-    b.line("// emitted below; the raw Az* symbols remain available via the imported module.");
-    b.line("//");
-    b.line("// Build: place azul.h, module.modulemap and libazul.{so,dylib}/azul.dll in one");
-    b.line("// directory and compile with:");
-    b.line("//   swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world");
-    b.line("// ============================================================================");
-    b.blank();
+fn amalgamate(p: &Parts, version: &str) -> String {
+    let mut out = header(p, version);
+    out.push_str(&format!("import {}\n\n", C_MODULE_NAME));
+    out.push_str(runtime::RUNTIME);
+    for (_, src) in &p.modules {
+        out.push_str(src);
+    }
+    out.push_str(&p.shared);
+    out
+}
+
+const PART_HEADER: &str = "// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT.\n\n";
+
+/// Every file the binding writes except the package's copy of `azul.h`, as
+/// (path relative to `target/codegen`, contents).
+pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(String, String)>> {
+    let p = parts(ir, config)?;
+    let import = format!("import {}\n\n", C_MODULE_NAME);
+    let mut files = vec![
+        ("azul.swift".to_string(), amalgamate(&p, &ir.api_version)),
+        ("module.modulemap".to_string(), module_map()),
+        ("swift/Package.swift".to_string(), PACKAGE_SWIFT.to_string()),
+        ("swift/README.md".to_string(), README.to_string()),
+        (
+            "swift/Sources/CAzul/module.modulemap".to_string(),
+            package_module_map(),
+        ),
+        (
+            "swift/Sources/Azul/Runtime.swift".to_string(),
+            format!(
+                "{}{}{}",
+                header(&p, &ir.api_version),
+                import,
+                runtime::RUNTIME
+            ),
+        ),
+        (
+            "swift/Sources/Azul/Trampolines.swift".to_string(),
+            format!("{}{}{}", PART_HEADER, import, p.shared),
+        ),
+    ];
+    for (module, src) in &p.modules {
+        files.push((
+            format!("swift/Sources/Azul/{}.swift", file_stem(module)),
+            format!("{}{}{}", PART_HEADER, import, src),
+        ));
+    }
+    Ok(files)
+}
+
+/// `dom` -> `Dom`: a file name that cannot collide with `Runtime.swift`.
+fn file_stem(module: &str) -> String {
+    let c = camel(module);
+    let mut chars = c.chars();
+    let stem = match chars.next() {
+        Some(f) => f.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => "Misc".to_string(),
+    };
+    if stem == "Runtime" || stem == "Trampolines" {
+        format!("Api{}", stem)
+    } else {
+        stem
+    }
+}
+
+const PACKAGE_SWIFT: &str = r#"// swift-tools-version:5.7
+// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT.
+import PackageDescription
+
+let package = Package(
+    name: "Azul",
+    products: [
+        .library(name: "Azul", targets: ["Azul"]),
+    ],
+    targets: [
+        // The C ABI: azul.h through a module map that links libazul.
+        .systemLibrary(name: "CAzul", path: "Sources/CAzul"),
+        // The Swift API.
+        .target(name: "Azul", dependencies: ["CAzul"], path: "Sources/Azul"),
+    ]
+)
+"#;
+
+const README: &str = r#"# Azul (Swift)
+
+Swift bindings for the [Azul](https://azul.rs) GUI framework, generated from
+`api.json` by `azul-doc codegen` (do not edit).
+
+## Install
+
+Add the package, and put `libazul.so` / `libazul.dylib` / `azul.lib` from the
+Azul release where the linker and the loader find it:
+
+```swift
+// Package.swift of your app
+dependencies: [
+    .package(path: "../azul-swift"), // the generated target/codegen/swift directory
+],
+targets: [
+    .executableTarget(name: "App", dependencies: [.product(name: "Azul", package: "azul-swift")]),
+]
+```
+
+```sh
+swift build -Xlinker -L/path/to/libazul
+LD_LIBRARY_PATH=/path/to/libazul .build/debug/App
+```
+
+Without SwiftPM, compile the one-file module next to `azul.h` and
+`module.modulemap` (the website bundle's layout):
+
+```sh
+swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so
+swiftc -I. main.swift -L. -lAzulSwift -lazul -o app
+```
+
+## Hello world
+
+```swift
+import Azul
+
+final class Counter {
+    var count = 5
+}
+
+func layout(_ counter: Counter, _ info: LayoutCallbackInfo) -> Dom {
+    let label = Dom.pWithText(String(counter.count))
+        .withCss("font-size: 32px; margin: 0;")
+
+    let button = Button("Increase counter")
+        .withButtonType(.primary)
+        .withOnClick(counter) { counter, _ in
+            counter.count += 1
+            return .refreshDom
+        }
+
+    return Dom.body()
+        .withChild(label)
+        .withChild(button.dom())
+}
+
+let window = WindowCreateOptions(layout)
+window.windowState.title = "Hello World"
+
+App(Counter(), AppConfig()).run(window)
+```
+
+## How the API maps
+
+* Every api.json type is `Azul.Name` (a type whose name is taken by the Swift
+  standard library, like `Duration`, is `AzulDuration`). A struct is a
+  `final class`, or a `struct` when it is `Copy` and holds no pointers. A
+  fieldless enum is a Swift `enum` (`.primary`); a tagged union is an `enum`
+  with associated values, so `switch` matches it.
+* `String`, `Option<T>` (`T?`) and `Vec<T>` (`[T]`, `[UInt8]` for `u8`) cross
+  as native values. A method returning `Result` returns the `Ok` value and
+  throws `AzulError<E>` on `Err`.
+* `create` is `init`, `create_body` is `static func body()`, `get_x` is the
+  property `x` (settable when `set_x` exists), `is_x` is `isX`. The first
+  argument has no label; later ones are labeled unless the name repeats the
+  type. The C API stays available as `import CAzul`.
+* Callbacks take a closure, capturing or not. Application state is any class
+  instance and comes back to the callback with its own type.
+* Memory is managed: an object frees its value in `deinit`. Passing a class
+  instance by value moves it into libazul, as in Rust; using it afterwards
+  stops the program with the type's name (call `copy()` first to keep one).
+* Rust traits: `Debug` is `CustomStringConvertible`, `Clone` is `copy()`,
+  `PartialEq` is `Equatable`, `PartialOrd`/`Ord` is `Comparable`, `Hash` is
+  `Hashable`, `Default` is `init()` (or `default()` when `init()` is taken),
+  `Drop` is `deinit`.
+"#;
+
+/// (functions, properties, initializers, enum cases) the Swift layer declares.
+fn member_counts(p: &Parts) -> (usize, usize, usize, usize) {
+    let mut c = (0, 0, 0, 0);
+    for line in p.modules.iter().flat_map(|(_, src)| src.lines()) {
+        let l = line.trim_start();
+        if l.starts_with("public func ")
+            || l.starts_with("public mutating func ")
+            || l.starts_with("public static func ")
+        {
+            c.0 += 1;
+        } else if l.starts_with("public var ") {
+            c.1 += 1;
+        } else if l.starts_with("public init") || l.starts_with("public convenience init") {
+            c.2 += 1;
+        } else if line.starts_with("    case ") {
+            c.3 += 1;
+        }
+    }
+    c
+}
+
+fn header(p: &Parts, version: &str) -> String {
+    let s = &p.stats;
+    let (funcs, props, inits, cases) = member_counts(p);
+    let mut out = format!(
+        "// ============================================================================
+// azul.swift - Swift bindings for the Azul GUI framework {version}
+// Auto-generated by azul-doc codegen v2 (lang_swift). DO NOT EDIT MANUALLY.
+// ============================================================================
+//
+// `import Azul` is the API: a class, struct or enum per api.json type, native
+// String / T? / [T] / throws, closures for callbacks, deinit for memory.
+// The C ABI is the `CAzul` Clang module over azul.h (`import CAzul`).
+//
+// Build (azul.h, module.modulemap and libazul next to this file):
+//   swiftc -emit-library -emit-module -module-name Azul -parse-as-library \\
+//     -I. azul.swift -L. -lazul -o libAzulSwift.so
+//   swiftc -I. main.swift -L. -lAzulSwift -lazul -o app
+//
+// Declared: {} classes, {} structs, {} enums; {} functions, {} properties,
+//   {} initializers, {} enum cases.
+// Native at the boundary: Option -> T? {}/{}, Vec -> [T] {}/{},
+//   Result -> throws {}/{}; tagged union -> enum with payloads {}/{}.
+",
+        s.classes,
+        s.structs,
+        s.enums + s.unions_enum,
+        funcs,
+        props,
+        inits,
+        cases,
+        s.options_native,
+        s.options_total,
+        s.vecs_native,
+        s.vecs_total,
+        s.results_native,
+        s.results_total,
+        s.unions_enum,
+        s.unions_total,
+    );
+    let mut raw: Vec<&String> = p
+        .skipped
+        .iter()
+        .filter(|s| !s.ends_with("(native Swift type)") && !s.ends_with(wrappers::TAKEN))
+        .collect();
+    raw.sort();
+    if !raw.is_empty() {
+        out.push_str(
+            "//\n// Only in CAzul (no argument or return shape the Swift layer can express):\n",
+        );
+        for s in raw {
+            out.push_str(&format!("//   {}\n", s));
+        }
+    }
+    let mut taken: Vec<&str> = p
+        .skipped
+        .iter()
+        .filter_map(|s| s.strip_suffix(wrappers::TAKEN))
+        .map(str::trim_end)
+        .collect();
+    taken.sort();
+    if !taken.is_empty() {
+        out.push_str("//\n// Not a separate member (an enum case or another member has its Swift name\n// and signature):\n");
+        for s in taken {
+            out.push_str(&format!("//   {}\n", s));
+        }
+    }
+    out.push_str(
+        "// ============================================================================\n\n",
+    );
+    out
 }
 
 // ============================================================================
-// Shared name helpers (used by submodules)
+// Shared name helpers
 // ============================================================================
 
-/// Sanitize a name for use as a Swift identifier: Swift keywords are
-/// wrapped in backticks (Swift's escape syntax). Only exact keyword
-/// matches collide — Swift is case-sensitive.
-pub fn sanitize_identifier(name: &str) -> String {
+/// The member name the C header declares for an api.json field or argument
+/// (`escape_cpp_keyword_for_c`: C++ keywords get a trailing `_`).
+pub fn c_member_name(name: &str) -> String {
+    super::lang_c::escape_cpp_keyword_for_c(name)
+}
+
+/// Names of top-level Swift standard library types. An api.json type with one
+/// of these names would shadow it in every file that does `import Azul`
+/// (`String(5)` would stop compiling), so it is declared as `Azul{Name}`.
+const SWIFT_STDLIB_TYPES: &[&str] = &[
+    "Any",
+    "AnyClass",
+    "AnyObject",
+    "AnyHashable",
+    "Array",
+    "ArraySlice",
+    "Bool",
+    "Character",
+    "ClosedRange",
+    "Codable",
+    "Collection",
+    "Comparable",
+    "ContiguousArray",
+    "Decodable",
+    "Dictionary",
+    "Double",
+    "Duration",
+    "Encodable",
+    "Equatable",
+    "Error",
+    "Float",
+    "Float16",
+    "Float80",
+    "Hashable",
+    "Hasher",
+    "Int",
+    "Int16",
+    "Int32",
+    "Int64",
+    "Int8",
+    "Iterator",
+    "Mirror",
+    "Never",
+    "ObjectIdentifier",
+    "OpaquePointer",
+    "Optional",
+    "Range",
+    "Result",
+    "Sequence",
+    "Set",
+    "Slice",
+    "StaticString",
+    "String",
+    "Substring",
+    "Task",
+    "UInt",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "UInt8",
+    "Unicode",
+    "Unmanaged",
+    "Void",
+];
+
+/// The Swift name of an api.json type.
+pub fn swift_type_name(name: &str) -> String {
+    if SWIFT_STDLIB_TYPES.contains(&name) {
+        format!("Azul{}", name)
+    } else {
+        name.to_string()
+    }
+}
+
+/// `snake_case` / `CamelCase` / `camelCase` -> `lowerCamelCase`, lower-casing a
+/// leading acronym (`URL` -> `url`, `HTTPRequest` -> `httpRequest`).
+pub fn camel(name: &str) -> String {
+    let parts: Vec<&str> = name.split('_').filter(|p| !p.is_empty()).collect();
+    let mut out = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            out.push_str(&lower_leading(part));
+        } else {
+            let mut chars = part.chars();
+            if let Some(f) = chars.next() {
+                out.push(f.to_ascii_uppercase());
+                out.push_str(chars.as_str());
+            }
+        }
+    }
+    out
+}
+
+fn lower_leading(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let run = chars.iter().take_while(|c| c.is_ascii_uppercase()).count();
+    if run == 0 {
+        return s.to_string();
+    }
+    let lower_to = if run == 1 || run == chars.len() {
+        run
+    } else if chars[run].is_ascii_lowercase() {
+        run - 1
+    } else {
+        run
+    };
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if i < lower_to {
+                c.to_ascii_lowercase()
+            } else {
+                *c
+            }
+        })
+        .collect()
+}
+
+/// A name usable as a Swift identifier: keywords are wrapped in backticks.
+pub fn escape(name: &str) -> String {
     if is_swift_keyword(name) {
         format!("`{}`", name)
     } else {
@@ -170,6 +507,7 @@ fn is_swift_keyword(s: &str) -> bool {
             | "inout"
             | "internal"
             | "let"
+            | "open"
             | "operator"
             | "private"
             | "precedencegroup"
@@ -200,6 +538,7 @@ fn is_swift_keyword(s: &str) -> bool {
             | "where"
             | "while"
             | "as"
+            | "Any"
             | "false"
             | "is"
             | "nil"
@@ -210,76 +549,74 @@ fn is_swift_keyword(s: &str) -> bool {
             | "throws"
             | "true"
             | "try"
+            | "Type"
+            | "Protocol"
+            | "_"
     )
 }
 
 // ============================================================================
-// Shared inclusion filter (mirrors the Odin / Pascal backend's rules)
+// Inclusion filters
 // ============================================================================
 
-/// Whether a function gets an idiomatic alias. Mirrors the Odin filter:
-/// skip functions whose owning class is a recursive / VecRef / destructor
-/// / generic-template type (those symbols the C header does not export in
-/// a form worth re-aliasing).
-pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    // A trait entry point an api.json `derive` declares is not what the
-    // `DestructorOrClone` exclusion below is for. That category is excluded
-    // because those types' ordinary methods traffic in callback function
-    // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
-    // AzString` traffics in neither, and is the same shape as the ~2800
-    // `_toDbgString` declarations this binding already emits. Excluding it
-    // wholesale is why every `*VecDestructor` declared `Debug` and named it
-    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
-    // RECURSIVE types are here for the same reason. `XmlNodeChild` and friends
-    // are excluded below because their ORDINARY methods traffic in a shape
-    // this binding cannot express by value - but `Az{T}_partialEq(a, b) ->
-    // bool` and `Az{T}_toDbgString(ptr) -> AzString` take a pointer and return
-    // a scalar, so the exclusion never applied to them. That is why the same
-    // four types - `Xml`, `XmlNodeChild`, `XmlNodeChildVec`,
-    // `ResultXmlXmlError` - showed up as the residue in fourteen bindings at
-    // once: one cause, not fourteen.
-    if func.kind.is_declared_capability()
-        && (ir.find_enum(&func.class_name).is_some_and(|e| {
-            matches!(
-                e.category,
-                TypeCategory::DestructorOrClone | TypeCategory::Recursive
-            )
-        }) || ir
-            .find_struct(&func.class_name)
-            .is_some_and(|s| s.category == TypeCategory::Recursive))
-    {
-        return config.should_include_type(&func.class_name);
-    }
+/// A type the Swift layer declares or converts. Generic templates have no
+/// single C layout and are left out.
+pub fn include_type(
+    name: &str,
+    generic_params: &[String],
+    category: TypeCategory,
+    config: &CodegenConfig,
+) -> bool {
+    config.should_include_type(name)
+        && generic_params.is_empty()
+        && category != TypeCategory::GenericTemplate
+}
 
+/// Whether a function is bound: every function of an included type. Swift
+/// reads each signature from `azul.h`, so no category of type needs to be
+/// dropped for being hard to declare.
+pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&func.class_name) {
         return false;
     }
     if let Some(s) = ir.find_struct(&func.class_name) {
-        if matches!(
-            s.category,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !s.generic_params.is_empty() {
+        if s.category == TypeCategory::GenericTemplate || !s.generic_params.is_empty() {
             return false;
         }
     }
     if let Some(e) = ir.find_enum(&func.class_name) {
-        if matches!(
-            e.category,
-            TypeCategory::Recursive
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !e.generic_params.is_empty() {
+        if e.category == TypeCategory::GenericTemplate || !e.generic_params.is_empty() {
             return false;
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camel_case_names() {
+        assert_eq!(camel("with_css"), "withCss");
+        assert_eq!(camel("create_p_with_text"), "createPWithText");
+        assert_eq!(camel("DoNothing"), "doNothing");
+        assert_eq!(camel("URL"), "url");
+        assert_eq!(camel("HTTPRequest"), "httpRequest");
+        assert_eq!(camel("mouseUp"), "mouseUp");
+        assert_eq!(camel("RGBA8"), "rgba8");
+        assert_eq!(camel("U8"), "u8");
+    }
+
+    #[test]
+    fn stdlib_names_are_not_shadowed() {
+        assert_eq!(swift_type_name("Duration"), "AzulDuration");
+        assert_eq!(swift_type_name("Dom"), "Dom");
+    }
+
+    #[test]
+    fn keywords_are_escaped() {
+        assert_eq!(escape("default"), "`default`");
+        assert_eq!(escape("width"), "width");
+    }
 }

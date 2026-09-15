@@ -69,7 +69,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Cache cargo-vet
         id: cache-cargo-vet
@@ -120,9 +120,22 @@ jobs:
             BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
           fi
           echo "comparing Cargo.lock against $BASE"
+          # One-off, SELF-EXPIRING exception, per the rule in
+          # scripts/supply-chain/cooldown-exempt.txt: third-party crates never go
+          # in that file; an urgent third-party bump gets a visible, temporary
+          # exception with its reason stated. rustls 0.23.45 is the fix for
+          # RUSTSEC-2026-0285 (4afaf33a4) and was published 2026-09-14, so the
+          # floor refused a security patch for being new. On 2026-09-28 it is 14
+          # days old, this condition turns false, and the gate is back to normal
+          # without anyone having to remember to delete this block.
+          EXEMPT=()
+          if [[ "$(date -u +%F)" < "2026-09-28" ]]; then
+            EXEMPT+=(--exempt rustls)
+            echo "cooldown: rustls exempt until 2026-09-28 (RUSTSEC-2026-0285 fix)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
-            --changed-only --base-ref "$BASE" --no-cache
+            --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"
 
   # cargo-audit reads the same RustSec database as cargo-deny, fetching a fresh advisory-db on every run.
   # It is non-blocking and serves as a second opinion, surfacing advisories that deny.toml's ignore list may silence.
@@ -134,7 +147,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Cache cargo-audit
         id: cache-cargo-audit
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -818,6 +818,112 @@ IDX
 }
 
 # --------------------------------------------------------------------------
+# The NuGet v3 service index, written once after every package is in the flat
+# container (Azul.Net from build_nuget, libazul from build_choco).
+#
+# A flat container alone is enough for `dotnet add package`, which only needs
+# PackageBaseAddress. Chocolatey is not: `choco install libazul --source
+# .../index.json` resolves the package through the registration resource, and
+# with no RegistrationsBaseUrl in the index NuGet's client builds it from a null
+# URL and fails with "Value cannot be null. Parameter name: baseUrl" (Chocolatey
+# 2.7.4, reproduced against a local copy of the live feed). So the index also
+# advertises static registration documents, and a search document for
+# `choco search` / `dotnet package search`. GitHub Pages ignores query strings,
+# so search answers every query with the whole (two-package) feed.
+# --------------------------------------------------------------------------
+build_nuget_index() {
+  local base="$SITE/ui/nuget"
+  [ -d "$base/flatcontainer" ] || { echo "  [nuget] no flat container — no service index"; return; }
+  SITE_NUGET="$base" BASE_URL="$BASE/ui/nuget" python3 - <<'PY' || { echo "::error::[nuget] could not write the v3 service index"; return 1; }
+import datetime, glob, json, os, re, zipfile
+root = os.environ["SITE_NUGET"]; url = os.environ["BASE_URL"]
+published = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def nuspec_field(xml, tag):
+    m = re.search(r"<%s>\s*([^<]*?)\s*</%s>" % (tag, tag), xml)
+    return m.group(1) if m else ""
+
+packages = {}
+for nupkg in sorted(glob.glob(os.path.join(root, "flatcontainer", "*", "*", "*.nupkg"))):
+    with zipfile.ZipFile(nupkg) as z:
+        spec = [n for n in z.namelist() if n.endswith(".nuspec") and "/" not in n]
+        xml = z.read(spec[0]).decode("utf-8", "replace") if spec else ""
+    lid = os.path.basename(os.path.dirname(os.path.dirname(nupkg)))
+    lver = os.path.basename(os.path.dirname(nupkg))
+    packages.setdefault(lid, []).append({
+        "id": nuspec_field(xml, "id") or lid,
+        "version": nuspec_field(xml, "version") or lver,
+        "lver": lver,
+        "description": nuspec_field(xml, "description"),
+        "authors": nuspec_field(xml, "authors"),
+        "content": f"{url}/flatcontainer/{lid}/{lver}/{os.path.basename(nupkg)}",
+    })
+
+search = []
+for lid, versions in packages.items():
+    reg = f"{url}/registration/{lid}"
+    leaves = []
+    for p in versions:
+        leaf = {
+            "@id": f"{reg}/{p['lver']}.json",
+            "@type": "Package",
+            "catalogEntry": {
+                "@id": f"{reg}/{p['lver']}.json#catalog",
+                "@type": "PackageDetails",
+                "id": p["id"], "version": p["version"],
+                "description": p["description"], "authors": p["authors"],
+                "listed": True, "published": published,
+                "packageContent": p["content"], "dependencyGroups": [],
+            },
+            "packageContent": p["content"],
+            "registration": f"{reg}/index.json",
+        }
+        leaves.append(leaf)
+        os.makedirs(reg.replace(url, root), exist_ok=True)
+        with open(f"{root}/registration/{lid}/{p['lver']}.json", "w") as f:
+            json.dump({**leaf, "listed": True, "published": published}, f, indent=1)
+    lows = [p["version"] for p in versions]
+    index = {
+        "@id": f"{reg}/index.json",
+        "count": 1,
+        "items": [{
+            "@id": f"{reg}/index.json#page/{lows[0]}/{lows[-1]}",
+            "count": len(leaves), "lower": lows[0], "upper": lows[-1],
+            "items": leaves,
+        }],
+    }
+    with open(f"{root}/registration/{lid}/index.json", "w") as f:
+        json.dump(index, f, indent=1)
+    latest = versions[-1]
+    search.append({
+        "@id": f"{reg}/index.json", "@type": "Package", "registration": f"{reg}/index.json",
+        "id": latest["id"], "version": latest["version"],
+        "description": latest["description"], "authors": [latest["authors"]],
+        "totalDownloads": 0, "verified": False, "packageTypes": [{"name": "Dependency"}],
+        "versions": [{"version": p["version"], "downloads": 0, "@id": f"{reg}/{p['lver']}.json"} for p in versions],
+    })
+
+os.makedirs(f"{root}/search", exist_ok=True)
+with open(f"{root}/search/query", "w") as f:
+    json.dump({"totalHits": len(search), "data": search}, f, indent=1)
+
+resources = [
+    {"@id": f"{url}/flatcontainer/", "@type": "PackageBaseAddress/3.0.0"},
+    {"@id": f"{url}/search/query", "@type": "SearchQueryService"},
+    {"@id": f"{url}/search/query", "@type": "SearchQueryService/3.0.0-rc"},
+    {"@id": f"{url}/search/query", "@type": "SearchQueryService/3.5.0"},
+    {"@id": f"{url}/registration/", "@type": "RegistrationsBaseUrl"},
+    {"@id": f"{url}/registration/", "@type": "RegistrationsBaseUrl/3.0.0-rc"},
+    {"@id": f"{url}/registration/", "@type": "RegistrationsBaseUrl/3.4.0"},
+    {"@id": f"{url}/registration/", "@type": "RegistrationsBaseUrl/3.6.0"},
+]
+with open(f"{root}/index.json", "w") as f:
+    json.dump({"version": "3.0.0", "resources": resources}, f, indent=1)
+print(f"  [nuget] v3 index: {len(packages)} package(s) with registration + search: {', '.join(sorted(packages))}")
+PY
+}
+
+# --------------------------------------------------------------------------
 # Repo-metadata tools that only exist inside their own distro (repo-add, apk)
 # run in that distro's official container when the host lacks them. The GitHub
 # runner has docker; a developer running this locally may not — then the
@@ -1107,6 +1213,7 @@ build_npm
 # a feed built under the wrong package id is a command that cannot work.
 build_nuget || FAILED="$FAILED nuget"
 build_choco
+build_nuget_index || FAILED="$FAILED nuget-index"
 # A channel that produced an UNUSABLE mirror must red the deploy, not print a
 # note and continue: "hosted .gem only (generate_index failed)" scrolled past
 # unread for two months while `gem install --source https://azul.rs/ui/gems`

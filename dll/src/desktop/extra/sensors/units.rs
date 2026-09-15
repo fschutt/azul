@@ -68,7 +68,9 @@ pub const GAUSS_TO_UT: f32 = 100.0;
 /// Returns an empty vec when nothing parses, so a caller can treat "absent"
 /// and "unparseable" the same way.
 pub fn parse_multi_value(s: &str) -> Vec<f32> {
-    s.split_whitespace().filter_map(|t| t.parse().ok()).collect()
+    s.split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect()
 }
 
 #[cfg(test)]

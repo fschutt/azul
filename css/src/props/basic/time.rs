@@ -1,9 +1,8 @@
 //! CSS property types for time durations (`s`, `ms`, `t`).
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
-use crate::props::formatter::PrintAsCssValue;
+use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
 /// Nominal engine tick (frame) rate, in ticks per second.
 ///
@@ -267,8 +266,7 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
 #[allow(clippy::unreadable_literal)]
 mod autotest_generated {
     use super::*;
-    use crate::codegen::format::FormatAsRustCode;
-    use crate::props::formatter::PrintAsCssValue;
+    use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
     /// Largest integer an `f32` represents exactly (`2^24`). Above this, the
     /// spacing between neighbouring `f32`s exceeds 1ms, so `parse_duration`

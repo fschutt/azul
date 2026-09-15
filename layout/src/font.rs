@@ -230,8 +230,7 @@ pub mod parsed {
         // Safe: `Instant::elapsed` against the same launch instant is
         // monotonic and never overflows in any realistic process
         // lifetime (>500 years).
-        use std::sync::OnceLock;
-        use std::time::Instant;
+        use std::{sync::OnceLock, time::Instant};
         static LAUNCH: OnceLock<Instant> = OnceLock::new();
         let start = LAUNCH.get_or_init(Instant::now);
         start.elapsed().as_nanos() as u64
@@ -306,7 +305,8 @@ pub mod parsed {
     }
 
     impl OutlineSink for GlyphOutlineCollector {
-        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                                   // debug-marker cast
         fn move_to(&mut self, to: Vector2F) {
             if !self.current_contour.is_empty() {
                 self.contours.push(GlyphOutline {
@@ -320,7 +320,8 @@ pub mod parsed {
                 }));
         }
 
-        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                                   // debug-marker cast
         fn line_to(&mut self, to: Vector2F) {
             self.current_contour
                 .push(GlyphOutlineOperation::LineTo(OutlineLineTo {
@@ -329,7 +330,8 @@ pub mod parsed {
                 }));
         }
 
-        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                                   // debug-marker cast
         fn quadratic_curve_to(&mut self, ctrl: Vector2F, to: Vector2F) {
             self.current_contour
                 .push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
@@ -340,7 +342,8 @@ pub mod parsed {
                 }));
         }
 
-        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                                   // debug-marker cast
         fn cubic_curve_to(&mut self, ctrl: LineSegment2F, to: Vector2F) {
             self.current_contour
                 .push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
@@ -383,7 +386,8 @@ pub mod parsed {
         pub hmtx_range: (usize, usize),
         /// Offset+length into `original_bytes` for vmtx table (lazy: no copy).
         pub vmtx_range: (usize, usize),
-        /// Vertical header table (vhea), same format as hhea. None if font has no vertical metrics.
+        /// Vertical header table (vhea), same format as hhea. None if font has no vertical
+        /// metrics.
         pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
         pub maxp_table: MaxpTable,
@@ -440,21 +444,17 @@ pub mod parsed {
         pub(crate) glyph_cache: Arc<rust_fontconfig::StLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
         /// Glyph outline decoder state.
         ///
-        /// - `Loaded(Some(arc))`: `LocaGlyf` is already loaded (owning
-        ///   its own `Box<[u8]>` copy of the loca+glyf tables) and
-        ///   ready to decode glyphs. Produced by the eager `from_bytes`
+        /// - `Loaded(Some(arc))`: `LocaGlyf` is already loaded (owning its own `Box<[u8]>` copy of
+        ///   the loca+glyf tables) and ready to decode glyphs. Produced by the eager `from_bytes`
         ///   constructor path (tests).
-        /// - `Loaded(None)`: the font has no usable loca+glyf (CFF, or
-        ///   a parse failure). Glyph outlines won't decode; the hmtx
-        ///   advance fallback fills in the blanks.
-        /// - `Deferred`: we retain an `Arc<[u8]>` to the full font file
-        ///   and the `font_index`; the first `get_or_decode_glyph` call
-        ///   parses a fresh `FontData` / `TableProvider` from those
-        ///   bytes and loads `LocaGlyf`, storing the result in the
-        ///   `OnceLock`. Fonts that get resolved into a chain but are
-        ///   never actually rasterized pay zero decode cost — this is
-        ///   the big win for pages like `excel.html` where 20+ fallback
-        ///   faces load but only a handful are touched.
+        /// - `Loaded(None)`: the font has no usable loca+glyf (CFF, or a parse failure). Glyph
+        ///   outlines won't decode; the hmtx advance fallback fills in the blanks.
+        /// - `Deferred`: we retain an `Arc<[u8]>` to the full font file and the `font_index`; the
+        ///   first `get_or_decode_glyph` call parses a fresh `FontData` / `TableProvider` from
+        ///   those bytes and loads `LocaGlyf`, storing the result in the `OnceLock`. Fonts that
+        ///   get resolved into a chain but are never actually rasterized pay zero decode cost —
+        ///   this is the big win for pages like `excel.html` where 20+ fallback faces load but
+        ///   only a handful are touched.
         pub(crate) loca_glyf: LocaGlyfState,
         /// Cached width of the space character in font units.
         pub space_width: Option<usize>,
@@ -1006,7 +1006,8 @@ pub mod parsed {
         /// the web backend) rather than `FontData::table_provider`'s `Box<dyn>`, whose
         /// trait-object vtable dispatch mis-lifts (wrong impl → Owned garbage → parse fail).
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-        #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+        #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                         // routine (one branch per case)
         fn from_provider<P: FontTableProvider>(
             provider: P,
             font_bytes: &[u8],
@@ -1106,7 +1107,8 @@ pub mod parsed {
                     //   T6164 H6164 f0 → the u32 == comparison mis-lifts
                     //   T!=6164        → read_item table_tag FIELD garbage (tuple read mis-lift)
                     //   H!=6164        → tag::HEAD const mis-lifts
-                    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+                    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/
+                                                               // fixed-point/debug-marker cast
                     fn hx(m: &mut String, val: u32, nibbles: i32) {
                         let mut sh = (nibbles - 1) * 4;
                         while sh >= 0 {
@@ -1219,7 +1221,8 @@ pub mod parsed {
                 ascent: f32::from(hhea_table.ascender),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
-                x_height: None, // will be populated from OS/2 table via from_font_metrics if available
+                x_height: None, /* will be populated from OS/2 table via from_font_metrics if
+                                 * available */
                 cap_height: None,
             };
 
@@ -1557,12 +1560,11 @@ pub mod parsed {
         /// Source bytes for PDF subsetting / table extraction.
         ///
         /// Looks in two places:
-        /// - `original_bytes` (set by [`ParsedFont::with_source_bytes`]
-        ///   for legacy PDF-first construction).
-        /// - `LocaGlyfState::Deferred.bytes` (set by
-        ///   [`ParsedFont::from_bytes_shared`] — the production lazy
-        ///   path, which already retains an `Arc<[u8]>` for the lazy
-        ///   loca/glyf loader).
+        /// - `original_bytes` (set by [`ParsedFont::with_source_bytes`] for legacy PDF-first
+        ///   construction).
+        /// - `LocaGlyfState::Deferred.bytes` (set by [`ParsedFont::from_bytes_shared`] — the
+        ///   production lazy path, which already retains an `Arc<[u8]>` for the lazy loca/glyf
+        ///   loader).
         ///
         /// Returns `None` only for `ParsedFont`s built via the eager
         /// `from_bytes` path without an explicit `with_source_bytes`
@@ -1718,7 +1720,8 @@ pub mod parsed {
         /// [`ParsedFont::for_each_decoded_glyph`] or
         /// [`ParsedFont::glyph_cache_snapshot`] to observe the
         /// populated cache.
-        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                                   // debug-marker cast
         pub fn prime_glyph_cache(&mut self) {
             let n = self.num_glyphs as usize;
             for glyph_index in 0..n {
@@ -1784,7 +1787,8 @@ pub mod parsed {
                 .map_or(&[], |b| &b.as_ref()[off..off + len])
         }
 
-        #[allow(clippy::cast_possible_wrap)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_possible_wrap)] // bounded graphics/coord/font/fixed-point/debug-marker
+                                             // cast
         fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
             let _p = crate::probe::Probe::span("decode_glyph");
             // [az-web-lift] use get_horizontal_advance (reads hmtx directly on the web build)
@@ -2087,7 +2091,8 @@ pub mod parsed {
         /// `FreeType`'s behavior.
         ///
         /// Returns `None` if hinting is not available or fails.
-        #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+        #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/
+                                              // debug-marker cast
         pub fn get_hinted_advance_px(&self, glyph_index: u16, ppem: u16) -> Option<f32> {
             // [az-web-lift] No pixel grid-fitting on the web (measure-only): return None so the
             // caller falls back to the plain scaled advance. Hard-cfg (not a runtime `if cfg!`)
@@ -2170,7 +2175,8 @@ pub mod parsed {
         ///
         /// Uses vhea+vmtx tables (same binary format as hhea+hmtx).
         /// Returns None if font has no vertical metrics tables.
-        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                           // +fma; keep explicit a*b+c
         pub fn get_vertical_metrics(
             &self,
             glyph_id: u16,
@@ -2213,7 +2219,8 @@ pub mod parsed {
         }
 
         /// Get layout-specific font metrics
-        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+        #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                           // +fma; keep explicit a*b+c
         pub fn get_font_metrics(&self) -> LayoutFontMetrics {
             // Ensure descent is positive (OpenType may have negative descent)
             let descent = if self.font_metrics.descent > 0.0 {
@@ -2251,8 +2258,8 @@ pub mod parsed {
         pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
             let source = self.source_bytes_for_subset().ok_or_else(|| {
                 "ParsedFont::to_bytes requires source bytes; construct via \
-                 ParsedFont::from_bytes_shared (production lazy path) or \
-                 attach via ParsedFont::with_source_bytes"
+                 ParsedFont::from_bytes_shared (production lazy path) or attach via \
+                 ParsedFont::with_source_bytes"
                     .to_string()
             })?;
             let scope = ReadScope::new(source.as_slice());
@@ -2299,8 +2306,8 @@ pub mod parsed {
         ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
             let source = self.source_bytes_for_subset().ok_or_else(|| {
                 "ParsedFont::subset requires source bytes; construct via \
-                 ParsedFont::from_bytes_shared (production lazy path) or \
-                 attach via ParsedFont::with_source_bytes"
+                 ParsedFont::from_bytes_shared (production lazy path) or attach via \
+                 ParsedFont::with_source_bytes"
                     .to_string()
             })?;
             let scope = ReadScope::new(source.as_slice());

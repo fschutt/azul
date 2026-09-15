@@ -19,16 +19,16 @@
 //! `NotDetermined` from a real `Denied`. Issues the real JNI calls; never
 //! prompts.
 
-use azul_layout::managers::permission::{
-    Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
-};
-
 #[cfg(target_os = "android")]
 use std::collections::BTreeMap;
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(target_os = "android")]
 use std::sync::Mutex;
+
+use azul_layout::managers::permission::{
+    Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
+};
 
 /// requestCode → the capability it was requested for, so the async result
 /// callback can recover which permission resolved.
@@ -144,8 +144,7 @@ pub fn probe_status(capability: Capability) -> PermissionState {
 /// `with_env` attach sequence.
 #[cfg(target_os = "android")]
 fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    use jni::{objects::JObject, JavaVM};
 
     let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
     let activity_ptr = crate::desktop::shell2::android::activity_ptr();

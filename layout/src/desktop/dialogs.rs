@@ -26,7 +26,8 @@ use crate::{
 /// Static-method namespace for `tfd`-backed message-box dialogs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
-#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder
+                                        // field
 pub struct MsgBox {
     pub _reserved: u8,
 }
@@ -34,7 +35,8 @@ pub struct MsgBox {
 /// Static-method namespace for `tfd`-backed file dialogs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
-#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder
+                                        // field
 pub struct FileDialog {
     pub _reserved: u8,
 }
@@ -42,7 +44,8 @@ pub struct FileDialog {
 /// Static-method namespace for the `tfd`-backed color picker.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
-#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder
+                                        // field
 pub struct ColorPickerDialog {
     pub _reserved: u8,
 }
@@ -465,12 +468,9 @@ fn open_result_from_status(status: FilePickerStatus) -> Option<RefAny> {
     let path = match status {
         FilePickerStatus::Pending => return None,
         FilePickerStatus::Selected(p) => OptionFilePath::Some(FilePath::new(p)),
-        FilePickerStatus::SelectedMultiple(v) => v
-            .as_ref()
-            .first()
-            .cloned()
-            .map(FilePath::new)
-            .into(),
+        FilePickerStatus::SelectedMultiple(v) => {
+            v.as_ref().first().cloned().map(FilePath::new).into()
+        }
         FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => OptionFilePath::None,
     };
     Some(RefAny::new(FileOpenResult { path }))
@@ -578,8 +578,12 @@ impl FileDialog {
         {
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
-                    let handle =
-                        (backend.open_file)(title, default_path, filter_patterns(filter_list), false);
+                    let handle = (backend.open_file)(
+                        title,
+                        default_path,
+                        filter_patterns(filter_list),
+                        false,
+                    );
                     request::defer(
                         data,
                         on_result,
@@ -732,8 +736,12 @@ impl FileDialog {
         {
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
-                    let handle =
-                        (backend.open_file)(title, default_path, filter_patterns(filter_list), true);
+                    let handle = (backend.open_file)(
+                        title,
+                        default_path,
+                        filter_patterns(filter_list),
+                        true,
+                    );
                     request::defer(
                         data,
                         on_result,
@@ -741,12 +749,9 @@ impl FileDialog {
                             let paths = match handle.poll() {
                                 FilePickerStatus::Pending => return None,
                                 FilePickerStatus::Selected(p) => vec![FilePath::new(p)],
-                                FilePickerStatus::SelectedMultiple(v) => v
-                                    .as_ref()
-                                    .iter()
-                                    .cloned()
-                                    .map(FilePath::new)
-                                    .collect(),
+                                FilePickerStatus::SelectedMultiple(v) => {
+                                    v.as_ref().iter().cloned().map(FilePath::new).collect()
+                                }
                                 FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => {
                                     Vec::new()
                                 }

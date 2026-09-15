@@ -1,12 +1,15 @@
 //! CSS property types for angles (degrees, radians, etc.).
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::{fmt, num::ParseFloatError};
 
-use crate::props::basic::error::ParseFloatErrorWithInput;
-
-use crate::props::{basic::length::FloatValue, formatter::PrintAsCssValue};
+use crate::{
+    corety::AzString,
+    props::{
+        basic::{error::ParseFloatErrorWithInput, length::FloatValue},
+        formatter::PrintAsCssValue,
+    },
+};
 
 /// Enum representing the metric associated with an angle (deg, rad, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -623,7 +626,8 @@ mod autotest_generated {
         assert_eq!(f(45, 5), 45_500); // 45.5
         assert_eq!(f(0, 83), 830); // 0.83
         assert_eq!(f(1, 523), 1_523); // 1.523
-                                      // More than 3 fractional digits: truncated (not rounded) to 3.
+                                      // More than 3 fractional digits: truncated (not rounded) to
+                                      // 3.
         assert_eq!(f(2, 123456), 2_123); // 2.123456 -> 2.123, per the doc comment
         assert_eq!(f(0, 999_999_999), 999); // 0.999999999 -> 0.999
         assert_eq!(
@@ -642,8 +646,10 @@ mod autotest_generated {
         assert_eq!(deg(-1, 5), -1.5); // negative pre drags the fraction negative
         assert_eq!(deg(0, -5), -0.5); // negative post encodes a negative fraction
         assert_eq!(deg(-1, -5), -1.5); // both negative must not double-negate
-                                       // TRAP: isize has no -0, so `-0` is `0` and the sign is lost. -0.5deg is NOT
-                                       // expressible as (-0, 5); it yields +0.5deg. Callers must use (0, -5).
+                                       // TRAP: isize has no -0, so `-0` is `0` and the sign is
+                                       // lost. -0.5deg is NOT
+                                       // expressible as (-0, 5); it yields +0.5deg. Callers must
+                                       // use (0, -5).
         assert_eq!(deg(-0, 5), 0.5);
         assert_ne!(deg(-0, 5), -0.5);
     }

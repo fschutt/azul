@@ -12,38 +12,35 @@
 //! Nothing guesses a size, and no instance `error`s out of `peek`/`poke`.
 //!
 //! - **Structs** become `data <Name> = <Name> { field1 :: !T1, ... }` with
-//!   `peekByteOff`/`pokeByteOff` at the oracle's offsets. Every
-//!   non-generic struct is emitted — including the categories other
-//!   emitters skip (`Recursive`, `VecRef`, `DestructorOrClone`) — because
-//!   a struct that is embedded by value anywhere must have its true size,
-//!   or every struct embedding it shifts.
-//! - **Unit enums** become a Haskell sum type with
-//!   `deriving (Show, Eq, Enum, Bounded)` and a 4-byte `Storable` (the C
-//!   header spells them as `enum`, which is `int`-sized).
-//! - **Tagged unions** become a sum type with payload constructors. The
-//!   `Storable` instance reads the tag (`uint8_t` for `#[repr(C, u8)]`,
-//!   the C tag enum otherwise — the same rule `lang_c` spells into the
-//!   header) at offset 0 and peeks/pokes each payload member at its
-//!   oracle offset.
-//! - **Monomorphized generic aliases** (`CssPropertyValue<T>` etc.) get
-//!   the same treatment as the shape they instantiate.
-//! - **Simple type aliases** (`ScanCode = u32`, `X11Visual = *const
-//!   c_void`) become Haskell `type` synonyms of the target's
-//!   representation.
+//!   `peekByteOff`/`pokeByteOff` at the oracle's offsets. Every non-generic struct is emitted —
+//!   including the categories other emitters skip (`Recursive`, `VecRef`, `DestructorOrClone`) —
+//!   because a struct that is embedded by value anywhere must have its true size, or every struct
+//!   embedding it shifts.
+//! - **Unit enums** become a Haskell sum type with `deriving (Show, Eq, Enum, Bounded)` and a
+//!   4-byte `Storable` (the C header spells them as `enum`, which is `int`-sized).
+//! - **Tagged unions** become a sum type with payload constructors. The `Storable` instance reads
+//!   the tag (`uint8_t` for `#[repr(C, u8)]`, the C tag enum otherwise — the same rule `lang_c`
+//!   spells into the header) at offset 0 and peeks/pokes each payload member at its oracle offset.
+//! - **Monomorphized generic aliases** (`CssPropertyValue<T>` etc.) get the same treatment as the
+//!   shape they instantiate.
+//! - **Simple type aliases** (`ScanCode = u32`, `X11Visual = *const c_void`) become Haskell `type`
+//!   synonyms of the target's representation.
 //! - **Callback typedefs** become `newtype <Name> = <Name> (FunPtr ())`.
 
 use std::collections::BTreeMap;
 
 use anyhow::{bail, Result};
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
-    MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
-};
-use super::super::lang_c::escape_cpp_keyword_for_c;
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
+            MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
+        },
+        lang_c::escape_cpp_keyword_for_c,
+    },
     haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc,
 };
 
@@ -90,7 +87,9 @@ pub(super) fn layout_oracle(ir: &CodegenIR, config: &CodegenConfig) -> Vec<Oracl
             for v in &e.variants {
                 let names: Vec<String> = match &v.kind {
                     EnumVariantKind::Unit => Vec::new(),
-                    EnumVariantKind::Tuple(types) if types.len() == 1 => vec!["payload".to_string()],
+                    EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                        vec!["payload".to_string()]
+                    }
                     EnumVariantKind::Tuple(types) => {
                         (0..types.len()).map(|i| format!("payload_{}", i)).collect()
                     }
@@ -207,10 +206,24 @@ fn offset_expr(lname: &str, suffix: &str) -> String {
 // Top-level entry
 // ============================================================================
 
+/// Every type declaration, in one module (the pre-split shape; the
+/// generator emits per-chunk modules through [`emit_type_decls_for`]).
 pub fn emit_type_decls(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+) -> Result<()> {
+    emit_type_decls_for(builder, ir, config, &|_| true)
+}
+
+/// The declarations of every type for which `belongs` answers true — one
+/// plan chunk's worth. The types a chunk references live either in the
+/// same chunk or in a chunk the caller imported.
+pub fn emit_type_decls_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Struct data declarations + Storable instances (layout from the cbits oracle)");
@@ -226,7 +239,7 @@ pub fn emit_type_decls(
     // and trip GHC-29916 "Multiple declarations of ...".
     let mut foreign_imports: BTreeMap<String, String> = BTreeMap::new();
 
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
                 builder.line(&format!(
@@ -244,7 +257,7 @@ pub fn emit_type_decls(
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
 
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
                 builder.line(&format!(
@@ -267,7 +280,7 @@ pub fn emit_type_decls(
     builder.line("-- Type aliases (monomorphized generics as real types, simple ones as synonyms)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for ta in &ir.type_aliases {
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
         if !config.should_include_type(&ta.name) {
             continue;
         }
@@ -285,7 +298,7 @@ pub fn emit_type_decls(
     builder.line("-- Callback typedefs (C function pointers)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -538,10 +551,10 @@ fn emit_vec_to_list_helper(
             }
             Some(prev) => {
                 bail!(
-                    "Haskell codegen: foreign-import binding `{}` would be bound to two \
-                     different C symbols in Azul.Types: `{}` (already emitted) and `{}` \
-                     (required by `{}` over element `{}`). The generated binding name must \
-                     be made unique per C symbol.",
+                    "Haskell codegen: foreign-import binding `{}` would be bound to two different \
+                     C symbols in Azul.Types: `{}` (already emitted) and `{}` (required by `{}` \
+                     over element `{}`). The generated binding name must be made unique per C \
+                     symbol.",
                     clone_via_binding,
                     prev,
                     clone_via_symbol,
@@ -761,7 +774,10 @@ fn emit_union_type(
     tag_ty: &str,
 ) {
     if variants.is_empty() {
-        builder.line(&format!("-- SKIPPED: tagged-union {} has no variants", name));
+        builder.line(&format!(
+            "-- SKIPPED: tagged-union {} has no variants",
+            name
+        ));
         builder.blank();
         return;
     }
@@ -773,11 +789,8 @@ fn emit_union_type(
         if v.payloads.is_empty() {
             builder.line(&format!("{}{}", prefix, v.ctor));
         } else {
-            let payloads: Vec<String> = v
-                .payloads
-                .iter()
-                .map(|(t, _)| paren_if_needed(t))
-                .collect();
+            let payloads: Vec<String> =
+                v.payloads.iter().map(|(t, _)| paren_if_needed(t)).collect();
             builder.line(&format!("{}{} {}", prefix, v.ctor, payloads.join(" ")));
         }
     }
@@ -914,8 +927,20 @@ fn emit_option_tag_helpers(builder: &mut CodeBuilder, e: &EnumDef) {
     let none_idx = e.variants.iter().position(|v| v.name == "None").unwrap();
     let some_idx = e.variants.iter().position(|v| v.name == "Some").unwrap();
     builder.line("-- | True if the underlying Option is the None variant (reads only the tag).");
-    emit_tag_predicate(builder, &format!("{}IsNone", lname), &name, tag_ty, none_idx);
-    emit_tag_predicate(builder, &format!("{}IsSome", lname), &name, tag_ty, some_idx);
+    emit_tag_predicate(
+        builder,
+        &format!("{}IsNone", lname),
+        &name,
+        tag_ty,
+        none_idx,
+    );
+    emit_tag_predicate(
+        builder,
+        &format!("{}IsSome", lname),
+        &name,
+        tag_ty,
+        some_idx,
+    );
     builder.blank();
 }
 
@@ -1119,8 +1144,10 @@ fn pointer_form(inner: &str, ir: &CodegenIR) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::ir::{EnumVariantDef, FunctionDef, FunctionKind};
-    use super::*;
+    use super::{
+        super::super::ir::{EnumVariantDef, FunctionDef, FunctionKind},
+        *,
+    };
 
     fn field(fname: &str, ty: &str) -> FieldDef {
         FieldDef {
@@ -1183,10 +1210,7 @@ mod tests {
                 EnumVariantDef {
                     name: "External".into(),
                     doc: None,
-                    kind: EnumVariantKind::Tuple(vec![(
-                        "*mut c_void".into(),
-                        FieldRefKind::Owned,
-                    )]),
+                    kind: EnumVariantKind::Tuple(vec![("*mut c_void".into(), FieldRefKind::Owned)]),
                 },
             ],
             external_path: None,
@@ -1232,7 +1256,8 @@ mod tests {
         ir.structs.push(vec_struct("IcuStringVec", "String"));
         ir.enums.push(destructor_union("U8VecDestructor", "C"));
         ir.enums.push(destructor_union("StringVecDestructor", "C"));
-        ir.enums.push(destructor_union("IcuStringVecDestructor", "C, u8"));
+        ir.enums
+            .push(destructor_union("IcuStringVecDestructor", "C, u8"));
         ir.functions.push(deep_copy_fn("String"));
         ir
     }
@@ -1283,8 +1308,8 @@ mod tests {
             .count();
         assert_eq!(
             hits, 1,
-            "the shared clone-via foreign import must be declared exactly once per \
-             module, got {} declaration(s) in:\n{}",
+            "the shared clone-via foreign import must be declared exactly once per module, got {} \
+             declaration(s) in:\n{}",
             hits, src
         );
 
@@ -1341,7 +1366,12 @@ mod tests {
             u8vec
         );
         assert!(
-            u8vec.contains("peek p = U8Vec <$> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_ptr) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_len) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_cap) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_destructor)"),
+            u8vec.contains(
+                "peek p = U8Vec <$> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_ptr) <*> \
+                 peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_len) <*> peekByteOff p \
+                 (fromIntegral c_az_hs_offsetof_u8Vec_cap) <*> peekByteOff p (fromIntegral \
+                 c_az_hs_offsetof_u8Vec_destructor)"
+            ),
             "U8Vec offsets:\n{}",
             u8vec
         );
@@ -1360,7 +1390,10 @@ mod tests {
             dtor
         );
         assert!(
-            dtor.contains("1 -> U8VecDestructor_External <$> peekByteOff p (fromIntegral c_az_hs_offsetof_u8VecDestructor_External_payload)"),
+            dtor.contains(
+                "1 -> U8VecDestructor_External <$> peekByteOff p (fromIntegral \
+                 c_az_hs_offsetof_u8VecDestructor_External_payload)"
+            ),
             "destructor payload offset:\n{}",
             dtor
         );

@@ -17,14 +17,16 @@
 //! `camera/v4l2.rs` — no link-time dep); iOS has no `libloading`, so it keeps
 //! the historical Float32-interleaved assumption (what the iOS HAL delivers).
 
-use std::os::raw::c_char;
-use std::ptr;
-use std::sync::{Arc, Mutex, Once};
-use std::time::Duration;
+use std::{
+    os::raw::c_char,
+    ptr,
+    sync::{Arc, Mutex, Once},
+    time::Duration,
+};
 
-use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+use objc2::{
+    define_class, msg_send, rc::Retained, runtime::ProtocolObject, AllocAnyThread, DefinedClass,
+};
 use objc2_av_foundation::{
     AVCaptureAudioDataOutput, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureConnection,
     AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession, AVMediaTypeAudio,
@@ -66,7 +68,7 @@ fn cm_get_asbd() -> Option<unsafe extern "C" fn(*const core::ffi::c_void) -> *co
     static CM: OnceLock<Option<(libloading::Library, GetAsbd)>> = OnceLock::new();
     CM.get_or_init(|| unsafe {
         let lib = crate::desktop::open_first_lib(&[
-            "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
+            "/System/Library/Frameworks/CoreMedia.framework/CoreMedia"
         ])?;
         let f: GetAsbd = *lib
             .get(b"CMAudioFormatDescriptionGetStreamBasicDescription\0")
@@ -205,8 +207,8 @@ define_class!(
             static FMT_LOGGED: Once = Once::new();
             FMT_LOGGED.call_once(|| match &asbd {
                 Some(a) => crate::plog_info!(
-                    "[audio] mic format: {}Hz x{}ch {}bit float={} interleaved={} \
-                     (advisory: {}Hz x{}ch)",
+                    "[audio] mic format: {}Hz x{}ch {}bit float={} interleaved={} (advisory: {}Hz \
+                     x{}ch)",
                     a.sample_rate,
                     a.channels_per_frame,
                     a.bits_per_channel,
@@ -252,7 +254,7 @@ struct AvfMic {
 /// `rate`/`channels` are advisory (the HAL chooses the delivery format; they're
 /// stored so the delegate can downmix to mono when `channels == 1`). `0` on
 /// failure (test tone).
-pub fn mic_open(rate: u32, channels: u16) -> u64 {
+pub(super) fn mic_open(rate: u32, channels: u16) -> u64 {
     // TCC gate first: without authorization the session runs but vends only
     // silence. Blocking (≤60 s prompt wait) is fine on this worker thread.
     // The helper lives with the camera backend (same AVCaptureDevice API).
@@ -303,7 +305,7 @@ pub fn mic_open(rate: u32, channels: u16) -> u64 {
 
 /// Drain captured f32 samples into `out`. Spins briefly for the first buffer.
 /// Returns the sample count, or `0` if none yet (the worker retries).
-pub fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
+pub(super) fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
     let mic = match unsafe { (handle as *const AvfMic).as_ref() } {
         Some(m) => m,
         None => return 0,
@@ -322,7 +324,7 @@ pub fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
 }
 
 /// Stop the session + free the capture (drops the boxed `AvfMic`).
-pub fn mic_close(handle: u64) {
+pub(super) fn mic_close(handle: u64) {
     if handle != 0 {
         unsafe {
             let mic = Box::from_raw(handle as *mut AvfMic);

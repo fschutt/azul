@@ -50,11 +50,7 @@ impl Step {
         }
     }
 
-    pub fn manual(
-        label: impl Into<String>,
-        why: impl Into<String>,
-        commands: Vec<String>,
-    ) -> Self {
+    pub fn manual(label: impl Into<String>, why: impl Into<String>, commands: Vec<String>) -> Self {
         Self {
             label: label.into(),
             action: Action::Manual {
@@ -193,8 +189,8 @@ impl Plan {
         if !assume_yes {
             if !std::io::stdin().is_terminal() {
                 anyhow::bail!(
-                    "{todo} command(s) would run, but stdin is not a terminal. \
-                     Re-run with --yes to install unattended, or --dry-run to preview."
+                    "{todo} command(s) would run, but stdin is not a terminal. Re-run with --yes \
+                     to install unattended, or --dry-run to preview."
                 );
             }
             print!("Run these {todo} command(s)? [y/N] ");

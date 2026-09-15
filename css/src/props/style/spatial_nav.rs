@@ -5,12 +5,11 @@
 //! properties are how a container opts OUT of that default, and neither is
 //! expressible any other way:
 //!
-//! - [`StyleSpatialNavigationAction`] forces the choice on a scroll container:
-//!   always scroll (a map, a canvas, a code editor - places where an arrow
-//!   means "pan", never "jump to the next button"), or always move focus.
-//! - [`StyleSpatialNavigationContain`] makes an element a spatial navigation
-//!   CONTAINER even when it is not a scroll container, so navigation inside a
-//!   panel stays inside it.
+//! - [`StyleSpatialNavigationAction`] forces the choice on a scroll container: always scroll (a
+//!   map, a canvas, a code editor - places where an arrow means "pan", never "jump to the next
+//!   button"), or always move focus.
+//! - [`StyleSpatialNavigationContain`] makes an element a spatial navigation CONTAINER even when it
+//!   is not a scroll container, so navigation inside a panel stays inside it.
 //!
 //! Both are from `css-nav-1`, and both have `auto` as their initial value, so
 //! adding them changes nothing until a stylesheet asks.

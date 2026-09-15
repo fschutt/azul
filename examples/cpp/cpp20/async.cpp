@@ -1,175 +1,129 @@
 #include "azul20.hpp"
-#include <vector>
-#include <thread>
-#include <chrono>
-#include <string>
-#include <sstream>
+#include <cstdio>
+#include <string_view>
 
 using namespace azul;
+using namespace std::string_view_literals;
 
-enum ConnectionStage {
-    Stage_NotConnected,
-    Stage_Connecting,
-    Stage_LoadingData,
-    Stage_DataLoaded,
-    Stage_Error
+struct MapState {
+    ffi::MapViewport viewport;
+    HttpClient tiles;
+    ThreadPool workers;
 };
 
-struct AsyncState {
-    ConnectionStage stage;
-    std::string database_url;
-    std::vector<std::string> loaded_data;
-    float progress;
+static_assert(ReflectableModel<MapState>);
 
-    AsyncState() : stage(Stage_NotConnected), database_url("postgres://localhost:5432/mydb"), progress(0.0f) {}
-};
+ffi::Update on_zoom_in(ffi::RefAny data, ffi::CallbackInfo info);
+ffi::Update on_zoom_out(ffi::RefAny data, ffi::CallbackInfo info);
 
-struct ProgressUpdate {
-    float progress;
-};
+static Dom label(std::string_view text, std::string_view css) {
+    return Dom::create_span_with_text(text).with_css(css);
+}
 
-struct ThreadInit {
-    unsigned char unused;
-};
+static Dom zoom_button(std::string_view glyph, std::string_view name, RefAny data, AzCallbackType callback) {
+    return label(glyph,
+        "width: 30px; height: 30px; line-height: 30px; text-align: center; "
+        "background: white; color: #333333; border: 1px solid #b0b0b0; "
+        "border-radius: 6px; margin-right: 6px; font-size: 18px; cursor: pointer;"sv)
+        .with_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), std::move(data), callback)
+        .with_accessibility_info(AccessibilityInfo::named(name, AccessibilityRole::PushButton));
+}
 
-AzUpdate start_connection(AzRefAny data, AzCallbackInfo info);
-AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
-void background_thread_fn(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver recv);
-AzUpdate on_progress(AzRefAny app_data, AzRefAny incoming_data, AzCallbackInfo info);
-
-AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+static ffi::Update change_zoom(ffi::RefAny data, float delta) {
     RefAny data_wrapper(data);
-    const AsyncState* d = data_wrapper.downcast_ref<AsyncState>();
-    if (!d) return AzDom_createBody();
-
-    Dom title = Dom::create_p_with_text(String("Async Database Connection"))
-        .with_css(String("font-size: 24px; margin-bottom: 20px;"));
-
-    Dom content = Dom::create_div();
-    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_MouseUp);
-
-    switch (d->stage) {
-        case Stage_NotConnected: {
-            content = Dom::create_div()
-                .with_css(String("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"))
-                .with_child(Dom::create_p_with_text(String("Connect")))
-                .with_callback(event, data_wrapper.clone(), start_connection);
-            break;
-        }
-        case Stage_Connecting:
-        case Stage_LoadingData: {
-            std::ostringstream ss;
-            ss << (d->stage == Stage_Connecting ? "Connecting to " : "Loading from ")
-               << d->database_url << " - " << static_cast<int>(d->progress) << "%";
-            content = Dom::create_div()
-                .with_child(Dom::create_p_with_text(String(ss.str().c_str())));
-            break;
-        }
-        case Stage_DataLoaded: {
-            std::ostringstream ss;
-            ss << "Loaded " << d->loaded_data.size() << " records";
-            content = Dom::create_div()
-                .with_child(Dom::create_p_with_text(String(ss.str().c_str())))
-                .with_child(Dom::create_div()
-                    .with_css(String("padding: 10px; background: #2196F3; color: white; cursor: pointer;"))
-                    .with_child(Dom::create_p_with_text(String("Reset")))
-                    .with_callback(event, data_wrapper.clone(), reset_connection));
-            break;
-        }
-        case Stage_Error:
-            content = Dom::create_p_with_text(String("Error occurred"));
-            break;
-    }
-
-    Dom body = Dom::create_body()
-        .with_css(String("padding: 30px; font-family: sans-serif;"))
-        .with_child(std::move(title))
-        .with_child(std::move(content));
-
-    return std::move(body);
+    auto* m = data_wrapper.downcast_mut<MapState>();
+    if (!m) return Update::DoNothing;
+    float zoom = m->viewport.zoom + delta;
+    if (zoom < 1.0f) zoom = 1.0f;
+    if (zoom > 14.0f) zoom = 14.0f;
+    m->viewport.zoom = zoom;
+    return Update::RefreshDom;
 }
 
-AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
+ffi::Update on_zoom_in(ffi::RefAny data, ffi::CallbackInfo info) { return change_zoom(data, 1.0f); }
+ffi::Update on_zoom_out(ffi::RefAny data, ffi::CallbackInfo info) { return change_zoom(data, -1.0f); }
+
+ffi::MapSetup on_map_mount(ffi::RefAny data, ffi::CallbackInfo info, ffi::MapSetup setup) {
     RefAny data_wrapper(data);
-    AsyncState* d = data_wrapper.downcast_mut<AsyncState>();
-    if (!d) return AzUpdate_DoNothing;
-    if (d->stage == Stage_Connecting || d->stage == Stage_LoadingData) return AzUpdate_DoNothing;
-
-    d->stage = Stage_Connecting;
-    d->progress = 0.0f;
-    d->loaded_data.clear();
-
-    ThreadInit init = { 0 };
-    CallbackInfo cb_info(info);
-    cb_info.add_thread(
-        ThreadId::unique(),
-        Thread::create(RefAny::create(init), data_wrapper.clone(), background_thread_fn)
-    );
-
-    return AzUpdate_RefreshDom;
+    MapSetup result(setup);
+    auto* m = data_wrapper.downcast_ref<MapState>();
+    if (!m) return result.release();
+    return result
+        .with_http_client(m->tiles.clone())
+        .with_thread_pool(m->workers.clone())
+        .with_max_in_flight(8)
+        .release();
 }
 
-AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
+ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    AsyncState* d = data_wrapper.downcast_mut<AsyncState>();
-    if (!d) return AzUpdate_DoNothing;
-    d->stage = Stage_NotConnected;
-    d->progress = 0.0f;
-    d->loaded_data.clear();
-    return AzUpdate_RefreshDom;
-}
+    auto* m = data_wrapper.downcast_ref<MapState>();
+    if (!m) return Dom::create_body();
+    ffi::MapViewport viewport = m->viewport;
 
-void background_thread_fn(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver recv) {
-    RefAny init_wrapper(initial_data);
-    ThreadSender sender_wrapper(sender);
-    ThreadReceiver recv_wrapper(recv);
+    MapTileLayer layer = MapTileLayer::default_();
+    String credit(AzString_clone(&layer.inner().attribution));
 
-    for (int i = 0; i <= 100; i += 5) {
-        OptionThreadSendMsg msg = recv_wrapper.recv();
-        if (msg.isSome() && msg.unwrap().TerminateThread.tag == AzThreadSendMsg_Tag_TerminateThread) {
-            return;
-        }
+    Dom map = MapWidget::create(std::move(layer))
+        .with_theme(MapTheme::System)
+        .with_viewport(viewport)
+        .with_on_mount(data_wrapper.clone(), on_map_mount)
+        .dom()
+        .with_css("width: 100%; height: 100%;"sv);
 
-        ProgressUpdate update = { static_cast<float>(i) };
-        sender_wrapper.send(AzThreadReceiveMsg_writeBack(
-            ThreadWriteBackMsg::create(on_progress, RefAny::create(update)).release()
-        ));
+    char zoom_text[64];
+    std::snprintf(zoom_text, sizeof(zoom_text), "vector tiles over HTTPS   -   zoom %.0f", (double)viewport.zoom);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-}
+    Dom header = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; "
+                  "padding: 10px 14px; background: #2f3b4f; color: white;"sv)
+        .with_child(label("Azul Maps"sv, "font-size: 17px; font-weight: bold; margin-right: 14px;"sv))
+        .with_child(label(zoom_text, "font-size: 12px; color: #c7d0dc;"sv));
 
-AzUpdate on_progress(AzRefAny app_data, AzRefAny incoming_data, AzCallbackInfo info) {
-    RefAny app_wrapper(app_data);
-    RefAny incoming_wrapper(incoming_data);
+    Dom controls = Dom::create_div()
+        .with_css("position: absolute; left: 12px; top: 12px; display: flex; flex-direction: row;"sv)
+        .with_child(zoom_button("+"sv, "Zoom in"sv, data_wrapper.clone(), on_zoom_in))
+        .with_child(zoom_button("-"sv, "Zoom out"sv, data_wrapper.clone(), on_zoom_out));
 
-    AsyncState* d = app_wrapper.downcast_mut<AsyncState>();
-    if (!d) return AzUpdate_DoNothing;
+    Dom frame = Dom::create_div()
+        .with_css("flex-grow: 1; margin: 12px; border-radius: 14px; overflow: hidden; "
+                  "border: 1px solid #c3cad4; background: #dfe5ec; position: relative;"sv)
+        .with_child(std::move(map))
+        .with_child(std::move(controls));
 
-    const ProgressUpdate* update = incoming_wrapper.downcast_ref<ProgressUpdate>();
-    if (!update) return AzUpdate_DoNothing;
+    Dom footer = Dom::create_span_with_text(std::move(credit))
+        .with_css("padding: 6px 14px; background: #f7f9fb; border-top: 1px solid #d3d9e2; "
+                  "color: #55606e; font-size: 11px;"sv);
 
-    d->progress = update->progress;
-    if (d->progress >= 100.0f) {
-        d->stage = Stage_DataLoaded;
-        d->loaded_data.clear();
-        for (int i = 0; i < 42; ++i) {
-            d->loaded_data.push_back("record_" + std::to_string(i));
-        }
-    } else if (d->progress >= 50.0f) {
-        d->stage = Stage_LoadingData;
-    }
-
-    return AzUpdate_RefreshDom;
+    return Dom::create_body()
+        .with_css("display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0; "
+                  "background: #eef1f5; font-family: sans-serif;"sv)
+        .with_child(std::move(header))
+        .with_child(std::move(frame))
+        .with_child(std::move(footer));
 }
 
 int main() {
-    RefAny data = RefAny::create(AsyncState());
+    ffi::MapViewport viewport = MapViewport::default_().release();
+    viewport.centre_lat_deg = 48.2082;
+    viewport.centre_lon_deg = 16.3738;
+    viewport.zoom = 6.0f;
+    viewport.bearing_deg = 0.0f;
+    viewport.pitch_deg = 0.0f;
+
+    MapState model = {
+        viewport,
+        HttpClient::create(HttpClientConfig::create()),
+        ThreadPool::create(4),
+    };
+    RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
+    window.inner().window_state.title = az_string_from_literal("Azul Maps");
+    window.inner().window_state.size.dimensions.width = 900.0f;
+    window.inner().window_state.size.dimensions.height = 620.0f;
 
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));
-
     return 0;
 }

@@ -7,20 +7,23 @@
 //! The companion `autodoc-check` subcommand walks generated pages and
 //! reports which ones have stale source files (using `git log`).
 
-use std::collections::{BTreeMap, VecDeque};
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::{atomic::Ordering, Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::reftest::autoreview::AutoreviewConfig;
-use crate::spec::executor::{self, AgentResult, SHUTDOWN_REQUESTED};
+use crate::{
+    reftest::autoreview::AutoreviewConfig,
+    spec::executor::{self, AgentResult, SHUTDOWN_REQUESTED},
+};
 
 // ── Manifest types ─────────────────────────────────────────────────────
 
@@ -349,8 +352,10 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
         "You are writing system-level documentation for the `{}` system.\n\n",
         group.id
     ));
-    s.push_str("**You are running in parallel with other agents writing other systems. \
-                You must ONLY write the output files listed below. Do NOT modify any other file.**\n\n");
+    s.push_str(
+        "**You are running in parallel with other agents writing other systems. You must ONLY \
+         write the output files listed below. Do NOT modify any other file.**\n\n",
+    );
 
     // ── Tree context ──────────────────────────────────────────────
     if !group.tree.is_empty() {
@@ -376,8 +381,8 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
     if !manifest.meta.shared_context_files.is_empty() {
         s.push_str("## Shared context — READ THESE FIRST\n\n");
         s.push_str(
-            "Before writing any output, load these files. They anchor your work \
-                    in the project's existing structure and conventions:\n\n",
+            "Before writing any output, load these files. They anchor your work in the project's \
+             existing structure and conventions:\n\n",
         );
         for f in &manifest.meta.shared_context_files {
             s.push_str(&format!("- `{f}`\n"));
@@ -439,8 +444,8 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
         };
         s.push_str(&format!("## Thinking mode: `{mode}`\n\n"));
         s.push_str(
-            "Use extended thinking. Do not skim — actually load and reason about \
-                    the source. Quality over speed.\n\n",
+            "Use extended thinking. Do not skim — actually load and reason about the source. \
+             Quality over speed.\n\n",
         );
         if !at.instructions.is_empty() {
             for (i, inst) in at.instructions.iter().enumerate() {
@@ -480,27 +485,19 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
     s.push_str("## Required frontmatter\n\n");
     s.push_str("Each output file MUST start with YAML frontmatter:\n\n");
     s.push_str(
-        "```yaml\n---\n\
-                slug: <slug>            # URL slug; for English == canonical_slug\n\
-                title: <title>\n\
-                language: en             # canonical pages are always English\n\
-                canonical_slug: <slug>   # same as `slug` for English pages\n\
-                audience: <external | contributor>\n\
-                maturity: <mature | wip | stub | draft>\n\
-                guide_order: <int or null>\n\
-                topic_only: <bool>\n\
-                prerequisites: [<canonical-slug>, ...]\n\
-                tracked_files:\n  - <path>\n  - ...\n\
-                last_generated_rev: <git-sha-here>\n\
-                generated_at: <iso8601>\n\
-                ---\n```\n\n",
+        "```yaml\n---\nslug: <slug>            # URL slug; for English == canonical_slug\ntitle: \
+         <title>\nlanguage: en             # canonical pages are always English\ncanonical_slug: \
+         <slug>   # same as `slug` for English pages\naudience: <external | \
+         contributor>\nmaturity: <mature | wip | stub | draft>\nguide_order: <int or \
+         null>\ntopic_only: <bool>\nprerequisites: [<canonical-slug>, ...]\ntracked_files:\n  - \
+         <path>\n  - ...\nlast_generated_rev: <git-sha-here>\ngenerated_at: \
+         <iso8601>\n---\n```\n\n",
     );
     s.push_str(&format!(
         "Use git rev `{}` and the current ISO timestamp. Tracked files come from the manifest \
-         (listed below). `language: en` and `canonical_slug == slug` because this run \
-         generates canonical English pages. Do NOT emit `source_rev` or `source_hash` — \
-         those fields belong to translations only and are written by the future `translate` \
-         subcommand.\n\n",
+         (listed below). `language: en` and `canonical_slug == slug` because this run generates \
+         canonical English pages. Do NOT emit `source_rev` or `source_hash` — those fields belong \
+         to translations only and are written by the future `translate` subcommand.\n\n",
         head_sha(project_root).unwrap_or_else(|_| "UNKNOWN".to_string())
     ));
 
@@ -518,18 +515,16 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
     if !group.design_docs.is_empty() {
         s.push_str("## Design docs (INTENT — read after the source)\n\n");
         s.push_str(
-            "These files in `scripts/` are *design intent*. They were written \
-                    when the system was being planned and may now disagree with the \
-                    code. Read them to understand the **why** and the original mental \
-                    model — then verify everything against the tracked source files \
-                    above. **The code is truth, the design docs are context.**\n\n",
+            "These files in `scripts/` are *design intent*. They were written when the system was \
+             being planned and may now disagree with the code. Read them to understand the \
+             **why** and the original mental model — then verify everything against the tracked \
+             source files above. **The code is truth, the design docs are context.**\n\n",
         );
         s.push_str(
-            "If the doc and the code disagree, document what the code does. \
-                    If a divergence is significant (e.g. a planned approach was \
-                    abandoned), add a one-line note like *\"The original design \
-                    proposed X; the implementation took approach Y because [reason \
-                    visible in commit history or comments].\"*\n\n",
+            "If the doc and the code disagree, document what the code does. If a divergence is \
+             significant (e.g. a planned approach was abandoned), add a one-line note like *\"The \
+             original design proposed X; the implementation took approach Y because [reason \
+             visible in commit history or comments].\"*\n\n",
         );
         for d in &group.design_docs {
             s.push_str(&format!("- `scripts/{d}`\n"));
@@ -617,67 +612,39 @@ pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Gr
 }
 
 fn authoring_rules() -> &'static str {
-    "1. Write each output file using the Write tool. Include the YAML frontmatter \
-     described above.\n\
-     2. **External audience pages** must NOT use any concept that isn't in the \
-        `prerequisites` list. If you must reference a later concept, link forward \
-        with `(covered later in <slug>)` and keep the discussion brief.\n\
-     3. **Contributor pages** may freely cross-reference other internals pages \
-        and link to source code paths.\n\
-     4. **Maturity tag**:\n\
-        - `mature`: examples must compile and run; use ` ```rust ` blocks.\n\
-        - `wip`: examples should compile; use ` ```rust ` blocks but it's OK if \
-          some need `,no_run`. Add a one-line WIP notice at the top of the page.\n\
-        - `stub`: the runtime isn't wired up. Document the *intent*. Use \
-          ` ```rust,ignore ` for all code blocks. Add a loud notice that the \
-          system is not yet functional.\n\
-        - `draft`: only set this if you bail out partway through. Mark explicitly.\n\
-     5. **Code samples**: prefer concrete, copy-pasteable examples over prose. \
-        Hidden setup lines (`# use azul::*;`) are encouraged.\n\
-     6. **Visual examples**: embed a fenced block with the `azul-render` \
-        language tag. The body is XHTML (NOT a Rust snippet) — the same dialect \
-        the reftest harness consumes. The release pipeline renders it via \
-        HeadlessWindow and saves a PNG. **Do not** add a separate markdown \
-        image link — the HTML preprocessor expands the fence into a \
-        `<figure>` automatically.\n\
-        \n\
-        Single screenshot:\n\
-        ```\n\
-        ```azul-render screenshot=hello-world width=400 height=200 subtitle=\"The classic output\"\n\
-        <body><p style=\"font-size: 24px; padding: 20px;\">Hello, world!</p></body>\n\
-        ```\n\
-        ```\n\
-        \n\
-        Sequence (slideshow): give multiple consecutive blocks the same \
-        `slideshow=ID`. They are grouped into one slideshow widget in source \
-        order, each with its own `subtitle`. Use this to show \
-        before/after/animation steps:\n\
-        ```\n\
-        ```azul-render screenshot=scroll-1 slideshow=scroll-demo subtitle=\"Initial state — scroll position 0\"\n\
-        <body>...</body>\n\
-        ```\n\
-        \n\
-        ```azul-render screenshot=scroll-2 slideshow=scroll-demo subtitle=\"After scrolling 100px\"\n\
-        <body>...</body>\n\
-        ```\n\
-        \n\
-        ```azul-render screenshot=scroll-3 slideshow=scroll-demo subtitle=\"At the bottom\"\n\
-        <body>...</body>\n\
-        ```\n\
-        ```\n\
-        \n\
-        Attribute reference: `screenshot=` (required, unique PNG name), \
-        `width=`/`height=` (optional, default 800x600), `subtitle=\"...\"` \
-        (optional caption — quote it if it contains spaces), \
-        `slideshow=ID` (optional, groups frames).\n\
-     7. **Length**: aim for 200–800 lines of markdown per page. Internals pages \
-        may be longer if the system is complex.\n\
-     8. **Do not** create new directories you weren't asked to. Output paths in \
-        the manifest are absolute (relative to project root).\n\
-     9. **No external link assumptions**: don't reference azul.rs URLs that may \
-        not exist. Cross-link to other guide files using relative paths.\n\
-    10. After writing all output files, output the literal token \
-        `AUTODOC_DONE` and stop.\n"
+    "1. Write each output file using the Write tool. Include the YAML frontmatter described \
+     above.\n2. **External audience pages** must NOT use any concept that isn't in the \
+     `prerequisites` list. If you must reference a later concept, link forward with `(covered \
+     later in <slug>)` and keep the discussion brief.\n3. **Contributor pages** may freely \
+     cross-reference other internals pages and link to source code paths.\n4. **Maturity tag**:\n- \
+     `mature`: examples must compile and run; use ` ```rust ` blocks.\n- `wip`: examples should \
+     compile; use ` ```rust ` blocks but it's OK if some need `,no_run`. Add a one-line WIP notice \
+     at the top of the page.\n- `stub`: the runtime isn't wired up. Document the *intent*. Use ` \
+     ```rust,ignore ` for all code blocks. Add a loud notice that the system is not yet \
+     functional.\n- `draft`: only set this if you bail out partway through. Mark explicitly.\n5. \
+     **Code samples**: prefer concrete, copy-pasteable examples over prose. Hidden setup lines (`# \
+     use azul::*;`) are encouraged.\n6. **Visual examples**: embed a fenced block with the \
+     `azul-render` language tag. The body is XHTML (NOT a Rust snippet) — the same dialect the \
+     reftest harness consumes. The release pipeline renders it via HeadlessWindow and saves a PNG. \
+     **Do not** add a separate markdown image link — the HTML preprocessor expands the fence into \
+     a `<figure>` automatically.\n\nSingle screenshot:\n```\n```azul-render screenshot=hello-world \
+     width=400 height=200 subtitle=\"The classic output\"\n<body><p style=\"font-size: 24px; \
+     padding: 20px;\">Hello, world!</p></body>\n```\n```\n\nSequence (slideshow): give multiple \
+     consecutive blocks the same `slideshow=ID`. They are grouped into one slideshow widget in \
+     source order, each with its own `subtitle`. Use this to show before/after/animation \
+     steps:\n```\n```azul-render screenshot=scroll-1 slideshow=scroll-demo subtitle=\"Initial \
+     state — scroll position 0\"\n<body>...</body>\n```\n\n```azul-render screenshot=scroll-2 \
+     slideshow=scroll-demo subtitle=\"After scrolling \
+     100px\"\n<body>...</body>\n```\n\n```azul-render screenshot=scroll-3 slideshow=scroll-demo \
+     subtitle=\"At the bottom\"\n<body>...</body>\n```\n```\n\nAttribute reference: `screenshot=` \
+     (required, unique PNG name), `width=`/`height=` (optional, default 800x600), \
+     `subtitle=\"...\"` (optional caption — quote it if it contains spaces), `slideshow=ID` \
+     (optional, groups frames).\n7. **Length**: aim for 200–800 lines of markdown per page. \
+     Internals pages may be longer if the system is complex.\n8. **Do not** create new directories \
+     you weren't asked to. Output paths in the manifest are absolute (relative to project \
+     root).\n9. **No external link assumptions**: don't reference azul.rs URLs that may not exist. \
+     Cross-link to other guide files using relative paths.\n10. After writing all output files, \
+     output the literal token `AUTODOC_DONE` and stop.\n"
 }
 
 // ── Frontmatter ────────────────────────────────────────────────────────
@@ -1282,8 +1249,8 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
                 }
             }
 
-            // 2) Git rev check — informational; surfaces *which* commits touched
-            //    the canonical file even when the hash already matches.
+            // 2) Git rev check — informational; surfaces *which* commits touched the canonical file
+            //    even when the hash already matches.
             if let Some(source_rev) = &fm.source_rev {
                 let commits =
                     commits_since(project_root, source_rev, &canonical_path).unwrap_or_default();
@@ -1403,10 +1370,9 @@ fn write_outdated_report(
     let mut s = String::new();
     s.push_str("# Autodoc — outdated check\n\n");
     s.push_str(&format!(
-        "- {} fresh pages\n\
-         - {} stale canonical pages (tracked source files changed)\n\
-         - {} stale translations (canonical English changed since translation)\n\
-         - {} pages without frontmatter\n\n",
+        "- {} fresh pages\n- {} stale canonical pages (tracked source files changed)\n- {} stale \
+         translations (canonical English changed since translation)\n- {} pages without \
+         frontmatter\n\n",
         fresh,
         stale.len(),
         translation_stale.len(),
@@ -1639,10 +1605,8 @@ pub fn render_xml_to_png(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    use azul_core::dom::DomId;
-    use azul_core::geom::LogicalSize;
-    use azul_layout::callbacks::ExternalSystemCallbacks;
-    use azul_layout::window_state::FullWindowState;
+    use azul_core::{dom::DomId, geom::LogicalSize};
+    use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
 
     let envelope = wrap_xml_envelope(xml);
     let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&envelope)
@@ -2029,13 +1993,12 @@ fn window_chrome_html(
         html_escape(subtitle)
     };
     format!(
-        "{i}<div class=\"azul-window\" style=\"width:{w}px\">\n\
-         {i}  <div class=\"azul-titlebar\">\n\
-         {i}    <span class=\"azul-tb-traffic\"><span class=\"azul-tb-close\"></span><span class=\"azul-tb-min\"></span><span class=\"azul-tb-max\"></span></span>\n\
-         {i}    <span class=\"azul-tb-title\">{t}</span>\n\
-         {i}  </div>\n\
-         {i}  <img src=\"{p}{n}.png\" width=\"{w}\" height=\"{h}\" loading=\"lazy\"/>\n\
-         {i}</div>\n",
+        "{i}<div class=\"azul-window\" style=\"width:{w}px\">\n{i}  <div \
+         class=\"azul-titlebar\">\n{i}    <span class=\"azul-tb-traffic\"><span \
+         class=\"azul-tb-close\"></span><span class=\"azul-tb-min\"></span><span \
+         class=\"azul-tb-max\"></span></span>\n{i}    <span \
+         class=\"azul-tb-title\">{t}</span>\n{i}  </div>\n{i}  <img src=\"{p}{n}.png\" \
+         width=\"{w}\" height=\"{h}\" loading=\"lazy\"/>\n{i}</div>\n",
         i = indent,
         p = prefix,
         n = name,

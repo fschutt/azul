@@ -37,22 +37,18 @@
 //!
 //! # Notes
 //!
-//! - Like Ruby's generator, Perl emits a free function `generate(ir, config)`
-//!   instead of implementing the `LanguageGenerator` trait. The trait targets
-//!   Rust/C/C++/Python output formats; Perl (like Ruby, C#, Lua, etc.)
-//!   doesn't fit that interface cleanly.
-//! - Skipped types (Recursive, VecRef, GenericTemplate, DestructorOrClone)
-//!   get `# SKIPPED:` comments rather than `# TODO`.
-//! - Generated Perl code uses single-quoted strings everywhere except where
-//!   we explicitly need escapes — Perl interpolates `$var` inside double
-//!   quotes, and we don't want accidental `$ffi`/`@list` interpolation in
-//!   string literals.
+//! - Like Ruby's generator, Perl emits a free function `generate(ir, config)` instead of
+//!   implementing the `LanguageGenerator` trait. The trait targets Rust/C/C++/Python output
+//!   formats; Perl (like Ruby, C#, Lua, etc.) doesn't fit that interface cleanly.
+//! - Skipped types (Recursive, VecRef, GenericTemplate, DestructorOrClone) get `# SKIPPED:`
+//!   comments rather than `# TODO`.
+//! - Generated Perl code uses single-quoted strings everywhere except where we explicitly need
+//!   escapes — Perl interpolates `$var` inside double quotes, and we don't want accidental
+//!   `$ffi`/`@list` interpolation in string literals.
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod cpanfile;
 pub mod functions;

@@ -5,22 +5,21 @@
 //! `ScrollManager` is the exclusive owner of all scroll state. Other modules
 //! interact with scrolling only through its public API:
 //!
-//! - **Platform shell** (macos/events.rs, etc.): Calls `record_scroll_from_hit_test()`
-//!   to queue trackpad/mouse wheel input for the physics timer.
-//! - **Scroll physics timer** (`scroll_timer.rs)`: Consumes inputs via `ScrollInputQueue`,
-//!   applies physics, and pushes `CallbackChange::ScrollTo` for each updated node.
-//! - **Event processing** (`event_v2.rs)`: Processes `ScrollTo` changes, sets scroll
-//!   positions, and checks `VirtualView` re-invocation transparently.
-//! - **Drag autoscroll** (`shell2/common/event.rs`): while a text-selection
-//!   drag is held past a container's edge, a 60Hz timer pushes
-//!   `CallbackChange::ScrollTo`. It does NOT go through the gesture manager —
-//!   an earlier `AutoScrollDirection` design did, and was documented here
-//!   long after it stopped being constructed anywhere.
+//! - **Platform shell** (macos/events.rs, etc.): Calls `record_scroll_from_hit_test()` to queue
+//!   trackpad/mouse wheel input for the physics timer.
+//! - **Scroll physics timer** (`scroll_timer.rs)`: Consumes inputs via `ScrollInputQueue`, applies
+//!   physics, and pushes `CallbackChange::ScrollTo` for each updated node.
+//! - **Event processing** (`event_v2.rs)`: Processes `ScrollTo` changes, sets scroll positions, and
+//!   checks `VirtualView` re-invocation transparently.
+//! - **Drag autoscroll** (`shell2/common/event.rs`): while a text-selection drag is held past a
+//!   container's edge, a 60Hz timer pushes `CallbackChange::ScrollTo`. It does NOT go through the
+//!   gesture manager — an earlier `AutoScrollDirection` design did, and was documented here long
+//!   after it stopped being constructed anywhere.
 //! - **Render loop**: Calls `tick()` every frame to advance easing animations.
-//! - **`WebRender` sync** (`wr_translate2.rs)`: Reads offsets via
-//!   `get_scroll_states_for_dom()` to synchronize scroll frames.
-//! - **Layout** (cache.rs): Registers scroll nodes via
-//!   `register_or_update_scroll_node()` after layout completes.
+//! - **`WebRender` sync** (`wr_translate2.rs)`: Reads offsets via `get_scroll_states_for_dom()` to
+//!   synchronize scroll frames.
+//! - **Layout** (cache.rs): Registers scroll nodes via `register_or_update_scroll_node()` after
+//!   layout completes.
 //!
 //! # Scroll Flow
 //!
@@ -45,10 +44,11 @@
 //! - Scrollbar geometry and hit-testing
 //! - Virtual scroll bounds for `VirtualView` nodes
 
-use azul_css::{impl_option, impl_option_inner};
 use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::sync::{Arc, Mutex};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId, ScrollbarOrientation},
@@ -59,13 +59,12 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
+use azul_css::{impl_option, impl_option_inner};
 
-#[cfg(feature = "std")]
-use std::sync::{Arc, Mutex};
-
-use crate::managers::hover::InputPointId;
-use crate::solver3::layout_tree::LayoutNodeId;
-use crate::solver3::scrollbar::compute_scrollbar_geometry_with_button_size;
+use crate::{
+    managers::hover::InputPointId,
+    solver3::{layout_tree::LayoutNodeId, scrollbar::compute_scrollbar_geometry_with_button_size},
+};
 
 /// Minimum change in scroll offset (in logical pixels) to consider the position
 /// "actually moved" and mark the scroll state dirty.
@@ -270,8 +269,8 @@ pub struct ScrollbarState {
 
 impl ScrollbarState {
     /// Determine which component was hit at the given local position (relative to `track_rect`
-    /// origin). Uses the shared geometry values (`button_size`, `usable_track_length`, `thumb_length`,
-    /// `thumb_offset`) for consistent hit-testing.
+    /// origin). Uses the shared geometry values (`button_size`, `usable_track_length`,
+    /// `thumb_length`, `thumb_offset`) for consistent hit-testing.
     #[must_use]
     pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
         match self.orientation {
@@ -936,12 +935,12 @@ impl ScrollManager {
     /// `inclusivity` decides whether `node_id` itself may be the answer, and
     /// the two cases are genuinely different questions:
     ///
-    /// * [`Inclusivity::SelfAndAncestors`] — "which scroll box does this node
-    ///   live in?" A caret sitting on a `TextInput`'s value `<p>` lives in THAT
-    ///   `<p>`: it is both the IFC root and the horizontal scroll box.
-    /// * [`Inclusivity::AncestorsOnly`] — "which OTHER container takes over?"
-    ///   Momentum hand-off must chain outwards, and the on-screen box of a
-    ///   container is moved only by its ancestors' scrolling, never its own.
+    /// * [`Inclusivity::SelfAndAncestors`] — "which scroll box does this node live in?" A caret
+    ///   sitting on a `TextInput`'s value `<p>` lives in THAT `<p>`: it is both the IFC root and
+    ///   the horizontal scroll box.
+    /// * [`Inclusivity::AncestorsOnly`] — "which OTHER container takes over?" Momentum hand-off
+    ///   must chain outwards, and the on-screen box of a container is moved only by its ancestors'
+    ///   scrolling, never its own.
     ///
     /// This used to be hardcoded to ancestors-only via a `nid != node_id`
     /// guard inside the loop, which was a live bug for the first question —
@@ -1190,18 +1189,16 @@ impl ScrollManager {
     /// space, and a consumer that subtracts one origin from the other gets
     /// garbage:
     ///
-    /// - `parent_rect` — the container's border box in **absolute window
-    ///   coordinates** (`calculated_positions[node]`, see
-    ///   `shell2::common::layout::register_scroll_nodes`). Only `size` is
-    ///   meaningful to most consumers; the origin exists for `scroll_into_view`.
-    /// - `children_rect.origin` — the **scroll offset itself**, i.e.
-    ///   `current_offset`: the distance already scrolled, measured from the
-    ///   scroll origin, clamped to `[0, content − container]`. It is NOT the
-    ///   absolute position of the scrolled content, and it is NOT relative to
-    ///   `parent_rect.origin`. Content is painted at `position − offset`
-    ///   (`cpurender::raster`), so a positive value means "scrolled down/right".
-    /// - `children_rect.size` — the scrollable content size (the `VirtualView`
-    ///   virtual size when one was reported, else the laid-out content size).
+    /// - `parent_rect` — the container's border box in **absolute window coordinates**
+    ///   (`calculated_positions[node]`, see `shell2::common::layout::register_scroll_nodes`). Only
+    ///   `size` is meaningful to most consumers; the origin exists for `scroll_into_view`.
+    /// - `children_rect.origin` — the **scroll offset itself**, i.e. `current_offset`: the distance
+    ///   already scrolled, measured from the scroll origin, clamped to `[0, content − container]`.
+    ///   It is NOT the absolute position of the scrolled content, and it is NOT relative to
+    ///   `parent_rect.origin`. Content is painted at `position − offset` (`cpurender::raster`), so
+    ///   a positive value means "scrolled down/right".
+    /// - `children_rect.size` — the scrollable content size (the `VirtualView` virtual size when
+    ///   one was reported, else the laid-out content size).
     ///
     /// `content_rect.origin` is never carried out of here because it is always
     /// zero in the state (`register_or_update_scroll_node` builds it that way,
@@ -1626,7 +1623,8 @@ impl AnimatedScrollState {
 
 /// Apply an easing function to a normalized time value (0.0 to 1.0).
 /// Used by `ScrollAnimation::tick()` for smooth scroll animations.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
@@ -1659,8 +1657,9 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 
 #[cfg(test)]
 mod spring_easing_laws {
-    use super::*;
     use azul_core::events::EasingFunction;
+
+    use super::*;
 
     #[test]
     fn spring_hits_both_endpoints_exactly_and_is_monotone() {
@@ -1715,10 +1714,13 @@ impl crate::managers::NodeIdRemap for ScrollManager {
 // ============================================================================
 #[cfg(all(test, feature = "std"))]
 mod natural_scroll_tests {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        geom::LogicalPosition,
+        task::Instant,
+    };
+
     use super::*;
-    use azul_core::dom::{DomId, NodeId};
-    use azul_core::geom::LogicalPosition;
-    use azul_core::task::Instant;
 
     fn raw_input(dx: f32, dy: f32) -> ScrollInput {
         ScrollInput {
@@ -2201,10 +2203,7 @@ mod autotest_generated {
         s.settle_scroll_gesture();
         assert_eq!(
             s.pending_scroll_phase,
-            vec![
-                ScrollPhaseTransition::Started,
-                ScrollPhaseTransition::Ended
-            ],
+            vec![ScrollPhaseTransition::Started, ScrollPhaseTransition::Ended],
             "the timer running dry must close the gesture",
         );
 
@@ -4475,24 +4474,21 @@ impl ScrollManager {
     /// classification already exists on every backend; this only decides when
     /// it crosses a boundary:
     ///
-    /// - `TrackpadEnd` is the explicit end-of-gesture signal. macOS derives it
-    ///   from `NSEvent.phase`/`momentumPhase` being `Ended`/`Cancelled`, and
-    ///   Wayland synthesizes it from `wl_pointer.axis_stop`. It carries a ZERO
-    ///   delta, which is exactly why it must not be gated behind a delta
-    ///   threshold.
-    /// - `TrackpadMomentum` is still the same gesture: the fingers are up, but
-    ///   the OS is playing out a canned tail. Ending on the finger lift would
-    ///   fire `ScrollEnd` while the content is visibly still moving.
-    /// - `Programmatic` and `AnimateTo` are not user gestures and never open
-    ///   or close one.
+    /// - `TrackpadEnd` is the explicit end-of-gesture signal. macOS derives it from
+    ///   `NSEvent.phase`/`momentumPhase` being `Ended`/`Cancelled`, and Wayland synthesizes it from
+    ///   `wl_pointer.axis_stop`. It carries a ZERO delta, which is exactly why it must not be gated
+    ///   behind a delta threshold.
+    /// - `TrackpadMomentum` is still the same gesture: the fingers are up, but the OS is playing
+    ///   out a canned tail. Ending on the finger lift would fire `ScrollEnd` while the content is
+    ///   visibly still moving.
+    /// - `Programmatic` and `AnimateTo` are not user gestures and never open or close one.
     pub fn note_scroll_phase(&mut self, source: ScrollInputSource) {
         match source {
             ScrollInputSource::Programmatic | ScrollInputSource::AnimateTo => {}
             ScrollInputSource::TrackpadEnd => {
                 if self.scroll_gesture_active {
                     self.scroll_gesture_active = false;
-                    self.pending_scroll_phase
-                        .push(ScrollPhaseTransition::Ended);
+                    self.pending_scroll_phase.push(ScrollPhaseTransition::Ended);
                 }
             }
             ScrollInputSource::TrackpadContinuous
@@ -4516,8 +4512,7 @@ impl ScrollManager {
     pub fn settle_scroll_gesture(&mut self) {
         if self.scroll_gesture_active {
             self.scroll_gesture_active = false;
-            self.pending_scroll_phase
-                .push(ScrollPhaseTransition::Ended);
+            self.pending_scroll_phase.push(ScrollPhaseTransition::Ended);
         }
     }
 }

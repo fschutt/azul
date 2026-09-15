@@ -8,48 +8,40 @@
 //!
 //! ## Format choices (and why)
 //!
-//! * **sfnt version `0x00010000`** — plain TrueType outlines (`glyf`/`loca`),
-//!   never CFF. Every mapped glyph is a filled axis-aligned rectangle so the
-//!   real rasterizer has something to fill.
-//! * **`loca` LONG (`indexToLocFormat = 1`)** — 32-bit byte offsets. Uniform
-//!   and unambiguous; no ×2 scaling games, and empty glyphs are encoded by
-//!   `loca[i] == loca[i+1]`.
-//! * **`cmap` format 4, platform 3 / encoding 1** — the Windows BMP Unicode
-//!   subtable every shaper understands. One segment per mapped codepoint plus
-//!   the mandatory `0xFFFF` sentinel. All codepoints must be `<= 0xFFFF`
-//!   (asserted); astral characters are intentionally out of scope.
-//! * **`hhea.numberOfHMetrics == numGlyphs`** — every glyph carries a full
-//!   `(advance, lsb)` pair in `hmtx`, so there is no trailing left-side-bearing
-//!   array to reason about.
-//! * **`maxp` v1, `post` v3, `OS/2` v4, `name` format 0** — the smallest
-//!   widely-accepted versions that carry the fields allsorts/ttf-parser read.
-//!   `post` v3 means no glyph-name table; `name` is Windows/Unicode UTF-16BE.
-//! * **Rectangle winding** — points are emitted `(xMin,yMin) → (xMin,yMax) →
-//!   (xMax,yMax) → (xMax,yMin)`, i.e. *clockwise* in y-up FUnit space, which is
-//!   the TrueType convention for a filled (non-hole) outer contour. All four
-//!   points are on-curve and use 16-bit signed coordinate deltas (the x/y-short
-//!   and x/y-same flag bits are deliberately left clear).
-//! * **Checksums** — every table checksum is the u32 wrapping sum over the
-//!   table zero-padded to a 4-byte multiple. `head.checkSumAdjustment` is
-//!   written as `0`, the whole-font wrapping sum is taken, and the field is
-//!   patched to `0xB1B0AFBA - sum` per the OpenType spec.
-//! * **Table directory** — records are sorted by tag; the physical table data
-//!   is laid out in that same sorted order, each table 4-byte aligned. Optional
-//!   tables (`kern`, `fpgm`, `prep`, `cvt `) are emitted only when non-empty.
+//! * **sfnt version `0x00010000`** — plain TrueType outlines (`glyf`/`loca`), never CFF. Every
+//!   mapped glyph is a filled axis-aligned rectangle so the real rasterizer has something to fill.
+//! * **`loca` LONG (`indexToLocFormat = 1`)** — 32-bit byte offsets. Uniform and unambiguous; no ×2
+//!   scaling games, and empty glyphs are encoded by `loca[i] == loca[i+1]`.
+//! * **`cmap` format 4, platform 3 / encoding 1** — the Windows BMP Unicode subtable every shaper
+//!   understands. One segment per mapped codepoint plus the mandatory `0xFFFF` sentinel. All
+//!   codepoints must be `<= 0xFFFF` (asserted); astral characters are intentionally out of scope.
+//! * **`hhea.numberOfHMetrics == numGlyphs`** — every glyph carries a full `(advance, lsb)` pair in
+//!   `hmtx`, so there is no trailing left-side-bearing array to reason about.
+//! * **`maxp` v1, `post` v3, `OS/2` v4, `name` format 0** — the smallest widely-accepted versions
+//!   that carry the fields allsorts/ttf-parser read. `post` v3 means no glyph-name table; `name` is
+//!   Windows/Unicode UTF-16BE.
+//! * **Rectangle winding** — points are emitted `(xMin,yMin) → (xMin,yMax) → (xMax,yMax) →
+//!   (xMax,yMin)`, i.e. *clockwise* in y-up FUnit space, which is the TrueType convention for a
+//!   filled (non-hole) outer contour. All four points are on-curve and use 16-bit signed coordinate
+//!   deltas (the x/y-short and x/y-same flag bits are deliberately left clear).
+//! * **Checksums** — every table checksum is the u32 wrapping sum over the table zero-padded to a
+//!   4-byte multiple. `head.checkSumAdjustment` is written as `0`, the whole-font wrapping sum is
+//!   taken, and the field is patched to `0xB1B0AFBA - sum` per the OpenType spec.
+//! * **Table directory** — records are sorted by tag; the physical table data is laid out in that
+//!   same sorted order, each table 4-byte aligned. Optional tables (`kern`, `fpgm`, `prep`, `cvt `)
+//!   are emitted only when non-empty.
 //!
 //! ## Ambiguities resolved
 //!
-//! * The auto-added `.notdef` (gid 0) has `lsb == xMin == upem/10` so its side
-//!   bearing is self-consistent. User glyphs may deliberately disagree
-//!   (`lsb != xMin`); `hmtx` stores the given `lsb` and `glyf` stores the bbox
-//!   `xMin` independently, exactly as declared.
-//! * `hhea.minLeftSideBearing` / `minRightSideBearing` / `xMaxExtent` are the
-//!   "safe" computed values described in the builder contract: min lsb,
-//!   `min(advance - (lsb + width))`, and `max(lsb + width)` respectively, where
-//!   `width = xMax - xMin` (`0` for a glyph with no bbox). These are advisory
-//!   fields; parsers read but do not fill from them.
-//! * `name` ID 6 (PostScript name) is the family with ASCII whitespace
-//!   stripped; IDs 1 and 4 keep the family verbatim; ID 2 is `"Regular"`.
+//! * The auto-added `.notdef` (gid 0) has `lsb == xMin == upem/10` so its side bearing is
+//!   self-consistent. User glyphs may deliberately disagree (`lsb != xMin`); `hmtx` stores the
+//!   given `lsb` and `glyf` stores the bbox `xMin` independently, exactly as declared.
+//! * `hhea.minLeftSideBearing` / `minRightSideBearing` / `xMaxExtent` are the "safe" computed
+//!   values described in the builder contract: min lsb, `min(advance - (lsb + width))`, and
+//!   `max(lsb + width)` respectively, where `width = xMax - xMin` (`0` for a glyph with no bbox).
+//!   These are advisory fields; parsers read but do not fill from them.
+//! * `name` ID 6 (PostScript name) is the family with ASCII whitespace stripped; IDs 1 and 4 keep
+//!   the family verbatim; ID 2 is `"Regular"`.
 
 #![allow(dead_code)]
 
@@ -210,7 +202,8 @@ impl FakeFontBuilder {
         let offset_table_size = 12 + 16 * num_tables;
 
         // Physically lay out tables (4-byte aligned) and record checksums.
-        let mut records: Vec<([u8; 4], u32, u32, u32)> = Vec::new(); // tag, checksum, offset, length
+        let mut records: Vec<([u8; 4], u32, u32, u32)> = Vec::new(); // tag, checksum, offset,
+                                                                     // length
         let mut body: Vec<u8> = Vec::new();
         let mut offset = offset_table_size;
         for (tag, data) in &tables {

@@ -241,6 +241,7 @@ fn resize_preserves_top_left_content() {
     let overlap_diff = cpurender::compare_region(&frame_small, &frame_large, 0, 0, 200, 200, 2);
     assert!(
         overlap_diff < 100,
-        "Top-left 200x200 should be nearly identical (both solid red), but {overlap_diff} pixels differ"
+        "Top-left 200x200 should be nearly identical (both solid red), but {overlap_diff} pixels \
+         differ"
     );
 }

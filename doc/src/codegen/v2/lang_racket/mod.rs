@@ -10,27 +10,24 @@
 //!
 //! ## File structure (top to bottom)
 //!
-//! 1. `#lang racket/base` banner + `(require ffi/unsafe
-//!    ffi/unsafe/define)`.
-//! 2. `(define azul-lib (ffi-lib ...))` — locate
-//!    `libazul.{so,dylib}` / `azul.dll`, honouring `AZ_LIB_DIR`.
-//! 3. `(define-ffi-definer define-azul azul-lib ...)` — the binding
-//!    macro every `Az*` function is declared through.
+//! 1. `#lang racket/base` banner + `(require ffi/unsafe ffi/unsafe/define)`.
+//! 2. `(define azul-lib (ffi-lib ...))` — locate `libazul.{so,dylib}` / `azul.dll`, honouring
+//!    `AZ_LIB_DIR`.
+//! 3. `(define-ffi-definer define-azul azul-lib ...)` — the binding macro every `Az*` function is
+//!    declared through.
 //! 4. Type layer (see [`types`]):
 //!    - unit enums → integer `(define AzUpdate_RefreshDom 1)` constants
 //!      + a `(define _AzUpdate _uint32)` ctype alias.
 //!    - POD structs → `(define-cstruct _AzFoo ([field _uint32] ...))`.
-//!    - tagged unions → per-variant `define-cstruct` (each leading with
-//!      the `tag` slot, exactly like the C ABI's tag-then-payload
-//!      layout) + a wrapping `(define _AzFoo (_union ...))`.
+//!    - tagged unions → per-variant `define-cstruct` (each leading with the `tag` slot, exactly
+//!      like the C ABI's tag-then-payload layout) + a wrapping `(define _AzFoo (_union ...))`.
 //!    - callback typedefs → `(define _AzFooCallbackType _fpointer)`.
-//! 5. Function layer (see [`functions`]): one `(define-azul AzApp_create
-//!    (_fun _AzRefAny _AzAppConfig -> _AzApp))` per IR function.
-//! 6. Managed-FFI runtime (see [`managed`]): the host-invoker plumbing,
-//!    `register-callback`, and the `refany-create` / `refany-get`
-//!    user-data helpers.
-//! 7. Idiomatic non-prefixed wrappers (see [`wrappers`]): `(dom-add-child
-//!    dom child)` etc. dropping the `Az<Class>_` prefix.
+//! 5. Function layer (see [`functions`]): one `(define-azul AzApp_create (_fun _AzRefAny
+//!    _AzAppConfig -> _AzApp))` per IR function.
+//! 6. Managed-FFI runtime (see [`managed`]): the host-invoker plumbing, `register-callback`, and
+//!    the `refany-create` / `refany-get` user-data helpers.
+//! 7. Idiomatic non-prefixed wrappers (see [`wrappers`]): `(dom-add-child dom child)` etc. dropping
+//!    the `Az<Class>_` prefix.
 //! 8. `(provide (all-defined-out))`.
 //!
 //! ## Callbacks are C-ABI direct (archetype A)
@@ -66,9 +63,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Library base name used in `ffi-lib`. Racket's `ffi-lib` appends the
 /// platform-specific extension (`.so` / `.dylib` / `.dll`) and tries the

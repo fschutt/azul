@@ -55,7 +55,8 @@ fn a11y_id(dom: u64, node: u64) -> A11yNodeId {
 struct Noop;
 impl TreeChangeHandler for Noop {
     fn node_added(&mut self, _: &accesskit_consumer::Node<'_>) {}
-    fn node_updated(&mut self, _: &accesskit_consumer::Node<'_>, _: &accesskit_consumer::Node<'_>) {}
+    fn node_updated(&mut self, _: &accesskit_consumer::Node<'_>, _: &accesskit_consumer::Node<'_>) {
+    }
     fn focus_moved(
         &mut self,
         _: Option<&accesskit_consumer::Node<'_>>,
@@ -138,7 +139,10 @@ impl Harness {
 
     fn type_str(&mut self, s: &str) {
         let affected = self.lw.record_text_input(s);
-        assert!(!affected.is_empty(), "the input was recorded against the focused node");
+        assert!(
+            !affected.is_empty(),
+            "the input was recorded against the focused node"
+        );
         let _ = self.lw.apply_text_changeset();
     }
 
@@ -179,9 +183,8 @@ fn bounds_y1(update: &TreeUpdate, id: A11yNodeId) -> Option<f64> {
         .map(|r| r.y1)
 }
 
-const TEN_LINES: &str =
-    "line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline \
-     eight\nline nine\nline ten";
+const TEN_LINES: &str = "line one\nline two\nline three\nline four\nline five\nline six\nline \
+                         seven\nline eight\nline nine\nline ten";
 
 // =========================================================================
 // The real consumer accepts everything the manager parks
@@ -313,7 +316,9 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
         "a dirty tree is due on the first tick"
     );
     h.lw.update_a11y_tree();
-    let after = h.deliver(&mut tree).expect("the scroll rebuild parks a full tree");
+    let after = h
+        .deliver(&mut tree)
+        .expect("the scroll rebuild parks a full tree");
 
     let y1_after = bounds_y1(&after, label).expect("the label still has bounds");
     assert!(
@@ -339,7 +344,10 @@ fn scroll_rebuilds_are_throttled_but_never_lost() {
     let interval = Duration::from_millis(100);
     assert!(!m.scroll_rebuild_due(t0, interval), "clean: nothing due");
     m.mark_scroll_dirty();
-    assert!(m.scroll_rebuild_due(t0, interval), "first dirty tick is due");
+    assert!(
+        m.scroll_rebuild_due(t0, interval),
+        "first dirty tick is due"
+    );
     m.mark_scroll_dirty();
     assert!(
         !m.scroll_rebuild_due(t0 + Duration::from_millis(10), interval),
@@ -384,7 +392,11 @@ fn incremental(nodes: Vec<(u64, Node)>, focus: u64) -> TreeUpdate {
 fn delivered_three() -> A11yTreeMirror {
     A11yTreeMirror::default()
         .apply(&full(
-            vec![(0, container(&[1, 2])), (1, container(&[])), (2, container(&[]))],
+            vec![
+                (0, container(&[1, 2])),
+                (1, container(&[])),
+                (2, container(&[])),
+            ],
             1,
         ))
         .expect("a well-formed full tree")
@@ -409,17 +421,13 @@ fn mirror_refuses_what_the_consumer_panics_on() {
         Err(A11yUpdateError::OrphanNode(A11yNodeId(7)))
     );
     assert_eq!(
-        A11yTreeMirror::default().apply(&full(
-            vec![(0, container(&[1, 1])), (1, container(&[]))],
-            0
-        )),
+        A11yTreeMirror::default()
+            .apply(&full(vec![(0, container(&[1, 1])), (1, container(&[]))], 0)),
         Err(A11yUpdateError::DuplicateChild(A11yNodeId(1)))
     );
     assert_eq!(
-        A11yTreeMirror::default().apply(&full(
-            vec![(0, container(&[1, 9])), (1, container(&[]))],
-            0
-        )),
+        A11yTreeMirror::default()
+            .apply(&full(vec![(0, container(&[1, 9])), (1, container(&[]))], 0)),
         Err(A11yUpdateError::UnknownChild {
             parent: A11yNodeId(0),
             child: A11yNodeId(9)
@@ -450,11 +458,8 @@ fn mirror_prunes_a_dropped_subtree_exactly_like_the_consumer() {
 #[test]
 fn publish_refuses_and_keeps_the_previously_parked_update() {
     let mut m = A11yManager::new();
-    m.publish(full(
-        vec![(0, container(&[1])), (1, container(&[]))],
-        1,
-    ))
-    .expect("full tree publishes");
+    m.publish(full(vec![(0, container(&[1])), (1, container(&[]))], 1))
+        .expect("full tree publishes");
     // Not yet taken: the slot holds the full tree. A bad increment must not
     // disturb it.
     assert_eq!(

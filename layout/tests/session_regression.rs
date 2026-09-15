@@ -106,8 +106,9 @@ fn test_whitespace_nowrap_single_line() {
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
             .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-            "This is a very long text that would normally wrap to multiple lines in a narrow box",
-        )),
+                "This is a very long text that would normally wrap to multiple lines in a narrow \
+                 box",
+            )),
     );
 
     let css = r#"
@@ -221,7 +222,8 @@ fn test_star_selector_skips_text_nodes() {
     // Text node should inherit from p (red), not from * (gray)
     assert_eq!(
         p_color, text_color,
-        "text color 0x{text_color:08x} should equal p color 0x{p_color:08x} (inherit, not * override)"
+        "text color 0x{text_color:08x} should equal p color 0x{p_color:08x} (inherit, not * \
+         override)"
     );
 }
 
@@ -265,7 +267,8 @@ fn test_font_size_em_resolves_against_parent() {
     // 1.5em of 20px = 30px, so the 30px text should be taller
     assert!(
         r_30px.size.height > r_20px.size.height,
-        "1.5em div height ({:.0}) should be > 20px div height ({:.0}). em not resolved against parent?",
+        "1.5em div height ({:.0}) should be > 20px div height ({:.0}). em not resolved against \
+         parent?",
         r_30px.size.height,
         r_20px.size.height
     );

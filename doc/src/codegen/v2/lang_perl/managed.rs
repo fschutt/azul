@@ -10,19 +10,19 @@
 //!
 //! Emitted into `Azul.pm`:
 //!
-//! 1. **`$ffi->attach`** declarations for AzApp_setHostHandleReleaser,
-//!    AzRefAny_newHostHandle, AzRefAny_getHostHandle, and per-kind
-//!    AzApp_set<K>Invoker / Az<K>_createFromHostHandle.
-//! 2. **A Perl-side handle table** (`%_handles` package hash keyed by
-//!    integer id).
+//! 1. **`$ffi->attach`** declarations for AzApp_setHostHandleReleaser, AzRefAny_newHostHandle,
+//!    AzRefAny_getHostHandle, and per-kind AzApp_set<K>Invoker / Az<K>_createFromHostHandle.
+//! 2. **A Perl-side handle table** (`%_handles` package hash keyed by integer id).
 //! 3. **A pinned releaser closure** registered at module load.
 //! 4. **Per-kind invoker closures** dispatching through the table.
 //! 5. **`Azul::register_callback(kind, sub)`** + **`Azul::refany_create($value)`**
 //!    + **`Azul::refany_get($refany)`** public surface.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use super::super::{
+    generator::CodeBuilder,
+    ir::CodegenIR,
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+};
 
 /// Emit the managed-FFI prelude. Call AFTER `emit_attach_functions`
 /// so the regular C-ABI bindings are already set up.
@@ -61,7 +61,8 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("# Pointer-typed alias of the same C symbol: the per-kind invokers receive");
     builder.line("# `data` as a raw *const AzRefAny pointer (opaque), not a record object.");
     builder.line(
-        "$Azul::ffi->attach(['AzRefAny_getHostHandle' => 'Azul::FFI::AzRefAny_getHostHandlePtr'] => ['opaque'] => 'uint64');",
+        "$Azul::ffi->attach(['AzRefAny_getHostHandle' => 'Azul::FFI::AzRefAny_getHostHandlePtr'] \
+         => ['opaque'] => 'uint64');",
     );
     // FFI::Platypus::Memory (memcpy) + ::Buffer (scalar_to_buffer) power the
     // callback-return writeback; `require` them so the symbols resolve.
@@ -158,7 +159,10 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}, ['uint64'] => 'void');");
     builder.line("push @_live_pins, $releaser;");
     builder.line("$releaser->sticky;");
-    builder.line("Azul::FFI::AzApp_setHostHandleReleaser($Azul::ffi->cast('(uint64)->void', 'opaque', $releaser));");
+    builder.line(
+        "Azul::FFI::AzApp_setHostHandleReleaser($Azul::ffi->cast('(uint64)->void', 'opaque', \
+         $releaser));",
+    );
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -247,7 +251,7 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
     ));
     builder.indent();
     let user_args_list: Vec<String> = (0..n_args).map(|i| format!("$_[{}]", i + 1)).collect();
-    builder.line(&format!("my $id = $_[0];"));
+    builder.line(&"my $id = $_[0];".to_string());
     builder.line("my $sub = $_handles{$id};");
     builder.line("return unless defined $sub;");
     if has_ret {

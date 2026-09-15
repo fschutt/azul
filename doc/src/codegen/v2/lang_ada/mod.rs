@@ -2,14 +2,12 @@
 //!
 //! Produces two Ada compilation units:
 //!
-//! 1. `azul.ads` — the package specification: with-clauses, FFI record /
-//!    enum / variant-record types (all with `pragma Convention (C, ...)`),
-//!    `pragma Import (C, ...)` declarations for every C-ABI function, and
-//!    idiomatic `Ada.Finalization.Controlled` wrapper types whose
+//! 1. `azul.ads` — the package specification: with-clauses, FFI record / enum / variant-record
+//!    types (all with `pragma Convention (C, ...)`), `pragma Import (C, ...)` declarations for
+//!    every C-ABI function, and idiomatic `Ada.Finalization.Controlled` wrapper types whose
 //!    `Finalize` overrides call the matching `_delete` extern.
-//! 2. `azul.adb` — the package body: implementations of the wrapper-type
-//!    `Finalize` overrides (and any other primitives whose declarations
-//!    cannot be completed inline in the spec).
+//! 2. `azul.adb` — the package body: implementations of the wrapper-type `Finalize` overrides (and
+//!    any other primitives whose declarations cannot be completed inline in the spec).
 //!
 //! Ada's compilation-unit convention is one spec + one body per top-level
 //! package, hence the dual-output shape. The orchestrator writes both
@@ -17,15 +15,13 @@
 //!
 //! ## Surface
 //!
-//! - All FFI-visible names keep their `Az_` form (matching the C symbol),
-//!   e.g. `Az_App` for the FFI struct. The user-facing wrapper drops the
-//!   `Az_` prefix: `App` (a `Controlled` tagged record with `Finalize`).
-//! - Methods are emitted both as `pragma Import` free subprograms (raw
-//!   FFI) and as wrapper-type primitives (idiomatic). The `pragma Import`
-//!   link name MUST exactly match the C symbol; user-facing wrappers
-//!   simply forward.
-//! - Tagged-union (`is_union`) enums become Ada variant records with a
-//!   discriminant on a tag enum.
+//! - All FFI-visible names keep their `Az_` form (matching the C symbol), e.g. `Az_App` for the FFI
+//!   struct. The user-facing wrapper drops the `Az_` prefix: `App` (a `Controlled` tagged record
+//!   with `Finalize`).
+//! - Methods are emitted both as `pragma Import` free subprograms (raw FFI) and as wrapper-type
+//!   primitives (idiomatic). The `pragma Import` link name MUST exactly match the C symbol;
+//!   user-facing wrappers simply forward.
+//! - Tagged-union (`is_union`) enums become Ada variant records with a discriminant on a tag enum.
 //!
 //! ## Output protocol
 //!
@@ -55,9 +51,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// Library link name (`pragma Linker_Options ("-lazul")`).
 pub const LIB_NAME: &str = "azul";
@@ -312,7 +306,7 @@ pub fn to_ada_method_name(name: &str) -> String {
             out.extend(c.to_uppercase());
             upper_next = false;
         } else {
-            out.extend(c.to_ascii_lowercase().to_string().chars());
+            out.push_str(&c.to_ascii_lowercase().to_string());
         }
     }
     sanitize_identifier(&out)

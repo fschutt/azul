@@ -32,7 +32,7 @@ pub enum WindowError {
 }
 
 impl fmt::Display for WindowError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WindowError::PlatformError(msg) => write!(f, "Platform error: {}", msg),
             WindowError::ContextCreationFailed => write!(f, "Failed to create rendering context"),
@@ -72,7 +72,7 @@ pub enum CompositorError {
 }
 
 impl fmt::Display for CompositorError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CompositorError::NoGPU => write!(f, "GPU not available"),
             CompositorError::ShaderError(msg) => write!(f, "Shader error: {}", msg),
@@ -114,7 +114,7 @@ pub enum DlError {
 }
 
 impl fmt::Display for DlError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DlError::LibraryNotFound {
                 name,

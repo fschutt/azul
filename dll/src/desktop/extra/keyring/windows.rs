@@ -1,6 +1,6 @@
 //! Windows keyring backend — Credential Manager (generic credentials) via
-//! winapi `wincred`. Mirrors apple.rs: each op runs on a spawned thread and
-//! parks the outcome via `push_keyring_result`.
+//! the dlopen'd advapi32 `Cred*` functions. Mirrors apple.rs: each op runs on a
+//! spawned thread and parks the outcome via `push_keyring_result`.
 //!
 //! Stores under target `"<SERVICE>:<key>"`, `CRED_TYPE_GENERIC`, the secret as
 //! the credential blob (UTF-8 bytes), `CRED_PERSIST_LOCAL_MACHINE`. Generic
@@ -11,15 +11,26 @@ use std::{io, ptr};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
 use azul_layout::managers::keyring::push_keyring_result;
-use winapi::shared::minwindef::{DWORD, FALSE, LPBYTE};
-use winapi::shared::winerror::ERROR_NOT_FOUND;
-use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::wincred::{
-    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
-    CRED_TYPE_GENERIC, PCREDENTIALW,
+use winapi::{
+    shared::{
+        minwindef::{DWORD, FALSE, LPBYTE},
+        winerror::ERROR_NOT_FOUND,
+    },
+    um::{
+        errhandlingapi::GetLastError,
+        wincred::{CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, PCREDENTIALW},
+    },
 };
 
+use crate::desktop::shell2::windows::dlopen::{Advapi32Functions, Win32Libraries};
+
 const SERVICE: &str = "com.azul.keyring";
+
+fn advapi32() -> io::Result<Advapi32Functions> {
+    Win32Libraries::shared()
+        .and_then(|win32| win32.advapi32)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "advapi32 credential API unavailable"))
+}
 
 pub fn request(req: &KeyringRequest) {
     let req = req.clone();
@@ -61,6 +72,7 @@ fn target_of(key: &str) -> Vec<u16> {
 }
 
 fn store(key: &str, secret: &[u8]) -> io::Result<()> {
+    let advapi32 = advapi32()?;
     let mut target_w = target_of(key);
     let mut user_w: Vec<u16> = SERVICE.encode_utf16().chain(std::iter::once(0)).collect();
     let mut cred: CREDENTIALW = unsafe { std::mem::zeroed() };
@@ -70,7 +82,7 @@ fn store(key: &str, secret: &[u8]) -> io::Result<()> {
     cred.CredentialBlob = secret.as_ptr() as LPBYTE;
     cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
     cred.UserName = user_w.as_mut_ptr(); // must be non-empty for generic creds
-    let ok = unsafe { CredWriteW(&mut cred as PCREDENTIALW, 0) };
+    let ok = unsafe { (advapi32.CredWriteW)(&mut cred as PCREDENTIALW, 0) };
     if ok == FALSE {
         return Err(io::Error::from_raw_os_error(
             unsafe { GetLastError() } as i32
@@ -80,9 +92,10 @@ fn store(key: &str, secret: &[u8]) -> io::Result<()> {
 }
 
 fn read(key: &str) -> io::Result<Option<Vec<u8>>> {
+    let advapi32 = advapi32()?;
     let target_w = target_of(key);
     let mut pcred: PCREDENTIALW = ptr::null_mut();
-    let ok = unsafe { CredReadW(target_w.as_ptr(), CRED_TYPE_GENERIC, 0, &mut pcred) };
+    let ok = unsafe { (advapi32.CredReadW)(target_w.as_ptr(), CRED_TYPE_GENERIC, 0, &mut pcred) };
     if ok == FALSE {
         let err = unsafe { GetLastError() };
         if err == ERROR_NOT_FOUND {
@@ -100,13 +113,14 @@ fn read(key: &str) -> io::Result<Option<Vec<u8>>> {
         }
         v
     };
-    unsafe { CredFree(pcred as *mut _) };
+    unsafe { (advapi32.CredFree)(pcred.cast()) };
     Ok(Some(bytes))
 }
 
 fn delete(key: &str) -> io::Result<bool> {
+    let advapi32 = advapi32()?;
     let target_w = target_of(key);
-    let ok = unsafe { CredDeleteW(target_w.as_ptr(), CRED_TYPE_GENERIC, 0) };
+    let ok = unsafe { (advapi32.CredDeleteW)(target_w.as_ptr(), CRED_TYPE_GENERIC, 0) };
     if ok == FALSE {
         let err = unsafe { GetLastError() };
         if err == ERROR_NOT_FOUND {

@@ -22,14 +22,12 @@
 //!
 //! ## API surface
 //!
-//! - [`AzApp_setHostHandleReleaser`] — register the host's "drop this id"
-//!   callback once per process. Fires when a host-handle [`RefAny`] is
-//!   collected.
+//! - [`AzApp_setHostHandleReleaser`] — register the host's "drop this id" callback once per
+//!   process. Fires when a host-handle [`RefAny`] is collected.
 //! - Per callback kind, [`crate::impl_managed_callback!`] expands to:
 //!   - A static thunk (`extern "C" fn`) compiled into libazul.
 //!   - A `<Wrapper>::create_from_host_handle(u64)` constructor.
-//!   - An `AzApp_set<Kind>Invoker(...)` setter for the host-side per-kind
-//!     pointer-arg invoker.
+//!   - An `AzApp_set<Kind>Invoker(...)` setter for the host-side per-kind pointer-arg invoker.
 //!
 //! ## Why a single shared releaser
 //!
@@ -40,8 +38,10 @@
 //! all callbacks; the host registers it once and every kind's destructor
 //! routes through it.
 
-use core::ffi::c_void;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    ffi::c_void,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use azul_css::AzString;
 
@@ -281,7 +281,11 @@ pub extern "C" fn AzRefAny_newHostHandle(id: u64) -> RefAny {
 /// `0` if the host's id allocator starts at `1` (the convention used by
 /// every binding in this repo).
 #[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn
+                                           // null-checks then derefs under the documented caller
+                                           // contract (C guarantees a valid ptr/len). Marking it
+                                           // `unsafe fn` would force unsafe blocks into the
+                                           // generated dll bindings.
 pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     if refany.is_null() {
         return 0;
@@ -304,19 +308,17 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
 ///
 /// Caller responsibilities:
 ///
-/// - The wrapper type must have public fields `cb: <typedef>` and
-///   `ctx: OptionRefAny` — that's the standard shape every callback wrapper
-///   in the framework already follows.
-/// - `info_ty` must expose a `.get_ctx() -> OptionRefAny` method (also
-///   standard for `*CallbackInfo` types).
+/// - The wrapper type must have public fields `cb: <typedef>` and `ctx: OptionRefAny` — that's the
+///   standard shape every callback wrapper in the framework already follows.
+/// - `info_ty` must expose a `.get_ctx() -> OptionRefAny` method (also standard for `*CallbackInfo`
+///   types).
 /// - `default_ret` is returned when:
-///   - the framework invokes the thunk with `OptionRefAny::None` ctx
-///     (host called the typedef directly without going through this path),
-///   - the ctx isn't a host-handle (host registered the wrapper but the
-///     ctx came from somewhere else),
-///   - or no invoker has been registered yet for this kind. Pick a value
-///     that can't be confused with a "real" return — typically the kind's
-///     "do nothing" / "empty body" default.
+///   - the framework invokes the thunk with `OptionRefAny::None` ctx (host called the typedef
+///     directly without going through this path),
+///   - the ctx isn't a host-handle (host registered the wrapper but the ctx came from somewhere
+///     else),
+///   - or no invoker has been registered yet for this kind. Pick a value that can't be confused
+///     with a "real" return — typically the kind's "do nothing" / "empty body" default.
 #[macro_export]
 macro_rules! impl_managed_callback {
     // Form 1: simple two-argument callbacks `(RefAny, info) -> ret` —

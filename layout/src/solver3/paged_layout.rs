@@ -10,8 +10,6 @@
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
-use crate::debug_log;
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -25,19 +23,21 @@ use azul_core::{
 use azul_css::LayoutDebugMessage;
 
 use crate::{
+    debug_log,
     font_traits::{ParsedFontTrait, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
-        cache::LayoutCache, display_list::DisplayList, pagination::FakePageConfig, LayoutContext,
-        LayoutError, Result,
+        cache::LayoutCache, display_list::DisplayList, layout_tree::LayoutNodeId,
+        pagination::FakePageConfig, LayoutContext, LayoutError, Result,
     },
 };
 
 /// Layout a document with integrated pagination, returning one `DisplayList` per page.
 ///
-/// +spec:positioning:a4936a - Absolutely positioned elements positioned relative to containing block ignoring page breaks
-/// Layout is performed on a continuous document; pages are split afterward by Y position,
-/// so absolutely positioned elements are positioned as if the document were continuous.
+/// +spec:positioning:a4936a - Absolutely positioned elements positioned relative to containing
+/// block ignoring page breaks Layout is performed on a continuous document; pages are split
+/// afterward by Y position, so absolutely positioned elements are positioned as if the document
+/// were continuous.
 ///
 /// This function performs CSS Paged Media layout with fragmentation integrated
 /// into the layout process itself, using the new architecture where:
@@ -249,7 +249,8 @@ where
 #[cfg(feature = "text_layout")]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn layout_document_paged_impl<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -277,11 +278,13 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
-    use crate::solver3::display_list::{
-        calculate_display_list_height, generate_display_list, paginate_display_list_with_breaks,
-        SlicerConfig,
+    use crate::solver3::{
+        display_list::{
+            calculate_display_list_height, generate_display_list,
+            paginate_display_list_with_breaks, SlicerConfig,
+        },
+        page_breaks,
     };
-    use crate::solver3::page_breaks;
 
     // Font Resolution And Loading
     {
@@ -321,14 +324,13 @@ where
             // Clock reads are GATED ON `trace`, and use azul_core's clock rather
             // than std's, for two independent reasons:
             //
-            //   * `std::time::Instant::now()` PANICS on wasm32-unknown-unknown,
-            //     and azul-layout is built for wasm with `text_layout` (which
-            //     turns std on, so a `feature = "std"` gate would not save it).
+            //   * `std::time::Instant::now()` PANICS on wasm32-unknown-unknown, and azul-layout is
+            //     built for wasm with `text_layout` (which turns std on, so a `feature = "std"`
+            //     gate would not save it).
             //   * `azul_core::task::Instant` is FFI-shaped: it owns a
-            //     `ManuallyDrop<Box<StdInstant>>`, so every `now()` is a heap
-            //     allocation. Taking one unconditionally on this path made
-            //     `regenerate_layout` grow 1112 B/iter under resize stress and
-            //     tripped the leak regression test — which is exactly what that
+            //     `ManuallyDrop<Box<StdInstant>>`, so every `now()` is a heap allocation. Taking
+            //     one unconditionally on this path made `regenerate_layout` grow 1112 B/iter under
+            //     resize stress and tripped the leak regression test — which is exactly what that
             //     test is for.
             //
             // Tracing is off in every normal run, so this costs nothing there.
@@ -411,7 +413,7 @@ where
             reflowed_ifcs: std::collections::BTreeSet::new(),
             style_cache: Default::default(),
             virtual_view_sizes: None,
-        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -706,7 +708,8 @@ where
 /// The tree, positions, and scroll IDs are stored in `cache`. To generate a display list,
 /// call `generate_display_list` separately using the tree/positions from the cache.
 #[cfg(feature = "text_layout")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -719,8 +722,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     _print_timing: bool,
 ) -> Result<()> {
-    use crate::solver3::cache;
-    use crate::window::LayoutWindow;
+    use crate::{solver3::cache, window::LayoutWindow};
 
     // Create temporary context without counters for tree generation
     let mut counter_values = std::collections::HashMap::new();
@@ -1172,11 +1174,12 @@ where
         let mut text_cache = TextLayoutCache::new();
         let frag = FragmentationContext::new_paged(content_size);
         let mut cfg = page_config.clone();
-        cfg.page_sequence = crate::solver3::pagination::OptionPageSequence::Some(materialize_sequence_tail(
-            sequence,
-            sec.first_page,
-            sec.page_count.unwrap_or(SECTION_SCAN).min(SECTION_SCAN),
-        ));
+        cfg.page_sequence =
+            crate::solver3::pagination::OptionPageSequence::Some(materialize_sequence_tail(
+                sequence,
+                sec.first_page,
+                sec.page_count.unwrap_or(SECTION_SCAN).min(SECTION_SCAN),
+            ));
 
         let info = compute_document_pagination(
             &mut cache,
@@ -1423,12 +1426,11 @@ mod autotest_generated {
     // `y += normal_page_height` while `y < total_height`. Two reachable
     // inputs make that loop non-terminating while pushing into an unbounded
     // Vec (hang → OOM), and both are reachable from these two entry points:
-    //   1. a tiny positive page height (e.g. 1e-30) — it clears the
-    //      `page_content_height <= 0.0` guard, but `y += 1e-30` stops moving
-    //      `y` as soon as the step falls below `y`'s ULP;
-    //   2. `skip_first_page(true)` with `header_height + footer_height`
-    //      >= the page height — `normal_page_height` goes negative, so `y`
-    //      walks *backwards* away from `total_height` forever.
+    //   1. a tiny positive page height (e.g. 1e-30) — it clears the `page_content_height <= 0.0`
+    //      guard, but `y += 1e-30` stops moving `y` as soon as the step falls below `y`'s ULP;
+    //   2. `skip_first_page(true)` with `header_height + footer_height` >= the page height —
+    //      `normal_page_height` goes negative, so `y` walks *backwards* away from `total_height`
+    //      forever.
     // The tests below stay strictly on the safe side of both, and the guarded
     // variants (0 / negative / NaN / inf / f32::MAX heights, and an oversized
     // header WITHOUT skip_first_page) are asserted instead.
@@ -1448,8 +1450,8 @@ mod autotest_generated {
         assert_eq!(pages.len(), 1, "continuous media is never paginated");
         assert!(
             !pages[0].items.is_empty(),
-            "painted divs must produce display-list items — the rest of this \
-             module's page-count assertions depend on it"
+            "painted divs must produce display-list items — the rest of this module's page-count \
+             assertions depend on it"
         );
     }
 
@@ -1503,8 +1505,8 @@ mod autotest_generated {
         assert_eq!(
             pages.len(),
             1,
-            "a page of height 0 cannot be filled — the slicer must bail out to \
-             a single unpaginated page instead of dividing by zero"
+            "a page of height 0 cannot be filled — the slicer must bail out to a single \
+             unpaginated page instead of dividing by zero"
         );
     }
 
@@ -1554,8 +1556,8 @@ mod autotest_generated {
         assert_eq!(
             pages.len(),
             1,
-            "a NaN page height cannot advance the break cursor, so the whole \
-             document must stay on one page (and the break sort must not see a NaN)"
+            "a NaN page height cannot advance the break cursor, so the whole document must stay \
+             on one page (and the break sort must not see a NaN)"
         );
     }
 
@@ -1713,8 +1715,8 @@ mod autotest_generated {
         assert_eq!(
             pages.len(),
             1,
-            "no content fits once the header/footer exceed the page — one page, not zero, \
-             not an unbounded number"
+            "no content fits once the header/footer exceed the page — one page, not zero, not an \
+             unbounded number"
         );
     }
 
@@ -1731,8 +1733,8 @@ mod autotest_generated {
 
         assert!(
             pages.len() >= 2,
-            "1000px of content on 300px pages (260px usable after the first) must \
-             paginate, got {} page(s)",
+            "1000px of content on 300px pages (260px usable after the first) must paginate, got \
+             {} page(s)",
             pages.len()
         );
     }
@@ -1809,8 +1811,8 @@ mod autotest_generated {
         assert_eq!(
             reused.len(),
             cold,
-            "a cache warmed on a 2-div document produced {} page(s) for the 9-div \
-             document, but a cold cache produces {}",
+            "a cache warmed on a 2-div document produced {} page(s) for the 9-div document, but a \
+             cold cache produces {}",
             reused.len(),
             cold
         );
@@ -1945,8 +1947,7 @@ mod autotest_generated {
         );
         assert_eq!(
             continuous_cache.calculated_positions, paged_cache.calculated_positions,
-            "fragmentation must not move nodes — pages are sliced from the same \
-             continuous canvas"
+            "fragmentation must not move nodes — pages are sliced from the same continuous canvas"
         );
     }
 
@@ -2516,8 +2517,10 @@ where
     use crate::solver3::break_token::{token_fingerprint, BreakToken};
     let mut laid_out: usize = 0;
     let mut converged_at: Option<usize> = None;
-    use crate::solver3::cache::{calculate_layout_for_subtree_fragment, ComputeMode};
-    use crate::solver3::fc::FragmentainerSpace;
+    use crate::solver3::{
+        cache::{calculate_layout_for_subtree_fragment, ComputeMode},
+        fc::FragmentainerSpace,
+    };
 
     // 1. Build the tree + shape text once via a CONTINUOUS pass (the page
     // loop re-descends this structure; fonts resolve the same way the
@@ -2611,7 +2614,7 @@ where
         let mut ctx = LayoutContext {
             style_cache: Default::default(),
             virtual_view_sizes: None,
-        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,

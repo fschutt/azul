@@ -43,9 +43,9 @@ fn sample_html(paragraphs: usize) -> String {
     );
     for i in 0..paragraphs {
         s.push_str(&format!(
-            "<p>Paragraph number {i}: lorem ipsum dolor sit amet, consectetur \
-             adipiscing elit, sed do eiusmod tempor incididunt ut labore et \
-             dolore magna aliqua nostrud exercitation.</p>\n"
+            "<p>Paragraph number {i}: lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+             sed do eiusmod tempor incididunt ut labore et dolore magna aliqua nostrud \
+             exercitation.</p>\n"
         ));
     }
     s.push_str("</body></html>");
@@ -135,8 +135,8 @@ fn paginate_with(
 fn build_profile_banner() {
     if cfg!(debug_assertions) {
         eprintln!(
-            "[perf] *** DEBUG BUILD - these numbers are NOT the shipped cost. \
-             Re-run with --release before drawing any conclusion. ***"
+            "[perf] *** DEBUG BUILD - these numbers are NOT the shipped cost. Re-run with \
+             --release before drawing any conclusion. ***"
         );
     }
 }
@@ -188,8 +188,7 @@ fn pagination_phase_breakdown() {
     let events = azul_layout::probe::Probe::drain();
     if events.is_empty() {
         eprintln!(
-            "[perf] no probe events - rerun with `--features probe` to get the \
-             phase breakdown"
+            "[perf] no probe events - rerun with `--features probe` to get the phase breakdown"
         );
         return;
     }
@@ -284,9 +283,8 @@ fn changing_the_font_family_still_resolves_after_the_skip() {
         .collect();
     assert!(
         mono_keys.iter().any(|f| f == "Liberation Mono"),
-        "a NEW font family must still resolve after the skip was armed — \
-         otherwise the skip is a gate that starves changed fonts. Got \
-         {mono_keys:?}"
+        "a NEW font family must still resolve after the skip was armed — otherwise the skip is a \
+         gate that starves changed fonts. Got {mono_keys:?}"
     );
 
     // Negative control: paginating the SAME document again must NOT change
@@ -300,7 +298,7 @@ fn changing_the_font_family_still_resolves_after_the_skip() {
     );
     assert!(
         before.is_some(),
-        "the signature must be RECORDED (the plain setter clears it, which \
-         is what defeated the skip before)"
+        "the signature must be RECORDED (the plain setter clears it, which is what defeated the \
+         skip before)"
     );
 }

@@ -4,31 +4,28 @@
 //! Both were written after a day in which three separate bugs had this exact
 //! shape and none of them produced a warning anywhere:
 //!
-//! - `rust_fontconfig::save_to_disk_cache()` had ZERO callers. The font cache
-//!   was therefore never written and every launch re-scanned ~370 system fonts
-//!   (186 ms) instead of loading a manifest (10-20 ms).
-//! - `azul_dll::unified::map::map_widget_dom` had zero callers while
-//!   documenting itself as "the single entry point the FFI `MapWidget::dom()`
-//!   shims to". api.json bound `MapWidget.dom` to the azul-layout PLACEHOLDER
-//!   instead, so on every desktop platform the map panned and never painted a
-//!   single tile.
-//! - `video_widget_dom` was the same bug, one widget over: the video widget
-//!   rendered its built-in test pattern forever and never decoded anything.
+//! - `rust_fontconfig::save_to_disk_cache()` had ZERO callers. The font cache was therefore never
+//!   written and every launch re-scanned ~370 system fonts (186 ms) instead of loading a manifest
+//!   (10-20 ms).
+//! - `azul_dll::unified::map::map_widget_dom` had zero callers while documenting itself as "the
+//!   single entry point the FFI `MapWidget::dom()` shims to". api.json bound `MapWidget.dom` to the
+//!   azul-layout PLACEHOLDER instead, so on every desktop platform the map panned and never painted
+//!   a single tile.
+//! - `video_widget_dom` was the same bug, one widget over: the video widget rendered its built-in
+//!   test pattern forever and never decoded anything.
 //!
 //! A compiler cannot see any of this. `pub` silences dead-code analysis, and
 //! the binding that decides which function ships is a STRING in api.json.
 //!
 //! ## What is checked
 //!
-//! 1. [`orphaned_wiring_functions`] — the specific shape. A widget whose worker
-//!    cannot live in azul-layout (it drags a dependency tree the mobile builds
-//!    must not carry) gets a `*_widget_dom` wiring function in azul-dll. If
-//!    api.json does not route that widget's `dom` through it, the widget ships
-//!    inert.
-//! 2. [`unreferenced_public_fns`] — the general shape, in the spirit of Go's
-//!    unused-symbol error. A `pub fn` under the dll's integration modules that
-//!    nothing in the workspace mentions is either dead or unwired; both are
-//!    worth a human deciding about.
+//! 1. [`orphaned_wiring_functions`] — the specific shape. A widget whose worker cannot live in
+//!    azul-layout (it drags a dependency tree the mobile builds must not carry) gets a
+//!    `*_widget_dom` wiring function in azul-dll. If api.json does not route that widget's `dom`
+//!    through it, the widget ships inert.
+//! 2. [`unreferenced_public_fns`] — the general shape, in the spirit of Go's unused-symbol error. A
+//!    `pub fn` under the dll's integration modules that nothing in the workspace mentions is either
+//!    dead or unwired; both are worth a human deciding about.
 
 use std::{collections::BTreeSet, path::Path};
 
@@ -151,9 +148,9 @@ pub fn orphaned_wiring_functions(root: &Path) -> Vec<Orphan> {
                     line: i + 1,
                     symbol: name.clone(),
                     why: format!(
-                        "api.json never routes a widget's `dom` through `{name}`, so the \
-                         widget ships wired to azul-layout's placeholder: it renders and \
-                         then never receives data, silently, on every platform"
+                        "api.json never routes a widget's `dom` through `{name}`, so the widget \
+                         ships wired to azul-layout's placeholder: it renders and then never \
+                         receives data, silently, on every platform"
                     ),
                 });
             }
@@ -221,9 +218,9 @@ pub fn unreferenced_public_fns(root: &Path) -> Vec<Orphan> {
                     line: i + 1,
                     symbol: name.clone(),
                     why: format!(
-                        "`{name}` is public and nothing in the workspace or api.json calls \
-                         it — either wire it up or delete it (`pub` silences the compiler's \
-                         dead-code check, so this is the only place it can be caught)"
+                        "`{name}` is public and nothing in the workspace or api.json calls it — \
+                         either wire it up or delete it (`pub` silences the compiler's dead-code \
+                         check, so this is the only place it can be caught)"
                     ),
                 });
             }
@@ -266,8 +263,8 @@ mod tests {
         }
         assert!(
             found.is_empty(),
-            "{} unreferenced public fn(s) not in doc/orphan_allowlist.txt. Wire them \
-             up, delete them, or add them to the allowlist WITH a reason.",
+            "{} unreferenced public fn(s) not in doc/orphan_allowlist.txt. Wire them up, delete \
+             them, or add them to the allowlist WITH a reason.",
             found.len()
         );
     }

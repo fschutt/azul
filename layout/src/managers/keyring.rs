@@ -3,12 +3,11 @@
 //!
 //! Request-driven, mirroring [`crate::managers::biometric`]:
 //!
-//! - A **callback** calls `CallbackInfo::keyring_store/get/delete(...)`,
-//!   which parks a [`KeyringRequest`] in the request channel.
-//! - The dll **layout pass** drains it and dispatches to the platform
-//!   backend (`dll::desktop::extra::keyring`) — Keychain / `KeyStore` /
-//!   libsecret / `CredentialLocker`. A biometry-bound `Get` shows the OS
-//!   prompt; the outcome is parked in the result channel.
+//! - A **callback** calls `CallbackInfo::keyring_store/get/delete(...)`, which parks a
+//!   [`KeyringRequest`] in the request channel.
+//! - The dll **layout pass** drains it and dispatches to the platform backend
+//!   (`dll::desktop::extra::keyring`) — Keychain / `KeyStore` / libsecret / `CredentialLocker`. A
+//!   biometry-bound `Get` shows the OS prompt; the outcome is parked in the result channel.
 //! - The layout pass folds the latest result into the manager via
 //!   [`KeyringManager::set_last_result`]; callbacks read it with
 //!   `CallbackInfo::get_keyring_result()`.
@@ -23,12 +22,11 @@ use alloc::vec::Vec;
 // FFI without a cyclic dep on `azul-layout`. Re-exported for the existing
 // `azul_layout::managers::keyring::*` import paths.
 pub use azul_core::keyring::{KeyringRequest, KeyringResult};
-
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
 };
-use azul_core::task::Instant;
 
 /// Cross-platform keyring state. One per `App` — the OS keyring is a
 /// per-process (per-app-identity) store, not per-window.
@@ -167,8 +165,9 @@ pub fn drain_keyring_results() -> Vec<KeyringResult> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_css::AzString;
+
+    use super::*;
 
     #[test]
     fn manager_defaults_to_no_result() {
@@ -256,8 +255,9 @@ mod tests {
 
 #[cfg(test)]
 mod pump_provider_tests {
-    use super::*;
     use azul_core::task::{Instant, SystemTick};
+
+    use super::*;
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))

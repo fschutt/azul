@@ -13,8 +13,10 @@
 //! deleted (2026-07-13). What remains here is the stateless conversion into the
 //! public `DragState` API, which is built on demand from the live `DragContext`.
 
-use azul_core::dom::{DomNodeId, OptionDomNodeId};
-use azul_core::drag::{ActiveDragType, DragContext};
+use azul_core::{
+    dom::{DomNodeId, OptionDomNodeId},
+    drag::{ActiveDragType, DragContext},
+};
 use azul_css::{impl_option, impl_option_inner, OptionString};
 
 /// Type of drag operation

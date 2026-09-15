@@ -344,7 +344,7 @@ stage_binding_syntax() {
     "zig|zig ast-check $tmp/p.zig|zig ast-check $gen/azul.zig"
     "go|gofmt -e $tmp/p.go|gofmt -e $gen/go"
     "c|gcc -fsyntax-only -x c $tmp/p.c|gcc -fsyntax-only -x c $gen/azul.h"
-    "fortran|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $tmp/p.f90|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $gen/azul.f90"
+    "fortran|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $tmp/p.f90|gfortran -fsyntax-only -ffree-line-length-none -J$tmp \$(sed \"s|^|$gen/fortran/|\" $gen/fortran/sources.txt)"
     "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
     "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
     "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
@@ -407,18 +407,18 @@ stage_binding_syntax() {
 
   # OCaml gets a full TYPE check, not a parse: `ocamlc -stop-after parsing`
   # accepted a file referencing a binding declared 42k lines later, and OCaml
-  # is order-sensitive. Only the type checker caught it.
-  if command -v ocamlfind >/dev/null 2>&1 && ocamlfind query ctypes >/dev/null 2>&1; then
+  # is order-sensitive. Only the type checker caught it. The binding is one
+  # dune library of many units (azul_*.ml behind the azul.ml facade), so the
+  # generated dune manifests drive the check and settle the compile order.
+  if command -v dune >/dev/null 2>&1 && command -v ocamlfind >/dev/null 2>&1 \
+     && ocamlfind query ctypes >/dev/null 2>&1; then
     local omldir; omldir="$(mktemp -d)"
-    cp "$gen/azul.mli" "$gen/azul.ml" "$omldir/" 2>/dev/null
-    if (cd "$omldir" \
-          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
-          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) >/dev/null 2>&1; then
+    cp "$gen"/ocaml/*.ml "$gen"/ocaml/*.mli "$gen/ocaml/dune" "$gen/ocaml/dune-project" "$omldir/" 2>/dev/null
+    if (cd "$omldir" && dune build 2>&1) >/dev/null 2>&1; then
       echo "  ocaml: ok"
     else
       echo "  ocaml: FAILED" >&2
-      (cd "$omldir" && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
-        && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) 2>&1 | head -20 >&2
+      (cd "$omldir" && dune build) 2>&1 | head -20 >&2
       rc=1
     fi
     rm -rf "$omldir"

@@ -102,7 +102,8 @@ pub enum TypeDefKind {
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
         custom_impls: Vec<String>,
-        /// True if this is a tuple struct like `struct Foo(pub u64)` instead of `struct Foo { inner: u64 }`
+        /// True if this is a tuple struct like `struct Foo(pub u64)` instead of `struct Foo {
+        /// inner: u64 }`
         is_tuple_struct: bool,
     },
     Enum {
@@ -152,8 +153,8 @@ pub enum MacroGeneratedKind {
     /// FooVecDestructorType - the callback_typedef for extern "C" fn(*mut FooVec)
     /// Generated from impl_vec! as the External variant's function pointer type
     VecDestructorType,
-    /// FooVecSlice from impl_vec!(Foo, FooVec, FooVecDestructor, FooVecDestructorType, FooVecSlice)
-    /// C-compatible slice struct with ptr and len
+    /// FooVecSlice from impl_vec!(Foo, FooVec, FooVecDestructor, FooVecDestructorType,
+    /// FooVecSlice) C-compatible slice struct with ptr and len
     VecSlice,
     /// OptionFoo from impl_option!(Foo, OptionFoo, ...)
     Option,
@@ -161,7 +162,8 @@ pub enum MacroGeneratedKind {
     OptionEnumWrapper,
     /// ResultFooBar from impl_result!(Foo, Bar, ResultFooBar, ...)
     Result,
-    /// CallbackWrapper from impl_widget_callback!(CallbackWrapper, Option, CallbackValue, CallbackType)
+    /// CallbackWrapper from impl_widget_callback!(CallbackWrapper, Option, CallbackValue,
+    /// CallbackType)
     CallbackWrapper,
     /// CallbackValue from impl_callback!(CallbackWrapper, Option, CallbackValue, CallbackType)
     CallbackValue,
@@ -470,8 +472,9 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::CallbackWrapper => {
-                        // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
-                        // CallbackType) CallbackWrapper struct: data (RefAny), callback (CallbackValue)
+                        // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper,
+                        // CallbackValue, CallbackType) CallbackWrapper
+                        // struct: data (RefAny), callback (CallbackValue)
                         // NOTE: Order matters for repr(C)! data comes first, then callback.
                         let mut fields = IndexMap::new();
                         fields.insert(
@@ -507,7 +510,8 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::CallbackValue => {
-                        // CallbackValue struct: cb (CallbackType - the extern "C" fn), callable (OptionRefAny)
+                        // CallbackValue struct: cb (CallbackType - the extern "C" fn), callable
+                        // (OptionRefAny)
                         let mut fields = IndexMap::new();
                         fields.insert(
                             "cb".to_string(),
@@ -1533,6 +1537,17 @@ fn extract_type_name(ty: &syn::Type) -> String {
 /// For pointer types (*const T, *mut T), Box<T>, and Option<Box<T>>, the type is replaced with
 /// "c_void" and the ref_kind is set appropriately. This prevents recursion through opaque pointers.
 fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
+    // `ManuallyDrop<T>` is layout-transparent: it suppresses T's destructor and
+    // changes nothing about what the field IS, so it is peeled before the
+    // pointer rules below. Without this, `ManuallyDrop<Box<X>>` fell through to
+    // the fallback as a raw type string, `autofix` proposed it into api.json,
+    // and every non-C binding then carried `ManuallyDrop<Box<X>>.by_value` as
+    // a field type (`azul.rb` failed to parse on exactly that). api.json
+    // describes these handles as `c_void` mut-pointers — which is what the
+    // `Box` rule yields once the wrapper is gone.
+    if let Some(inner) = manually_drop_inner(ty) {
+        return extract_struct_field_type(inner);
+    }
     match ty {
         syn::Type::Ptr(ptr_type) => {
             // *const T or *mut T -> type becomes "c_void", ref_kind is ConstPtr/MutPtr
@@ -1577,6 +1592,24 @@ fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
             // Any other type - extract just the type name
             (extract_type_name(ty), RefKind::Value)
         }
+    }
+}
+
+/// The `T` of a `ManuallyDrop<T>` (`core::mem::ManuallyDrop` or bare), else `None`.
+fn manually_drop_inner(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "ManuallyDrop" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+    match args.args.first()? {
+        syn::GenericArgument::Type(inner) => Some(inner),
+        _ => None,
     }
 }
 
@@ -2144,8 +2177,9 @@ fn extract_macro_generated_types(
 
         "impl_widget_callback" => {
             // impl_widget_callback! is the 4-parameter version for widget callbacks
-            // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType)
-            // Generates: CallbackWrapper (struct), OptionCallbackWrapper (option), CallbackValue (struct)
+            // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
+            // CallbackType) Generates: CallbackWrapper (struct), OptionCallbackWrapper
+            // (option), CallbackValue (struct)
             //
             // Note: impl_callback!(CallbackValue, CallbackType) is handled separately in
             // extract_custom_impls_from_items() - it only adds trait impls, not new types.
@@ -2222,7 +2256,6 @@ fn extract_macro_generated_types(
         }
 
         // // css property macros - generate wrapper structs around pixelvalue/etc.
-        //
         "define_dimension_property" => {
             // define_dimension_property!(LayoutMaxWidth, || Self { inner:
             // PixelValue::px(core::f32::MAX) }); Generates a struct with #[repr(C)] and
@@ -2463,7 +2496,8 @@ fn extract_macro_generated_types(
 
         "define_pixel_dimension_parser" => {
             // define_pixel_dimension_parser!(fn, struct, error, error_owned)
-            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned)
+            // }
             if args.len() >= 4 {
                 let error_owned_name = args[3].to_string();
                 types.push(TypeDefinition {
@@ -2503,7 +2537,8 @@ fn extract_macro_generated_types(
 
         "define_border_radius_parse_error" => {
             // define_border_radius_parse_error!(Error, ErrorOwned)
-            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned)
+            // }
             if args.len() >= 2 {
                 let error_owned_name = args[1].to_string();
                 types.push(TypeDefinition {
@@ -2543,7 +2578,8 @@ fn extract_macro_generated_types(
 
         "define_offset_parse_error" => {
             // define_offset_parse_error!(Struct, Error, ErrorOwned, parse_fn)
-            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned)
+            // }
             if args.len() >= 3 {
                 let error_owned_name = args[2].to_string();
                 types.push(TypeDefinition {
@@ -2780,8 +2816,8 @@ fn extract_macro_generated_types(
 // helpers
 /// Extract the #[repr(...)] attribute value if present.
 /// Returns (merged_repr, count) where count is the number of `#[repr(...)]` attributes found.
-/// If there are multiple repr attributes, their contents are merged (e.g. `#[repr(C)]` + `#[repr(C, u8)]` → "C, u8").
-/// A count > 1 indicates duplicate repr attributes, which is an error.
+/// If there are multiple repr attributes, their contents are merged (e.g. `#[repr(C)]` + `#[repr(C,
+/// u8)]` → "C, u8"). A count > 1 indicates duplicate repr attributes, which is an error.
 fn extract_repr_attr(attrs: &[syn::Attribute]) -> (Option<String>, usize) {
     let mut all_parts: Vec<String> = Vec::new();
     let mut count = 0usize;
@@ -2926,8 +2962,9 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
 
             // Handle impl_callback! macro (2-parameter version only)
             // impl_callback!(CallbackValue, CallbackType) - adds traits to CallbackValue
-            // Note: 4-parameter version is now impl_widget_callback! and handled in extract_macro_generated_types
-            // Note: Also implements From<CallbackType> but that's Rust-only, not exposed to C API
+            // Note: 4-parameter version is now impl_widget_callback! and handled in
+            // extract_macro_generated_types Note: Also implements From<CallbackType>
+            // but that's Rust-only, not exposed to C API
             if macro_name == "impl_callback" {
                 let tokens = m.mac.tokens.to_string();
                 let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
@@ -4337,8 +4374,8 @@ pub struct OnTextInputReturn {
                     for (i, a) in args.iter().enumerate() {
                         assert!(
                             !a.ty.starts_with('&'),
-                            "LayoutCallbackType arg[{i}] carries its reference in the TYPE \
-                             ({:?}) instead of in ref_kind ({:?})",
+                            "LayoutCallbackType arg[{i}] carries its reference in the TYPE ({:?}) \
+                             instead of in ref_kind ({:?})",
                             a.ty,
                             a.ref_kind,
                         );
@@ -4453,7 +4490,8 @@ pub struct OnTextInputReturn {
                         assert_eq!(callback_arg.name, "callback");
                         assert_eq!(
                             callback_arg.ty, "CoreCallback",
-                            "Where clause C: Into<CoreCallback> should be rewritten to 'CoreCallback', got '{}'",
+                            "Where clause C: Into<CoreCallback> should be rewritten to \
+                             'CoreCallback', got '{}'",
                             callback_arg.ty
                         );
 
@@ -4499,8 +4537,9 @@ pub struct OnTextInputReturn {
                         saw_method = true;
                         assert!(
                             extract_method_def(method, "TestType").is_none(),
-                            "`fn clone_item<T: Clone>` has a generic that is not an Into<T> bound, \
-                             so it cannot be exported to the C API and must not be extracted",
+                            "`fn clone_item<T: Clone>` has a generic that is not an Into<T> \
+                             bound, so it cannot be exported to the C API and must not be \
+                             extracted",
                         );
                     }
                 }
@@ -4548,5 +4587,56 @@ pub struct OnTextInputReturn {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod opaque_handle_fields {
+    //! The struct-field mapper's treatment of opaque handles. Pinned because the
+    //! gap it closes reached api.json through `autofix` and broke every non-C
+    //! binding, and nothing else in the pipeline checks the mapper on its own.
+    use super::*;
+
+    fn map(src: &str) -> (String, RefKind) {
+        extract_struct_field_type(&syn::parse_str::<syn::Type>(src).expect("a valid type"))
+    }
+
+    fn is_c_void(res: &(String, RefKind), kind: RefKind) -> bool {
+        res.0 == "c_void" && res.1 == kind
+    }
+
+    #[test]
+    fn manually_drop_box_is_an_opaque_mut_pointer() {
+        // The three fields that leaked into api.json as raw Rust types, plus the
+        // fully-qualified spelling.
+        for src in [
+            "ManuallyDrop<Box<IconProviderInner>>",
+            "ManuallyDrop<Box<CssPropertyCache>>",
+            "ManuallyDrop<Box<Rc<GlContextPtrInner>>>",
+            "core::mem::ManuallyDrop<Box<X>>",
+        ] {
+            let res = map(src);
+            assert!(
+                is_c_void(&res, RefKind::MutPtr),
+                "{src} mapped to {:?}",
+                res.0
+            );
+        }
+    }
+
+    #[test]
+    fn the_pointer_rules_are_unchanged() {
+        assert!(is_c_void(&map("Box<X>"), RefKind::MutPtr));
+        assert!(is_c_void(&map("Option<Box<X>>"), RefKind::MutPtr));
+        assert!(is_c_void(&map("*mut X"), RefKind::MutPtr));
+        assert!(is_c_void(&map("*const X"), RefKind::ConstPtr));
+    }
+
+    #[test]
+    fn a_manually_drop_value_is_still_its_inner_type() {
+        // Peeling the wrapper must not turn a by-value field into a pointer.
+        let res = map("ManuallyDrop<Foo>");
+        assert_eq!(res.0, "Foo");
+        assert!(res.1 == RefKind::Value);
     }
 }

@@ -8,18 +8,22 @@
 //! `require_biometry` has no libsecret equivalent (the secret-service has no
 //! per-item biometric gate) — stored normally, the flag ignored.
 
-use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
-use std::ptr;
-use std::sync::OnceLock;
+use std::{
+    ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
+    ptr,
+    sync::OnceLock,
+};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
 use azul_layout::managers::keyring::push_keyring_result;
 
-use crate::desktop::shell2::common::{
-    dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+use crate::{
+    desktop::shell2::{
+        common::{dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait},
+        linux::x11::dlopen::Library,
+    },
+    load_symbol,
 };
-use crate::desktop::shell2::linux::x11::dlopen::Library;
-use crate::load_symbol;
 
 const SERVICE: &str = "com.azul.keyring";
 
@@ -138,8 +142,8 @@ fn lib() -> Option<&'static SecretLib> {
             // errors + install suggestion) — it was discarded by .ok() and
             // every keyring call just reported Unavailable.
             crate::plog_warn!(
-                "[keyring] libsecret/libglib not loadable ({}) — keyring \
-                 unavailable for this process",
+                "[keyring] libsecret/libglib not loadable ({}) — keyring unavailable for this \
+                 process",
                 e
             );
             None

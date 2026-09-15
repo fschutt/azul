@@ -14,24 +14,27 @@
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
 use azul_core::{
-    callbacks::Update,
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
+    dom::Dom,
     refany::RefAny,
     task::{ThreadId, ThreadReceiver},
 };
 use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
-use crate::callbacks::CallbackInfo;
-use crate::telemetry::CrashDump;
-use crate::thread::{
-    Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
-    WriteBackCallbackType,
+use crate::{
+    callbacks::CallbackInfo,
+    telemetry::CrashDump,
+    thread::{
+        Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallbackType,
+    },
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType},
+        text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState},
+        text_input::{OnTextInputReturn, TextInputValid},
+    },
 };
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use crate::widgets::text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState};
-use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
-use azul_core::dom::Dom;
 
 /// Where the submission currently is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,7 +250,8 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
             }
             if snapshot.can_mail {
                 children.push(Dom::create_p_with_text(
-                    "You can send this report to the developers. Nothing is sent until you press Send.",
+                    "You can send this report to the developers. Nothing is sent until you press \
+                     Send.",
                 ));
                 children.push(
                     TextArea::create()

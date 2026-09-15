@@ -2,11 +2,8 @@
 //!
 //! Provides a ZipFile struct for reading/writing ZIP archives.
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{format, string::String, vec::Vec};
 use core::fmt;
-
 #[cfg(feature = "std")]
 use std::path::Path;
 
@@ -425,6 +422,7 @@ impl ZipFile {
     /// Returns a `ZipWriteError` if the archive cannot be built or written.
     pub fn to_bytes(&self, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
         use std::io::{Cursor, Write};
+
         use zip::write::SimpleFileOptions;
 
         let buffer = Vec::new();

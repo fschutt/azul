@@ -3,15 +3,13 @@
 //! off => hinting ppem 0) process-wide before the first glyph is rendered,
 //! which must not leak into the shared `all` binary.
 //!
-//! - A. An incremental repaint of the CARET BAND (1 logical px wide, the
-//!   damage a caret move / blink produces) must be pixel-identical to a full
-//!   repaint. The LCD per-glyph cull used the HINTING ppem as its ink bound;
-//!   with hinting off that bound is 0, and every glyph whose pen sat left of
-//!   the band was dropped - a white notch through the text at every caret
-//!   position, cut runs, stray glyphs.
-//! - B. The caret paints OVER the text: emitted before the glyphs, an opaque
-//!   LCD pre-blended tile erased the caret segment inside the last glyph's
-//!   box.
+//! - A. An incremental repaint of the CARET BAND (1 logical px wide, the damage a caret move /
+//!   blink produces) must be pixel-identical to a full repaint. The LCD per-glyph cull used the
+//!   HINTING ppem as its ink bound; with hinting off that bound is 0, and every glyph whose pen sat
+//!   left of the band was dropped - a white notch through the text at every caret position, cut
+//!   runs, stray glyphs.
+//! - B. The caret paints OVER the text: emitted before the glyphs, an opaque LCD pre-blended tile
+//!   erased the caret segment inside the last glyph's box.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -58,8 +56,8 @@ struct Harness {
 
 impl Harness {
     fn new(width: f32, height: f32, text: &str) -> Self {
-        let mut dom =
-            Dom::create_body().with_child(TextInput::create().with_text(AzString::from(text)).dom());
+        let mut dom = Dom::create_body()
+            .with_child(TextInput::create().with_text(AzString::from(text)).dom());
         let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
         lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
@@ -107,12 +105,9 @@ impl Harness {
         self.lw
             .focus_manager
             .set_focused_node(Some(dnid(CONTAINER)));
-        self.lw.text_edit_manager.initialize_editing(
-            end,
-            DomId::ROOT_ID,
-            NodeId::new(LABEL_P),
-            0,
-        );
+        self.lw
+            .text_edit_manager
+            .initialize_editing(end, DomId::ROOT_ID, NodeId::new(LABEL_P), 0);
         self.lw.text_edit_manager.blink.set_visibility(true);
         self.lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
     }
@@ -196,8 +191,8 @@ fn a_caret_band_repaint_is_pixel_identical_to_a_full_repaint() {
     let diff = pixel_diff_count(&incremental, &full);
     assert_eq!(
         diff, 0,
-        "repainting the caret band must reproduce the full frame; {diff} px differ \
-         (caret rect {caret_rect:?})"
+        "repainting the caret band must reproduce the full frame; {diff} px differ (caret rect \
+         {caret_rect:?})"
     );
 }
 
@@ -228,6 +223,7 @@ fn the_caret_paints_over_the_last_glyph() {
     }
     assert!(
         wrong.is_empty(),
-        "caret column x={cx} must be the caret colour on every row {y0}..{y1}; wrong rows: {wrong:?}"
+        "caret column x={cx} must be the caret colour on every row {y0}..{y1}; wrong rows: \
+         {wrong:?}"
     );
 }

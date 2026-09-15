@@ -18,7 +18,8 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 fn layout_with(insets: SafeAreaInsets, extend: bool) -> LayoutWindow {
-    let (css, _) = azul_css::parser2::new_from_str("body { margin: 0; width: 100%; height: 100%; }");
+    let (css, _) =
+        azul_css::parser2::new_from_str("body { margin: 0; width: 100%; height: 100%; }");
     let mut dom = Dom::create_body().with_child(Dom::create_div());
     let styled_dom = StyledDom::create(&mut dom, css);
     let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -72,7 +73,11 @@ fn the_root_is_inset_by_the_safe_area_by_default() {
     let r = root_rect(&w);
     assert_eq!(r.origin.y, 44.0, "pushed below the status bar / notch");
     assert_eq!(r.origin.x, 0.0);
-    assert_eq!(r.size.height, 800.0 - 44.0 - 34.0, "and shortened above the home indicator");
+    assert_eq!(
+        r.size.height,
+        800.0 - 44.0 - 34.0,
+        "and shortened above the home indicator"
+    );
     assert_eq!(r.size.width, 1280.0);
 }
 

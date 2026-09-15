@@ -20,13 +20,15 @@
 
 use alloc::vec::Vec;
 
-use azul_core::callbacks::Update;
-use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::{ImageRef, RawImageFormat};
-use azul_core::screencap::{ScreenCaptureConfig, ScreenCaptureSource};
-use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
-use azul_core::video::{FrameConsumer, FrameConsumerVec};
+use azul_core::{
+    callbacks::Update,
+    dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter},
+    refany::{OptionRefAny, RefAny},
+    resources::{ImageRef, RawImageFormat},
+    screencap::{ScreenCaptureConfig, ScreenCaptureSource},
+    task::{ThreadId, ThreadReceiver, ThreadSendMsg},
+    video::{FrameConsumer, FrameConsumerVec},
+};
 use azul_css::AzString;
 
 use super::capture_common::{
@@ -35,8 +37,10 @@ use super::capture_common::{
     CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
     OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
-use crate::callbacks::{Callback, CallbackInfo, CallbackType};
-use crate::thread::{Thread, ThreadCallback, ThreadSender};
+use crate::{
+    callbacks::{Callback, CallbackInfo, CallbackType},
+    thread::{Thread, ThreadCallback, ThreadSender},
+};
 
 /// Init data handed to the capture worker thread.
 struct ScreencapThreadInit {
@@ -365,7 +369,13 @@ extern "C" fn screencap_writeback(
                     AzString::from_const_str(""),
                 )
             },
-            |s| (s.on_frame.clone(), s.on_consumer_frame.clone(), s.marker.clone()),
+            |s| {
+                (
+                    s.on_frame.clone(),
+                    s.on_consumer_frame.clone(),
+                    s.marker.clone(),
+                )
+            },
         );
     let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
         return Update::DoNothing;
@@ -1340,8 +1350,8 @@ mod autotest_generated {
         assert_eq!(unit, text, "a foreign init must not change the frames");
         assert_eq!(
             unit, widget_state,
-            "even a full widget state (fps = u32::MAX, R8) must not change the \
-             test pattern - it is hard-coded"
+            "even a full widget state (fps = u32::MAX, R8) must not change the test pattern - it \
+             is hard-coded"
         );
     }
 
@@ -1521,8 +1531,8 @@ mod autotest_generated {
                 assert_eq!(texture, Some(11), "the texture id must not be corrupted");
             }
             Err(_) => eprintln!(
-                "NOTE: screencap_writeback panicked (usize overflow of width*height*4) for a \
-                 2^31 x 2^31 frame - a malformed capture backend can take the process down"
+                "NOTE: screencap_writeback panicked (usize overflow of width*height*4) for a 2^31 \
+                 x 2^31 frame - a malformed capture backend can take the process down"
             ),
         }
     }
@@ -1611,8 +1621,8 @@ mod autotest_generated {
         assert_eq!(
             texture,
             Some(1),
-            "merge must hand back the OLD allocation — the one live capture \
-             backends hold a clone of"
+            "merge must hand back the OLD allocation — the one live capture backends hold a clone \
+             of"
         );
     }
 

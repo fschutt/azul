@@ -33,6 +33,11 @@ pub(super) fn alloc_menu_tags(count: isize) -> isize {
 ///
 /// No actual instance data is needed — the struct exists solely to satisfy
 /// the `#[ivars = ...]` requirement of the `define_class!` macro.
+///
+/// Stays `pub`: `define_class!` names it in the generated class's public
+/// interface, so the `unreachable_pub` suggestion (`pub(crate)`) turns into
+/// E0446 "crate-private type in public interface".
+#[allow(unreachable_pub)]
 pub struct AzulMenuTargetIvars {
     _private: u8,
 }
@@ -107,7 +112,7 @@ define_class!(
 
 impl AzulMenuTarget {
     /// Create a new AzulMenuTarget instance
-    pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
+    pub(crate) fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = mtm.alloc::<Self>();
         let this = this.set_ivars(AzulMenuTargetIvars { _private: 0 });
         unsafe { msg_send_id![super(this), init] }
@@ -117,7 +122,7 @@ impl AzulMenuTarget {
     ///
     /// All menu items use the same target instance to reduce memory overhead
     /// and simplify the notification dispatch system.
-    pub fn shared_instance(mtm: MainThreadMarker) -> Retained<Self> {
+    pub(crate) fn shared_instance(mtm: MainThreadMarker) -> Retained<Self> {
         thread_local! {
             static SHARED: RefCell<Option<Retained<AzulMenuTarget>>> = const { RefCell::new(None) };
         }
@@ -135,7 +140,7 @@ impl AzulMenuTarget {
 /// Get all pending menu actions and clear the queue
 ///
 /// This should be called from the event loop to process menu callbacks
-pub fn take_pending_menu_actions() -> Vec<isize> {
+pub(crate) fn take_pending_menu_actions() -> Vec<isize> {
     PENDING_MENU_ACTIONS
         .lock()
         .map(|mut queue| std::mem::take(&mut *queue))
@@ -148,7 +153,7 @@ pub fn take_pending_menu_actions() -> Vec<isize> {
 /// window polls first (the global drain invoked callbacks on the WRONG
 /// window when tags collided). The queue is capped so tags whose window
 /// closed can't accumulate forever.
-pub fn take_pending_menu_actions_matching(owns: impl Fn(isize) -> bool) -> Vec<isize> {
+pub(crate) fn take_pending_menu_actions_matching(owns: impl Fn(isize) -> bool) -> Vec<isize> {
     PENDING_MENU_ACTIONS
         .lock()
         .map(|mut queue| {
@@ -170,7 +175,7 @@ pub fn take_pending_menu_actions_matching(owns: impl Fn(isize) -> bool) -> Vec<i
 }
 
 /// Menu state tracking for diff-based updates
-pub struct MenuState {
+pub(crate) struct MenuState {
     /// Current menu hash
     current_hash: u64,
     /// The NSMenu instance
@@ -182,7 +187,7 @@ pub struct MenuState {
 }
 
 impl MenuState {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             current_hash: 0,
             ns_menu: None,
@@ -192,7 +197,7 @@ impl MenuState {
     }
 
     /// Update menu if hash changed, returns true if menu was recreated
-    pub fn update_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
+    pub(crate) fn update_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
         let new_hash = menu.get_hash();
 
         if new_hash != self.current_hash {
@@ -216,7 +221,7 @@ impl MenuState {
     /// (macOS requires the first submenu of the main menu to be the application
     /// menu), followed by the user's `menu_bar` items. Item callbacks are allocated
     /// through the same `next_tag` counter as context menus so tags never collide.
-    pub fn update_menubar_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
+    pub(crate) fn update_menubar_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
         let new_hash = menu.get_hash();
 
         if new_hash != self.current_hash {
@@ -232,12 +237,12 @@ impl MenuState {
     }
 
     /// Get the current NSMenu (if any)
-    pub fn get_nsmenu(&self) -> Option<&Retained<NSMenu>> {
+    pub(crate) fn get_nsmenu(&self) -> Option<&Retained<NSMenu>> {
         self.ns_menu.as_ref()
     }
 
     /// Look up callback for a command tag
-    pub fn get_callback_for_tag(&self, tag: isize) -> Option<&azul_core::menu::CoreMenuCallback> {
+    pub(crate) fn get_callback_for_tag(&self, tag: isize) -> Option<&azul_core::menu::CoreMenuCallback> {
         self.command_map.get(&tag)
     }
 
@@ -249,25 +254,25 @@ impl MenuState {
     /// this — asking `get_callback_for_tag(t).is_some()` would work too, but
     /// only for items that HAVE a callback, so a separator or a callback-less
     /// parent would leak into another owner's drain.
-    pub fn known_tags(&self) -> impl Iterator<Item = isize> + '_ {
+    pub(crate) fn known_tags(&self) -> impl Iterator<Item = isize> + '_ {
         self.command_map.keys().copied()
     }
 
     /// Register a callback and return a unique tag for it
     /// Used by context menus to register callbacks dynamically
-    pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {
+    pub(crate) fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {
         let tag = alloc_menu_tags(1);
         self.command_map.insert(tag, callback);
         tag
     }
 
     /// Get the current next_tag value (for external callers that build menus)
-    pub fn next_tag(&self) -> isize {
+    pub(crate) fn next_tag(&self) -> isize {
         self.next_tag
     }
 
     /// Merge externally-built callbacks into this state and advance the tag counter
-    pub fn merge_callbacks(
+    pub(crate) fn merge_callbacks(
         &mut self,
         callbacks: HashMap<isize, azul_core::menu::CoreMenuCallback>,
         new_next_tag: isize,

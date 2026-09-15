@@ -17,16 +17,14 @@
 //! synchronously:
 //!   1. Decodes the event bytes.
 //!   2. Hit-tests in WASM against the App's StyledDom.
-//!   3. Identifies the user-callback fn-ptr stored on the matching
-//!      node.
-//!   4. Calls back to JS via the imported `__az_resolve_callback`
-//!      to translate that fn-ptr to a `WebAssembly.Table` index.
-//!   5. `call_indirect(idx, refany_lo, refany_hi, info_ptr)` →
-//!      gets the user's `Update` result.
-//!   6. If `Update::RefreshDom`: invokes layout callback + diffs
-//!      against the old StyledDom + emits TLV patches.
-//!   7. Writes the patch byte-stream length to `*out_len_ptr` and
-//!      returns the patch buffer's wasm address.
+//!   3. Identifies the user-callback fn-ptr stored on the matching node.
+//!   4. Calls back to JS via the imported `__az_resolve_callback` to translate that fn-ptr to a
+//!      `WebAssembly.Table` index.
+//!   5. `call_indirect(idx, refany_lo, refany_hi, info_ptr)` → gets the user's `Update` result.
+//!   6. If `Update::RefreshDom`: invokes layout callback + diffs against the old StyledDom + emits
+//!      TLV patches.
+//!   7. Writes the patch byte-stream length to `*out_len_ptr` and returns the patch buffer's wasm
+//!      address.
 //!
 //! JS owns the addr→table mapping (it pre-instantiated all per-cb
 //! WASMs at bootstrap and put each in its table slot). WASM owns
@@ -47,16 +45,19 @@
 //! storing it in a `static EVENTLOOP_PTR`. JS threads the pointer
 //! back through every subsequent call.
 
-use std::alloc::{alloc, dealloc, Layout};
-use std::collections::BTreeMap;
-use std::ffi::c_void;
-use std::sync::atomic::AtomicUsize;
+use std::{
+    alloc::{alloc, dealloc, Layout},
+    collections::BTreeMap,
+    ffi::c_void,
+    sync::atomic::AtomicUsize,
+};
 
-use azul_core::dom::Dom;
-use azul_core::refany::{RefAny, RefCount, RefCountInner};
-use azul_core::styled_dom::StyledDom;
-use azul_css::AzString;
-use azul_css::css::Css;
+use azul_core::{
+    dom::Dom,
+    refany::{RefAny, RefCount, RefCountInner},
+    styled_dom::StyledDom,
+};
+use azul_css::{css::Css, AzString};
 
 /// WEB-LIFT FIX : the embedded fallback font, exposed at MODULE level so the
 /// transpiler can force-mirror its FULL byte range into the wasm. The lift otherwise only
@@ -123,23 +124,23 @@ pub const EVENT_BYTES_LEN: u32 = 256;
 /// `AzStartup_dispatchEvent`. Indices match azul's existing
 /// EventFilter ordering for the cases that map directly.
 pub mod event_kind {
-    pub const CLICK:      u32 = 0;
-    pub const MOUSEDOWN:  u32 = 1;
-    pub const MOUSEUP:    u32 = 2;
-    pub const MOUSEMOVE:  u32 = 3;
-    pub const DBLCLICK:   u32 = 4;
-    pub const WHEEL:      u32 = 5;
-    pub const KEYDOWN:    u32 = 6;
-    pub const KEYUP:      u32 = 7;
-    pub const FOCUSIN:    u32 = 8;
-    pub const FOCUSOUT:   u32 = 9;
-    pub const RESIZE:     u32 = 10;
-    pub const SCROLL:     u32 = 11;
+    pub const CLICK: u32 = 0;
+    pub const MOUSEDOWN: u32 = 1;
+    pub const MOUSEUP: u32 = 2;
+    pub const MOUSEMOVE: u32 = 3;
+    pub const DBLCLICK: u32 = 4;
+    pub const WHEEL: u32 = 5;
+    pub const KEYDOWN: u32 = 6;
+    pub const KEYUP: u32 = 7;
+    pub const FOCUSIN: u32 = 8;
+    pub const FOCUSOUT: u32 = 9;
+    pub const RESIZE: u32 = 10;
+    pub const SCROLL: u32 = 11;
     // S1 — non-bubbling pointer events routed by DOM target,
     // plus right-click. Mirrors azul HoverEventFilter::MouseEnter /
     // MouseLeave / RightMouseUp.
-    pub const MOUSEENTER:  u32 = 12;
-    pub const MOUSELEAVE:  u32 = 13;
+    pub const MOUSEENTER: u32 = 12;
+    pub const MOUSELEAVE: u32 = 13;
     pub const CONTEXTMENU: u32 = 14;
 }
 
@@ -147,19 +148,19 @@ pub mod event_kind {
 /// `DataView.setUint32/Float32(off, val, /*LE=*/ true)`. Per-kind
 /// extras live past `MODIFIERS`.
 pub mod event_offset {
-    pub const NODE_IDX:      u32 = 0;
-    pub const X:             u32 = 4;
-    pub const Y:             u32 = 8;
+    pub const NODE_IDX: u32 = 0;
+    pub const X: u32 = 4;
+    pub const Y: u32 = 8;
     pub const BUTTON_OR_KEY: u32 = 12;
-    pub const MODIFIERS:     u32 = 16;
+    pub const MODIFIERS: u32 = 16;
 }
 
 // =====================================================================
 // AzUpdate values (mirror dll_api_internal.rs's enum).
 // =====================================================================
 
-pub const UPDATE_DO_NOTHING:              u32 = 0;
-pub const UPDATE_REFRESH_DOM:             u32 = 1;
+pub const UPDATE_DO_NOTHING: u32 = 0;
+pub const UPDATE_REFRESH_DOM: u32 = 1;
 pub const UPDATE_REFRESH_DOM_ALL_WINDOWS: u32 = 2;
 
 /// Browser-side App state. One per page. Returned from
@@ -185,7 +186,6 @@ pub struct EventloopState {
     pub cb_fn_cache: BTreeMap<u32, u64>,
 
     // M9-3 fields ─────────────────────────────────────────────────
-
     /// WebAssembly.Table index of the lifted layout cb's wrapper
     /// `callback` export. JS sets this once via
     /// [`AzStartup_setLayoutCbTableIdx`] after instantiating
@@ -207,7 +207,6 @@ pub struct EventloopState {
     pub last_layout_status: u32,
 
     // M9-4 fields ─────────────────────────────────────────────────
-
     /// Most recently registered cb node_idx — the stub
     /// [`AzStartup_hitTest`] returns this for any (x, y) input.
     /// JS calls [`AzStartup_registerCbNode`] for each per-cb wasm
@@ -224,7 +223,6 @@ pub struct EventloopState {
     pub cb_node_kinds: [u8; 64],
 
     // M9-6 fields ─────────────────────────────────────────────────
-
     /// Wasm offset of the user-data model that the hydrated RefAny
     /// wraps. JS sets this once at hydrate time via
     /// [`AzStartup_setModelPtr`]. [`AzStartup_dispatchEvent`] reads
@@ -245,7 +243,6 @@ pub struct EventloopState {
     pub patch_buf_ptr: u32,
 
     // M11 Sprint 1 fields ─────────────────────────────────────────
-
     /// `1` once [`AzStartup_hydrateStyledDom`] has confirmed the
     /// AzDom blob at [`Self::current_dom_ptr`] is reachable +
     /// well-formed. JS calls hydrate immediately after
@@ -281,7 +278,6 @@ pub struct EventloopState {
     pub current_dom_styled_ptr: u32,
 
     // M11 Sprint 1.C / Sprint 2 fields ─────────────────────────────
-
     /// `1` once `AzStartup_solveLayout` has populated
     /// [`Self::positioned_rects_ptr`]. JS reads this to know hit-
     /// test has authoritative coordinates.
@@ -295,7 +291,6 @@ pub struct EventloopState {
     pub positioned_rects_len: u32,
 
     // M11 Sprint 5 fields ──────────────────────────────────────────
-
     /// Per-state auto-virtualize threshold (Default
     /// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`]). `0` disables. JS can
     /// override via `AzStartup_setAutoVirtualizeThreshold`.
@@ -306,7 +301,6 @@ pub struct EventloopState {
     pub virtual_view_provider_table_idx: u32,
 
     // S1 input-event fields ──────────────────────────
-
     /// node_idx of the currently focused node (`u32::MAX` = none).
     /// Updated by FOCUSIN/FOCUSOUT dispatches; KEYDOWN/KEYUP route
     /// here when set, else broadcast to kind-registered nodes.
@@ -523,11 +517,7 @@ extern "C" fn hydrate_noop_destructor(_ptr: *mut c_void) {}
 /// silent fallback to the raw-bytes path, which would resurrect exactly the
 /// corruption this exists to avoid.
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_hydrateJson(
-    state: u32,
-    json_ptr: u32,
-    json_len: u32,
-) -> u32 {
+pub unsafe extern "C" fn AzStartup_hydrateJson(state: u32, json_ptr: u32, json_len: u32) -> u32 {
     if state == 0 || json_ptr == 0 || json_len == 0 {
         return 0;
     }
@@ -643,10 +633,7 @@ pub unsafe extern "C" fn AzStartup_hydrate(
 /// being called before init — in which case the call is a no-op
 /// and the deserializer setting is lost).
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
-    state: u32,
-    fn_addr: u64,
-) {
+pub unsafe extern "C" fn AzStartup_registerStateDeserializer(state: u32, fn_addr: u64) {
     if state == 0 {
         return;
     }
@@ -741,8 +728,8 @@ pub unsafe extern "C" fn AzStartup_setRefAny(state: u32, refany_ptr: u32) {
 ///   * `3`   — `refany_ptr` is 0 (JS didn't hydrate or didn't call setter)
 ///   * `4`   — `AzStartup_buildLayoutInfo` returned 0 (bump alloc failure)
 ///   * `5`   — destination buffer alloc failure
-///   * `100..=199` — layout cb itself returned non-zero status; the
-///     low byte is the cb's status code (cb status 1 → 101, etc.)
+///   * `100..=199` — layout cb itself returned non-zero status; the low byte is the cb's status
+///     code (cb status 1 → 101, etc.)
 ///
 /// Phase 3a stores the raw AzDom blob and stops there — Phase 3b
 /// extends this with the `Dom → StyledDom` cascade + the embedded
@@ -766,13 +753,7 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
     }
     let info_ptr = AzStartup_alloc(512);
     let out_ptr = AzStartup_alloc(4096);
-    let cb_status = __az_call_indirect_layout4(
-        table_idx,
-        refany_ptr as u64,
-        0,
-        info_ptr,
-        out_ptr,
-    );
+    let cb_status = __az_call_indirect_layout4(table_idx, refany_ptr as u64, 0, info_ptr, out_ptr);
     s.last_layout_status = cb_status;
     if cb_status != 0 {
         return 100 + cb_status;
@@ -924,11 +905,7 @@ pub unsafe extern "C" fn AzStartup_setDisplayNode(state: u32, node_idx: u32) {
 /// Falls back to `state.last_registered_cb_node_idx` when the
 /// rect cache is empty (`solveLayout` hasn't run, or no nodes).
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_hitTest(
-    state: u32,
-    x_f32_bits: u32,
-    y_f32_bits: u32,
-) -> u32 {
+pub unsafe extern "C" fn AzStartup_hitTest(state: u32, x_f32_bits: u32, y_f32_bits: u32) -> u32 {
     if state == 0 {
         return u32::MAX;
     }
@@ -961,11 +938,7 @@ pub unsafe extern "C" fn AzStartup_hitTest(
         if rx == u32::MAX {
             continue;
         }
-        if x >= rx
-            && x < rx.wrapping_add(rw)
-            && y >= ry
-            && y < ry.wrapping_add(rh)
-        {
+        if x >= rx && x < rx.wrapping_add(rw) && y >= ry && y < ry.wrapping_add(rh) {
             return i;
         }
     }
@@ -989,9 +962,8 @@ pub unsafe extern "C" fn AzStartup_hitTest(
 //
 //   1. Confirm the blob is reachable + well-formed.
 //   2. Cache the total node count for diff arena sizing.
-//   3. Set `state.current_dom_hydrated = 1` so subsequent
-//      dispatch / hit-test / diff calls can treat the blob as the
-//      authoritative wasm-side DOM.
+//   3. Set `state.current_dom_hydrated = 1` so subsequent dispatch / hit-test / diff calls can
+//      treat the blob as the authoritative wasm-side DOM.
 //
 // **Why a marker field instead of `Option<StyledDom>` here**:
 // building a real `StyledDom` requires running the cascade — that
@@ -1002,16 +974,13 @@ pub unsafe extern "C" fn AzStartup_hitTest(
 // derived fields aren't needed until we wire computed styles.
 //
 // **Tree-walk constraints** (same as `AzStartup_hydrate`):
-//   * No `Box::new(StructLiteral)` (the struct literal codegen
-//     emits `adrp+ldr` for sizeof/alignof — M10-F's precise
-//     data-mirror handles those, but we'd rather avoid the round-
-//     trip when possible).
-//   * Fixed-size stack arrays only (recursion + reallocs hit the
-//     bump allocator's "fresh slab per call" mode which inflates
-//     pages quickly).
-//   * Direct pointer arithmetic for struct field offsets — the
-//     compile-time `core::mem::offset_of!` becomes an `adrp+ldr`
-//     that the data mirror covers (since M10-F1's scanner widening).
+//   * No `Box::new(StructLiteral)` (the struct literal codegen emits `adrp+ldr` for sizeof/alignof
+//     — M10-F's precise data-mirror handles those, but we'd rather avoid the round- trip when
+//     possible).
+//   * Fixed-size stack arrays only (recursion + reallocs hit the bump allocator's "fresh slab per
+//     call" mode which inflates pages quickly).
+//   * Direct pointer arithmetic for struct field offsets — the compile-time `core::mem::offset_of!`
+//     becomes an `adrp+ldr` that the data mirror covers (since M10-F1's scanner widening).
 
 /// Iterative DFS over the AzDom tree at `root`, returning the total
 /// node count (root inclusive). Returns 0 for null / unreadable.
@@ -1055,8 +1024,7 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         // We only need ptr@0 and len@8. The destructor enum past
         // offset 16 we ignore.
         let dvec = node.add(children_off);
-        let child_ptr_raw =
-            core::ptr::read_unaligned(dvec as *const usize) as *const u8;
+        let child_ptr_raw = core::ptr::read_unaligned(dvec as *const usize) as *const u8;
         let child_len = core::ptr::read_unaligned(dvec.add(8) as *const usize);
         if child_ptr_raw.is_null() || child_len == 0 {
             continue;
@@ -1089,15 +1057,12 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
 /// solver fills in later.
 ///
 /// Status codes:
-///   * `0`  — success, `current_dom = Some(styled)`,
-///            `current_dom_hydrated = 1`,
-///            `current_dom_node_count` filled.
+///   * `0`  — success, `current_dom = Some(styled)`, `current_dom_hydrated = 1`,
+///     `current_dom_node_count` filled.
 ///   * `1`  — null state pointer.
-///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache wasn't
-///            called yet, or it failed).
-///   * `3`  — pre-cascade tree walk returned 0 (blob unreadable
-///            / not a valid AzDom layout); state is left
-///            un-hydrated.
+///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache wasn't called yet, or it failed).
+///   * `3`  — pre-cascade tree walk returned 0 (blob unreadable / not a valid AzDom layout); state
+///     is left un-hydrated.
 ///
 /// Idempotent: if `current_dom_hydrated == 1` already, returns
 /// `0` without re-running cascade. The lifted `StyledDom::create`
@@ -1170,7 +1135,6 @@ pub unsafe extern "C" fn AzStartup_isStyledDomHydrated(state: u32) -> u32 {
     s.current_dom_hydrated
 }
 
-
 /// Read [`EventloopState::current_dom_node_count`] for JS-side
 /// debugging + Sprint 3 diff arena sizing. Returns `0` when
 /// hydrate hasn't run.
@@ -1231,12 +1195,10 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
 // recomputation) lives behind two pieces of infrastructure we
 // stage here so the bench (Sprint 6) + future work can extend:
 //
-//   1. `AzStartup_setAutoVirtualizeThreshold(state, n)` — JS hook
-//      to tune the heuristic. `0` disables auto-virtualization.
-//      Default = 500 (per the user's M11 directive).
-//   2. `AzStartup_setVirtualViewProvider(state, table_idx)` —
-//      records the table slot of a per-VirtualView callback wasm.
-//      Sprint 5+ will use this when the layout pass encounters a
+//   1. `AzStartup_setAutoVirtualizeThreshold(state, n)` — JS hook to tune the heuristic. `0`
+//      disables auto-virtualization. Default = 500 (per the user's M11 directive).
+//   2. `AzStartup_setVirtualViewProvider(state, table_idx)` — records the table slot of a
+//      per-VirtualView callback wasm. Sprint 5+ will use this when the layout pass encounters a
 //      `NodeType::VirtualView` (today: a no-op recording).
 //
 // **Note**: actual VirtualView wiring requires the cascade +
@@ -1253,10 +1215,7 @@ pub const AZ_AUTO_VIRTUALIZE_THRESHOLD: u32 = 500;
 /// Set the auto-virtualize threshold. `0` disables. Defaults to
 /// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`].
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_setAutoVirtualizeThreshold(
-    state: u32,
-    threshold: u32,
-) {
+pub unsafe extern "C" fn AzStartup_setAutoVirtualizeThreshold(state: u32, threshold: u32) {
     if state == 0 {
         return;
     }
@@ -1279,10 +1238,7 @@ pub unsafe extern "C" fn AzStartup_getAutoVirtualizeThreshold(state: u32) -> u32
 /// layout pass encounters a `VirtualView` node + when scroll
 /// events cross an edge threshold.
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_setVirtualViewProvider(
-    state: u32,
-    table_idx: u32,
-) {
+pub unsafe extern "C" fn AzStartup_setVirtualViewProvider(state: u32, table_idx: u32) {
     if state == 0 {
         return;
     }
@@ -1334,8 +1290,7 @@ pub const POSITIONED_RECT_BYTES: u32 = 16;
 /// Status codes:
 ///   * `0`  — success.
 ///   * `1`  — null state pointer.
-///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache + hydrate
-///            not run).
+///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache + hydrate not run).
 ///   * `3`  — tree walk returned 0 nodes (blob unreadable).
 ///   * `4`  — allocator failure.
 #[no_mangle]
@@ -1368,10 +1323,10 @@ pub unsafe extern "C" fn AzStartup_solveLayout(
     while i < node_count {
         let off = (i * POSITIONED_RECT_BYTES) as usize;
         let p = (buf as usize + off) as *mut u32;
-        core::ptr::write_unaligned(p, 0);                    // x
-        core::ptr::write_unaligned(p.add(1), i * h);         // y
-        core::ptr::write_unaligned(p.add(2), viewport_w);    // w
-        core::ptr::write_unaligned(p.add(3), h);             // h
+        core::ptr::write_unaligned(p, 0); // x
+        core::ptr::write_unaligned(p.add(1), i * h); // y
+        core::ptr::write_unaligned(p.add(2), viewport_w); // w
+        core::ptr::write_unaligned(p.add(3), h); // h
         i += 1;
     }
     s.positioned_rects_ptr = buf;
@@ -1425,14 +1380,16 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     viewport_w: u32,
     viewport_h: u32,
 ) -> u32 {
-    use azul_core::dom::{DomId, DomNodeId};
-    use azul_core::geom::LogicalSize;
-    use azul_core::id::NodeId;
-    use azul_core::resources::RendererResources;
-    use azul_core::styled_dom::NodeHierarchyItemId;
-    use azul_layout::callbacks::ExternalSystemCallbacks;
-    use azul_layout::window::LayoutWindow;
-    use azul_layout::window_state::FullWindowState;
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        geom::LogicalSize,
+        id::NodeId,
+        resources::RendererResources,
+        styled_dom::NodeHierarchyItemId,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
     use rust_fontconfig::FcFontCache;
 
     if state == 0 {
@@ -1480,7 +1437,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `vec!` of a complex nested struct (M11/M12 gap), giving with_memory_fonts an
     // EMPTY list → fc_cache.len()=0 → no font → text height 0.
     let mut fc_unicode = Vec::new();
-    fc_unicode.push(rust_fontconfig::UnicodeRange { start: 0, end: 0x10FFFF });
+    fc_unicode.push(rust_fontconfig::UnicodeRange {
+        start: 0,
+        end: 0x10FFFF,
+    });
     let fc_pattern = rust_fontconfig::FcPattern {
         name: Some("serif sans-serif monospace".to_string()),
         family: Some("serif sans-serif monospace".to_string()),
@@ -1539,7 +1499,8 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     }
     // `buf` is alloc-aligned and each node's quad is 4-byte aligned, so a
     // plain `&mut [u32]` (4 lanes per node) is sound — no unaligned writes.
-    let rects = core::slice::from_raw_parts_mut(buf as usize as *mut u32, (node_count * 4) as usize);
+    let rects =
+        core::slice::from_raw_parts_mut(buf as usize as *mut u32, (node_count * 4) as usize);
     for i in 0..node_count as usize {
         let node_id = DomNodeId {
             dom: DomId::ROOT_ID,
@@ -1632,18 +1593,18 @@ pub unsafe extern "C" fn AzStartup_getPositionedRectsPtr(state: u32) -> u32 {
 // scripts/M9_WASM_DOM_HANDOFF.md § "TLV schema".
 
 const TLV_HEADER_BYTES: u32 = 1 + 4 + 4;
-pub const PATCH_KIND_SET_TEXT:         u8 = 1;
-pub const PATCH_KIND_SET_ATTR:         u8 = 2;
-pub const PATCH_KIND_REMOVE_ATTR:      u8 = 3;
+pub const PATCH_KIND_SET_TEXT: u8 = 1;
+pub const PATCH_KIND_SET_ATTR: u8 = 2;
+pub const PATCH_KIND_REMOVE_ATTR: u8 = 3;
 pub const PATCH_KIND_SET_INLINE_STYLE: u8 = 4;
-pub const PATCH_KIND_REMOVE_NODE:      u8 = 5;
-pub const PATCH_KIND_INSERT_NODE:      u8 = 6;
-pub const PATCH_KIND_MOVE_NODE:        u8 = 7;
-pub const PATCH_KIND_REPLACE_SUBTREE:  u8 = 8;
-pub const PATCH_KIND_FOCUS:            u8 = 9;
-pub const PATCH_KIND_SCROLL_TO:        u8 = 10;
-pub const PATCH_KIND_ADD_CLASS:        u8 = 11;
-pub const PATCH_KIND_REMOVE_CLASS:     u8 = 12;
+pub const PATCH_KIND_REMOVE_NODE: u8 = 5;
+pub const PATCH_KIND_INSERT_NODE: u8 = 6;
+pub const PATCH_KIND_MOVE_NODE: u8 = 7;
+pub const PATCH_KIND_REPLACE_SUBTREE: u8 = 8;
+pub const PATCH_KIND_FOCUS: u8 = 9;
+pub const PATCH_KIND_SCROLL_TO: u8 = 10;
+pub const PATCH_KIND_ADD_CLASS: u8 = 11;
+pub const PATCH_KIND_REMOVE_CLASS: u8 = 12;
 
 /// Write a u32 in little-endian into `out` starting at `offset`.
 /// Returns the byte count written (always 4). The store is a single
@@ -1787,8 +1748,7 @@ pub unsafe extern "C" fn AzStartup_buildPatch(
 ///   * `1`  — null state.
 ///   * `2`  — `layout_cb_table_idx` or `refany_ptr` not set.
 ///   * `3`  — buildLayoutInfo / alloc failure.
-///   * `100..=199` — layout cb returned non-zero status (low byte
-///                   is the cb's status).
+///   * `100..=199` — layout cb returned non-zero status (low byte is the cb's status).
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
     if state == 0 {
@@ -1822,8 +1782,7 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
     s.current_dom_hydrated = 0;
     s.layout_solved = 0;
     // Recount the new tree's nodes for diff arena sizing.
-    s.current_dom_node_count =
-        count_az_dom_nodes(new_out_ptr as usize as *const u8);
+    s.current_dom_node_count = count_az_dom_nodes(new_out_ptr as usize as *const u8);
     0
 }
 
@@ -1848,13 +1807,11 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
 /// `node_idx` IS treated as the cb fn-addr lookup key (test
 /// fixture). M8.5b populates the cache from the StyledDom.
 /// Fake RefAny.lo value passed to the cb. Two constraints:
-///   1. Bit 0 set — the cb's lifted body checks `(refany.lo & 1)
-///      == 0` early and short-circuits with DoNothing if so.
-///      This bit appears to be a flag in the AzRefAny internal
-///      representation (likely "has-destructor" or "is-valid")
-///      that the inlined `MyDataModel_downcastMut` validates.
-///   2. Aligned-ish — when the body derefs `*(refany.lo)` it
-///      must land in valid wasm linear memory.
+///   1. Bit 0 set — the cb's lifted body checks `(refany.lo & 1) == 0` early and short-circuits
+///      with DoNothing if so. This bit appears to be a flag in the AzRefAny internal representation
+///      (likely "has-destructor" or "is-valid") that the inlined `MyDataModel_downcastMut`
+///      validates.
+///   2. Aligned-ish — when the body derefs `*(refany.lo)` it must land in valid wasm linear memory.
 ///
 /// 0x101 (= 257) satisfies #1 + lands in the cb's data section.
 /// Loads from this address would read whatever cb has there
@@ -1869,11 +1826,7 @@ const FAKE_REFANY_HI: u64 = 0;
 /// hydrated refany. The info pointer is still the raw event bytes (S1) —
 /// S2 replaces it with a real wasm-side `CallbackInfo`. Returns the cb's
 /// `Update`, or 0 when the node has no resolvable callback.
-unsafe fn invoke_node_cb(
-    s: &mut EventloopState,
-    node_idx: u32,
-    event_bytes_ptr: u32,
-) -> u32 {
+unsafe fn invoke_node_cb(s: &mut EventloopState, node_idx: u32, event_bytes_ptr: u32) -> u32 {
     let table_idx = __az_resolve_callback(node_idx as u64);
     if table_idx == u32::MAX {
         return 0;
@@ -1923,12 +1876,11 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
     }
 
     // S1 routing:
-    //   * RESIZE/SCROLL/KEYDOWN/KEYUP broadcast to every node whose
-    //     registered kind matches (azul Window-filter semantics: fires
-    //     regardless of pointer position). Focus-filter keyboard
+    //   * RESIZE/SCROLL/KEYDOWN/KEYUP broadcast to every node whose registered kind matches (azul
+    //     Window-filter semantics: fires regardless of pointer position). Focus-filter keyboard
     //     precedence arrives with S2's real CallbackInfo.
-    //   * everything else: JS-supplied target (focus/enter/leave events
-    //     pass the DOM target) or bbox hit-test on SENTINEL.
+    //   * everything else: JS-supplied target (focus/enter/leave events pass the DOM target) or
+    //     bbox hit-test on SENTINEL.
     let is_broadcast_kind = _kind == event_kind::RESIZE
         || _kind == event_kind::SCROLL
         || _kind == event_kind::KEYDOWN
@@ -1989,10 +1941,7 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
     // format to decimal, encode the TLV. JS reads the returned
     // `(patch_ptr, patch_len)` and applies via the existing
     // azApplyPatches decoder.
-    if update >= UPDATE_REFRESH_DOM
-        && s.model_ptr != 0
-        && s.display_text_node_idx != u32::MAX
-    {
+    if update >= UPDATE_REFRESH_DOM && s.model_ptr != 0 && s.display_text_node_idx != u32::MAX {
         // Lazy-allocate the patch buffer (32 bytes covers any
         // SetText: 9 header + ≤10 ASCII digits + slack).
         if s.patch_buf_ptr == 0 {
@@ -2000,12 +1949,8 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
         }
         if s.patch_buf_ptr != 0 {
             let counter = core::ptr::read_unaligned(s.model_ptr as usize as *const u32);
-            let used = AzStartup_buildCounterPatch(
-                s.patch_buf_ptr,
-                32,
-                s.display_text_node_idx,
-                counter,
-            );
+            let used =
+                AzStartup_buildCounterPatch(s.patch_buf_ptr, 32, s.display_text_node_idx, counter);
             core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, used);
             return s.patch_buf_ptr;
         }

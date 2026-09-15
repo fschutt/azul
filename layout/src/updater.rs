@@ -2,19 +2,17 @@
 //!
 //! The posture, in order:
 //!
-//! 1. **The system package manager owns managed installs.** If the running
-//!    binary is dpkg/rpm-owned, lives under `/usr`, or runs inside a
-//!    Snap/Flatpak/`WindowsApps` sandbox, self-update is REFUSED at runtime
-//!    and the effective mode clamps to [`UpdateMode::NotifyOnly`]: the
-//!    dialog says "a new version is available — update via your package
-//!    manager", never touches the binary.
-//! 2. **Notify-only elsewhere unless the app opts into self-update.** The
-//!    user's choice to update is always respected: nothing installs without
-//!    the dialog's consent, and `download_automatically` only STAGES the
-//!    artifact so consent applies instantly.
-//! 3. Checks are ASYNC (the `CallbackInfo::check_for_updates` wrapper runs
-//!    this module on an azul `Thread`) and observed through the existing
-//!    `app_update_check_total` / `app_update_apply_total` metrics.
+//! 1. **The system package manager owns managed installs.** If the running binary is
+//!    dpkg/rpm-owned, lives under `/usr`, or runs inside a Snap/Flatpak/`WindowsApps` sandbox,
+//!    self-update is REFUSED at runtime and the effective mode clamps to
+//!    [`UpdateMode::NotifyOnly`]: the dialog says "a new version is available — update via your
+//!    package manager", never touches the binary.
+//! 2. **Notify-only elsewhere unless the app opts into self-update.** The user's choice to update
+//!    is always respected: nothing installs without the dialog's consent, and
+//!    `download_automatically` only STAGES the artifact so consent applies instantly.
+//! 3. Checks are ASYNC (the `CallbackInfo::check_for_updates` wrapper runs this module on an azul
+//!    `Thread`) and observed through the existing `app_update_check_total` /
+//!    `app_update_apply_total` metrics.
 //!
 //! v1 ships the `HttpManifestSource` (a small JSON manifest) and the policy
 //! engine (install-kind backstops, anti-downgrade, check cooldown,
@@ -876,9 +874,8 @@ pub fn parse_oci_manifest(
         if annotated.is_empty() {
             if oci.reference == "latest" || oci.reference.starts_with("sha256:") {
                 return Err(format!(
-                    "the OCI manifest for {}:{} has no \
-                     org.opencontainers.image.version annotation, and the reference does not \
-                     name a version either",
+                    "the OCI manifest for {}:{} has no org.opencontainers.image.version \
+                     annotation, and the reference does not name a version either",
                     oci.repository, oci.reference
                 ));
             }
@@ -1384,8 +1381,8 @@ fn glob_match(pattern: &str, name: &str) -> bool {
 
 /// Media types a registry may answer a manifest request with.
 const OCI_MANIFEST_ACCEPT: &str = "application/vnd.oci.image.manifest.v1+json, \
-     application/vnd.docker.distribution.manifest.v2+json, \
-     application/vnd.oci.image.index.v1+json";
+                                   application/vnd.docker.distribution.manifest.v2+json, \
+                                   application/vnd.oci.image.index.v1+json";
 
 /// Resolves a release from a container registry, doing the registry's
 /// anonymous token dance when it asks for one.
@@ -1791,7 +1788,8 @@ pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "digest mismatch: manifest pinned sha256:{expected}, downloaded file is sha256:{actual_hex}"
+            "digest mismatch: manifest pinned sha256:{expected}, downloaded file is \
+             sha256:{actual_hex}"
         ))
     }
 }
@@ -1820,7 +1818,8 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
     let mut parts = statement.split('|');
     if parts.next() != Some("azul-signing-key-v1") {
         return Err(format!(
-            "signing-key statement: unknown format (expected `azul-signing-key-v1|…`, got {statement:?})"
+            "signing-key statement: unknown format (expected `azul-signing-key-v1|…`, got \
+             {statement:?})"
         ));
     }
     let mut pubkey_b64 = None;
@@ -1853,13 +1852,11 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
 /// Verifies a staged artifact's SIGNATURE CHAIN against the app's compiled-in
 /// minisign root public key:
 ///
-/// 1. the ROOT key must verify `signing_key_statement_sig` over the
-///    statement string — only the root can appoint a signing key;
-/// 2. the statement must not be expired and its `generation` must be at
-///    least `state.key_generation` (rollback refusal; the high-water mark
-///    advances on success);
-/// 3. the SIGNING key from the statement must verify `signature` over the
-///    artifact bytes.
+/// 1. the ROOT key must verify `signing_key_statement_sig` over the statement string — only the
+///    root can appoint a signing key;
+/// 2. the statement must not be expired and its `generation` must be at least
+///    `state.key_generation` (rollback refusal; the high-water mark advances on success);
+/// 3. the SIGNING key from the statement must verify `signature` over the artifact bytes.
 ///
 /// An EMPTY `root_public_key` means the app does not pin one — the chain is
 /// unarmed and verifies trivially (the digest pin still applies). With a
@@ -1910,8 +1907,8 @@ pub fn verify_release_signature(
     }
     if statement.generation < state.key_generation {
         return Err(format!(
-            "signing-key generation ROLLBACK: statement is generation {} but this client \
-             already accepted generation {}",
+            "signing-key generation ROLLBACK: statement is generation {} but this client already \
+             accepted generation {}",
             statement.generation, state.key_generation
         ));
     }
@@ -1950,14 +1947,12 @@ pub struct DownloadOutcome {
 
 /// Downloads a release artifact into `staging_dir`, CACHED and RESUMABLE:
 ///
-/// * a fully staged artifact from an earlier call is reused verbatim
-///   (`used_cached`) — "download automatically" then makes "install now"
-///   instant and offline-safe;
-/// * an INTERRUPTED download leaves `<name>.partial`; the next call sends
-///   `Range: bytes=<len>-` and appends on `206 Partial Content`. A server
-///   without range support answers `200` and the file restarts from zero
-///   (correct, just not incremental) — `server_supports_resume` reports
-///   which happened.
+/// * a fully staged artifact from an earlier call is reused verbatim (`used_cached`) — "download
+///   automatically" then makes "install now" instant and offline-safe;
+/// * an INTERRUPTED download leaves `<name>.partial`; the next call sends `Range: bytes=<len>-` and
+///   appends on `206 Partial Content`. A server without range support answers `200` and the file
+///   restarts from zero (correct, just not incremental) — `server_supports_resume` reports which
+///   happened.
 ///
 /// Verification beyond the transport (digest/minisign) is the documented
 /// next rung.
@@ -2445,8 +2440,9 @@ extern "C" fn update_check_writeback(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use core::cmp::Ordering;
+
+    use super::*;
 
     #[test]
     fn version_compare_is_numeric_not_lexical() {
@@ -2583,8 +2579,8 @@ mod tests {
             "a version file cannot say where the artifact is"
         );
 
-        // 4. anything else is an ERROR, not a silent "up to date" — an HTML
-        //    error page must not look like "no update available".
+        // 4. anything else is an ERROR, not a silent "up to date" — an HTML error page must not
+        //    look like "no update available".
         let err = parse_release_document("<html><body>404</body></html>", None, "").unwrap_err();
         assert!(err.contains("neither JSON nor a version"), "{err}");
         assert!(parse_release_document("", None, "").is_err());

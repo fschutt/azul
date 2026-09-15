@@ -7,12 +7,12 @@
 //!
 //!   - `mod.rs::resolve_fn_ptr` (dladdr + macOS-arm64 PLT-stub chase)
 //!   - `mod.rs::LIFT_READ_WINDOW` (flat 4 KiB read window per symbol)
-//!   - `transpiler_remill.rs::parse_extern_sub_declares` + `.N` suffix
-//!     handling (parses remill's `sub_<hex>` declares per call site)
-//!   - `transpiler_remill.rs::branch_target_to_host_addr` (lift-space
-//!     hex → host addr arithmetic, per-call-site)
-//!   - `transpiler_remill.rs::is_recursable_dep` (regex on mangled
-//!     names to decide whether to recurse)
+//!   - `transpiler_remill.rs::parse_extern_sub_declares` + `.N` suffix handling (parses remill's
+//!     `sub_<hex>` declares per call site)
+//!   - `transpiler_remill.rs::branch_target_to_host_addr` (lift-space hex → host addr arithmetic,
+//!     per-call-site)
+//!   - `transpiler_remill.rs::is_recursable_dep` (regex on mangled names to decide whether to
+//!     recurse)
 //!
 //! Each disagreement between these five became a downstream workaround:
 //! `resolve_macos_arm64_stub`, `rewrite_tailcall_wrapper`, the `.N`
@@ -25,14 +25,12 @@
 //!
 //! # Contract (per `scripts/M8.8_NEW_SESSION_PROMPT.md`)
 //!
-//! - `lookup(addr) -> Option<&SymbolEntry>`: returns the entry FOR
-//!   THE GIVEN ADDRESS without chasing PLT stubs. The entry's `kind`
-//!   field reveals whether the address points at a stub.
-//! - `resolve(addr) -> Option<&SymbolEntry>`: chases the stub chain.
-//!   Multi-hop (PLT → GOT → real) handled via repeated lookup.
-//! - `canonical_name_for(addr) -> Option<&str>`: the canonical
-//!   (post-chain) symbol name. Used by the post-lift IR rewrite to
-//!   normalize remill's `sub_<lift_target_hex>` references into
+//! - `lookup(addr) -> Option<&SymbolEntry>`: returns the entry FOR THE GIVEN ADDRESS without
+//!   chasing PLT stubs. The entry's `kind` field reveals whether the address points at a stub.
+//! - `resolve(addr) -> Option<&SymbolEntry>`: chases the stub chain. Multi-hop (PLT → GOT → real)
+//!   handled via repeated lookup.
+//! - `canonical_name_for(addr) -> Option<&str>`: the canonical (post-chain) symbol name. Used by
+//!   the post-lift IR rewrite to normalize remill's `sub_<lift_target_hex>` references into
 //!   `sub_<canonical_addr_hex>` form so the linker dedupes naturally.
 //!
 //! # Why goblin
@@ -43,10 +41,12 @@
 //! stub table; Linux paths use `.symtab` + `.got.plt`. The per-OS
 //! enumerate_images() helper feeds goblin the right byte slice.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    sync::OnceLock,
+};
 
 use super::classify::{ApiClassification, FnClass as ApiFnClass};
 
@@ -534,7 +534,10 @@ impl SymbolTable {
                 goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
                     match pick_fat_slice(&fat, &img.bytes) {
                         Ok(Some(macho)) => collect_macho_low32_sections(
-                            &macho, &img.bytes, img.slide, wasm_offset_limit,
+                            &macho,
+                            &img.bytes,
+                            img.slide,
+                            wasm_offset_limit,
                         ),
                         _ => Vec::new(),
                     }
@@ -585,11 +588,8 @@ impl SymbolTable {
             });
         }
 
-        let api_class_by_name: HashMap<String, ApiFnClass> = api
-            .functions
-            .iter()
-            .map(|(n, c)| (n.clone(), *c))
-            .collect();
+        let api_class_by_name: HashMap<String, ApiFnClass> =
+            api.functions.iter().map(|(n, c)| (n.clone(), *c)).collect();
 
         let mut by_addr: BTreeMap<usize, SymbolEntry> = BTreeMap::new();
         let mut by_name: HashMap<String, usize> = HashMap::new();
@@ -776,9 +776,7 @@ impl SymbolTable {
                         _ => (0, 0),
                     }
                 }
-                goblin::Object::Elf(elf) => {
-                    elf_image_text_data_range(&elf, &img.bytes)
-                }
+                goblin::Object::Elf(elf) => elf_image_text_data_range(&elf, &img.bytes),
                 goblin::Object::PE(pe) => pe_image_text_data_range(&pe),
                 _ => (0, 0),
             };
@@ -811,7 +809,7 @@ impl SymbolTable {
         // escaped because it happened to be the second image, based above
         // the region.
         const FIRST_SYNTH_BASE: usize = 0x10_0000; // 1 MiB — past the runtime region
-        const SYNTH_ALIGN: usize = 0x10_0000;       // 1 MiB
+        const SYNTH_ALIGN: usize = 0x10_0000; // 1 MiB
         let mut next_synth = FIRST_SYNTH_BASE;
         for r in &mut rebases {
             r.synth_base = next_synth;
@@ -836,8 +834,7 @@ impl SymbolTable {
         for (native_loc, entry) in self.by_addr.iter_mut() {
             for r in &rebases {
                 if *native_loc >= r.native_base && *native_loc < r.native_end {
-                    entry.synthetic_addr =
-                        r.synth_base.wrapping_add(*native_loc - r.native_base);
+                    entry.synthetic_addr = r.synth_base.wrapping_add(*native_loc - r.native_base);
                     break;
                 }
             }
@@ -905,8 +902,8 @@ impl SymbolTable {
             }
         }
         eprintln!(
-            "[symbol_table] M10-A1: forced Leaf on {} symbols whose \
-             canonical_addr falls outside tracked image ranges",
+            "[symbol_table] M10-A1: forced Leaf on {} symbols whose canonical_addr falls outside \
+             tracked image ranges",
             overridden,
         );
 
@@ -920,14 +917,12 @@ impl SymbolTable {
         let synth_chain: HashMap<usize, usize> = self
             .chain
             .iter()
-            .map(|(stub_native, canon_native)| {
-                (synth_of(*stub_native), synth_of(*canon_native))
-            })
+            .map(|(stub_native, canon_native)| (synth_of(*stub_native), synth_of(*canon_native)))
             .collect();
 
         eprintln!(
-            "[symbol_table] M9-review: assigned synthetic addresses for {} images, \
-             {} symbols rebased (total span {} MiB)",
+            "[symbol_table] M9-review: assigned synthetic addresses for {} images, {} symbols \
+             rebased (total span {} MiB)",
             rebases.len(),
             self.by_addr.len(),
             next_synth / (1024 * 1024),
@@ -1188,11 +1183,7 @@ fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
             data: *mut c_void,
         ) -> c_int;
     }
-    extern "C" fn cb(
-        info: *mut DlPhdrInfo,
-        _size: usize,
-        data: *mut c_void,
-    ) -> c_int {
+    extern "C" fn cb(info: *mut DlPhdrInfo, _size: usize, data: *mut c_void) -> c_int {
         unsafe {
             let images = &mut *(data as *mut Vec<LoadedImage>);
             if info.is_null() {
@@ -1400,12 +1391,14 @@ fn ingest_pe(
     let image_base = pe.image_base as usize;
     let live_base = image_base.wrapping_add(slide);
 
-    // 1) .text range in file-preferred-VA space (so the next-addr size
-    //    trick mirrors ingest_macho exactly).
+    // 1) .text range in file-preferred-VA space (so the next-addr size trick mirrors ingest_macho
+    //    exactly).
     let mut text_section: Option<(usize, usize)> = None;
     for s in &pe.sections {
         let name = s.name().unwrap_or("");
-        if name == ".text" || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0) {
+        if name == ".text"
+            || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0)
+        {
             let start = image_base + s.virtual_address as usize;
             let size = s.virtual_size as usize;
             if name == ".text" {
@@ -1420,17 +1413,16 @@ fn ingest_pe(
     };
     let text_end = text_start + text_size;
 
-    // 2) Defined symbols: PDB publics (mangled `_ZN…` link names — the
-    //    names classify_for_name keys on) + module-stream procs (cover
-    //    LTO-internalized locals; display-style names). Fallback:
+    // 2) Defined symbols: PDB publics (mangled `_ZN…` link names — the names classify_for_name keys
+    //    on) + module-stream procs (cover LTO-internalized locals; display-style names). Fallback:
     //    export table only.
     let mut defined: Vec<(String, usize)> = Vec::new();
     let pdb_result = read_pdb_function_symbols(pe, path, image_base, &mut defined);
     if let Err(msg) = pdb_result {
         eprintln!(
-            "[symbol_table] WARNING: no PDB symbols for {} ({}) — falling back to \
-             EXPORTS ONLY. Internal fns will classify by default rules and the \
-             lift WILL mis-stub them (compendium A1). Build with debuginfo to fix.",
+            "[symbol_table] WARNING: no PDB symbols for {} ({}) — falling back to EXPORTS ONLY. \
+             Internal fns will classify by default rules and the lift WILL mis-stub them \
+             (compendium A1). Build with debuginfo to fix.",
             path.display(),
             msg
         );
@@ -1496,11 +1488,10 @@ fn ingest_pe(
         by_name.entry(canonical_name).or_insert(live_addr);
     }
 
-    // 4) Imports: synthesize a named entry at every import's RESOLVED
-    //    live address (loader-bound IAT slot content). This is what
-    //    the macOS PLT-chase produced for libSystem callees — the name
-    //    is enough for LibcMemcpy/LibcMemset/HashmapRandomKeys/… and
-    //    the entry terminates resolve() chains from thunks.
+    // 4) Imports: synthesize a named entry at every import's RESOLVED live address (loader-bound
+    //    IAT slot content). This is what the macOS PLT-chase produced for libSystem callees — the
+    //    name is enough for LibcMemcpy/LibcMemset/HashmapRandomKeys/… and the entry terminates
+    //    resolve() chains from thunks.
     let mut iat_slots: Vec<PeIatSlot> = Vec::new();
     for imp in &pe.imports {
         let slot_live = live_base.wrapping_add(imp.rva);
@@ -1524,14 +1515,16 @@ fn ingest_pe(
         }
         by_name.entry(name.clone()).or_insert(target_live);
         chain.entry(target_live).or_insert(target_live);
-        iat_slots.push(PeIatSlot { slot_live, target_live, name });
+        iat_slots.push(PeIatSlot {
+            slot_live,
+            target_live,
+            name,
+        });
     }
 
-    // 5) Tail-call shims, x86 spelling (compendium B7/A2):
-    //      E9 rel32              jmp rel32      (intra-image tail shim,
-    //                                            e.g. __rust_alloc → __rdl_alloc)
-    //      FF 25 disp32          jmp [rip+disp] (IAT import thunk)
-    //    Both are FIRST-INSTRUCTION-anchored, so no length decode is
+    // 5) Tail-call shims, x86 spelling (compendium B7/A2): E9 rel32              jmp rel32
+    //    (intra-image tail shim, e.g. __rust_alloc → __rdl_alloc) FF 25 disp32          jmp
+    //    [rip+disp] (IAT import thunk) Both are FIRST-INSTRUCTION-anchored, so no length decode is
     //    needed here (the transpiler-side scanners use iced-x86).
     detect_pe_tail_shims(by_addr, chain, &iat_slots);
 
@@ -1555,7 +1548,11 @@ fn read_pdb_function_symbols(
     // resolved against the image's own directory (rustc/link often
     // record just "azul.pdb"), and `<image>.pdb` as a final fallback.
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(cv) = pe.debug_data.as_ref().and_then(|d| d.codeview_pdb70_debug_info.as_ref()) {
+    if let Some(cv) = pe
+        .debug_data
+        .as_ref()
+        .and_then(|d| d.codeview_pdb70_debug_info.as_ref())
+    {
         let raw = cv.filename;
         let trimmed: &[u8] = raw.split(|b| *b == 0).next().unwrap_or(raw);
         if let Ok(s) = core::str::from_utf8(trimmed) {
@@ -1574,9 +1571,13 @@ fn read_pdb_function_symbols(
         .iter()
         .find(|p| p.exists())
         .ok_or_else(|| format!("no .pdb found (tried {:?})", candidates))?;
-    let file = fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
-    let mut pdb = pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
-    let address_map = pdb.address_map().map_err(|e| format!("address_map: {}", e))?;
+    let file =
+        fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
+    let mut pdb =
+        pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
+    let address_map = pdb
+        .address_map()
+        .map_err(|e| format!("address_map: {}", e))?;
 
     let mut n_publics = 0usize;
     let mut n_procs = 0usize;
@@ -1590,7 +1591,9 @@ fn read_pdb_function_symbols(
                 if !(p.code || p.function) {
                     continue;
                 }
-                let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                let Some(rva) = p.offset.to_rva(&address_map) else {
+                    continue;
+                };
                 if rva.0 == 0 {
                     continue;
                 }
@@ -1607,16 +1610,21 @@ fn read_pdb_function_symbols(
     if let Ok(di) = pdb.debug_information() {
         if let Ok(mut modules) = di.modules() {
             while let Ok(Some(module)) = modules.next() {
-                let Ok(Some(mi)) = pdb.module_info(&module) else { continue };
+                let Ok(Some(mi)) = pdb.module_info(&module) else {
+                    continue;
+                };
                 let Ok(mut syms) = mi.symbols() else { continue };
                 while let Ok(Some(symbol)) = syms.next() {
                     let Ok(data) = symbol.parse() else { continue };
                     if let pdb::SymbolData::Procedure(p) = data {
-                        let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                        let Some(rva) = p.offset.to_rva(&address_map) else {
+                            continue;
+                        };
                         if rva.0 == 0 {
                             continue;
                         }
-                        defined.push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
+                        defined
+                            .push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
                         n_procs += 1;
                     }
                 }
@@ -1625,7 +1633,10 @@ fn read_pdb_function_symbols(
     }
 
     if n_publics == 0 && n_procs == 0 {
-        return Err(format!("{}: parsed but contained 0 function symbols", pdb_path.display()));
+        return Err(format!(
+            "{}: parsed but contained 0 function symbols",
+            pdb_path.display()
+        ));
     }
     eprintln!(
         "[symbol_table] {}: {} publics + {} procs from {}",
@@ -1754,7 +1765,9 @@ fn ingest_macho(
     let mut stubs_section: Option<MachOStubsInfo> = None;
 
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         let segname = trim_macho_name(&seg64.segname);
         if segname != "__TEXT" {
             continue;
@@ -1792,10 +1805,9 @@ fn ingest_macho(
     };
     let text_end = text_start + text_size;
 
-    // 1) Collect all defined symbols (name + file_addr).
-    //    Mach-O nlist: n_type & N_TYPE (0x0E mask) == N_SECT (0x0E)
-    //    means "defined in a section". n_value is the VM address.
-    //    Skip N_STAB debug symbols (n_type & N_STAB == any nonzero).
+    // 1) Collect all defined symbols (name + file_addr). Mach-O nlist: n_type & N_TYPE (0x0E mask)
+    //    == N_SECT (0x0E) means "defined in a section". n_value is the VM address. Skip N_STAB
+    //    debug symbols (n_type & N_STAB == any nonzero).
     let mut defined: Vec<(String, usize)> = Vec::new();
     for sym in macho.symbols() {
         let Ok((name, nlist)) = sym else { continue };
@@ -1832,11 +1844,10 @@ fn ingest_macho(
     let mut seen_addr: HashSet<usize> = HashSet::new();
     defined.retain(|(_, addr)| seen_addr.insert(*addr));
 
-    // 2) Compute sizes from adjacent addrs. Restrict to symbols whose
-    //    addr lies within [text_start, text_end) for the
-    //    next-addr-as-size trick. Symbols outside __text are still
-    //    recorded (so by_name resolution works) but their `size` is
-    //    derived from the section they live in, or 0 for data.
+    // 2) Compute sizes from adjacent addrs. Restrict to symbols whose addr lies within [text_start,
+    //    text_end) for the next-addr-as-size trick. Symbols outside __text are still recorded (so
+    //    by_name resolution works) but their `size` is derived from the section they live in, or 0
+    //    for data.
     let text_syms: Vec<(String, usize)> = defined
         .iter()
         .filter(|(_, a)| (text_start..text_end).contains(a))
@@ -1863,10 +1874,7 @@ fn ingest_macho(
             // image's symbol table; __TEXT stays mapped for the
             // process lifetime; the slice is read-only.
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(
-                    live_addr as *const u8,
-                    size,
-                ))
+                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
             } else {
                 None
             }
@@ -1886,11 +1894,12 @@ fn ingest_macho(
         // `add sp` → SP never restored → downstream `unreachable`. Detect by CONTENT (not the
         // "OUTLINED_FUNCTION" name) because upsert_entry's dedup can keep a non-outlined symbol at
         // the same address — the code is still the epilogue. Force Recursable so the REAL body
-        // lifts. Normal fns start with a prologue (`sub sp`/`stp`), never `add sp`, so this is safe.
-        // OUTLINED fn with an SP-restore anywhere = a tail-jumped epilogue → force Recursable so its
-        // REAL body lifts. (A name-INDEPENDENT/pure-epilogue variant was tried but made MORE fns
-        // Recursable → the tail-call scan lifted more → the address-sensitive lift shifted → the
-        // JT_SEEDS stopped resolving (21 missing_blocks vs 7). Kept name-gated = the 21→7 state.)
+        // lifts. Normal fns start with a prologue (`sub sp`/`stp`), never `add sp`, so this is
+        // safe. OUTLINED fn with an SP-restore anywhere = a tail-jumped epilogue → force
+        // Recursable so its REAL body lifts. (A name-INDEPENDENT/pure-epilogue variant was
+        // tried but made MORE fns Recursable → the tail-call scan lifted more → the
+        // address-sensitive lift shifted → the JT_SEEDS stopped resolving (21
+        // missing_blocks vs 7). Kept name-gated = the 21→7 state.)
         if canonical_name.contains("OUTLINED_FUNCTION") && live_addr != 0 {
             let lim = if size > 0 { size.min(256) } else { 64 };
             if lim >= 8 {
@@ -1911,7 +1920,7 @@ fn ingest_macho(
         let entry = SymbolEntry {
             canonical_name: canonical_name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr,  // assigned in pass 2
+            synthetic_addr: live_addr, // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -1926,24 +1935,15 @@ fn ingest_macho(
         by_name.entry(canonical_name).or_insert(live_addr);
     }
 
-    // 3) Walk the __stubs section. Each stub is `stub_size` bytes
-    //    (12 on arm64, 6 on x86_64). For stub index i:
-    //      indirect_idx = indirect_symtab[indirect_start + i]
-    //      target_name  = symtab[indirect_idx].name
-    //      target_addr  = dlsym(target_name) -- in this process
+    // 3) Walk the __stubs section. Each stub is `stub_size` bytes (12 on arm64, 6 on x86_64). For
+    //    stub index i: indirect_idx = indirect_symtab[indirect_start + i] target_name  =
+    //    symtab[indirect_idx].name target_addr  = dlsym(target_name) -- in this process
     //
     //    The chain is stub_live_addr → target_live_addr, so the lift
     //    pipeline's resolve() unifies stub + real-callee references.
     if let Some(stubs) = stubs_section {
         ingest_macho_stubs(
-            macho,
-            file_bytes,
-            slide,
-            stubs,
-            api,
-            by_addr,
-            by_name,
-            chain,
+            macho, file_bytes, slide, stubs, api, by_addr, by_name, chain,
         )?;
     }
 
@@ -2067,8 +2067,19 @@ fn ingest_macho_stubs(
             _ => {}
         }
     }
-    let (Some(indirect_off), Some(n_indirect), Some(symtab_off), Some(strtab_off), Some(strtab_size)) =
-        (indirect_off, n_indirect, symtab_off, strtab_off, strtab_size)
+    let (
+        Some(indirect_off),
+        Some(n_indirect),
+        Some(symtab_off),
+        Some(strtab_off),
+        Some(strtab_size),
+    ) = (
+        indirect_off,
+        n_indirect,
+        symtab_off,
+        strtab_off,
+        strtab_size,
+    )
     else {
         return Ok(());
     };
@@ -2170,11 +2181,15 @@ fn ingest_macho_stubs(
                     target_addr
                 } else {
                     stub_live_addr
-                },  // assigned in pass 2
+                }, // assigned in pass 2
                 size: stub_size,
                 bytes: stub_bytes,
                 kind: SymKind::Stub {
-                    target: if target_addr != 0 { target_addr } else { stub_live_addr },
+                    target: if target_addr != 0 {
+                        target_addr
+                    } else {
+                        stub_live_addr
+                    },
                 },
                 classification: classify_for_name(&canonical_name, api),
             },
@@ -2190,7 +2205,7 @@ fn ingest_macho_stubs(
             let placeholder = SymbolEntry {
                 canonical_name: canonical_name.clone(),
                 canonical_addr: target_addr,
-                synthetic_addr: target_addr,  // assigned in pass 2
+                synthetic_addr: target_addr, // assigned in pass 2
                 size: 0,
                 bytes: None,
                 kind: SymKind::Function,
@@ -2210,11 +2225,7 @@ fn ingest_macho_stubs(
 /// symtab entry from the defining image, the upsert promotes the
 /// real entry. Equal-score collisions keep the existing entry
 /// (deterministic for testing).
-fn upsert_entry(
-    by_addr: &mut BTreeMap<usize, SymbolEntry>,
-    addr: usize,
-    new_entry: SymbolEntry,
-) {
+fn upsert_entry(by_addr: &mut BTreeMap<usize, SymbolEntry>, addr: usize, new_entry: SymbolEntry) {
     fn score(e: &SymbolEntry) -> u32 {
         let mut s = 0u32;
         if e.size > 0 {
@@ -2304,14 +2315,12 @@ fn ingest_elf(
     // sym.st_shndx != SHN_UNDEF. Iterate .symtab if present; fall back
     // to .dynsym (always present in shared libs).
     let collect_defined = |symtab: &goblin::elf::Symtab<'_>,
-                            strtab: &goblin::strtab::Strtab<'_>|
+                           strtab: &goblin::strtab::Strtab<'_>|
      -> Vec<(String, usize, usize)> {
         let mut out: Vec<(String, usize, usize)> = Vec::new();
         for sym in symtab.iter() {
             let st_type = sym.st_type();
-            if st_type != goblin::elf::sym::STT_FUNC
-                && st_type != goblin::elf::sym::STT_OBJECT
-            {
+            if st_type != goblin::elf::sym::STT_FUNC && st_type != goblin::elf::sym::STT_OBJECT {
                 continue;
             }
             if sym.st_value == 0 {
@@ -2327,7 +2336,11 @@ fn ingest_elf(
             if name.is_empty() {
                 continue;
             }
-            out.push((name.to_string(), sym.st_value as usize, sym.st_size as usize));
+            out.push((
+                name.to_string(),
+                sym.st_value as usize,
+                sym.st_size as usize,
+            ));
         }
         out
     };
@@ -2359,10 +2372,7 @@ fn ingest_elf(
         }
         let bytes: Option<&'static [u8]> = unsafe {
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(
-                    live_addr as *const u8,
-                    size,
-                ))
+                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
             } else {
                 None
             }
@@ -2371,7 +2381,7 @@ fn ingest_elf(
         by_addr.entry(live_addr).or_insert(SymbolEntry {
             canonical_name: name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr,  // assigned in pass 2
+            synthetic_addr: live_addr, // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -2425,22 +2435,15 @@ fn strip_leading_underscore(name: &str) -> String {
 /// to the relevant FnClass; everything else gets Leaf or Recursable
 /// based on coarse name patterns.
 fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
-    // 1) Special bridge symbols emitted by remill helper IR or the
-    //    Rust runtime. The Rust allocator API has three layers of
-    //    alias each with their own name:
-    //      __rust_alloc — top-level public C ABI shim
-    //      __rg_alloc   — global allocator wrapper (when
-    //                     `#[global_allocator]` is set)
-    //      __rdl_alloc  — default allocator (System) implementation
-    //    The bare-`b` shim from __rust_alloc tail-calls __rdl_alloc
-    //    (or __rg_alloc), so after `detect_arm64_tail_shims` chains
-    //    them, the canonical address might land on any of the three
-    //    names. Treat all three (plus their v0-mangled variants
-    //    `*___rdl_alloc`, `*_alloc::ALLOC`, etc.) as BumpAlloc.
-    //    Similarly for `*_alloc_zeroed`.
-    //    Match suffix-after-stripping-underscores to cover
-    //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
-    //    and v0-mangled wrappers.
+    // 1) Special bridge symbols emitted by remill helper IR or the Rust runtime. The Rust allocator
+    //    API has three layers of alias each with their own name: __rust_alloc — top-level public C
+    //    ABI shim __rg_alloc   — global allocator wrapper (when `#[global_allocator]` is set)
+    //    __rdl_alloc  — default allocator (System) implementation The bare-`b` shim from
+    //    __rust_alloc tail-calls __rdl_alloc (or __rg_alloc), so after `detect_arm64_tail_shims`
+    //    chains them, the canonical address might land on any of the three names. Treat all three
+    //    (plus their v0-mangled variants `*___rdl_alloc`, `*_alloc::ALLOC`, etc.) as BumpAlloc.
+    //    Similarly for `*_alloc_zeroed`. Match suffix-after-stripping-underscores to cover
+    //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`, and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
     // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk` /
     // `_alloca_probe` call in the prologue of every fn with a frame > 4 KiB.
@@ -2499,8 +2502,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // realloc before zeroed before alloc, so prefix overlaps can't
     // mis-bind).
     {
-        let is_platform_alloc_mod = stripped.contains("sys::alloc::")
-            || stripped.contains("sys..alloc..");
+        let is_platform_alloc_mod =
+            stripped.contains("sys::alloc::") || stripped.contains("sys..alloc..");
         if is_platform_alloc_mod || stripped.contains("process_heap") {
             if stripped.contains("free") || stripped.contains("dealloc") {
                 return FnClass::BumpDealloc;
@@ -2592,9 +2595,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // trapped or corrupted memory when stubbed. Trait impls on display-list
     // types still match and stay cut — they are painter surface.
     {
-        let is_std_generic = name.starts_with("alloc::")
-            || name.starts_with("core::")
-            || name.starts_with("std::");
+        let is_std_generic =
+            name.starts_with("alloc::") || name.starts_with("core::") || name.starts_with("std::");
         if name.contains("display_list::") && !is_std_generic {
             return FnClass::Leaf;
         }
@@ -2612,9 +2614,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // M9-3: check the more specific layout4 variant FIRST — its name
     // is a superstring of `az_call_indirect`, so a naive ends_with
     // match would mis-classify it as the 3-arg variant.
-    if stripped == "az_call_indirect_layout4"
-        || stripped.ends_with("az_call_indirect_layout4")
-    {
+    if stripped == "az_call_indirect_layout4" || stripped.ends_with("az_call_indirect_layout4") {
         return FnClass::CallIndirectLayout4;
     }
     if stripped == "az_call_indirect" || stripped.ends_with("az_call_indirect") {
@@ -2654,8 +2654,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         };
     }
 
-    // 3) System / runtime prefixes → Leaf (typed extern; never lift).
-    //    These mirror the original is_recursable_dep denylist.
+    // 3) System / runtime prefixes → Leaf (typed extern; never lift). These mirror the original
+    //    is_recursable_dep denylist.
     let system_prefixes = ["_dyld", "_dispatch", "_pthread", "_objc_"];
     for prefix in &system_prefixes {
         if name.starts_with(prefix) {
@@ -2717,9 +2717,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                 }
                 return FnClass::Recursable;
             }
-            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind"
-            | "rustc_demangle" | "backtrace" | "addr2line" | "gimli" | "object"
-            | "miniz_oxide" => {
+            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind" | "rustc_demangle"
+            | "backtrace" | "addr2line" | "gimli" | "object" | "miniz_oxide" => {
                 if name.contains("hashmap_random_keys") {
                     return FnClass::HashmapRandomKeys;
                 }
@@ -2843,17 +2842,22 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             return FnClass::Recursable;
                         }
                         // COLLECT-CHAIN ROOT-CAUSE : `Vec::from_iter`/`collect()` lowers
-                        // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
-                        // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
-                        // ALL real-work Vec builders that the runtime-crates filter stubbed to Leaf.
-                        // The no-op stub never writes the collected Vec through its sret dest, so every
-                        // `.iter().map(..).collect::<Vec<_>>()` in lifted code returned stack garbage
-                        // (len=0 on a clean frame; pointer-shaped values like 0x27370 on a dirty one).
-                        // THIS was the real "class-B sret mis-lift": the historic shape_text garbage
+                        // to `alloc::vec::spec_from_iter*::from_iter`,
+                        // `alloc::vec::in_place_collect::
+                        // from_iter_in_place`, and
+                        // `spec_extend`/`extend_trusted`/`extend_desugared` —
+                        // ALL real-work Vec builders that the runtime-crates filter stubbed to
+                        // Leaf. The no-op stub never writes the collected
+                        // Vec through its sret dest, so every
+                        // `.iter().map(..).collect::<Vec<_>>()` in lifted code returned stack
+                        // garbage (len=0 on a clean frame; pointer-shaped
+                        // values like 0x27370 on a dirty one). THIS was the
+                        // real "class-B sret mis-lift": the historic shape_text garbage
                         // lens (g126/g127), the Ok→Err Result<Vec> reads (g76/g78), the corrupt
-                        // FontChainKey from from_selectors (g121/g122, families.len 4-vs-3), and the
-                        // css.rs From<CssPropertyWithConditionsVec> FIX-B rewrite were all this one
-                        // classifier gap. Same fix class as raw_vec/btree/resize below: lift them.
+                        // FontChainKey from from_selectors (g121/g122, families.len 4-vs-3), and
+                        // the css.rs From<CssPropertyWithConditionsVec>
+                        // FIX-B rewrite were all this one classifier gap.
+                        // Same fix class as raw_vec/btree/resize below: lift them.
                         if crate_name == "alloc"
                             && (name.contains("raw_vec")
                                 || name.contains("btree")
@@ -2917,12 +2921,12 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // css/corety.rs:260) does `String::from_utf8_lossy(raw).into_owned()`; a
                         // Leaf no-op makes the resulting String — and thus the AzString — garbage
                         // (ptr=0/len=node-addr/cap=0), so EVERY `NodeType::Text(AzString)` (the
-                        // "Hello" text) loses its bytes → the intrinsic-sizing `extract_text_from_node`
-                        // OOBs copying the corrupt AzString. Same class as raw_vec/resize/sort/
+                        // "Hello" text) loses its bytes → the intrinsic-sizing
+                        // `extract_text_from_node` OOBs copying the corrupt
+                        // AzString. Same class as raw_vec/resize/sort/
                         // binary_search above. Lift it (the UTF-8-validation NEON cmhi/CMHS ops are
                         // supported by the remill fork). THE last blocker for web text.
-                        if (crate_name == "alloc" || crate_name == "core")
-                            && name.contains("utf8")
+                        if (crate_name == "alloc" || crate_name == "core") && name.contains("utf8")
                         {
                             return FnClass::Recursable;
                         }
@@ -3022,8 +3026,12 @@ fn macho_image_text_data_range(
             let start = seg64.vmaddr;
             let end = start.saturating_add(seg64.vmsize);
             if end > start {
-                if start < min { min = start; }
-                if end > max { max = end; }
+                if start < min {
+                    min = start;
+                }
+                if end > max {
+                    max = end;
+                }
             }
         }
     }
@@ -3037,10 +3045,7 @@ fn macho_image_text_data_range(
 /// M9-review helper: ELF sibling of [`macho_image_text_data_range`].
 /// Walks PT_LOAD program headers + reports the union of their virtual
 /// address ranges.
-fn elf_image_text_data_range(
-    elf: &goblin::elf::Elf<'_>,
-    _file_bytes: &[u8],
-) -> (usize, usize) {
+fn elf_image_text_data_range(elf: &goblin::elf::Elf<'_>, _file_bytes: &[u8]) -> (usize, usize) {
     let mut min: u64 = u64::MAX;
     let mut max: u64 = 0;
     for ph in &elf.program_headers {
@@ -3049,8 +3054,12 @@ fn elf_image_text_data_range(
         }
         let start = ph.p_vaddr;
         let end = start.saturating_add(ph.p_memsz);
-        if start < min { min = start; }
-        if end > max { max = end; }
+        if start < min {
+            min = start;
+        }
+        if end > max {
+            max = end;
+        }
     }
     if min == u64::MAX {
         (0, 0)
@@ -3089,7 +3098,9 @@ pub(crate) fn collect_macho_low32_sections(
         )
     };
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         let segname = trim_macho_name(&seg64.segname);
         let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
         for i in 0..seg64.nsects as usize {
@@ -3155,7 +3166,9 @@ fn collect_macho_tlv_regions(
     let mut vars: Option<(usize, usize)> = None;
     let mut data: Option<(usize, usize)> = None;
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         if trim_macho_name(&seg64.segname) != "__DATA" {
             continue;
         }
@@ -3179,9 +3192,13 @@ fn collect_macho_tlv_regions(
     match (vars, data) {
         (Some((vs, vsz)), Some((ds, dsz))) if vsz > 0 => {
             eprintln!(
-                "[azul-web] TLV: {} __thread_vars live=0x{:x}+0x{:x} __thread_data live=0x{:x}+0x{:x}",
+                "[azul-web] TLV: {} __thread_vars live=0x{:x}+0x{:x} __thread_data \
+                 live=0x{:x}+0x{:x}",
                 path.file_name().and_then(|f| f.to_str()).unwrap_or("?"),
-                vs, vsz, ds, dsz,
+                vs,
+                vsz,
+                ds,
+                dsz,
             );
             vec![TlvRegion {
                 vars_start: vs,
@@ -3222,7 +3239,9 @@ fn collect_macho_tlv_regions(
 /// Signature-based, so it tracks `EMPTY_GROUP` wherever a rebuild moves it.
 pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
     static RANGES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
-    RANGES.get_or_init(compute_hashbrown_empty_group_ranges).as_slice()
+    RANGES
+        .get_or_init(compute_hashbrown_empty_group_ranges)
+        .as_slice()
 }
 
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
@@ -3257,15 +3276,22 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
         let img_hi = maxv.wrapping_add(slide);
         // Locate __TEXT.__text (native range, mapped r-x → readable).
         let mut text: Option<(usize, usize)> = None; // (native_lo, size)
-        // [g211] Also locate const DATA sections (`__const` in any segment) so we can
-        // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
-        // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
-        // `adrp`/`add` in code — so the instruction scan below structurally misses it,
-        // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
-        // forever → text shaping hangs.
+                                                     // [g211] Also locate const DATA sections
+                                                     // (`__const` in any segment) so we can
+                                                     // signature-scan them for hashbrown's
+                                                     // EMPTY_GROUP. EMPTY_GROUP is reached only
+                                                     // via the empty-table singleton's REBASED
+                                                     // `ctrl` data-pointer — never a direct
+                                                     // `adrp`/`add` in code — so the instruction
+                                                     // scan below structurally misses it,
+                                                     // and an empty map's ctrl-scan then reads 0x00
+                                                     // → "all-FULL" → RawIterRange loops
+                                                     // forever → text shaping hangs.
         let mut const_secs: Vec<(usize, usize)> = Vec::new(); // (native_lo, size)
         for lc in &macho.load_commands {
-            let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+            let CommandVariant::Segment64(seg64) = &lc.command else {
+                continue;
+            };
             let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
             for i in 0..seg64.nsects as usize {
                 let so = sections_off + i * SIZEOF_SECTION_64;
@@ -3283,7 +3309,9 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                 }
             }
         }
-        let Some((text_lo, tsize)) = text else { continue };
+        let Some((text_lo, tsize)) = text else {
+            continue;
+        };
         if tsize < 8 || text_lo < img_lo || text_lo + tsize > img_hi {
             continue;
         }
@@ -3328,9 +3356,8 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                         let target = pg.wrapping_add(imm12);
                         if (target & 0x7) == 0 && target >= img_lo && target + 8 <= img_hi {
                             let max_rl = core::cmp::min(64, img_hi - target);
-                            let tb = unsafe {
-                                core::slice::from_raw_parts(target as *const u8, max_rl)
-                            };
+                            let tb =
+                                unsafe { core::slice::from_raw_parts(target as *const u8, max_rl) };
                             let mut rl = 0usize;
                             while rl < max_rl && tb[rl] == 0xFF {
                                 rl += 1;
@@ -3405,7 +3432,9 @@ pub(crate) fn collect_elf_low32_sections(
     let _ = file_bytes;
     let mut out = Vec::new();
     for sh in &elf.section_headers {
-        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else { continue };
+        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else {
+            continue;
+        };
         if !matches!(name, ".rodata" | ".data" | ".data.rel.ro") {
             continue;
         }
@@ -3474,10 +3503,7 @@ mod tests {
         // MECH-B regression: out-of-line alloc/core monomorphizations are
         // real compute and must be lifted, never no-op stubbed .
         assert_eq!(
-            classify_for_name(
-                "_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E",
-                &api
-            ),
+            classify_for_name("_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E", &api),
             FnClass::Recursable
         );
         // std stays Leaf-by-default (syscall surface).
@@ -3487,10 +3513,7 @@ mod tests {
         );
         // Known landmine stays stubbed: core fn-ptr blanket impls.
         assert_eq!(
-            classify_for_name(
-                "_ZN4core3ops8function5impls5whatever17h00E",
-                &api
-            ),
+            classify_for_name("_ZN4core3ops8function5impls5whatever17h00E", &api),
             FnClass::Leaf
         );
     }

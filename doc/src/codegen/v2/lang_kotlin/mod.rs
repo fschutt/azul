@@ -5,17 +5,15 @@
 //! lets us colocate every top-level declaration in a single file. We
 //! emit one `Azul.kt` file containing:
 //!
-//! 1. `interface AzulNative : Library` — the JNA FFI declarations.
-//! 2. `open class Az<Foo> : Structure() { ... }` per FFI struct, with
-//!    `@JvmField` properties (so JNA can write fields directly), an
-//!    overridden `getFieldOrder`, and `ByValue` / `ByReference` inner
-//!    classes for pass-by-value vs pointer parameters.
-//! 3. `enum class Az<Foo>(val value: Int) { ... }` per unit enum, plus
-//!    a per-tagged-union `open class Az<Foo> : Union()` + a parallel
-//!    Java-style `Az<Foo>_Tag` enum.
-//! 4. Idiomatic Kotlin wrapper classes (`class App private constructor
-//!    (...) : AutoCloseable`) for every FFI type with a `_delete`
-//!    function. Includes Kotlin `use { }` ergonomics out of the box
+//! 1. `object AzulNative<Module>` per api.json module — the JNA FFI declarations as
+//!    `@JvmStatic external fun`s bound by `Native.register` (direct mapping, like Java).
+//! 2. `open class Az<Foo> : Structure() { ... }` per FFI struct, with `@JvmField` properties (so
+//!    JNA can write fields directly), an overridden `getFieldOrder`, and `ByValue` / `ByReference`
+//!    inner classes for pass-by-value vs pointer parameters.
+//! 3. `enum class Az<Foo>(val value: Int) { ... }` per unit enum, plus a per-tagged-union `open
+//!    class Az<Foo> : Union()` + a parallel Java-style `Az<Foo>_Tag` enum.
+//! 4. Idiomatic Kotlin wrapper classes (`class App private constructor (...) : AutoCloseable`) for
+//!    every FFI type with a `_delete` function. Includes Kotlin `use { }` ergonomics out of the box
 //!    via `AutoCloseable`'s standard library extension.
 //!
 //! ## Shared with `lang_java`
@@ -32,20 +30,20 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    FunctionDef, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
-    TypeAliasDef, TypeCategory,
-};
-
 // ─── Reuse Java helpers where possible ─────────────────────────────────────
-
 pub use super::lang_java::ffi_type_name;
-pub use super::lang_java::is_java_reserved;
-pub use super::lang_java::map_jvm_type as base_map_jvm_type;
-pub use super::lang_java::user_enum_type_name;
+pub use super::lang_java::{
+    is_java_reserved, map_jvm_type as base_map_jvm_type, user_enum_type_name,
+};
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{
+        ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+        FieldRefKind, FunctionDef, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant,
+        StructDef, TypeAliasDef, TypeCategory,
+    },
+};
 
 /// Library name JNA loads. Matches the Java side.
 pub const LIBRARY_NAME: &str = "azul";
@@ -131,7 +129,6 @@ fn emit_imports(builder: &mut CodeBuilder) {
     // interface and the body's `return Callback(ptr)` (resolved in the
     // class scope) to fail with a return-type mismatch.
     builder.line("import com.sun.jna.Callback as JnaCallback");
-    builder.line("import com.sun.jna.Library");
     builder.line("import com.sun.jna.Memory");
     builder.line("import com.sun.jna.Native");
     builder.line("import com.sun.jna.Pointer");
@@ -237,17 +234,24 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 
 fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("// ────────────────────────────────────────────────────────────────");
-    builder.line("// FFI interfaces — one per api.json module.");
+    builder.line("// FFI objects — one per api.json module, JNA DIRECT mapping.");
     builder.line("//");
-    builder.line("// Splitting AzulNative by module keeps each JNA Proxy `<clinit>`");
-    builder.line("// (which calls Method.getMethod for every interface method) well");
-    builder.line("// under the JVM 64KB per-method bytecode limit. Largest module is");
-    builder.line("// `vec` at ~888 methods (~45KB).");
+    builder.line("// Every object is registered with `Native.register(<object>::class.java,");
+    builder.line("// \"azul\")` in its init block and declares one `@JvmStatic external fun`");
+    builder.line("// per exported C symbol. JNA binds those static native methods straight");
+    builder.line("// to the symbols (the same shape lang_java uses), which is roughly an");
+    builder.line("// order of magnitude cheaper per call than the `interface X : Library`");
+    builder.line("// + `Native.load` proxy this file used to emit: no reflective `Method`");
+    builder.line("// dispatch, no argument boxing.");
     builder.line("//");
-    builder.line("// Kotlin call sites: `AzulNativeApp.INSTANCE.AzApp_create(...)`,");
-    builder.line("// `AzulNativeDom.INSTANCE.AzDom_createBody()`, etc. The per-class");
-    builder.line("// owning module comes from `ir.type_to_module` populated from");
-    builder.line("// api.json.");
+    builder.line("// The per-module split stays: a proxy interface's `<clinit>` used to hit");
+    builder.line("// the JVM's 64 KB per-method bytecode limit past ~1200 methods, and one");
+    builder.line("// object per module (the largest, `vec`, is ~888 methods) keeps every");
+    builder.line("// class comfortably sized whichever way JNA binds it.");
+    builder.line("//");
+    builder.line("// Kotlin call sites: `AzulNativeApp.AzApp_create(...)`,");
+    builder.line("// `AzulNativeDom.AzDom_createBody()`, etc. The per-class owning module");
+    builder.line("// comes from `ir.type_to_module` populated from api.json.");
     builder.line("// ────────────────────────────────────────────────────────────────");
     builder.blank();
 
@@ -270,19 +274,15 @@ fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Cod
     for (module, funcs) in &by_module {
         let class_name = super::lang_java::functions::module_native_class(module);
         builder.line(&format!(
-            "/// JNA-bound interface for the {} module of the Azul C ABI.",
+            "/// JNA direct-mapped natives for the {} module of the Azul C ABI.",
             module
         ));
-        builder.line(&format!("interface {} : Library {{", class_name));
-        builder.indent();
-        builder.line("companion object {");
+        builder.line(&format!("object {} {{", class_name));
         builder.indent();
         builder.line(&format!(
-            "@JvmField val INSTANCE: {} = Native.load(\"{}\", {}::class.java)",
-            class_name, LIBRARY_NAME, class_name
+            "init {{ Native.register({}::class.java, \"{}\") }}",
+            class_name, LIBRARY_NAME
         ));
-        builder.dedent();
-        builder.line("}");
         builder.blank();
         for func in funcs {
             emit_native_method(builder, func, ir);
@@ -324,7 +324,7 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
     // args declared here). The raw `<c_name>` takes a bare fn ptr at
     // the C ABI; declaring it with these args crashed on click.
     builder.line(&format!(
-        "fun {}({}): {}",
+        "@JvmStatic external fun {}({}): {}",
         super::super::managed_host_invoker::managed_c_symbol(func),
         args.join(", "),
         return_type
@@ -472,7 +472,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         if let (Some(_), Some(sv)) = (none, some) {
             let payload_tuple = match &sv.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -509,7 +509,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         if let (Some(ov), Some(_)) = (ok, err) {
             let payload_tuple = match &ov.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -590,7 +590,11 @@ fn emit_monomorphized_alias(
                 let sep = if idx == last { ";" } else { "," };
                 builder.line(&format!("{}({}){}", v_name, idx, sep));
             }
-            builder.line(&format!("companion object {{ fun fromInt(v: Int): {} = values().first {{ it.value == v }} }}", name));
+            builder.line(&format!(
+                "companion object {{ fun fromInt(v: Int): {} = values().first {{ it.value == v }} \
+                 }}",
+                name
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -840,7 +844,7 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         elem_kt
     ));
     builder.indent();
-    builder.line(&format!("if (ptr == null || len == 0L) return emptyList()"));
+    builder.line(&"if (ptr == null || len == 0L) return emptyList()".to_string());
     builder.line(&format!(
         "val __out = java.util.ArrayList<{}>(len.toInt())",
         elem_kt
@@ -1202,4 +1206,42 @@ fn parse_array_type(s: &str) -> Option<(String, usize)> {
     let elem = inner[..semi].trim().to_string();
     let count: usize = inner[semi + 1..].trim().parse().ok()?;
     Some((elem, count))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// JNA direct mapping: one `object` per module registered with
+    /// `Native.register`, `@JvmStatic external fun` per symbol — never the
+    /// `interface X : Library` + `Native.load` proxy, which JNA dispatches
+    /// reflectively (~10x slower per call than Java's direct mapping).
+    #[test]
+    fn natives_are_direct_mapped_objects_not_library_proxies() {
+        let ir = super::super::lang_zig::c_decls::tests::fixture_ir();
+        let kt = generate(&ir, &CodegenConfig::c_header()).unwrap();
+        assert!(kt.contains("object AzulNativeDom {\n"), "{kt}");
+        assert!(
+            kt.contains("init { Native.register(AzulNativeDom::class.java, \"azul\") }\n"),
+            "{kt}"
+        );
+        assert!(kt.contains("@JvmStatic external fun AzFoo_create("), "{kt}");
+        assert!(kt.contains("object AzulNativeManaged {\n"), "{kt}");
+        assert!(
+            kt.contains("init { Native.register(AzulNativeManaged::class.java, \"azul\") }\n"),
+            "{kt}"
+        );
+        assert!(kt.contains("@JvmStatic external fun AzRefAny_newHostHandle("), "{kt}");
+        // No proxy anywhere in CODE (the prose comments describe the old
+        // shape they replaced): no Native.load, no `: Library` interface, no
+        // Library import, and call sites reach the statics without INSTANCE.
+        let code = |needle: &str| {
+            kt.lines()
+                .any(|l| !l.trim_start().starts_with("//") && l.contains(needle))
+        };
+        assert!(!code("Native.load("), "{kt}");
+        assert!(!code(": Library"), "{kt}");
+        assert!(!code("import com.sun.jna.Library"), "{kt}");
+        assert!(!code(".INSTANCE."), "{kt}");
+    }
 }

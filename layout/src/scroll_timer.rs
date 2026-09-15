@@ -25,13 +25,13 @@
 //!
 //! # Key Design Decisions
 //!
-//! - **No mutable access to LayoutWindow needed**: Uses `CallbackChange::ScrollTo`
-//!   (the same transactional pattern as all other callbacks).
-//! - **Shared queue via Arc<Mutex>**: The `ScrollInputQueue` is cloned into the
-//!   timer's `RefAny` data. Event handlers push, timer pops.
+//! - **No mutable access to LayoutWindow needed**: Uses `CallbackChange::ScrollTo` (the same
+//!   transactional pattern as all other callbacks).
+//! - **Shared queue via Arc<Mutex>**: The `ScrollInputQueue` is cloned into the timer's `RefAny`
+//!   data. Event handlers push, timer pops.
 //! - **Platform-independent**: Works on macOS, Windows, Linux — anywhere timers work.
-//! - **Self-terminating**: When all velocities are below threshold and no inputs
-//!   pending, the timer returns `TerminateTimer::Terminate`.
+//! - **Self-terminating**: When all velocities are below threshold and no inputs pending, the timer
+//!   returns `TerminateTimer::Terminate`.
 
 use alloc::collections::BTreeMap;
 
@@ -43,6 +43,7 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
     task::TerminateTimer,
 };
+use azul_css::props::style::scrollbar::{OverflowScrolling, OverscrollBehavior, ScrollPhysics};
 
 use crate::{
     managers::scroll_state::{
@@ -50,8 +51,6 @@ use crate::{
     },
     timer::TimerCallbackInfo,
 };
-
-use azul_css::props::style::scrollbar::{OverflowScrolling, OverscrollBehavior, ScrollPhysics};
 
 /// Maximum number of scroll events processed per timer tick.
 /// Older events beyond this limit are discarded to keep the physics
@@ -316,8 +315,8 @@ pub fn trace_scroll_input(
         return;
     }
     std::eprintln!(
-        "[az-scroll] IN  backend={backend} raw=({raw_dx:.4},{raw_dy:.4}) \
-         continuous={continuous} source={source} device={device}"
+        "[az-scroll] IN  backend={backend} raw=({raw_dx:.4},{raw_dy:.4}) continuous={continuous} \
+         source={source} device={device}"
     );
 }
 
@@ -329,7 +328,9 @@ pub fn trace_scroll_input(_: &str, _: f32, _: f32, _: bool, _: &str, _: &str) {}
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
+                                                               // layout/render/parse routine (one
+                                                               // branch per case)
 pub extern "C" fn scroll_physics_timer_callback(
     mut data: RefAny,
     mut timer_info: TimerCallbackInfo,
@@ -1159,7 +1160,8 @@ pub extern "C" fn scroll_physics_timer_callback(
         any_changes = true;
     }
 
-    // Apply velocity-based position changes (uses unclamped: physics already handles rubber-band clamping)
+    // Apply velocity-based position changes (uses unclamped: physics already handles rubber-band
+    // clamping)
     //
     // A ScrollTo is the whole of what a physics tick says. Whether the new
     // offset means a VirtualView on that node has to re-materialize is the
@@ -1176,7 +1178,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     // 4. Decide whether to continue or terminate
     if physics.is_active() || any_changes {
         TimerCallbackReturn {
-            should_update: Update::DoNothing, // Scroll changes are handled via nodes_scrolled_in_callbacks, not DOM refresh
+            should_update: Update::DoNothing, /* Scroll changes are handled via
+                                               * nodes_scrolled_in_callbacks, not DOM refresh */
             should_terminate: TerminateTimer::Continue,
         }
     } else {
@@ -2771,8 +2774,8 @@ mod autotest_generated {
                 assert_eq!(idx, 3);
                 assert!(
                     pos.y > 0.0 && pos.y < 400.0,
-                    "an animated scroll SEEKS the target across ticks instead of \
-                     teleporting (Programmatic behavior): first tick landed at {pos:?}"
+                    "an animated scroll SEEKS the target across ticks instead of teleporting \
+                     (Programmatic behavior): first tick landed at {pos:?}"
                 );
             },
         );
@@ -2874,9 +2877,9 @@ mod autotest_generated {
                 let (_, pos, _) = tos[0];
                 assert!(
                     pos.y > 0.0 && pos.y < 30.0,
-                    "a wheel click GLIDES toward its target (default \
-                     wheel_multiplier = 1.0 -> target y = 30), it neither \
-                     teleports nor overshoots on the first tick: {pos:?}"
+                    "a wheel click GLIDES toward its target (default wheel_multiplier = 1.0 -> \
+                     target y = 30), it neither teleports nor overshoots on the first tick: \
+                     {pos:?}"
                 );
             },
         );
@@ -2915,8 +2918,8 @@ mod autotest_generated {
             let (target, _) = st.animate_targets[&key(3)];
             assert_eq!(
                 target.y, 60.0,
-                "the second click extends the FIRST click's target (30 + 30), \
-                 it does not restart from the current offset"
+                "the second click extends the FIRST click's target (30 + 30), it does not restart \
+                 from the current offset"
             );
         });
     }
@@ -2956,8 +2959,8 @@ mod autotest_generated {
         with_state(&mut data, |st| {
             assert!(
                 st.animate_targets.is_empty(),
-                "TestDriver wheel events must stay on the deterministic \
-                 velocity model (e2e harness contract), not the glide"
+                "TestDriver wheel events must stay on the deterministic velocity model (e2e \
+                 harness contract), not the glide"
             );
             let v = st.node_velocities[&key(3)].velocity;
             assert!(v.y > 0.0, "impulse recorded as velocity: {v:?}");
@@ -2998,9 +3001,8 @@ mod autotest_generated {
                 };
                 assert!(
                     wheel_y > bounce_y,
-                    "provenance picks the spring: wheel glide (60ms) must be \
-                     snappier than the bounce-duration seek (5000ms); \
-                     wheel {wheel_y} vs bounce {bounce_y}"
+                    "provenance picks the spring: wheel glide (60ms) must be snappier than the \
+                     bounce-duration seek (5000ms); wheel {wheel_y} vs bounce {bounce_y}"
                 );
             },
         );
@@ -3190,8 +3192,8 @@ mod autotest_generated {
                     scrolled,
                     changes.len(),
                     "a physics tick must emit nothing but ScrollTo — in particular no \
-                     UpdateVirtualView, which would re-materialize the view every \
-                     frame. changes={changes:?}"
+                     UpdateVirtualView, which would re-materialize the view every frame. \
+                     changes={changes:?}"
                 );
             },
         );
@@ -3287,8 +3289,8 @@ mod autotest_generated {
             let _ = closed_loop_tick(&mut layout_window, &data);
             assert!(
                 !queue.has_pending(),
-                "tick {tick}: applying a physics ScrollTo put input back on the \
-                 scroll input queue — that is the feedback loop"
+                "tick {tick}: applying a physics ScrollTo put input back on the scroll input \
+                 queue — that is the feedback loop"
             );
         }
     }
@@ -3363,8 +3365,8 @@ mod autotest_generated {
         let writes_for_node_1 = emitted.iter().filter(|(idx, ..)| *idx == 1).count();
         assert_eq!(
             writes_for_node_1, 1,
-            "the finger moved node 1 this tick, so exactly one writer may claim \
-             it; got {writes_for_node_1} ScrollTos: {emitted:?}"
+            "the finger moved node 1 this tick, so exactly one writer may claim it; got \
+             {writes_for_node_1} ScrollTos: {emitted:?}"
         );
     }
 
@@ -3415,8 +3417,7 @@ mod autotest_generated {
         let settled = offset_of(&layout_window, 1).y;
         assert!(
             (settled - 100.0).abs() < 1.0,
-            "the rubber band must pull the view back to max_scroll_y=100, \
-             it stayed at {settled}"
+            "the rubber band must pull the view back to max_scroll_y=100, it stayed at {settled}"
         );
     }
 
@@ -3479,8 +3480,8 @@ mod autotest_generated {
         let settled = trace[trace.len() - 1];
         assert!(
             (settled - 120.0).abs() < 0.5,
-            "three 40 px notches must land on 120 px within a second, landed on \
-             {settled} (trace: {trace:?})"
+            "three 40 px notches must land on 120 px within a second, landed on {settled} (trace: \
+             {trace:?})"
         );
         // The timer must not keep ticking against a retired target.
         let mut data = data;
@@ -3547,8 +3548,8 @@ mod autotest_generated {
             for (i, w) in trace.windows(2).enumerate() {
                 assert!(
                     w[1] <= w[0] + 1e-3,
-                    "[{name}] the spring-back moved AWAY from the edge at tick {}: \
-                     {} -> {} (trace head: {:?})",
+                    "[{name}] the spring-back moved AWAY from the edge at tick {}: {} -> {} \
+                     (trace head: {:?})",
                     i + 1,
                     w[0],
                     w[1],
@@ -3699,8 +3700,8 @@ mod autotest_generated {
         assert_eq!(
             bounces,
             1,
-            "one flick must bounce exactly ONCE — the momentum tail restarted a \
-             landed bounce {} more time(s). overshoot per tick: {rounded:?}",
+            "one flick must bounce exactly ONCE — the momentum tail restarted a landed bounce {} \
+             more time(s). overshoot per tick: {rounded:?}",
             bounces - 1
         );
         assert!(
@@ -3738,8 +3739,8 @@ mod autotest_generated {
         );
         assert!(
             state.is_active(),
-            "a held latch must keep the timer alive — the shell rebuilds this \
-             state on every timer start, so terminating loses the latch"
+            "a held latch must keep the timer alive — the shell rebuilds this state on every \
+             timer start, so terminating loses the latch"
         );
 
         // Once it ages out the timer is free to stop again: the latch cannot
@@ -3821,15 +3822,16 @@ mod autotest_generated {
                 let prev = *trace.last().unwrap();
                 assert!(
                     y > prev + 1e-3,
-                    "[{name}] a tick with finger input must stretch further: {prev} -> {y} \
-                     (trace {trace:?})"
+                    "[{name}] a tick with finger input must stretch further: {prev} -> {y} (trace \
+                     {trace:?})"
                 );
                 trace.push(y);
             }
             let last = *trace.last().unwrap();
             assert!(
                 (last - expected_final).abs() < 0.05,
-                "[{name}] the stretch is D(Σ deltas) = {expected_final}, got {last} (trace {trace:?})"
+                "[{name}] the stretch is D(Σ deltas) = {expected_final}, got {last} (trace \
+                 {trace:?})"
             );
             finals.push(last);
         }
@@ -3860,7 +3862,8 @@ mod autotest_generated {
             let prev = *trace.last().unwrap();
             assert!(
                 y >= prev - 1e-3,
-                "the stretch must never shrink while the finger is down: {prev} -> {y} (trace {trace:?})"
+                "the stretch must never shrink while the finger is down: {prev} -> {y} (trace \
+                 {trace:?})"
             );
             trace.push(y);
         };
@@ -3954,8 +3957,8 @@ mod autotest_generated {
         let y_after = offset_of(&lw, 1).y;
         assert!(
             y_after > y_before + 1.0,
-            "the Y fling must keep advancing while X rubber-bands (the whole-event \
-             drop used to freeze it): {y_before} -> {y_after}"
+            "the Y fling must keep advancing while X rubber-bands (the whole-event drop used to \
+             freeze it): {y_before} -> {y_after}"
         );
         // X stayed in its band — the Y deltas did not throw it off the edge.
         // (Correct: momentum is still PUSHING into the edge every tick, so the
@@ -3994,8 +3997,8 @@ mod autotest_generated {
         let x_released = offset_of(&lw, 1).x;
         assert!(
             x_released < x_held - 0.5,
-            "X must spring back toward its edge once momentum stops pushing it \
-             (the band is frozen for the whole momentum tail): {x_held} -> {x_released}",
+            "X must spring back toward its edge once momentum stops pushing it (the band is \
+             frozen for the whole momentum tail): {x_held} -> {x_released}",
         );
     }
 
@@ -4041,8 +4044,8 @@ mod autotest_generated {
         );
         assert!(
             (steady - jittered).abs() < 0.5,
-            "the same simulated time must travel the same distance whatever the \
-             tick spacing: steady={steady} vs jittered={jittered}",
+            "the same simulated time must travel the same distance whatever the tick spacing: \
+             steady={steady} vs jittered={jittered}",
         );
     }
 
@@ -4093,8 +4096,8 @@ mod autotest_generated {
         }
         assert!(
             worst < 0.5,
-            "a trailing TrackpadEnd re-armed the band and bounced again \
-             (max overshoot {worst} px after the gesture had already settled)",
+            "a trailing TrackpadEnd re-armed the band and bounced again (max overshoot {worst} px \
+             after the gesture had already settled)",
         );
     }
 
@@ -4143,8 +4146,8 @@ mod autotest_generated {
         );
         assert!(
             trace.iter().all(|o| *o >= -0.01),
-            "the spring must never cross into the content (the old crossing velocity became ~60 px \
-             of drift): {trace:?}"
+            "the spring must never cross into the content (the old crossing velocity became ~60 \
+             px of drift): {trace:?}"
         );
         assert_eq!(
             trace[trace.len() - 1],

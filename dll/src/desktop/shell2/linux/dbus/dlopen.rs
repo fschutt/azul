@@ -16,12 +16,13 @@ use std::{
     sync::Arc,
 };
 
-use crate::desktop::shell2::common::{
-    dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
-};
-use crate::load_symbol;
-
 pub use super::super::x11::dlopen::Library;
+use crate::{
+    desktop::shell2::common::{
+        dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+    },
+    load_symbol,
+};
 
 /// DBus library handle with function pointers
 pub struct DBusLib {

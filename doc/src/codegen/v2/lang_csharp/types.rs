@@ -1,34 +1,35 @@
 //! Struct, enum, and callback delegate emission for the C# generator.
 //!
 //! Strategy:
-//! - **Unit-only enums** -> `public enum Foo : uint { ... }` (unprefixed
-//!   — user-facing values inside `namespace Azul`; see
-//!   `user_enum_type_name`). We do not emit explicit numeric values;
-//!   the C ABI uses sequential numbering from 0, which matches the C#
-//!   default.
-//! - **Tagged-union enums** (`is_union == true`) -> a tag enum
-//!   `AzFoo_Tag : uint` plus per-variant `[StructLayout(Sequential)]`
-//!   structs (`AzFooVariant_Bar`) plus an `[StructLayout(Explicit)]`
-//!   `AzFoo` struct with `[FieldOffset(0)]` for each variant. This is
-//!   layout-compatible with the C union the DLL exposes.
-//! - **POD structs** (`!fields.is_empty()`, no boxed types,
-//!   non-recursive) -> `[StructLayout(Sequential)] public struct AzFoo`
+//! - **Unit-only enums** -> `public enum Foo : uint { ... }` (unprefixed — user-facing values
+//!   inside `namespace Azul`; see `user_enum_type_name`). We do not emit explicit numeric values;
+//!   the C ABI uses sequential numbering from 0, which matches the C# default.
+//! - **Tagged-union enums** (`is_union == true`) -> a tag enum `AzFoo_Tag : uint` plus per-variant
+//!   `[StructLayout(Sequential)]` structs (`AzFooVariant_Bar`) plus an `[StructLayout(Explicit)]`
+//!   `AzFoo` struct with `[FieldOffset(0)]` for each variant. This is layout-compatible with the C
+//!   union the DLL exposes.
+//! - **POD structs** (`!fields.is_empty()`, no boxed types, non-recursive) ->
+//!   `[StructLayout(Sequential)] public struct AzFoo`
 //! - **Generic templates** are skipped (they're always monomorphized).
-//! - **Recursive / VecRef / DestructorOrClone / Boxed** categories are
-//!   skipped here; they are exposed through the wrapper layer instead.
+//! - **Recursive / VecRef / DestructorOrClone / Boxed** categories are skipped here; they are
+//!   exposed through the wrapper layer instead.
 //!
 //! Callback typedefs become Cdecl `[UnmanagedFunctionPointer]` delegates.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
-    TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+            MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
+            TypeCategory,
+        },
+    },
+    ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name,
 };
-use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name};
 
 // ============================================================================
 // Top-level type emission
@@ -235,10 +236,7 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     // wrappers reference them as fields (e.g.
     // `AzCalcAstItemVec.destructor: AzCalcAstItemVecDestructor`,
     // `AzU8VecRef`). The C-header generator includes them; we follow.
-    match s.category {
-        TypeCategory::Recursive | TypeCategory::GenericTemplate => false,
-        _ => true,
-    }
+    !matches!(s.category, TypeCategory::Recursive | TypeCategory::GenericTemplate)
 }
 
 fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -402,7 +400,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         if let (Some(_), Some(sv)) = (none, some) {
             let payload_tuple = match &sv.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -438,7 +436,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         if let (Some(ov), Some(_)) = (ok, err) {
             let payload_tuple = match &ov.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -455,7 +453,8 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
                     name
                 ));
                 builder.line(&format!(
-                    "throw new System.InvalidOperationException(\"{} unwrap on Err: \" + Err.payload.ToString());",
+                    "throw new System.InvalidOperationException(\"{} unwrap on Err: \" + \
+                     Err.payload.ToString());",
                     name
                 ));
                 builder.dedent();
@@ -558,7 +557,8 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
             "double" => "Copy",
             _ => "Copy",
         };
-        // Marshal.Copy doesn't support unsigned types directly; cast through signed buffer for those.
+        // Marshal.Copy doesn't support unsigned types directly; cast through signed buffer for
+        // those.
         match elem_cs.as_str() {
             "byte" | "short" | "int" | "long" | "float" | "double" => {
                 builder.line(&format!(

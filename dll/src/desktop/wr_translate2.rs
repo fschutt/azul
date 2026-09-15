@@ -58,8 +58,7 @@ pub use webrender::{
     Renderer as WrRenderer,
 };
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::{log_debug, log_info};
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug, log_info};
 
 /// Asynchronous hit tester that can be in "requested" or "resolved" state
 pub enum AsyncHitTester {
@@ -315,7 +314,19 @@ pub fn default_renderer_options(
             .background_color
             .as_option()
             .copied()
-            .unwrap_or(ColorU::WHITE)
+            .unwrap_or_else(|| {
+                use azul_core::window::WindowTheme;
+                if options.window_state.theme == WindowTheme::DarkMode {
+                    ColorU {
+                        r: 42,
+                        g: 46,
+                        b: 50,
+                        a: 255,
+                    }
+                } else {
+                    ColorU::WHITE
+                }
+            })
     };
 
     WrRendererOptions {
@@ -341,18 +352,19 @@ pub fn default_renderer_options(
         // which is near-instant (<1ms per shader).
         precache_flags: ShaderPrecacheFlags::EMPTY,
         cached_programs,
-        // Enable partial present so WebRender computes per-frame dirty rects
-        // from tile invalidation. These rects are returned in RenderResults and
-        // forwarded to the OS compositor for per-region invalidation.
-        //
-        // With a `partial_present` cell (EGL backends with buffer-age),
+        // Partial present composites only the dirty rect into the back buffer,
+        // so it needs to know what that buffer still holds. With a
+        // `partial_present` cell (EGL backends with buffer-age),
         // `draw_previous_partial_present_regions: true` makes WR union the
         // current dirty rect with the tracked damage of the previous
-        // `buffer_age - 1` frames — required for correctness when rendering
-        // partially into an aged (multi-buffered) back buffer. Unknown age
-        // (0) or age beyond WR's 4-frame history degrades to Full.
+        // `buffer_age - 1` frames. Unknown age (0) or age beyond WR's 4-frame
+        // history degrades to Full.
+        //
+        // Without one (WGL, CGL) the back buffer is undefined after a swap, and
+        // drawing only the dirty rect presents stale or black pixels everywhere
+        // else: the GPU backends flickered. Those compose every frame in full.
         compositor_config: webrender::CompositorConfig::Draw {
-            max_partial_present_rects: 1,
+            max_partial_present_rects: if partial_present.is_some() { 1 } else { 0 },
             draw_previous_partial_present_regions: partial_present.is_some(),
             partial_present: partial_present
                 .map(|p| Box::new(p) as Box<dyn webrender::PartialPresentCompositor>),
@@ -587,12 +599,12 @@ pub fn translate_world_point(
 /// `LayoutTree::content_inset`, so headless E2E and production can no longer
 /// disagree about where inside a padded node the pointer landed.
 fn content_inset_for(
-    layout_results: &alloc::collections::BTreeMap<
-        azul_core::dom::DomId,
-        azul_layout::window::DomLayoutResult,
+    layout_results: &BTreeMap<
+        DomId,
+        DomLayoutResult,
     >,
-    dom_id: azul_core::dom::DomId,
-    node_id: azul_core::dom::NodeId,
+    dom_id: DomId,
+    node_id: NodeId,
 ) -> ContentInset {
     layout_results
         .get(&dom_id)
@@ -614,12 +626,12 @@ fn content_inset_for(
 /// - Properly calculate point_relative_to_item coordinates
 pub fn translate_hit_test_result(
     wr_result: webrender::api::HitTestResult,
-    _focused_node: Option<azul_core::dom::DomNodeId>,
-    layout_results: &alloc::collections::BTreeMap<
-        azul_core::dom::DomId,
-        azul_layout::window::DomLayoutResult,
+    _focused_node: Option<DomNodeId>,
+    layout_results: &BTreeMap<
+        DomId,
+        DomLayoutResult,
     >,
-) -> azul_core::hit_test::FullHitTest {
+) -> FullHitTest {
     use alloc::collections::BTreeMap;
 
     use azul_core::{
@@ -953,9 +965,8 @@ pub fn collect_font_resource_updates(
             } else {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[collect_font_resource_updates] BUG: layout emitted font hash {} \
-                     that its own FontManager cannot resolve — text using it cannot be \
-                     drawn",
+                    "[collect_font_resource_updates] BUG: layout emitted font hash {} that its \
+                     own FontManager cannot resolve — text using it cannot be drawn",
                     font_hash
                 );
                 continue;
@@ -1030,7 +1041,7 @@ pub fn collect_font_resource_updates(
 
 /// Translate azul-core ResourceUpdate to WebRender ResourceUpdate
 fn translate_resource_update(
-    update: azul_core::resources::ResourceUpdate,
+    update: ResourceUpdate,
 ) -> Option<webrender::ResourceUpdate> {
     use azul_core::resources::ResourceUpdate as AzResourceUpdate;
     use webrender::ResourceUpdate as WrResourceUpdate;
@@ -1159,7 +1170,7 @@ fn translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
 }
 
 /// Translate AddFont from azul-core to WebRender
-fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrender::AddFont> {
+fn translate_add_font(add_font: AddFont) -> Option<webrender::AddFont> {
     // WebRender's AddFont is an enum with Parsed variant
     // azul-core's AddFont already has both key and FontRef
     log_debug!(
@@ -1430,7 +1441,7 @@ const IMAGE_GC_KEEP_EPOCHS: u32 = 2;
 pub fn collect_stale_image_deletes(
     layout_window: &mut LayoutWindow,
     live_image_hashes: &azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
-) -> Vec<azul_core::resources::ResourceUpdate> {
+) -> Vec<ResourceUpdate> {
     use azul_core::resources::ResourceUpdate;
 
     let now = layout_window.epoch.into_u32();
@@ -1612,7 +1623,9 @@ pub fn generate_frame(
 
     // A full frame rebuilds the scene, so "identical to what I sent last time"
     // is the wrong question: everything has to go across again regardless.
-    layout_window.gpu_state_manager.invalidate_submitted_digests();
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
 
     // Process image callback updates (invoke callbacks and register textures)
     let _ = process_image_callback_updates(layout_window, gl_context, txn);
@@ -2134,8 +2147,8 @@ fn wr_translate_border_style(
 /// Get WebRender border from Azul border properties
 /// Returns None if no border should be rendered
 pub fn get_webrender_border(
-    rect_size: azul_core::geom::LogicalSize,
-    radii: azul_css::props::style::border_radius::StyleBorderRadius,
+    rect_size: LogicalSize,
+    radii: StyleBorderRadius,
     widths: azul_layout::solver3::display_list::StyleBorderWidths,
     colors: azul_layout::solver3::display_list::StyleBorderColors,
     styles: azul_layout::solver3::display_list::StyleBorderStyles,
@@ -2378,7 +2391,9 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 1.6: Processing image callback updates"
     );
-    layout_window.gpu_state_manager.invalidate_submitted_digests();
+    layout_window
+        .gpu_state_manager
+        .invalidate_submitted_digests();
     let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
@@ -2674,7 +2689,11 @@ pub fn build_image_only_transaction(
         images_changed,
         scroll_changed,
         gpu_values_changed,
-        if changed { "frame requested" } else { "idle, no frame" }
+        if changed {
+            "frame requested"
+        } else {
+            "idle, no frame"
+        }
     );
 
     Ok(LightweightFrame { changed })
@@ -2763,7 +2782,7 @@ fn process_image_callback_updates(
         );
 
         let descriptor = texture.get_descriptor();
-        let image_key = azul_core::resources::ImageKey {
+        let image_key = ImageKey {
             namespace: layout_window.id_namespace,
             key: external_image_id.inner,
         };
@@ -2788,7 +2807,7 @@ fn process_image_callback_updates(
                 wr_key,
                 wr_descriptor,
                 wr_data,
-                &webrender::api::DirtyRect::All,
+                &DirtyRect::All,
             );
         } else {
             txn.add_image(wr_key, wr_descriptor, wr_data, None);
@@ -2821,9 +2840,10 @@ fn process_image_callback_updates(
 
 /// Process VirtualView updates requested by callbacks
 ///
-/// This function handles manual VirtualView re-rendering triggered by `trigger_virtual_view_rerender()`.
-/// It rebuilds display lists for VirtualViews that were already re-rendered during layout,
-/// then submits only those pipelines to WebRender without rebuilding the entire scene.
+/// This function handles manual VirtualView re-rendering triggered by
+/// `trigger_virtual_view_rerender()`. It rebuilds display lists for VirtualViews that were already
+/// re-rendered during layout, then submits only those pipelines to WebRender without rebuilding the
+/// entire scene.
 ///
 /// # Architecture
 ///
@@ -2884,10 +2904,13 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         let layout_result = match layout_window.layout_results.get(&child_dom_id) {
             Some(lr) => lr,
             None => {
-                log_debug!(LogCategory::Rendering,
-                    "[process_virtual_view_updates] No layout result for child DOM {:?} (parent {:?}, \
-                     node {:?})",
-                    child_dom_id, parent_dom_id, node_id
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[process_virtual_view_updates] No layout result for child DOM {:?} (parent \
+                     {:?}, node {:?})",
+                    child_dom_id,
+                    parent_dom_id,
+                    node_id
                 );
                 continue;
             }
@@ -2913,8 +2936,8 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             Ok((_, built_display_list, nested_pipelines)) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtual_view_updates] Submitting display list for VirtualView DOM {} (pipeline \
-                     {:?})",
+                    "[process_virtual_view_updates] Submitting display list for VirtualView DOM \
+                     {} (pipeline {:?})",
                     child_dom_id.inner,
                     pipeline_id
                 );
@@ -2941,7 +2964,8 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             Err(e) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[process_virtual_view_updates] Error building display list for VirtualView DOM {}: {}",
+                    "[process_virtual_view_updates] Error building display list for VirtualView \
+                     DOM {}: {}",
                     child_dom_id.inner,
                     e
                 );

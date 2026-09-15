@@ -23,7 +23,6 @@ serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
-# link-dynamic by default
 default = ["link-dynamic"]
 serde = ["dep:serde", "dep:serde_derive", "dep:serde_json"]
 link-static = ["azul/link-static", "azul_css"]
@@ -46,8 +45,6 @@ path = "src/calc.rs"
 name = "hello-world"
 path = "src/hello-world.rs"
 
-# The request / resume pattern (open file -> read, http, colour picker,
-# export, db) and the e2e target of tests/e2e/resume_*.json.
 [[example]]
 name = "resume"
 path = "src/resume.rs"
@@ -85,32 +82,16 @@ path = "src/anim.rs"
 name = "transitions"
 path = "src/transitions.rs"
 
-# Also needs `link-static`, for the same reason as `http_zip_demo` below: this
-# demo drives `azul::desktop::icu`, which lives behind `cabi_internal` and so
-# exists only in the static build. Without this the lean `link-dynamic` build
-# fails with "could not find `desktop` in `azul`".
 [[example]]
 name = "icu_demo"
 path = "src/icu_demo.rs"
 required-features = ["icu", "link-static"]
 
-# Needs `link-static` for the same reason as `http_zip_demo` below: it reaches
-# into `azul::desktop::fluent` and `azul::desktop::zip`, which live behind
-# `cabi_internal` and therefore do not exist in a `link-dynamic` build. Without
-# it the lean build fails with "could not find `desktop` in `azul`" - which it
-# has been doing, unseen, because that job sits behind a `needs: [clippy]` that
-# was failing and skipped it.
 [[example]]
 name = "fluent_demo"
 path = "src/fluent_demo.rs"
 required-features = ["fluent", "icu", "link-static"]
 
-# Also needs `link-static`: this demo drives the desktop ZIP helpers
-# (`zip_create_from_files` / `zip_extract_all` / `zip_list_contents`), which
-# live in `azul::desktop::zip` behind `cabi_internal`. The dynamic build
-# exposes the generated `azul::zip::Zip` type instead, not these free
-# functions, so without this the lean `link-dynamic` build fails with
-# "could not find `desktop` in `azul`".
 [[example]]
 name = "http_zip_demo"
 path = "src/http_zip_demo.rs"

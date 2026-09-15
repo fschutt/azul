@@ -131,7 +131,10 @@ mod tests {
         push_media_key(VirtualKeyCode::PlayPause);
         push_media_key(VirtualKeyCode::NextTrack);
         let got = drain_media_keys();
-        assert_eq!(got, vec![VirtualKeyCode::PlayPause, VirtualKeyCode::NextTrack]);
+        assert_eq!(
+            got,
+            vec![VirtualKeyCode::PlayPause, VirtualKeyCode::NextTrack]
+        );
         assert!(drain_media_keys().is_empty());
     }
 

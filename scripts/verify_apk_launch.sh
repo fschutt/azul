@@ -18,7 +18,7 @@ set -euo pipefail
 # find native library" and is indistinguishable from real breakage). Skip
 # the LAUNCH loudly for those releases — the static checks + install above
 # still ran; full launch coverage resumes with the first release that
-# publishes azul-self-test-android-x86_64.apk.
+# publishes an x86_64 emulator APK (AzWidgets-android-x86_64.apk).
 APK_ABI=$(cut -d= -f2 /tmp/apk-abi.env 2>/dev/null || echo unknown)
 EMU_ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
 if [ "$APK_ABI" != "$EMU_ABI" ]; then

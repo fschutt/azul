@@ -1,5 +1,4 @@
 //! Unicode script detection and language identification for text shaping
-//!
 // Taken from: https://github.com/greyblake/whatlang-rs/blob/master/src/scripts/detect.rs
 //
 // See: https://github.com/greyblake/whatlang-rs/pull/67
@@ -168,7 +167,8 @@ const SCRIPT_CHECKERS: [ScriptChecker; 24] = [
 /// Detect only a script by a given text
 /// # Panics
 ///
-/// Panics only if the internal script-counter table were empty, which cannot happen (it is a fixed-size array).
+/// Panics only if the internal script-counter table were empty, which cannot happen (it is a
+/// fixed-size array).
 pub fn detect_script(text: &str) -> Option<Script> {
     let mut script_counters: [ScriptCounter; 24] = SCRIPT_CHECKERS.map(|(s, f)| (s, f, 0));
 
@@ -294,7 +294,8 @@ fn detect_greek_language(text: &str) -> Language {
     Language::GreekMono
 }
 
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn detect_latin_language(text: &str) -> Language {
     // Flags for languages checked near the end of the original if-else chain.
     let mut has_french_c = false;
@@ -355,7 +356,8 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[must_use]
 pub fn script_to_language(script: Script, text: &str) -> Language {
     match script {

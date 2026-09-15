@@ -11,16 +11,14 @@
 //! Two new Java source files (under the multi-file `// ==FILE:` scheme
 //! `lang_java/mod.rs` already uses):
 //!
-//! 1. **`AzulNativeManaged.java`** — `interface AzulNativeManaged extends
-//!    Library` carrying the host-invoker C-ABI imports
-//!    (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`,
-//!    `AzRefAny_getHostHandle`, plus per-kind invoker setters and
-//!    `Az<Kind>_createFromHostHandle` constructors).
-//! 2. **`AzulHostInvoker.java`** — `public class AzulHostInvoker` with
-//!    static state (id→Object dictionary, GC pin list, init flag),
-//!    `ensureInitialized()`, public `register<Kind>Callback(callback)`
-//!    factories per kind, and `refanyCreate(Object)` / `refanyGet(Pointer)`
-//!    user-data helpers.
+//! 1. **`AzulNativeManaged.java`** — `interface AzulNativeManaged extends Library` carrying the
+//!    host-invoker C-ABI imports (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`,
+//!    `AzRefAny_getHostHandle`, plus per-kind invoker setters and `Az<Kind>_createFromHostHandle`
+//!    constructors).
+//! 2. **`AzulHostInvoker.java`** — `public class AzulHostInvoker` with static state (id→Object
+//!    dictionary, GC pin list, init flag), `ensureInitialized()`, public
+//!    `register<Kind>Callback(callback)` factories per kind, and `refanyCreate(Object)` /
+//!    `refanyGet(Pointer)` user-data helpers.
 //!
 //! Per-kind callback interfaces are defined inline as nested static
 //! interfaces extending `Callback` so users can `implements
@@ -28,10 +26,14 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::{emit_file, LIBRARY_NAME};
+use super::{
+    super::{
+        config::CodegenConfig,
+        ir::CodegenIR,
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    emit_file, LIBRARY_NAME,
+};
 
 /// Generate `AzulNativeManaged.java` + `AzulHostInvoker.java` and append
 /// them to `out` using the same `FILE_MARKER` / `END_LINE` framing every
@@ -180,7 +182,10 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
                     " * Wrap a {} handler in the matching Az{} cdata struct.",
                     wrapper, wrapper
                 ));
-                b.line(" * @param fn user callback (must implement the kind's `*InvokerCallback` interface).");
+                b.line(
+                    " * @param fn user callback (must implement the kind's `*InvokerCallback` \
+                     interface).",
+                );
                 b.line(" */");
                 b.line(&format!(
                     "public static Az{w}.ByValue register{w}(Object fn) {{",
@@ -544,10 +549,10 @@ fn emit_typed_invoker_sam(
 /// internally. Per-kind conformability check — skip emit when any of:
 ///
 ///   - First callback arg is not `RefAny` (no data slot to type)
-///   - Any subsequent arg's type isn't a struct with an emitted
-///     wrapper class (`(Pointer)` constructor needed for arg-wrap)
-///   - Return type is neither void, an enum (writes `result.value`
-///     to outPtr), nor a wrapper struct (bytes-splice into outPtr)
+///   - Any subsequent arg's type isn't a struct with an emitted wrapper class (`(Pointer)`
+///     constructor needed for arg-wrap)
+///   - Return type is neither void, an enum (writes `result.value` to outPtr), nor a wrapper struct
+///     (bytes-splice into outPtr)
 ///
 /// Per the user-locked decision: iterate ALL HOST_INVOKER_KINDS, skip
 /// non-conformers individually; never abort the whole arc.

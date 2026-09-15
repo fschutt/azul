@@ -22,8 +22,10 @@ pub fn handle_event(event: &azul_layout::managers::geolocation::GeolocationDiffE
 
 #[cfg(target_os = "linux")]
 mod imp {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    };
 
     use azul_layout::managers::geolocation::{
         push_location_fix, GeolocationDiffEvent, LocationFix,
@@ -74,8 +76,8 @@ mod imp {
             Ok(c) => c,
             Err(e) => {
                 crate::plog_warn!(
-                    "[geolocation] no D-Bus system bus ({}) — GeoClue2 unreachable, \
-                     no location fixes will arrive",
+                    "[geolocation] no D-Bus system bus ({}) — GeoClue2 unreachable, no location \
+                     fixes will arrive",
                     e
                 );
                 return;
@@ -90,8 +92,8 @@ mod imp {
             Ok(p) => p,
             Err(e) => {
                 crate::plog_warn!(
-                    "[geolocation] GeoClue2 Manager proxy failed ({}) — is GeoClue2 \
-                     installed? No location fixes will arrive",
+                    "[geolocation] GeoClue2 Manager proxy failed ({}) — is GeoClue2 installed? No \
+                     location fixes will arrive",
                     e
                 );
                 return;
@@ -101,8 +103,7 @@ mod imp {
             Ok(p) => p,
             Err(e) => {
                 crate::plog_warn!(
-                    "[geolocation] GeoClue2 GetClient failed ({}) — no location fixes \
-                     will arrive",
+                    "[geolocation] GeoClue2 GetClient failed ({}) — no location fixes will arrive",
                     e
                 );
                 return;
@@ -117,8 +118,8 @@ mod imp {
             Ok(p) => p,
             Err(e) => {
                 crate::plog_warn!(
-                    "[geolocation] GeoClue2 Client proxy failed ({}) — no location \
-                     fixes will arrive",
+                    "[geolocation] GeoClue2 Client proxy failed ({}) — no location fixes will \
+                     arrive",
                     e
                 );
                 return;
@@ -154,8 +155,8 @@ mod imp {
                     // refused (classically: an unregistered DesktopId, or the
                     // agent denied the app). Denied alone hides that.
                     crate::plog_warn!(
-                        "[geolocation] GeoClue2 Start refused ({}) — reporting \
-                         permission Denied, no location fixes will arrive",
+                        "[geolocation] GeoClue2 Start refused ({}) — reporting permission Denied, \
+                         no location fixes will arrive",
                         e
                     );
                     push_async_result(Capability::Geolocation, PermissionState::Denied);
@@ -170,8 +171,8 @@ mod imp {
             Ok(s) => s,
             Err(e) => {
                 crate::plog_warn!(
-                    "[geolocation] subscribing to LocationUpdated failed ({}) — no \
-                     location fixes will arrive",
+                    "[geolocation] subscribing to LocationUpdated failed ({}) — no location fixes \
+                     will arrive",
                     e
                 );
                 return;

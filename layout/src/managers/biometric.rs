@@ -4,39 +4,35 @@
 //! **Request-driven**, unlike the continuous `GeolocationManager`. The
 //! three callers are:
 //!
-//! - A **callback** invokes `App::request_biometric_auth(prompt)` (e.g.
-//!   the `AzulVault` unlock button). The OS draws its own modal sheet; the
-//!   app cannot skin it.
+//! - A **callback** invokes `App::request_biometric_auth(prompt)` (e.g. the `AzulVault` unlock
+//!   button). The OS draws its own modal sheet; the app cannot skin it.
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/biometric/<plat>.rs`)
-//!   shows the prompt (iOS / macOS `LAContext.evaluatePolicy`, Android
-//!   `BiometricPrompt.authenticate`, Windows `UserConsentVerifier`, Linux
-//!   polkit / PAM) and, when the user responds, parks the outcome in the
-//!   async result channel [`push_biometric_result`]. It also writes the
-//!   sync availability probe via [`BiometricManager::set_availability`].
+//! - The **platform backend** (`dll/src/desktop/extra/biometric/<plat>.rs`) shows the prompt (iOS /
+//!   macOS `LAContext.evaluatePolicy`, Android `BiometricPrompt.authenticate`, Windows
+//!   `UserConsentVerifier`, Linux polkit / PAM) and, when the user responds, parks the outcome in
+//!   the async result channel [`push_biometric_result`]. It also writes the sync availability probe
+//!   via [`BiometricManager::set_availability`].
 //!
-//! - The dll **layout pass** drains the channel once per frame via
-//!   [`drain_biometric_results`] and applies the latest through
-//!   [`BiometricManager::set_last_result`]; callbacks then read it with
-//!   `CallbackInfo::get_biometric_result()` and the device capability via
-//!   the sync availability accessor.
+//! - The dll **layout pass** drains the channel once per frame via [`drain_biometric_results`] and
+//!   applies the latest through [`BiometricManager::set_last_result`]; callbacks then read it with
+//!   `CallbackInfo::get_biometric_result()` and the device capability via the sync availability
+//!   accessor.
 //!
 //! No platform deps (`SUPER_PLAN_2` §0.5); the async-result channel is
 //! copied verbatim from `geolocation.rs`.
 
 use alloc::vec::Vec;
 
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
-};
-use azul_core::task::Instant;
-
 // `BiometricKind` / `BiometricResult` / `BiometricPrompt` live in
 // `azul-core` so the request config can cross the FFI without a cyclic
 // dep on `azul-layout`. Re-exported here for the existing
 // `azul_layout::managers::biometric::*` import paths.
 pub use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
+};
 
 /// Cross-platform biometric state. One per `App` — the OS exposes a
 /// single per-process authentication surface, not per-window.
@@ -368,8 +364,9 @@ mod tests {
 
 #[cfg(test)]
 mod pump_provider_tests {
-    use super::*;
     use azul_core::task::{Instant, SystemTick};
+
+    use super::*;
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))
@@ -1045,8 +1042,8 @@ mod autotest_generated {
         push_biometric_request(BiometricPrompt::new("Unlock B".into()));
         assert!(
             has_queued_requests(),
-            "queued-but-undispatched prompts must arm the pump on their own — \
-             has_pending_async() cannot see them yet"
+            "queued-but-undispatched prompts must arm the pump on their own — has_pending_async() \
+             cannot see them yet"
         );
         assert!(!mgr.has_pending_async());
 

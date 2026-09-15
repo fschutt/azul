@@ -1,25 +1,3 @@
-//! azwriter — an Office-2013-era-styled document editor on the azul GUI framework.
-//!
-//! UI ONLY: the document pipeline is stubbed behind the seams in
-//! [`document`] (`load_markdown` / `save_markdown` / `paginate`); a
-//! parallel workstream hooks the real markdown -> StyledDom -> PageSequence
-//! pipeline into exactly those three functions.
-//!
-//! Screens:
-//! - Editor: title band (quick-access toolbar), the Office-2013-era look ribbon (HOME tab
-//!   clone), print-layout canvas with the paginated white sheet, status bar
-//!   (page / words / language, view switcher, zoom slider).
-//! - Backstage ("FILE"): dark-blue nav column with Info / Open panes per
-//!   the the Office-2013-era look screenshots; back arrow and Esc return to the editor.
-//!
-//! Screenshot harness (headless verification):
-//! `AZWRITER_SHOT=/path/out.png [AZWRITER_SCREEN=editor|backstage-info|
-//! backstage-open] AZ_BACKEND=headless ./azwriter` renders the requested
-//! screen, writes the PNG and exits.
-//!
-//! Built entirely on the PUBLIC `azul::` api.json surface (link-dynamic on
-//! desktop) — no internal engine crates.
-
 mod args;
 mod backstage_ui;
 mod document;
@@ -32,48 +10,36 @@ mod ribbon_ui;
 
 use std::path::{Path, PathBuf};
 
-use azul::app::{App, AppConfig};
-use azul::callbacks::{
-    CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback,
-    TimerCallbackInfo, TimerCallbackReturn, Update, WriteBackCallback,
+use azul::{
+    app::{App, AppConfig},
+    callbacks::{
+        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback, TimerCallbackInfo,
+        TimerCallbackReturn, Update, WriteBackCallback,
+    },
+    css::{DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations},
+    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dom::{Callback, Dom, DomId, DomNodeId},
+    file::FilePath,
+    option::{
+        OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
+    },
+    pdf::Pdf,
+    str::String as AzString,
+    svg::{CssPath, CssPathSelector, LogicalRect},
+    task::{
+        TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
+        ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
+    },
+    time::{Duration, SystemTimeDiff},
+    widgets::SliderState,
+    window::{WindowCreateOptions, WindowFrame},
 };
-use azul::css::{
-    DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations,
-};
-use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
-use azul::file::FilePath;
-use azul::dom::{Callback, Dom, DomId, DomNodeId};
-use azul::widgets::SliderState;
-
-use azul::option::{
-    OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
-};
-use azul::pdf::Pdf;
-use azul::str::String as AzString;
-use azul::svg::{CssPath, CssPathSelector, LogicalRect};
-use azul::task::{
-    TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
-    ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
-};
-use azul::time::{Duration, SystemTimeDiff};
-use azul::window::{WindowCreateOptions, WindowFrame};
 
 pub use crate::args::Args;
 use crate::document::{DocumentModel, FontCacheSnapshot};
 
-/// The parsed command line, for the ONE consumer that arguments cannot reach
-/// by parameter: `on_window_created` is a `Callback` whose payload slot the
-/// engine owns, so the screenshot switches have nowhere to ride. Written once
-/// in `start`, before any window exists.
 static WINDOW_ARGS: std::sync::OnceLock<Args> = std::sync::OnceLock::new();
 
-/// Diagnostic: log any layout() call slower than the frame budget. A client
-/// that spends too long here cannot answer the compositor's configure/ping
-/// handshake, and the surface gets dropped (AZWRITER_FRAME_LOG=1).
-///
-/// Reports the per-phase breakdown recorded by [`perf::Phase`], because the
-/// total alone does not say whether the cost is pagination, the state clone
-/// or the ribbon. `AZWRITER_FRAME_LOG=all` prints every frame.
 struct FrameTimer(Option<std::time::Instant>);
 impl FrameTimer {
     fn start() -> Self {
@@ -97,81 +63,35 @@ impl Drop for FrameTimer {
     }
 }
 
-/// `DomId::ROOT_ID` (the constant is not part of the generated surface; the
-/// root window DOM is id 0 by definition).
 fn root_dom_id() -> DomId {
     DomId { inner: 0 }
 }
 
-
-
-// ---------------------------------------------------------------------------
-// Application state
-// ---------------------------------------------------------------------------
-
-/// Which screen fills the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Editor,
     Backstage,
 }
 
-/// The whole UI state, held in one `RefAny` shared by every callback.
 #[derive(Clone)]
 pub struct AppState {
     pub screen: Screen,
-    /// Active backstage nav item (0 = Info, 2 = Open, …).
     pub backstage_pane: usize,
-    /// Active ribbon tab (0 = HOME).
     pub ribbon_tab: usize,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
-    /// 0 = left, 1 = center, 2 = right, 3 = justify.
     pub align: usize,
-    /// Selected cell of the ribbon styles gallery.
     pub selected_style: usize,
-    /// Active status-bar view (0 read mode, 1 print layout, 2 web layout).
     pub view_mode: usize,
-    /// Zoom percent (status-bar cluster; the page sheet scales with it).
     pub zoom_percent: f32,
-    /// Page whose sheet currently holds the caret (the edit loop maps
-    /// page-relative changeset paths through this page's block offset).
     pub editing_page: usize,
-    /// Structural undo history: each entry is an operation that reverses an
-    /// applied edit, paired with the resume point the ENGINE said to replay
-    /// it with (index resolution differs between split and merge, so the app
-    /// must not compute that itself).
     pub undo_stack: Vec<(DocumentOperation, Vec<u32>)>,
-    /// Operations undone and available to redo (cleared by a new edit).
     pub redo_stack: Vec<(DocumentOperation, Vec<u32>)>,
     pub document: DocumentModel,
-    /// #28(c): EXACT page count from the background pagination thread —
-    /// `Some((generation, count))` once its writeback lands for the current
-    /// document generation; until then the UI shows the monitor-bounded
-    /// estimate. Cleared implicitly by the generation pairing (a stale
-    /// writeback is ignored).
     pub exact_page_count: Option<(u64, usize)>,
-    /// #28(c): the pages `VirtualView` node, stored at `AfterMount` so the
-    /// background writeback can address `update_virtual_view` (scrollbar
-    /// correction without re-invoking the callback).
     pub pages_vv_node: Option<DomNodeId>,
-    /// #28(c): the in-flight background pagination — `(generation it was
-    /// started for, its azul ThreadId)`. `None` = nothing running. The
-    /// generation guards staleness (edits supersede the run); the ThreadId
-    /// lets the VirtualView's unmount callback CANCEL the decode via
-    /// `CallbackInfo::remove_thread` when the document/app closes before
-    /// loading finishes (USER design 2026-08-12). Cancellation today drops
-    /// the writeback registration (no stale result can land); true
-    /// mid-compute abort needs chunked pagination — a recorded refinement.
     pub pagination_thread: Option<(u64, ThreadId)>,
-    /// Marker of the status bar's word-count segment
-    /// (`StatusBarSegment::with_marker`). A fresh `Uuid::short()` per app
-    /// state, so `on_text_changed` can find the label with
-    /// `get_node_id_by_marker` and rewrite it in place on every keystroke -
-    /// no `RefreshDom`, no full relayout. (The inter-widget fast path: the
-    /// components talk to each other through the UUID, not through a
-    /// re-render of the whole window.)
     pub word_count_marker: AzString,
 }
 
@@ -200,46 +120,21 @@ impl Default for AppState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// #28(c): streaming background pagination
-// ---------------------------------------------------------------------------
-
-/// Blocks per background-pagination chunk. Each chunk produces one
-/// writeback → one scrollbar/page-count update; the rate is however fast
-/// chunks compute (USER: "updates at 60 fps or however fast the doc pages
-/// load in"). Tune toward ~16ms/chunk later if needed.
 const PAGINATION_CHUNK_BLOCKS: u32 = 64;
 
-/// Init data moved INTO the pagination worker (markdown, not Dom — Dom is
-/// not Send; the worker rebuilds content thread-side). The font-cache
-/// snapshot handle IS designed for off-thread pagination (its shared state
-/// is Arc/Mutex-guarded).
 struct PaginationThreadInit {
-    /// The IR itself travels to the worker — deriving the content tree
-    /// from the markdown serialization would silently drop what markdown
-    /// cannot spell (page breaks, alignment), paginating a DIFFERENT tree
-    /// than the canvas renders.
     ir: ir::IrDocument,
     generation: u64,
     fonts: Option<FontCacheSnapshot>,
 }
 
-/// One streamed chunk result (worker → main-thread writeback).
 struct PaginationChunk {
     generation: u64,
-    /// Total pages discovered so far (monotone; the final chunk's value is
-    /// the exact count — chunk seams force a page break, matching the
-    /// seeded seam paths, so displayed pagination and count agree).
     pages_so_far: usize,
-    /// ABSOLUTE break paths so far (chunk-relative first components offset
-    /// by the chunk's block start; seams appear as `[next_chunk_start]`).
     paths_so_far: Vec<Vec<u32>>,
     done: bool,
 }
 
-/// #28(c): the chunk loop. Checks for `TerminateThread` BETWEEN chunks, so
-/// the unmount callback's `remove_thread` actually aborts remaining work
-/// (USER design).
 extern "C" fn pagination_worker(
     mut init: RefAny,
     mut sender: ThreadSender,
@@ -263,7 +158,6 @@ extern "C" fn pagination_worker(
     let mut pages_acc: usize = 0;
 
     loop {
-        // Cancellation point (unmount / app close mid-load).
         if matches!(
             recv.recv(),
             OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread)
@@ -286,10 +180,6 @@ extern "C" fn pagination_worker(
         block_offset += PAGINATION_CHUNK_BLOCKS;
         let done = block_offset >= total_blocks;
         if !done {
-            // Seam: the next chunk starts a fresh page — the displayed
-            // pagination and the count agree by construction. (Exact-resume
-            // via PageSequence first-page leftover height is the recorded
-            // refinement.)
             paths_acc.push(vec![block_offset]);
         }
 
@@ -312,10 +202,6 @@ extern "C" fn pagination_worker(
     }
 }
 
-/// #28(c): main-thread landing of one chunk — seeds the break-path memo,
-/// updates the displayed count and corrects the VirtualView's scrollbar via
-/// `update_virtual_view` (no callback re-invoke). Stale generations cancel
-/// the run.
 extern "C" fn pagination_writeback(
     mut app: RefAny,
     mut msg: RefAny,
@@ -338,8 +224,6 @@ extern "C" fn pagination_writeback(
             return Update::DoNothing;
         };
         if generation != state.document.generation {
-            // The document changed under the run — cancel it (a fresh mount
-            // spawn covers the new generation).
             if let Some((g, tid)) = state.pagination_thread.take() {
                 if g == generation {
                     info.remove_thread(tid);
@@ -357,15 +241,10 @@ extern "C" fn pagination_writeback(
         (state.pages_vv_node, state.zoom_percent / 100.0)
     };
 
-    // Scrollbar correction: virtual size grows → the bar shrinks live while
-    // the scroll POSITION stays where it was (the op clamps, not resets).
     if let Some(vv) = vv_node {
         use azul::css::{LogicalPosition, LogicalSize};
         let stride = editor_ui::page_stride(zoom);
         let width = (editor_ui::page_sheet_w() * zoom).round() + 2.0;
-        // `materialized: None` = keep the rendered window exactly as it is.
-        // Only the document estimate changes, and placement never reads it —
-        // so the bar re-scales and not one pixel of the page moves.
         info.update_virtual_view(
             vv,
             OptionLogicalRect::None,
@@ -379,13 +258,9 @@ extern "C" fn pagination_writeback(
         );
     }
 
-    // Status bar page count ticks as chunks land.
     Update::RefreshDom
 }
 
-/// #28(c): pages VirtualView mounted — remember its node (the writeback
-/// addresses it) and spawn the streaming pagination unless the document is
-/// already fully paginated or a run for this generation is in flight.
 pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (app, fonts) = {
         let Some(ctx) = data.downcast_ref::<editor_ui::PagesMountCtx>() else {
@@ -407,7 +282,6 @@ pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> 
     if matches!(state.pagination_thread, Some((g, _)) if g == generation) {
         return Update::DoNothing;
     }
-    // Supersede an older-generation run.
     if let Some((_, old)) = state.pagination_thread.take() {
         info.remove_thread(old);
     }
@@ -424,9 +298,6 @@ pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::DoNothing
 }
 
-/// #28(c): pages VirtualView unmounted (doc/app closing) — CANCEL the
-/// in-flight pagination (USER design: stop decoding pages the moment nobody
-/// can see them).
 pub extern "C" fn on_pages_unmounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = {
         let Some(ctx) = data.downcast_ref::<editor_ui::PagesMountCtx>() else {
@@ -445,18 +316,12 @@ pub extern "C" fn on_pages_unmounted(mut data: RefAny, mut info: CallbackInfo) -
     Update::DoNothing
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/// Sets the native window title to "<name> - AzWriter".
 fn set_window_title(info: &mut CallbackInfo, name: &str) {
     let mut st = info.get_current_window_state();
     st.title = AzString::from(format!("{name} - AzWriter"));
     info.modify_window_state(st);
 }
 
-/// The `*.md` filter for the native open dialog.
 fn markdown_filter() -> OptionFileTypeList {
     use azul::file::FileTypeList;
     OptionFileTypeList::Some(FileTypeList {
@@ -465,10 +330,6 @@ fn markdown_filter() -> OptionFileTypeList {
     })
 }
 
-/// Save flow shared by the quick-access save button and the backstage
-/// Save / Save As entries. Asks for a path when there is none (or when
-/// `always_ask`), then runs the `document::save_markdown` seam.
-/// The live model plus the path it was loaded from, for the save seams.
 fn snapshot_for_save(
     data: &mut RefAny,
     info: &mut CallbackInfo,
@@ -477,10 +338,6 @@ fn snapshot_for_save(
         let Some(mut state) = data.downcast_mut::<AppState>() else {
             return None;
         };
-        // LIVE text: fold every un-synced character edit into the IR
-        // through the engine's text-sync loop (typed edits are not
-        // structural and fire no DocumentEdit; this is how they reach the
-        // saved markdown), then serialize the IR.
         if sync_ir_text_from_engine(&mut state, info) {
             state.document.refresh_derived();
             state.document.dirty = true;
@@ -489,7 +346,6 @@ fn snapshot_for_save(
         snapshot.markdown = ir::to_markdown(&snapshot.ir);
         (state.document.path.clone(), snapshot)
     })
-
 }
 
 fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
@@ -497,9 +353,6 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
         return Update::DoNothing;
     };
     if current_path.is_none() || always_ask {
-        // Native save dialog. The answer arrives in `on_save_target_picked`
-        // as a fresh activation - on desktop right after this one returns,
-        // in the browser whenever the picker resolves.
         let _request = FileDialog::save_file(
             AzString::from("Save As - .md for markdown, .pdf to export"),
             AzString::from("document.md"),
@@ -514,7 +367,6 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
     save_snapshot_to(data, info, path, model_snapshot)
 }
 
-/// Resume half of `do_save`: the user picked a target (or cancelled).
 extern "C" fn on_save_target_picked(
     mut data: RefAny,
     mut info: CallbackInfo,
@@ -524,11 +376,8 @@ extern "C" fn on_save_target_picked(
         return Update::DoNothing;
     };
     let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing; // user cancelled
+        return Update::DoNothing;
     };
-    // Saving a document the app keeps editing needs a real path to write
-    // to again later; a browser download target (`as_path` == None) cannot
-    // be re-saved, so export-by-bytes is the portable path for that case.
     let Some(path) = target.as_path().into_option() else {
         return Update::DoNothing;
     };
@@ -542,19 +391,12 @@ extern "C" fn on_save_target_picked(
     save_snapshot_to(&mut data, &mut info, path, model_snapshot)
 }
 
-/// Write `model_snapshot` to `path` in the format the file name asks for.
 fn save_snapshot_to(
     data: &mut RefAny,
     info: &mut CallbackInfo,
     path: PathBuf,
     model_snapshot: DocumentModel,
 ) -> Update {
-
-    // Save writes the format the FILENAME asks for. Before this, Save always
-    // wrote markdown and forced a .md extension, so typing "report.pdf" in the
-    // dialog produced a markdown file called report.pdf — the dialog appeared,
-    // something was written, and it was not a PDF. Export-PDF lives in the
-    // backstage, which is not where anyone looks first.
     if path
         .extension()
         .and_then(|e| e.to_str())
@@ -601,29 +443,6 @@ fn save_snapshot_to(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Callbacks (referenced from the ui modules)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// C11 editing loop: DocumentEdit -> apply to the model -> ack -> refresh
-// ---------------------------------------------------------------------------
-
-/// The engine recorded a structural edit on a page subtree. Apply it to the
-/// app's MODEL (`state.document.content`, which the pages are cut from),
-/// acknowledge with the inverse (making it undoable), and re-render — the
-/// Path-2 loop over the public `DocumentChangeset::apply_to_dom`.
-///
-/// Page->model mapping: pages are contiguous slices of the model's block
-/// list, so a changeset recorded against page `p` shifts by that page's
-/// block offset (`document::page_block_offsets`).
-/// Fold every un-synced character-level edit into the IR and ack the
-/// highest revision — the app half of the engine's text-sync loop
-/// (`get_unsynced_text_edits` / `mark_text_revision_synced`). Per-run
-/// precision: an edit node inside block `i` resolves to its run through
-/// `get_node_child_index_path`, so formatting on untouched runs survives
-/// typing. Returns true when the model changed (caller refreshes derived
-/// state).
 pub(crate) fn sync_ir_text_from_engine(state: &mut AppState, info: &mut CallbackInfo) -> bool {
     let edits = info.get_unsynced_text_edits();
     let edits = edits.as_ref();
@@ -636,14 +455,12 @@ pub(crate) fn sync_ir_text_from_engine(state: &mut AppState, info: &mut Callback
     for edit in edits {
         max_revision = max_revision.max(edit.revision);
         let text = edit.text.as_str();
-        // Rendered blocks carry ids mw-blk-<model index>: resolve each
-        // block node in the edit's dom and containment-test the edit node.
         let mut applied = false;
         for i in 0..total_blocks {
             let id = document::block_dom_id(i);
             let block_node = info.get_node_id_by_id_attribute(edit.node.dom, id.as_str());
             if block_node.into_raw() == 0 {
-                continue; // block not mounted in this dom
+                continue;
             }
             let block_id = DomNodeId {
                 dom: edit.node.dom,
@@ -671,19 +488,12 @@ pub(crate) fn sync_ir_text_from_engine(state: &mut AppState, info: &mut Callback
             break;
         }
         if !applied {
-            // Not part of the document (some other editable): leave it to
-            // its owner, but still ack — the engine clamps monotonically
-            // and equality-GC keeps un-owned entries authoritative.
         }
     }
     info.mark_text_revision_synced(max_revision);
     changed
 }
 
-/// Which model block contains `node` (a selection span's or caret's node),
-/// plus the node's child-index path inside that block. Resolution goes
-/// through the rendered block ids (mw-blk-<model index>), so it works in
-/// whatever dom the page is mounted in.
 pub(crate) fn map_node_to_block(
     state: &AppState,
     info: &mut CallbackInfo,
@@ -706,9 +516,6 @@ pub(crate) fn map_node_to_block(
     None
 }
 
-/// Map an engine selection span onto (block index, byte range in the
-/// block's FLATTENED text): the span's bytes index the span node's own
-/// text, so they shift by the preceding runs' lengths.
 pub(crate) fn map_span_to_block_range(
     state: &AppState,
     info: &mut CallbackInfo,
@@ -718,11 +525,7 @@ pub(crate) fn map_span_to_block_range(
     let run_start: usize = match state.document.ir.blocks.get(block) {
         Some(ir::IrBlock::Paragraph(p)) => {
             let run_idx = rel.first().copied().unwrap_or(0) as usize;
-            p.runs
-                .iter()
-                .take(run_idx)
-                .map(|r| r.text.len())
-                .sum()
+            p.runs.iter().take(run_idx).map(|r| r.text.len()).sum()
         }
         _ => 0,
     };
@@ -733,10 +536,6 @@ pub(crate) fn map_span_to_block_range(
     ))
 }
 
-/// A ribbon formatting command: sync live text (the selection's bytes are
-/// measured against it), toggle the axis over every selected range in the
-/// IR, re-render. The office-suite semantics of `toggle_format_range`
-/// apply per block: any-unset -> set, else clear.
 pub(crate) fn apply_format_axis(
     data: &mut RefAny,
     info: &mut CallbackInfo,
@@ -761,13 +560,6 @@ pub(crate) fn apply_format_axis(
     }
 }
 
-/// `On::TextChanged` on the page host: the engine committed a text edit
-/// (a typed character, a deletion, a paste, the Enter split), and the
-/// committed text is already what `get_unsynced_text_edits` reads - unlike
-/// `On::TextInput`, which fires BEFORE a typed character lands. Folds the
-/// edit into the IR and rewrites the status bar's word count in place
-/// (`StatusBar::update_segment_label` through the segment's marker), so the
-/// count keeps up with typing without a `RefreshDom` per keystroke.
 pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (marker, label) = {
         let Some(mut state) = data.downcast_mut::<AppState>() else {
@@ -783,8 +575,6 @@ pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> U
         )
     };
     if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
-        // Unchanged text is a no-op inside; only a new count re-renders the
-        // label, and only the label.
         azul::widgets::StatusBar::update_segment_label(info, node, label);
     }
     Update::DoNothing
@@ -800,14 +590,8 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
         return Update::DoNothing;
     };
 
-    // Character edits FIRST: the structural op's byte positions were
-    // measured against the live (overlay) text, so the IR must hold that
-    // text before splitting at those bytes.
     let synced = sync_ir_text_from_engine(&mut state, &mut info);
 
-    // Which page hosts the edit? The engine addresses the CURRENT DOM; the
-    // canvas renders one sheet per page in order. The changeset's resume
-    // path is PAGE-local; shift its head by the page's model offset.
     let pages = document::paginate_cached(&state.document.content, state.document.generation);
     let offsets = document::page_block_offsets(&pages);
     let page_index = state.editing_page.min(offsets.len().saturating_sub(1));
@@ -832,27 +616,17 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
         };
     };
 
-    // Record the inverse for undo (same shape the engine's applier hands
-    // back: the op + ITS resume path).
     state.undo_stack.push((inverse.clone(), inverse_resume));
-    state.redo_stack.clear(); // a new edit orphans the redo branch
+    state.redo_stack.clear();
 
-    // The IR is the source of truth: re-derive the render tree and the
-    // markdown so a save writes the edited document and the word count
-    // stays honest.
     state.document.refresh_derived();
     state.document.dirty = true;
     drop(state);
 
-    // Commit handshake: the ACK ends the engine's preview and makes the
-    // edit undoable through the same record->apply->ack loop.
     info.mark_document_edit_applied_with_inverse(changeset.id, inverse);
     Update::RefreshDom
 }
 
-/// A shallow re-borrow of a `CallbackInfo` for the by-value public entry
-/// points (`Pdf::from_dom_in_callback`). The struct is plain pointer data;
-/// the engine only reads through it for the duration of the call.
 fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
     CallbackInfo {
         ref_data: info.ref_data,
@@ -863,15 +637,10 @@ fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
     }
 }
 
-/// Render the document to PDF bytes. Shared by the backstage "Export PDF"
-/// button and by Save-with-a-.pdf-extension, so the two cannot drift.
 fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
-    // A4 at 96 dpi CSS px, matching the canvas sheets.
     const A4_W_PX: f32 = 794.0;
     const A4_H_PX: f32 = 1123.0;
 
-    // Ask for the token engine; the PDF engine falls back to the slicer
-    // when the variable is unset.
     std::env::set_var("AZ_PAGINATION_ENGINE", "tokens");
 
     let mut doc = Dom::create_body().with_css(
@@ -884,23 +653,12 @@ fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
     );
     doc.add_child(content.clone());
 
-    // `from_dom_in_callback` styles the DOM and pulls the font/image caches
-    // out of the live callback context — the same resources the canvas
-    // renders with.
-    let pdf = Pdf::new();
+    let pdf = Pdf::create();
     pdf.from_dom_in_callback(reborrow_info(info), doc, A4_W_PX, A4_H_PX)
         .as_ref()
         .to_vec()
 }
 
-/// Backstage Export -> "Create PDF/XPS": run the whole document through
-/// the engine's DOM->PDF path and write the file.
-///
-/// The PDF is produced from a STYLED clone of the paginated document (the
-/// same content DOM the canvas shows, laid out at A4), so what is exported
-/// is what the engine itself decided - no second layout model. The token
-/// pagination engine is requested via AZ_PAGINATION_ENGINE, which the PDF
-/// engine honors (design doc K30c: printpdf is its first consumer).
 pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let (default_name, content) = {
         let Some(state) = data.downcast_ref::<AppState>() else {
@@ -918,8 +676,6 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         eprintln!("[azwriter] PDF export produced no bytes");
         return Update::DoNothing;
     }
-    // Bytes in, file out: the native save dialog on desktop, a download in
-    // the browser - no path ever touches the app.
     let name = format!("{default_name}.pdf");
     let len = bytes.len();
     if FileDialog::save_bytes(
@@ -935,8 +691,6 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
     }
 }
 
-
-/// Quick-access / Ctrl+Z: undo the last structural edit.
 pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -945,7 +699,6 @@ pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let Some(redo_entry) = ir::apply_operation(&mut state.document.ir, &op, &path) else {
-        // Put it back: a failed apply must not silently eat history.
         state.undo_stack.push((op, path));
         return Update::DoNothing;
     };
@@ -955,7 +708,6 @@ pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Quick-access / Ctrl+Y: redo the last undone edit.
 pub extern "C" fn on_redo(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -973,7 +725,6 @@ pub extern "C" fn on_redo(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// FILE app button: open the backstage on Info (the classic office-suite default pane).
 pub extern "C" fn on_file_button(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -983,7 +734,6 @@ pub extern "C" fn on_file_button(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Backstage back arrow (and Esc via the widget behavior).
 pub extern "C" fn on_backstage_back(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -992,8 +742,6 @@ pub extern "C" fn on_backstage_back(mut data: RefAny, _: CallbackInfo) -> Update
     Update::RefreshDom
 }
 
-/// Backstage nav: Save / Save As run the save flow, Close resets to the
-/// blank "Document1", everything else switches the pane.
 pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx: usize) -> Update {
     const SAVE: usize = 3;
     const SAVE_AS: usize = 4;
@@ -1003,7 +751,6 @@ pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx
         SAVE | SAVE_AS => {
             let update = do_save(&mut data, &mut info, idx == SAVE_AS);
             if matches!(update, Update::RefreshDom) {
-                // Word returns to the document after a backstage save.
                 if let Some(mut state) = data.downcast_mut::<AppState>() {
                     state.screen = Screen::Editor;
                 }
@@ -1030,7 +777,6 @@ pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx
     }
 }
 
-/// Backstage Open -> Browse: native *.md dialog, then the load seam.
 pub extern "C" fn on_browse_clicked(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
         AzString::from("Open"),
@@ -1042,24 +788,19 @@ pub extern "C" fn on_browse_clicked(data: RefAny, _info: CallbackInfo) -> Update
     Update::DoNothing
 }
 
-/// Resume half of `on_browse_clicked`: the picked path (if any) is loaded.
 extern "C" fn on_browse_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some(picked) = FileOpenResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };
     let Some(path_str) = picked.path.into_option() else {
-        return Update::DoNothing; // user cancelled
+        return Update::DoNothing;
     };
-    // `FilePath::as_string` returns an owned `AzString` in the remodelled API;
-    // bind it so the borrowed `Path` outlives this block.
     let path_string = path_str.as_string();
     let path = Path::new(path_string.as_str());
 
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    // Pipeline entry: read + markdown->HTML->XML->DOM parse, cached on the
-    // model (the editor paginates the cached DOM every relayout).
     state.document = DocumentModel::from_path(path);
     state.screen = Screen::Editor;
     let name = state.document.display_name();
@@ -1068,12 +809,10 @@ extern "C" fn on_browse_picked(mut data: RefAny, mut info: CallbackInfo, result:
     Update::RefreshDom
 }
 
-/// Quick-access toolbar save icon.
 pub extern "C" fn on_save_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
     do_save(&mut data, &mut info, false)
 }
 
-/// Status-bar view switcher.
 pub extern "C" fn on_view_select(mut data: RefAny, _: CallbackInfo, idx: usize) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -1101,7 +840,6 @@ pub extern "C" fn on_zoom_in(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Dragging the status-bar zoom slider.
 pub extern "C" fn on_zoom_slider(mut data: RefAny, _: CallbackInfo, slider: SliderState) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -1110,18 +848,10 @@ pub extern "C" fn on_zoom_slider(mut data: RefAny, _: CallbackInfo, slider: Slid
     Update::RefreshDom
 }
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
-
-/// Viewport width (logical px) at or below which AzWriter uses touch chrome:
-/// the ribbon's mobile band, and a title band with no window buttons.
 pub const MOBILE_BREAKPOINT_PX: f32 = 720.0;
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _frame_timer = FrameTimer::start();
-    // Clone the state out so `data` can be re-shared with the callbacks
-    // (RefAny::downcast_ref holds a borrow on `data`).
     let state = {
         let _p = perf::Phase::start("state_clone");
         match data.downcast_ref::<AppState>() {
@@ -1132,38 +862,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     let font_cache = {
         let _p = perf::Phase::start("get_font_cache");
-        // The snapshot handle over the engine's system-font cache — what
-        // `Pdf::compute_pagination` (and the background worker) paginate
-        // with. Built per layout() call; the underlying cache is shared.
         Some(FontCacheSnapshot::from_layout_info(&info))
     };
-    // #28(c/d): the largest monitor bounds how much content the FIRST
-    // pagination builds (huge files must not paginate unbounded up front —
-    // the background thread delivers the exact count afterwards).
     let max_monitor: Option<LayoutSize> = info.get_max_monitor_size().into_option();
-    // What this UI depends on in the OS style, declared so a theme change
-    // costs it a rebuild only when it has to.
-    //
-    // The chrome is a PALETTE over a fixed layout: every colour comes from the
-    // desktop, so both the polarity (which picks the fallback set) and the
-    // palette itself are read. Fonts and metrics are NOT - the UI family is
-    // pinned (see `fonts`) and the office geometry is fixed - so bumping the
-    // desktop's UI font size must not rebuild this DOM. Reading the whole
-    // style through `get_system_style()` would declare `Everything` and give
-    // that back, which is why the untracked accessor is used AFTER declaring.
     info.depends_on_system_style(SystemStyleDependency::Theme);
     info.depends_on_system_style(SystemStyleDependency::Colors);
     let system_style = info.get_system_style_untracked();
     let pal = palette::Palette::from_system(&system_style, info.get_theme());
 
-    // Phone-sized viewport => touch chrome. The framework re-runs `layout()`
-    // on every resize, so crossing the breakpoint swaps the whole structure —
-    // this is the branch `Ribbon::dom_desktop` / `dom_mobile` document, and it
-    // is also what decides whether the title band draws window buttons.
-    //
-    // 720 logical px matches examples/rust/src/ribbon.rs, the widget demo that
-    // already exercises this path; below it a ribbon tab strip cannot show more
-    // than two tabs without truncating.
     let compact = !info.viewport_bigger_than(MOBILE_BREAKPOINT_PX);
 
     let screen = match state.screen {
@@ -1176,9 +882,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             &system_style,
             compact,
         ),
-        Screen::Backstage => {
-            backstage_ui::backstage_screen(&state, &data, &pal, &system_style)
-        }
+        Screen::Backstage => backstage_ui::backstage_screen(&state, &data, &pal, &system_style),
     };
 
     Dom::create_body()
@@ -1195,10 +899,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(screen)
 }
 
-// ---------------------------------------------------------------------------
-// Screenshot harness (AZWRITER_SHOT)
-// ---------------------------------------------------------------------------
-
 struct ShotConfig {
     path: String,
 }
@@ -1210,7 +910,11 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
             should_terminate: TerminateTimer::Terminate,
         };
     };
-    let png = match info.callback_info.take_screenshot(root_dom_id()).into_result() {
+    let png = match info
+        .callback_info
+        .take_screenshot(root_dom_id())
+        .into_result()
+    {
         Ok(png) => png,
         Err(e) => {
             eprintln!("[azwriter] screenshot FAILED: {}", e.as_str());
@@ -1232,13 +936,6 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
     }
 }
 
-/// Window-create hook: installs the screenshot timer when AZWRITER_SHOT is
-/// set (the delay lets the first layout + async font load settle;
-/// AZWRITER_SHOT_DELAY_MS overrides the default 2500).
-///
-/// NOTE: `create_callback` only fires on the real platform backends —
-/// the headless backend ignores it (see ENGINE-ISSUES.md), so screenshots
-/// are taken through a short-lived real window.
 extern "C" fn startup_focus_tick(
     _data: RefAny,
     mut info: TimerCallbackInfo,
@@ -1256,12 +953,6 @@ extern "C" fn startup_focus_tick(
 }
 
 extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update {
-    // Word focuses the document on open: the caret blinks immediately.
-    // A one-shot TIMER (not a direct set_focus here): the create callback
-    // runs BEFORE the first layout, and the shell resolves focus targets
-    // against layout_results — resolving now silently matches nothing and
-    // is never retried (engine gap, recorded in azul #21). 150 ms lands
-    // after the first layout the same way the screenshot timer does.
     {
         let timer = Timer::create(
             RefAny::new(()),
@@ -1274,10 +965,11 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
         .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
         info.add_timer(TimerId::unique(), timer);
     }
-    if let Some((path, delay_ms)) = WINDOW_ARGS
-        .get()
-        .and_then(|a| a.shot.as_ref().map(|p| (p.display().to_string(), a.shot_delay_ms)))
-    {
+    if let Some((path, delay_ms)) = WINDOW_ARGS.get().and_then(|a| {
+        a.shot
+            .as_ref()
+            .map(|p| (p.display().to_string(), a.shot_delay_ms))
+    }) {
         let timer = Timer::create(
             RefAny::new(ShotConfig { path }),
             TimerCallback {
@@ -1293,23 +985,12 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
     Update::DoNothing
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
-
-/// Start the app. On desktop/iOS this blocks; on Android `App::run` only
-/// stashes the window options for libazul's `android_main` to pick up, then
-/// returns — see the ctor below.
 pub fn start(args: Args) {
-    // The three sinks that cannot take the value through their own signature
-    // (free functions on paths the arguments do not travel) are initialised
-    // here, once, from the parsed command line - see `args`.
     perf::init_frame_log(args.frame_log);
     document::init_dump_xml(args.dump_xml.clone());
 
     let mut state = AppState::default();
 
-    // Screenshot harness: pick the screen to render.
     match args.screen {
         args::Screen::Editor => {}
         args::Screen::BackstageInfo => {
@@ -1322,37 +1003,10 @@ pub fn start(args: Args) {
         }
     }
 
-    // Open a markdown file at startup (same pipeline entry as the backstage
-    // Browse dialog).
     if let Some(p) = args.open.as_deref() {
         state.document = DocumentModel::from_path(p);
     }
 
-    // NO PRIMER. This used to paginate here, before the window existed, so the
-    // first frame would not block the compositor's configure/ping handshake.
-    // It cost more than it saved: with no window there is no engine yet, so it
-    // passed `fonts: None` and the pagination SCANNED THE WHOLE SYSTEM for
-    // fonts on the main thread — 96 ms — and the engine then built its own
-    // cache anyway.
-    //
-    // `App::create` spawns an async font scout, and the layout callback wraps
-    // the resulting registry-backed cache via
-    // `FontCacheSnapshot::from_layout_info`, which `editor_ui` already passes
-    // to `paginate_cached_with_fonts`. So the first layout() paginates with
-    // fonts somebody else already found.
-    //
-    // Measured on a 24-line markdown (AZWRITER_FRAME_LOG=all):
-    //   with primer:     96 ms scan + 126 ms pagination BEFORE the window,
-    //                    then frame #0 layout() = 2.5 ms
-    //   without primer:  no scan at all, frame #0 layout() = 31.6 ms
-    // ~190 ms of startup for 29 ms on the first frame — and 31 ms is far
-    // inside the handshake budget that the original 167 ms blew.
-
-    // AZWRITER_PAGINATE_TWICE: force a SECOND pagination of the same content
-    // under a fresh generation, so the memo misses again. The first call pays
-    // the system font scan and every first-use font FILE load; the second
-    // pays neither. The gap between them separates "pagination is slow" from
-    // "the first pagination is slow".
     if args.paginate_twice {
         let t = std::time::Instant::now();
         let _ = document::paginate_cached(&state.document.content, document::next_generation());
@@ -1361,67 +1015,28 @@ pub fn start(args: Args) {
 
     let data = RefAny::new(state);
     let mut config = AppConfig::create();
-    // Identity for the engine services (updater state dir, telemetry service
-    // name when the `telemetry` feature is on): metrics/logs then arrive
-    // labelled azwriter/<version> instead of the generic default.
     config.updates.app_name = AzString::from("azwriter");
     config.updates.current_version = AzString::from(env!("CARGO_PKG_VERSION"));
     let app = App::create(data, config);
 
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from("Document1 - AzWriter");
-    // Open MAXIMIZED. A document editor that starts in a 1280x800 box on a 5K
-    // display is the first thing every user fixes by hand.
-    //
-    // All four desktop backends honour `flags.frame` at creation, each through
-    // its own platform call — macOS performZoom, Windows ShowWindow(SW_MAXIMIZE),
-    // X11 _NET_WM_STATE_MAXIMIZED_{HORZ,VERT}, Wayland
-    // xdg_toplevel.set_maximized — so this is one flag rather than four
-    // per-platform paths.
     window.window_state.flags.frame = WindowFrame::Maximized;
-    // CLIENT-SIDE DECORATION. The quick-access band already IS a titlebar -
-    // it carries the app logo, the window title, the help button and the
-    // minimize/maximize/close controls, and it declares
-    // `-azul-app-region: drag` so the window manager still gets the drag and
-    // the double-click-to-maximize. A native headerbar on top of that is a
-    // second title bar saying the same thing in a different font.
-    //
-    // `WindowDecorations::None` rather than `NoTitleAutoInject`: the
-    // auto-injected `Titlebar` widget is for apps that DON'T draw their own,
-    // and injecting it here would put a second set of window controls above
-    // the band's. The band's controls now use the desktop's own icon theme
-    // (`system:window-close,close` and friends), so the result reads as a
-    // native window that simply has its toolbar in the title bar - which is
-    // what every modern desktop app does.
     window.window_state.flags.decorations = WindowDecorations::None;
-    // The dimensions still matter: they are the size the window RESTORES to
-    // when the user un-maximizes, and the size every headless/screenshot run
-    // uses (nothing maximizes a stub window).
     window.window_state.size.dimensions.width = 1280.0;
     window.window_state.size.dimensions.height = 800.0;
-    // `--size WxH` overrides the initial window size (narrow ribbon states are
-    // screenshot-reproducible without a live drag).
     if let Some((w, h)) = args.size {
         window.window_state.size.dimensions.width = w;
         window.window_state.size.dimensions.height = h;
     }
-    // The window-create hook needs the screenshot switches, and its payload is
-    // the only channel to it - `create_callback` takes a `RefAny`, not the
-    // app data.
     window.create_callback = Some(Callback::create(on_window_created)).into();
     WINDOW_ARGS.set(args).ok();
 
     app.run(window);
 }
 
-// Android has no `main()`: the OS loads this cdylib and calls libazul's
-// `android_main` through the android-activity glue. `android_main` reads the
-// window options `App::run` stashed, so `start()` must run BEFORE
-// `ANativeActivity_onCreate` — i.e. from a library constructor that fires at
-// `System.loadLibrary` time. Same shape as AzMaps.
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {
-    // No argv on Android: the defaults are the whole configuration.
     start(Args::default());
 }

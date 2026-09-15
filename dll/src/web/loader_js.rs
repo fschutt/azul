@@ -7,16 +7,14 @@
 //! the patch byte-stream returned by the eventloop.
 //!
 //! Architecture (M8.5 confirmed end-to-end via Node):
-//!   - `azul-mini.wasm` exports `AzStartup_init`, `_dispatchEvent`,
-//!     `_alloc`, `_free`, `_registerStateDeserializer` + `memory`.
-//!     Imports `env.__indirect_function_table` + `env.__az_resolve_callback`.
-//!   - Per-callback WASMs (`/az/cb/<sym>.<hash>.wasm`) export
-//!     `callback(i64, i64, i32) -> i32`. JS instantiates each at a
-//!     known table slot.
-//!   - JS maps `node_idx → table_idx` (M8.6 stub: identity, since
-//!     dispatchEvent currently passes `node_idx` to
-//!     `__az_resolve_callback`; M8.5c will swap to real fn-addrs
-//!     looked up from a hydrated StyledDom inside WASM).
+//!   - `azul-mini.wasm` exports `AzStartup_init`, `_dispatchEvent`, `_alloc`, `_free`,
+//!     `_registerStateDeserializer` + `memory`. Imports `env.__indirect_function_table` +
+//!     `env.__az_resolve_callback`.
+//!   - Per-callback WASMs (`/az/cb/<sym>.<hash>.wasm`) export `callback(i64, i64, i32) -> i32`. JS
+//!     instantiates each at a known table slot.
+//!   - JS maps `node_idx → table_idx` (M8.6 stub: identity, since dispatchEvent currently passes
+//!     `node_idx` to `__az_resolve_callback`; M8.5c will swap to real fn-addrs looked up from a
+//!     hydrated StyledDom inside WASM).
 //!
 //! Per the user direction (`default = client-side; no server
 //! fallback in loader.js`), the loader does NOT call POST
@@ -1585,7 +1583,10 @@ mod tests {
             let needle = format!("var EVT_{name} ");
             let decl = js
                 .lines()
-                .find(|l| l.trim_start().starts_with(&needle) || l.trim_start().starts_with(&format!("var EVT_{name}=")))
+                .find(|l| {
+                    l.trim_start().starts_with(&needle)
+                        || l.trim_start().starts_with(&format!("var EVT_{name}="))
+                })
                 .unwrap_or_else(|| panic!("the loader declares no EVT_{name}"));
             let value: u32 = decl
                 .split('=')
@@ -1626,7 +1627,9 @@ mod tests {
         let decl = js
             .lines()
             .map(str::trim_start)
-            .find(|l| l.starts_with(&format!("var {name} ")) || l.starts_with(&format!("var {name}=")))
+            .find(|l| {
+                l.starts_with(&format!("var {name} ")) || l.starts_with(&format!("var {name}="))
+            })
             .unwrap_or_else(|| panic!("the loader declares no {name}"));
         decl.split('=')
             .nth(1)
@@ -1643,10 +1646,19 @@ mod tests {
     fn the_loader_sample_tail_matches_the_rust_codec() {
         use crate::web::eventloop::{fixed_point, pointer_samples};
         let js = generate_loader_js();
-        assert_eq!(js_var(&js, "AZ_MAX_COALESCED") as usize, pointer_samples::MAX_COALESCED);
-        assert_eq!(js_var(&js, "AZ_MAX_PREDICTED") as usize, pointer_samples::MAX_PREDICTED);
+        assert_eq!(
+            js_var(&js, "AZ_MAX_COALESCED") as usize,
+            pointer_samples::MAX_COALESCED
+        );
+        assert_eq!(
+            js_var(&js, "AZ_MAX_PREDICTED") as usize,
+            pointer_samples::MAX_PREDICTED
+        );
         assert_eq!(js_var(&js, "AZ_FP_SCALE") as f32, fixed_point::SCALE);
-        assert_eq!(js_var(&js, "EVENT_BUFFER_SIZE"), crate::web::eventloop::EVENT_BYTES_LEN);
+        assert_eq!(
+            js_var(&js, "EVENT_BUFFER_SIZE"),
+            crate::web::eventloop::EVENT_BYTES_LEN
+        );
     }
 
     /// 10e-i: the mouse* trio is bound as POINTER events, because only a
@@ -1667,8 +1679,14 @@ mod tests {
                 "binding {gone} next to its pointer twin would dispatch every press twice"
             );
         }
-        assert!(js.contains("getCoalescedEvents()"), "coalesced samples are read off the event");
-        assert!(js.contains("getPredictedEvents()"), "predicted samples are read off the event");
+        assert!(
+            js.contains("getCoalescedEvents()"),
+            "coalesced samples are read off the event"
+        );
+        assert!(
+            js.contains("getPredictedEvents()"),
+            "predicted samples are read off the event"
+        );
         assert!(
             js.contains("azDispatch(EVT_MOUSEMOVE, ev, undefined, azTakeSamples())"),
             "the frame's move dispatch must carry the samples the throttle skipped"
@@ -1683,8 +1701,14 @@ mod tests {
     fn pointer_lock_is_requested_reported_and_fed_as_raw_motion() {
         use crate::web::eventloop::PATCH_KIND_POINTER_LOCK;
         let js = generate_loader_js();
-        assert!(js.contains("requestPointerLock()"), "set_pointer_lock(true) must ask the browser");
-        assert!(js.contains("exitPointerLock()"), "set_pointer_lock(false) must release");
+        assert!(
+            js.contains("requestPointerLock()"),
+            "set_pointer_lock(true) must ask the browser"
+        );
+        assert!(
+            js.contains("exitPointerLock()"),
+            "set_pointer_lock(false) must release"
+        );
         assert!(
             js.contains("addEventListener('pointerlockchange'"),
             "the flag must track what the browser reports"
@@ -1700,7 +1724,9 @@ mod tests {
             "raw motion is only fed while locked (the X11 gate, JS side)"
         );
         assert!(
-            js.contains(&format!("case {PATCH_KIND_POINTER_LOCK}: {{ // PointerLock")),
+            js.contains(&format!(
+                "case {PATCH_KIND_POINTER_LOCK}: {{ // PointerLock"
+            )),
             "the PointerLock patch needs its decoder arm"
         );
         assert!(

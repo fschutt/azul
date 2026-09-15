@@ -986,8 +986,8 @@ mod autotest_generated {
     #[test]
     fn global_matches_a_text_node_only_when_the_rule_is_scoped_to_exactly_it() {
         // Inline-style semantics (miniword ENGINE-ISSUE 4):
-        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")` produces
-        // `[Root(n..=n), Global]` — the author addressed THIS node, so the
+        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
+        // produces `[Root(n..=n), Global]` — the author addressed THIS node, so the
         // universal selector must match despite it being a text node.
         let text = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
         let nid = NodeId::new(7);

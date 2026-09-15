@@ -1,13 +1,3 @@
-//! Icon System Demo for Azul GUI Framework
-//!
-//! This example demonstrates:
-//! - Creating icons with `Dom::create_icon()`
-//! - Using icons in XML with `<icon name="...">` or `<icon>name</icon>`
-//! - CSS styling of icons
-//! - The automatic icon resolution system
-//!
-//! Run with: cargo run -p azul-examples --bin icons
-
 use azul::prelude::*;
 
 const CSS: &str = r#"
@@ -72,19 +62,16 @@ struct IconDemo;
 extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let css = Css::from_string(CSS).unwrap_or_else(|_| Css::empty());
     
-    // Create icons using the Rust API
     let home_icon = Dom::create_icon("home");
     let settings_icon = Dom::create_icon("settings");
     let search_icon = Dom::create_icon("search");
     let menu_icon = Dom::create_icon("menu");
     
-    // Action icons
     let add_icon = Dom::create_icon("add");
     let done_icon = Dom::create_icon("done");
     let edit_icon = Dom::create_icon("edit");
     let delete_icon = Dom::create_icon("delete");
     
-    // Build rows
     let mut nav_row = Dom::create_div();
     nav_row.set_ids_and_classes(IdOrClassVec::from_vec(vec![
         IdOrClass::Class(AzString::from("row"))

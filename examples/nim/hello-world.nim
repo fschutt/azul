@@ -16,8 +16,6 @@ proc azStr(s: string): AzString =
     AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
 
 proc myDataUpcast(model: MyDataModel): AzRefAny =
-  # newC copies the bytes into its own allocation, so a stack pointer is fine;
-  # run_destructor = false means libazul won't free the caller's pointer.
   var local = model
   let blob = AzGlVoidPtrConst(`ptr`: cast[pointer](addr local), run_destructor: false)
   AzRefAny_newC(
@@ -27,8 +25,8 @@ proc myDataUpcast(model: MyDataModel): AzRefAny =
     myDataTypeId(),
     azStr("MyDataModel"),
     myDataDestructor,
-    csize_t(0),   # no serialize_fn
-    csize_t(0))   # no deserialize_fn
+    csize_t(0),
+    csize_t(0))
 
 proc myDataDowncast(refany: ptr AzRefAny): ptr MyDataModel =
   if not AzRefAny_isType(refany, myDataTypeId()):
@@ -53,9 +51,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
     return AzDom_createBody()
 
   var label = AzDom_createPWithText(azStr($m.counter))
-  let cond = AzCssPropertyWithConditions_simple(
-    AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))
-  AzDom_addCssProperty(addr label, cond)
+  AzDom_setCss(addr label, azStr("font-size: 32px; margin: 0;"))
 
   var button = AzButton_create(azStr("Increase counter"))
   AzButton_setButtonType(addr button, AzButtonType.Primary)

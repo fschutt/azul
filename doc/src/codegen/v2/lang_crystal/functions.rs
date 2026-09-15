@@ -1,5 +1,4 @@
-//! Crystal `fun` bindings for the C-ABI surface (inside `lib LibAzul`),
-//! plus idiomatic `Az`-stripped type aliases in a `module Azul`.
+//! Crystal `fun` bindings for the C-ABI surface (inside `lib LibAzul`).
 //!
 //! Every surviving IR `FunctionDef` becomes one
 //! `fun <crystal_name> = <CName>(...) : Ret` line inside the `lib` block,
@@ -8,24 +7,26 @@
 //! lowercases the first letter of the C name (a method name must not be
 //! capitalized).
 //!
-//! Callback handling mirrors the RAW C variant (the one Zig sees through
-//! `azul.h`): for a function that takes a callback-wrapper arg, the
-//! wrapper is replaced by its bare proc-typedef, and we bind the raw
-//! `<c_name>` symbol. That is exactly the declaration whose argument a
-//! plain non-capturing Crystal proc can be passed to — no host-invoker
-//! machinery.
+//! A function that takes a callback-wrapper arg is exported as a triple
+//! (see `managed_host_invoker::has_callback_wrapper_arg`). Both forms are
+//! bound: `<c_name>` with the bare proc typedef in the wrapper's place (what
+//! a non-capturing Crystal proc passes straight into), and `<c_name>Struct`
+//! with the whole wrapper struct, which is how the idiomatic layer hands
+//! libazul a trampoline plus the closure handle in the wrapper's ctx.
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef};
-use super::super::managed_host_invoker::{
-    callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
-};
 use super::{
-    arg_type_for_ref_kind, crystal_fun_name, ffi_type_name, map_type_to_crystal,
-    sanitize_identifier, should_emit_function,
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionDef},
+        managed_host_invoker::{
+            callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
+        },
+    },
+    arg_type_for_ref_kind, crystal_fun_name, map_type_to_crystal, sanitize_identifier,
+    should_emit_function,
 };
 
 pub fn generate_funs(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
@@ -45,13 +46,41 @@ pub fn generate_funs(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig
             continue;
         }
         emit_fun(b, func, ir);
+        if has_callback_wrapper_arg(func) {
+            emit_struct_variant(b, func, ir);
+        }
     }
     b.blank();
 }
 
+/// `<c_name>Struct`: the api.json signature verbatim, wrapper struct by value.
+fn emit_struct_variant(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
+    let c_name = format!("{}Struct", func.c_name);
+    let args: Vec<String> = func
+        .args
+        .iter()
+        .map(|a| {
+            let ty = arg_type_for_ref_kind(&a.type_name, &a.ref_kind, ir);
+            format!("{} : {}", sanitize_identifier(&a.name), ty)
+        })
+        .collect();
+    let ret = func
+        .return_type
+        .as_ref()
+        .map(|r| format!(" : {}", map_type_to_crystal(r, ir)))
+        .unwrap_or_default();
+    b.line(&format!(
+        "  fun {} = {}({}){}",
+        crystal_fun_name(&c_name),
+        c_name,
+        args.join(", "),
+        ret
+    ));
+}
+
 fn emit_fun(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     for d in &func.doc {
-        b.line(&format!("  # {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("  # {}", d.replace(['\n', '\r'], " ")));
     }
 
     // Functions with a callback-wrapper arg export a triple in the DLL; we
@@ -86,73 +115,4 @@ fn emit_fun(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         args.join(", "),
         ret
     ));
-}
-
-/// Emit idiomatic type aliases dropping the `Az` prefix inside a
-/// `module Azul` (`Azul::Dom = LibAzul::AzDom`). The aliases are
-/// namespaced so they never shadow Crystal core types (e.g. `String`).
-/// The raw `LibAzul::Az*` names — and every `fun` binding — remain the
-/// canonical entry points.
-pub fn generate_type_aliases(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
-    b.line("# ----------------------------------------------------------------------------");
-    b.line("# Idiomatic aliases: the same types without the `Az` prefix, namespaced under");
-    b.line("# `Azul::` so they never shadow Crystal core types. Functions stay on LibAzul.");
-    b.line("# ----------------------------------------------------------------------------");
-    b.line("module Azul");
-
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-
-    let mut emit_alias = |b: &mut CodeBuilder, seen: &mut BTreeSet<String>, short: &str| {
-        if short.is_empty() {
-            return;
-        }
-        if !seen.insert(short.to_string()) {
-            return;
-        }
-        b.line(&format!(
-            "  alias {} = {}::{}",
-            short,
-            super::LIB_MODULE,
-            ffi_type_name(short)
-        ));
-    };
-
-    for s in &ir.structs {
-        if config.should_include_type(&s.name) {
-            emit_alias(b, &mut seen, &s.name);
-        }
-    }
-    for e in &ir.enums {
-        if config.should_include_type(&e.name) {
-            emit_alias(b, &mut seen, &e.name);
-        }
-    }
-    for ta in &ir.type_aliases {
-        if config.should_include_type(&ta.name) {
-            emit_alias(b, &mut seen, &ta.name);
-        }
-    }
-    for cb in &ir.callback_typedefs {
-        emit_alias(b, &mut seen, &cb.name);
-    }
-
-    b.blank();
-    b.line("  # --------------------------------------------------------------------------");
-    b.line("  # Idiomatic String helpers. AzString_fromUtf8 COPIES the bytes into a");
-    b.line("  # refcounted AzString, so passing a temporary Crystal String is safe.");
-    b.line("  # --------------------------------------------------------------------------");
-    b.line("");
-    b.line("  # Copy a Crystal String into a refcounted AzString.");
-    b.line("  def self.az_str(s : String) : LibAzul::AzString");
-    b.line("    LibAzul.azString_fromUtf8(s.to_unsafe, LibC::SizeT.new(s.bytesize))");
-    b.line("  end");
-    b.line("");
-    b.line("  # Borrow an AzString's UTF-8 bytes into a fresh Crystal String (does NOT");
-    b.line("  # take ownership of `s` — the AzString still owns/frees its buffer).");
-    b.line("  def self.native_string(s : LibAzul::AzString) : String");
-    b.line("    String.new(s.vec.ptr, s.vec.len)");
-    b.line("  end");
-
-    b.line("end");
-    b.blank();
 }

@@ -2725,7 +2725,9 @@ impl BatchBuilder {
                         gpu_blocks.push(image_data.color.premultiplied().into()); //color
                         gpu_blocks.push(PremultipliedColorF::WHITE.into()); //bg color
                         gpu_blocks.push([-1.0, 0.0, 0.0, 0.0].into()); //stretch size
-                                                                       // negative first value makes the shader code ignore it and use the local
+                                                                       // negative first value makes
+                                                                       // the shader code ignore it
+                                                                       // and use the local
                                                                        // size instead
                         for tile in chunk {
                             let tile_rect = tile.local_rect.translate(-prim_rect.min.to_vector());

@@ -9,23 +9,25 @@
 //! to. Geolocation / capture-frame / wacom-pen generators extend this in
 //! follow-up ticks.
 
-use azul_core::audio::AudioFrame;
-use azul_core::events::{
-    event_type_to_filters, EventData, EventFilter, EventProvider, EventType, HoverEventFilter,
-    WindowEventFilter,
+use azul_core::{
+    audio::AudioFrame,
+    events::{
+        event_type_to_filters, EventData, EventFilter, EventProvider, EventType, HoverEventFilter,
+        WindowEventFilter,
+    },
+    geolocation::LocationFix,
+    geom::LogicalPosition,
+    task::Instant,
+    video::VideoFrame,
 };
-use azul_core::geolocation::LocationFix;
-use azul_core::geom::LogicalPosition;
-use azul_core::task::Instant;
-use azul_core::video::VideoFrame;
 use azul_css::{F32Vec, U8Vec};
-use azul_layout::managers::gamepad::{
-    drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState,
-};
-use azul_layout::managers::geolocation::{drain_location_fixes, push_location_fix};
-use azul_layout::managers::gesture::GestureAndDragManager;
-use azul_layout::managers::sensors::{
-    drain_sensor_readings, push_sensor_reading, SensorKind, SensorManager, SensorReading,
+use azul_layout::managers::{
+    gamepad::{drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState},
+    geolocation::{drain_location_fixes, push_location_fix},
+    gesture::GestureAndDragManager,
+    sensors::{
+        drain_sensor_readings, push_sensor_reading, SensorKind, SensorManager, SensorReading,
+    },
 };
 
 fn ts() -> Instant {
@@ -125,7 +127,11 @@ fn synthetic_gamepad_state_fires_gamepadinput() {
     // before the state that pad is already in. This test predates the hotplug
     // half and asserted one event; it never caught up because the e2e target
     // had not compiled since 8f.
-    assert_eq!(events.len(), 2, "the arrival and the first sample, in that order");
+    assert_eq!(
+        events.len(),
+        2,
+        "the arrival and the first sample, in that order"
+    );
     assert_eq!(events[0].event_type, EventType::DeviceConnected);
     assert_eq!(events[1].event_type, EventType::GamepadInput);
 }

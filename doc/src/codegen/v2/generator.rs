@@ -281,6 +281,12 @@ impl GenerationTargets {
             super::lang_zig::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.zig"),
         )?;
+        // The pre-translated C ABI `azul.zig` imports: `@cImport` over the
+        // 5.6 MB azul.h cost 91 s on a cold build.
+        Self::write_string(
+            super::lang_zig::c_decls::generate_c_decls(ir, &CodegenConfig::c_header()),
+            &codegen_dir.join("azul_c.zig"),
+        )?;
         Self::write_string(
             super::lang_zig::build_zig::generate_build_zig(),
             &codegen_dir.join("build.zig"),
@@ -318,29 +324,30 @@ impl GenerationTargets {
         // 20f. More candidate archetype-A bindings (d/crystal/v/swift/julia) —
         //      C-ABI-direct, off-frontpage, CI-validated. Swift also emits a
         //      static module.modulemap and reuses the generated azul.h.
-        println!("[20f/35] Generating D bindings...");
-        Self::write_string(
-            super::lang_d::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.d"),
-        )?;
-        println!("[20g/35] Generating Crystal bindings...");
-        Self::write_string(
-            super::lang_crystal::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.cr"),
-        )?;
+        println!("[20f/35] Generating D bindings (azul.d + d/ dub package)...");
+        for (rel, content) in super::lang_d::generate_files(ir, &CodegenConfig::c_header())? {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
+        println!("[20g/35] Generating Crystal bindings (azul.cr + crystal/ shard)...");
+        for (rel, content) in
+            super::lang_crystal::generate_files(ir, &CodegenConfig::c_header())?
+        {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
         println!("[20h/35] Generating V bindings...");
         Self::write_string(
             super::lang_v::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.v"),
         )?;
-        println!("[20i/35] Generating Swift bindings...");
+        println!("[20i/35] Generating Swift bindings (azul.swift + swift/ package)...");
+        for (rel, content) in super::lang_swift::generate_files(ir, &CodegenConfig::c_header())? {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
+        // The package's system-library target carries its own azul.h, so the
+        // swift/ directory can be copied anywhere and still build.
         Self::write_string(
-            super::lang_swift::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.swift"),
-        )?;
-        Self::write_string(
-            super::lang_swift::module_map(),
-            &codegen_dir.join("module.modulemap"),
+            fs::read_to_string(codegen_dir.join("azul.h"))?,
+            &codegen_dir.join("swift/Sources/CAzul/azul.h"),
         )?;
         println!("[20j/35] Generating Julia bindings...");
         Self::write_string(
@@ -383,31 +390,23 @@ impl GenerationTargets {
 
         // 24. OCaml bindings — generator emits .mli + .ml in one String,
         //     plus dune + dune-project manifests.
+        //     One unit per api.json module (and per dependency slice for
+        //     the types) under ocaml/, plus dune + dune-project manifests.
         println!("[24/35] Generating OCaml bindings...");
         let ocaml_combined = super::lang_ocaml::generate(ir, &CodegenConfig::c_header())?;
-        let (ocaml_mli, ocaml_ml) = ocaml_combined
-            .split_once(super::lang_ocaml::SPLIT_MARKER)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "OCaml generator output did not contain SPLIT_MARKER ({:?})",
-                    super::lang_ocaml::SPLIT_MARKER
-                )
-            })?;
-        Self::write_string(
-            ocaml_mli.trim_end().to_string(),
-            &codegen_dir.join("azul.mli"),
-        )?;
-        Self::write_string(
-            ocaml_ml.trim_start().to_string(),
-            &codegen_dir.join("azul.ml"),
+        Self::write_multifile(
+            &ocaml_combined,
+            super::lang_ocaml::FILE_MARKER,
+            super::lang_ocaml::END_MARKER,
+            &codegen_dir.join("ocaml"),
         )?;
         Self::write_string(
             super::lang_ocaml::dune::generate_dune_project(),
-            &codegen_dir.join("dune-project"),
+            &codegen_dir.join("ocaml/dune-project"),
         )?;
         Self::write_string(
             super::lang_ocaml::dune::generate_dune(),
-            &codegen_dir.join("dune"),
+            &codegen_dir.join("ocaml/dune"),
         )?;
 
         // 25. Haskell bindings — multi-file: src/Azul.hs + src/Azul/Internal/FFI.hs
@@ -452,14 +451,16 @@ impl GenerationTargets {
         )?;
 
         // 28. Fortran (F2003 iso_c_binding) bindings.
+        //     One module per api.json module (and per dependency slice for
+        //     the types) under fortran/, plus the Makefile that knows their
+        //     compile order.
         println!("[28/35] Generating Fortran bindings...");
-        Self::write_string(
-            super::lang_fortran::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.f90"),
-        )?;
-        Self::write_string(
-            super::lang_fortran::makefile::generate_makefile(),
-            &codegen_dir.join("Makefile.fortran"),
+        let fortran_combined = super::lang_fortran::generate(ir, &CodegenConfig::c_header())?;
+        Self::write_multifile(
+            &fortran_combined,
+            super::lang_fortran::FILE_MARKER,
+            super::lang_fortran::END_MARKER,
+            &codegen_dir.join("fortran"),
         )?;
 
         // 29. Go (cgo) bindings — multi-file split.

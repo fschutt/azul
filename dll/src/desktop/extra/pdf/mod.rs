@@ -14,8 +14,7 @@
 //! `Op::DrawRectangle`. Text / Image / Border (research/06 §2.3.2's table;
 //! `TextLayout` is half-wired) land in follow-ups.
 
-use azul_core::dom::Dom;
-use azul_core::json::Json;
+use azul_core::{dom::Dom, json::Json};
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
@@ -28,9 +27,9 @@ fn announce_pdf_stub(what: &str) {
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][pdf] {what} called, but this build has no `pdf` feature — the \
-             whole PDF surface returns EMPTY results. Rebuild with: cargo build -p \
-             azul-dll --features build-dll,pdf"
+            "[azul][pdf] {what} called, but this build has no `pdf` feature — the whole PDF \
+             surface returns EMPTY results. Rebuild with: cargo build -p azul-dll --features \
+             build-dll,pdf"
         );
     });
 }
@@ -317,9 +316,9 @@ pub fn svg_page_to_dom(svg: &str) -> Option<Dom> {
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             eprintln!(
-                "[azul][pdf] svg_page_to_dom called, but this build lacks the `pdf` \
-                 and/or `xml` feature — it always returns None. Rebuild with: cargo \
-                 build -p azul-dll --features build-dll,pdf,xml"
+                "[azul][pdf] svg_page_to_dom called, but this build lacks the `pdf` and/or `xml` \
+                 feature — it always returns None. Rebuild with: cargo build -p azul-dll \
+                 --features build-dll,pdf,xml"
             );
         });
         let _ = svg;
@@ -329,8 +328,9 @@ pub fn svg_page_to_dom(svg: &str) -> Option<Dom> {
 
 #[cfg(feature = "pdf")]
 mod engine {
-    use super::{DisplayListItem, Dom, Json, U8Vec};
     use printpdf::{Mm, Op, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, PdfWarnMsg};
+
+    use super::{DisplayListItem, Dom, Json, U8Vec};
 
     /// JSON document model -> PDF bytes (printpdf `PdfDocument` via serde).
     pub fn write_json(json: &Json) -> U8Vec {
@@ -470,8 +470,10 @@ mod engine {
             azul_layout::font::parsed::ParsedFont,
         >,
     ) -> Vec<Op> {
-        use azul_layout::solver3::display_list::DisplayListItem;
-        use azul_layout::text3::cache::{FontHash, ShapedItem, UnifiedLayout};
+        use azul_layout::{
+            solver3::display_list::DisplayListItem,
+            text3::cache::{FontHash, ShapedItem, UnifiedLayout},
+        };
 
         let ops = printpdf::html::bridge::display_list_to_printpdf_ops_with_margins(
             dl,
@@ -558,8 +560,7 @@ mod engine {
     /// [`dom_to_bytes_with`] via [`super::Pdf::from_dom_in_callback`], which
     /// shares the WINDOW's font manager and image cache instead.
     pub fn dom_to_bytes(dom: Dom, page_w_px: f32, page_h_px: f32) -> Vec<u8> {
-        use azul_layout::font::loading::build_font_cache;
-        use azul_layout::font_traits::FontManager;
+        use azul_layout::{font::loading::build_font_cache, font_traits::FontManager};
 
         let fc_cache = build_font_cache();
         let mut font_manager = match FontManager::new(fc_cache) {
@@ -614,15 +615,19 @@ mod engine {
         font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         image_cache: &azul_core::resources::ImageCache,
     ) -> Option<azul_layout::resource_handles::PaginationAnalysis> {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::resources::{IdNamespace, RendererResources};
-        use azul_layout::font_traits::TextLayoutCache;
-        use azul_layout::paged::FragmentationContext;
-        use azul_layout::solver3::paged_layout::compute_document_pagination;
-        use azul_layout::solver3::pagination::FakePageConfig;
-        use azul_layout::text3::default::PathLoader;
         use std::collections::BTreeMap;
+
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            resources::{IdNamespace, RendererResources},
+        };
+        use azul_layout::{
+            font_traits::TextLayoutCache,
+            paged::FragmentationContext,
+            solver3::{paged_layout::compute_document_pagination, pagination::FakePageConfig},
+            text3::default::PathLoader,
+        };
 
         let content_size = LogicalSize::new(page_w_px, page_h_px);
         let mut layout_cache = azul_layout::Solver3LayoutCache::default();
@@ -680,15 +685,21 @@ mod engine {
         font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         image_cache: &azul_core::resources::ImageCache,
     ) -> Vec<u8> {
-        use azul_core::dom::DomId;
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        use azul_core::resources::{IdNamespace, RendererResources};
-        use azul_layout::font_traits::TextLayoutCache;
-        use azul_layout::paged::FragmentationContext;
-        use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-        use azul_layout::solver3::pagination::FakePageConfig;
-        use azul_layout::text3::default::PathLoader;
         use std::collections::BTreeMap;
+
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            resources::{IdNamespace, RendererResources},
+        };
+        use azul_layout::{
+            font_traits::TextLayoutCache,
+            paged::FragmentationContext,
+            solver3::{
+                paged_layout::layout_document_paged_with_config, pagination::FakePageConfig,
+            },
+            text3::default::PathLoader,
+        };
 
         let content_size = LogicalSize::new(page_w_px, page_h_px);
         let mut layout_cache = azul_layout::Solver3LayoutCache::default();
@@ -827,8 +838,9 @@ mod engine {
 
 #[cfg(all(test, feature = "pdf"))]
 mod tests {
-    use super::*;
     use azul_core::dom::Dom;
+
+    use super::*;
 
     /// The whole point of the bridge walk: PDFs produced from a Dom with text
     /// must EMBED the fonts the SetFont ops reference. The old rect_ops walk

@@ -8,11 +8,13 @@
 
 #![allow(unused_imports, dead_code, unused_variables, clippy::all)]
 
-use azul_core::a11y::SmallAriaInfo;
-use azul_core::callbacks::VirtualViewCallback;
-use azul_core::dom::{Dom, NodeData, NodeType};
-use azul_core::refany::RefAny;
-use azul_core::resources::ImageRef;
+use azul_core::{
+    a11y::SmallAriaInfo,
+    callbacks::VirtualViewCallback,
+    dom::{Dom, NodeData, NodeType},
+    refany::RefAny,
+    resources::ImageRef,
+};
 use azul_css::{AzString, OptionString};
 
 // ---------------------------------------------------------------------------

@@ -25,9 +25,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::dynamic_selector::CssPropertyWithConditions;
-use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
@@ -105,7 +106,13 @@ azul_core::impl_managed_callback! {
 pub struct TimePicker {
     pub state: TimePickerStateWrapper,
     /// Style for the row container.
-    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the container, or `None` for "no opinion" — in which case the
+    /// widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -408,14 +415,27 @@ impl TimePicker {
                 inner,
                 on_change: None.into(),
             },
-            container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
     }
 
+    /// The container CSS this time picker renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE))
+    }
+
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
     /// re-clamping the hour into the new range.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render
+                                                                       // numeric cast
     pub fn set_24h(&mut self, is_24h: bool) {
         self.state.inner.is_24h = is_24h;
         let (lo, hi) = self.state.inner.hour_bounds();
@@ -479,7 +499,7 @@ impl TimePicker {
         let is_24h = inner.is_24h;
         let hour_text = AzString::from(format!("{}", inner.hour));
         let minute_text = AzString::from(format!("{:02}", inner.minute));
-        let container_style = self.container_style.clone();
+        let container_style = self.resolved_container_style();
 
         let state = RefAny::new(self.state);
 
@@ -620,7 +640,8 @@ fn build_spinner(
 /// Shared spinner logic: clamps the targeted field, re-texts the display node
 /// (the middle child of the clicked arrow's parent spinner), and fires the
 /// optional `on_change`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric
+                                                                   // cast
 fn adjust_spinner(data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
     // The clicked node is an arrow `<p>`; its parent is the spinner.
     let hit = info.get_hit_node();
@@ -1707,7 +1728,7 @@ mod autotest_generated {
         // deliberately built from a `'static` slice.
         let p = TimePicker::create(9, 15);
         assert_eq!(
-            properties(&p.container_style),
+            properties(&p.resolved_container_style()),
             CONTAINER_STYLE
                 .iter()
                 .map(|c| c.property.clone())
@@ -1810,8 +1831,8 @@ mod autotest_generated {
                 "the PM flag moved"
             );
             assert_eq!(
-                properties(&after.container_style),
-                properties(&before.container_style),
+                properties(&after.resolved_container_style()),
+                properties(&before.resolved_container_style()),
                 "switching modes restyled the container",
             );
         }
@@ -2014,8 +2035,8 @@ mod autotest_generated {
             "installing a callback moved the time"
         );
         assert_eq!(
-            properties(&after.container_style),
-            properties(&before.container_style),
+            properties(&after.resolved_container_style()),
+            properties(&before.resolved_container_style()),
             "installing a callback restyled the container",
         );
     }

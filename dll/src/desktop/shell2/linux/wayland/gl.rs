@@ -10,11 +10,13 @@ use super::{
     defines::*,
     dlopen::{Library, Wayland},
 };
-use crate::desktop::shell2::{
-    common::{debug_server::LogCategory, dlopen::DynamicLibrary, WindowError},
-    linux::x11::dlopen::Egl,
+use crate::{
+    desktop::shell2::{
+        common::{debug_server::LogCategory, dlopen::DynamicLibrary, WindowError},
+        linux::x11::dlopen::Egl,
+    },
+    log_debug, log_warn,
 };
-use crate::{log_debug, log_warn};
 
 /// EGL-based OpenGL context for a Wayland surface.
 pub struct GlContext {
@@ -119,8 +121,8 @@ impl GlContext {
             // ContextCreationFailed carries no payload, so name the stage +
             // EGL error here or the CPU-fallback log downstream has no cause.
             crate::plog_warn!(
-                "[EGL] eglBindAPI(EGL_OPENGL_API) failed (EGL error 0x{:04x}) — \
-                 GL context unavailable, this window will fall back to CPU rendering",
+                "[EGL] eglBindAPI(EGL_OPENGL_API) failed (EGL error 0x{:04x}) — GL context \
+                 unavailable, this window will fall back to CPU rendering",
                 unsafe { (egl.eglGetError)() }
             );
             return Err(WindowError::ContextCreationFailed);
@@ -162,9 +164,8 @@ impl GlContext {
             // The common "no matching framebuffer config" case — say which it
             // was, ContextCreationFailed alone names neither stage nor reason.
             crate::plog_warn!(
-                "[EGL] eglChooseConfig found no usable config (num_config={}, EGL \
-                 error 0x{:04x}) — GL context unavailable, this window will fall \
-                 back to CPU rendering",
+                "[EGL] eglChooseConfig found no usable config (num_config={}, EGL error 0x{:04x}) \
+                 — GL context unavailable, this window will fall back to CPU rendering",
                 num_config,
                 unsafe { (egl.eglGetError)() }
             );

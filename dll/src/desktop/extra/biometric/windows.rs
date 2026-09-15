@@ -7,20 +7,26 @@
 //! push_biometric_result). Availability is opaque about modality, so
 //! `Available` reports a generic `Fingerprint`.
 
-use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
-
-use windows::core::{factory, HSTRING};
-use windows::Security::Credentials::UI::{
-    UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
-};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-use windows::Win32::System::WinRT::IUserConsentVerifierInterop;
 // windows 0.62's async lives in `windows-future`; its blocking `Async` trait is
 // private, so block on the public `IntoFuture` via pollster (a tiny executor —
 // the WinRT completion handler drives the waker, so no reactor is needed).
 use std::future::IntoFuture;
+
+use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
+use azul_layout::managers::biometric::push_biometric_result;
+use windows::{
+    core::{factory, HSTRING},
+    Security::Credentials::UI::{
+        UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
+    },
+    Win32::{
+        Foundation::HWND,
+        System::{
+            Com::{CoInitializeEx, COINIT_MULTITHREADED},
+            WinRT::IUserConsentVerifierInterop,
+        },
+    },
+};
 use windows_future::IAsyncOperation;
 
 /// Synchronous availability probe — no HWND needed.
@@ -54,7 +60,8 @@ fn run(message: HSTRING) -> windows::core::Result<BiometricResult> {
     let interop: IUserConsentVerifierInterop =
         factory::<UserConsentVerifier, IUserConsentVerifierInterop>()?;
     // Foreground window = the app's window when the user triggered the prompt.
-    let raw = unsafe { winapi::um::winuser::GetForegroundWindow() };
+    let raw = crate::desktop::shell2::windows::dlopen::Win32Libraries::shared()
+        .map_or(core::ptr::null_mut(), |win32| unsafe { (win32.user32.GetForegroundWindow)() });
     let hwnd = HWND(raw as *mut core::ffi::c_void);
     // The interop method is generic over the return interface, so name the type.
     let op: IAsyncOperation<UserConsentVerificationResult> =

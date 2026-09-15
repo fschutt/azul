@@ -243,7 +243,10 @@ impl DbSchema {
     /// The declared schema of `store`, if any.
     #[must_use]
     pub fn store(&self, store: &str) -> Option<&DbStoreSchema> {
-        self.stores.as_ref().iter().find(|s| s.name.as_str() == store)
+        self.stores
+            .as_ref()
+            .iter()
+            .find(|s| s.name.as_str() == store)
     }
 }
 
@@ -412,7 +415,12 @@ impl Default for DbScope {
     }
 }
 
-impl_option!(DbScope, OptionDbScope, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    DbScope,
+    OptionDbScope,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Compares two values the way the store orders keys: Null < numbers < text
 /// < blobs, numbers by value, text and blobs bytewise.
@@ -449,7 +457,8 @@ fn compare_int_real(i: i64, r: f64) -> core::cmp::Ordering {
             // Same integer part. The real is bigger iff it has a positive
             // fraction, smaller iff negative; `r - trunc` is exact here
             // because both share an exponent.
-            #[allow(clippy::cast_precision_loss)] // |r_trunc| == |trunc(r)| <= 2^63, and r_trunc == trunc(r) exactly, so this cast reproduces r's own integer part
+            #[allow(clippy::cast_precision_loss)]
+            // |r_trunc| == |trunc(r)| <= 2^63, and r_trunc == trunc(r) exactly, so this cast reproduces r's own integer part
             let frac = r - (r_trunc as f64);
             if frac > 0.0 {
                 Ordering::Less

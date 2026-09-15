@@ -6,10 +6,10 @@
 //! ```kotlin
 //! class App private constructor(private val ptr: Pointer) : AutoCloseable {
 //!     companion object {
-//!         fun create(...): App = App(AzulNative.INSTANCE.AzApp_create(...).pointer!!)
+//!         fun create(...): App = App(AzulNative.AzApp_create(...).pointer!!)
 //!     }
-//!     override fun close() = AzulNative.INSTANCE.AzApp_delete(ptr)
-//!     fun run(...) = AzulNative.INSTANCE.AzApp_run(ptr, ...)
+//!     override fun close() = AzulNative.AzApp_delete(ptr)
+//!     fun run(...) = AzulNative.AzApp_run(ptr, ...)
 //! }
 //! ```
 //!
@@ -22,13 +22,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
-    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
+        },
+    },
     ffi_type_name, kotlin_class_name, map_kt_owned, map_kt_return, sanitize_kt_identifier,
 };
 
@@ -67,7 +69,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = sv.payload_type {
                             return ReturnIdiom::Option {
                                 payload_ty: pt.clone(),
-                                ref_kind: sv.payload_ref_kind.clone(),
+                                ref_kind: sv.payload_ref_kind,
                             };
                         }
                     }
@@ -77,7 +79,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = ov.payload_type {
                             return ReturnIdiom::Result {
                                 payload_ty: pt.clone(),
-                                ref_kind: ov.payload_ref_kind.clone(),
+                                ref_kind: ov.payload_ref_kind,
                             };
                         }
                     }
@@ -94,7 +96,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Option {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -106,7 +108,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Result {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -168,7 +170,7 @@ fn is_az_string_kt(raw: &str, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
-/// Build an `<NativeClass>.INSTANCE.Az<OptionT>_delete(__ret.getPointer())`
+/// Build an `<NativeClass>.Az<OptionT>_delete(__ret.getPointer())`
 /// call (or None when there's no _delete export).
 fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
@@ -182,12 +184,12 @@ fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Optio
     let native = super::super::lang_java::functions::native_class_for_class(option_type_name, ir);
     let ffi_name = ffi_type_name(option_type_name);
     Some(format!(
-        "{}.INSTANCE.{}_delete(__ret.getPointer())",
+        "{}.{}_delete(__ret.getPointer())",
         native, ffi_name
     ))
 }
 
-/// Build an `<NativeClass>.INSTANCE.Az<T>_clone` expression for a
+/// Build an `<NativeClass>.Az<T>_clone` expression for a
 /// wrapper-class payload type, or None if no _clone export exists.
 fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
@@ -200,7 +202,7 @@ fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<Strin
     }
     let native = super::super::lang_java::functions::native_class_for_class(payload_type_name, ir);
     let ffi_name = ffi_type_name(payload_type_name);
-    Some(format!("{}.INSTANCE.{}_clone", native, ffi_name))
+    Some(format!("{}.{}_clone", native, ffi_name))
 }
 
 /// Emit the body for an `Option<T>` return. `__ret` (the FFI `Az*Option`
@@ -478,7 +480,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.line("if (__guard.compareAndSet(false, true)) {");
     builder.indent();
     builder.line(&format!(
-        "{}.INSTANCE.{}_delete(__p)",
+        "{}.{}_delete(__p)",
         super::super::lang_java::functions::native_class_for_class(&s.name, ir),
         ffi_name
     ));
@@ -617,11 +619,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             for (sam_type, doc_note) in [
                 (
                     sam_raw.as_str(),
-                    "Smart factory: pass a layout-callback lambda; the host-invoker registration and bytes-copy plumbing happen internally.",
+                    "Smart factory: pass a layout-callback lambda; the host-invoker registration \
+                     and bytes-copy plumbing happen internally.",
                 ),
                 (
                     sam_typed.as_str(),
-                    "Smart factory (typed): pass a typed callback that returns a wrapper directly; the bridge splices the bytes into the embedded callback field.",
+                    "Smart factory (typed): pass a typed callback that returns a wrapper \
+                     directly; the bridge splices the bytes into the embedded callback field.",
                 ),
             ] {
                 builder.line("/**");
@@ -632,12 +636,9 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
                     sam_type, wrapper_class
                 ));
                 builder.indent();
+                builder.line(&format!("val __cb = AzulHostInvoker.{}(fn)", register_fn));
                 builder.line(&format!(
-                    "val __cb = AzulHostInvoker.{}(fn)",
-                    register_fn
-                ));
-                builder.line(&format!(
-                    "val __wco = {}.INSTANCE.{}()",
+                    "val __wco = {}.{}()",
                     native_class, info.default_c_name
                 ));
                 builder.line("__cb.write()");
@@ -648,14 +649,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
                     field_path
                 ));
                 builder.line("__wco.read()");
-                builder.line(&format!(
-                    "return {}(__wco.getPointer())",
-                    wrapper_class
-                ));
+                builder.line(&format!("return {}(__wco.getPointer())", wrapper_class));
                 builder.dedent();
                 builder.line("}");
                 builder.blank();
-                let _ = (ffi_class.as_str(), cb_ffi.as_str()); // referenced via register/default; keep names alive for IR-driven debugging
+                let _ = (ffi_class.as_str(), cb_ffi.as_str()); // referenced via register/default;
+                                                               // keep names alive for IR-driven
+                                                               // debugging
             }
         }
         for func in static_funcs {
@@ -685,7 +685,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     emit_kt_equals_hashcode_if_supported(builder, s, &class_name, &ffi_name, ir);
 
     // Phase I.3 (Kotlin): toString() routed through Az<X>_toDbgString.
-    emit_kt_toString_if_supported(builder, s, ir);
+    emit_kt_to_string_if_supported(builder, s, ir);
 
     // Phase I.1.3 (Kotlin): iterator() body for Vec wrappers with a
     // wrapper-class element type. Mirrors Java's I.1.2 emission via
@@ -723,7 +723,10 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // action no-ops), then `clean()` to deregister the Cleanable so the
     // Cleaner thread can never fire a double-free after the C side has
     // taken ownership.
-    builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
+    builder.line(
+        "/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership \
+         to the C ABI by-value). */",
+    );
     builder.line("internal fun __consume() {");
     builder.indent();
     builder.line("if (closed) return");
@@ -799,7 +802,8 @@ fn emit_kt_wrapper_class_conv(
     let ffi = ffi_type_name(type_name);
     let raw_local = format!("__{}_raw", stem);
     pre_call_lines.push(format!(
-        "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) as {ffi}.ByValue",
+        "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) \
+         as {ffi}.ByValue",
         raw_local = raw_local,
         ffi = ffi,
         arg = raw_name,
@@ -840,7 +844,7 @@ fn emit_kt_az_string_conv(pre_call_lines: &mut Vec<String>, raw_name: &str) -> S
         bytes = bytes_name,
     ));
     pre_call_lines.push(format!(
-        "val {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, {bytes}.size.toLong())",
+        "val {az} = AzulNativeStr.AzString_fromUtf8({mem}, {bytes}.size.toLong())",
         az = az_name,
         mem = mem_name,
         bytes = bytes_name,
@@ -875,7 +879,7 @@ fn emit_kt_equals_hashcode_if_supported(
         // memory whose ownership was already transferred/dropped.
         builder.line("if (this.closed || other.closed) return this === other");
         builder.line(&format!(
-            "return {}.INSTANCE.{}(this.ptr, other.ptr).toInt() != 0",
+            "return {}.{}(this.ptr, other.ptr).toInt() != 0",
             native, eq_sym
         ));
         builder.dedent();
@@ -889,7 +893,7 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.indent();
         // Non-nullable `ptr` — guard on `closed`, not a dead null check.
         builder.line("if (closed) return 0");
-        builder.line(&format!("val h = {}.INSTANCE.{}(ptr)", native, hash_sym));
+        builder.line(&format!("val h = {}.{}(ptr)", native, hash_sym));
         builder.line("return (h xor (h ushr 32)).toInt()");
         builder.dedent();
         builder.line("}");
@@ -905,7 +909,7 @@ fn emit_kt_equals_hashcode_if_supported(
 }
 
 /// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
-fn emit_kt_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return; // Vec-direct decode already in place.
     }
@@ -921,7 +925,7 @@ fn emit_kt_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &
     // Non-nullable `ptr` — the null half of the old guard was an
     // always-false warning; `closed` is the real lifecycle gate.
     builder.line("if (closed) return super.toString()");
-    builder.line(&format!("val __s = {}.INSTANCE.{}(ptr)", native, dbg_sym));
+    builder.line(&format!("val __s = {}.{}(ptr)", native, dbg_sym));
     builder.line("__s.write()");
     builder.line("val __sp = __s.pointer");
     builder.line("val __vecPtr: Pointer? = __sp.getPointer(0)");
@@ -931,7 +935,7 @@ fn emit_kt_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &
     // ByteArray.toString(Charset) avoids the wrapper-class `String`
     // constructor collision (see earlier fix in s.name == \"String\" block).
     builder.line("val __out = __bytes.toString(Charsets.UTF_8)");
-    builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp)");
+    builder.line("AzulNativeStr.AzString_delete(__sp)");
     builder.line("return __out");
     builder.dedent();
     builder.line("}");
@@ -996,7 +1000,10 @@ fn emit_kt_vec_iterator(builder: &mut CodeBuilder, s: &StructDef, elem_type: &st
     if clone_call.is_some() {
         builder.line("/// Each element is deep-cloned via _clone; safe past Vec close.");
     } else {
-        builder.line("/// Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers past the Vec's lifetime.");
+        builder.line(
+            "/// Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers \
+             past the Vec's lifetime.",
+        );
     }
     builder.line(&format!(
         "override fun iterator(): Iterator<{}> {{",
@@ -1138,7 +1145,7 @@ fn emit_static_factory(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| kotlin_class_name(r))
+            .map(kotlin_class_name)
     } else {
         None
     };
@@ -1186,7 +1193,7 @@ fn emit_static_factory(
     // than `func.method_name` (raw snake-case from api.json) which
     // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
-        "{}.INSTANCE.{}({})",
+        "{}.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
         super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
@@ -1199,7 +1206,7 @@ fn emit_static_factory(
     };
 
     if return_kt == "Unit" {
-        builder.line(&format!("{}", call));
+        builder.line(&call.to_string());
         emit_consume(builder, &consume_after_call);
     } else if returns_self {
         // ByValue → adopt its underlying Pointer.
@@ -1365,7 +1372,7 @@ fn emit_instance_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| kotlin_class_name(r))
+            .map(kotlin_class_name)
     } else {
         None
     };
@@ -1414,7 +1421,7 @@ fn emit_instance_method(
     // than `func.method_name` (raw snake-case from api.json) which
     // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
-        "{}.INSTANCE.{}({})",
+        "{}.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
         super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
@@ -1427,7 +1434,7 @@ fn emit_instance_method(
     };
 
     if return_kt == "Unit" {
-        builder.line(&format!("{}", call));
+        builder.line(&call.to_string());
         emit_consume(builder, &consume_after_call);
     } else if returns_self {
         builder.line(&format!("val raw = {}", call));
@@ -1592,11 +1599,10 @@ fn idiomatic_method_name(method_name: &str) -> String {
 /// Escape doc-comment text for KDoc emission. Several characters in
 /// the raw Rust docs would otherwise confuse Kotlin's parser:
 ///
-/// - `*/` inside paths like `/users/*/name` is read as the doc-comment
-///   terminator, prematurely closing the KDoc and surfacing as
-///   "Missing '}" / "Unclosed comment" errors on later lines.
-/// - `{` / `}` are KDoc inline-tag delimiters. Unbalanced braces from
-///   inline code samples (`r#"{"users":...}"#`) trip the doc parser.
+/// - `*/` inside paths like `/users/*/name` is read as the doc-comment terminator, prematurely
+///   closing the KDoc and surfacing as "Missing '}" / "Unclosed comment" errors on later lines.
+/// - `{` / `}` are KDoc inline-tag delimiters. Unbalanced braces from inline code samples
+///   (`r#"{"users":...}"#`) trip the doc parser.
 pub(crate) fn kdoc_escape(s: &str) -> String {
     s.replace("*/", "*&#47;")
         .replace('{', "&#123;")

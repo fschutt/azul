@@ -1,73 +1,59 @@
 //! Idiomatic Go wrapper-type emission for the Go (cgo) generator.
 //!
-//! For every IR struct that has a matching `Az<TypeName>_delete` C
-//! function we emit:
+//! For every IR struct we emit a wrapper around the Go-native mirror
+//! type from `types.go`:
 //!
 //! ```go
 //! type App struct {
-//!     inner C.AzApp
+//!     inner *AzApp            // Go-heap allocated; nil once closed
 //! }
 //!
-//! // NewApp pairs with `defer app.Close()` for deterministic cleanup.
-//! func NewApp(data C.AzRefAny, config C.AzAppConfig) *App {
-//!     a := &App{ inner: C.AzApp_create(data, config) }
-//!     runtime.SetFinalizer(a, func(x *App) { x.Close() })
-//!     return a
+//! func NewApp(data AzRefAny, config AzAppConfig) *App {
+//!     v := AzApp_create(data, config)   // raw layer, functions*.go
+//!     self := &App{ inner: &v }
+//!     runtime.SetFinalizer(self, func(x *App) { x.Close() })
+//!     return self
 //! }
 //!
-//! func (a *App) Run(options C.AzWindowCreateOptions) {
-//!     C.AzApp_run(&a.inner, options)
+//! func (self *App) Run(options AzWindowCreateOptions) {
+//!     AzApp_run(self.inner, options)
 //! }
 //!
 //! // Close implements io.Closer. It's safe to call more than once.
-//! func (a *App) Close() error {
-//!     if a == nil { return nil }
-//!     C.AzApp_delete(&a.inner)
-//!     runtime.SetFinalizer(a, nil)
-//!     return nil
-//! }
+//! func (self *App) Close() error { ... AzApp_delete(self.inner) ... }
 //! ```
 //!
 //! Conventions:
 //!
-//! * The wrapper struct uses the **unprefixed** type name (`App`, not
-//!   `AzApp`). The raw C type stays reachable via `C.AzApp` for users
-//!   who need it.
-//! * Heap-owning types implement `io.Closer` via a `Close() error`
-//!   method, so users write `defer app.Close()` at the call site.
-//! * `runtime.SetFinalizer` is registered as a safety net: if the user
-//!   forgets `Close()`, the GC will call the destructor at some
-//!   later point. We clear the finalizer inside `Close()` so the same
-//!   destructor never runs twice.
-//! * Constructors / static factories become `pub fn New<Method>(...)`.
-//!   The api.json `new` method becomes `New<Type>` (the package-prefix
-//!   style — e.g. `azul.NewApp(...)`); other static factories keep
-//!   their PascalCase method name (`Default`, etc.).
-//! * Instance methods take a `*Self` receiver and call the C function
-//!   with `&self.inner`. Refs and pointers in the C ABI are uniformly
-//!   handed `&self.inner` because cgo doesn't distinguish `&self` from
-//!   `&mut self`.
-//! * Anything cgo can already see for free through `import "C"` (POD
-//!   structs without `_delete`, plain enums, callback typedefs, etc.) is
-//!   **not** re-emitted — the user accesses it as `C.AzWhatever`.
+//! * The wrapper struct uses the **unprefixed** type name (`App`); the raw
+//!   Go-native type is `AzApp` and the raw call is `AzApp_create`.
+//! * Types with an `Az<T>_delete` hold `inner *AzT` on the Go heap and
+//!   implement `io.Closer`; a `runtime.SetFinalizer` safety net runs the
+//!   destructor on GC if `Close()` was forgotten and is cleared inside
+//!   `Close()` so it never runs twice. Types without a destructor hold
+//!   `inner AzT` by value.
+//! * Constructors / static factories become `New<Type>[<Method>](...)`.
+//! * Instance methods take a `*Self` receiver and pass `self.inner`
+//!   (pointer) or `*self.inner` (by-value self, which consumes the
+//!   wrapper) to the raw layer.
+//! * Aggregate parameters and returns are the Go-native `Az*` types, so a
+//!   consumer package can name every type in every signature.
+//!
+//! This file imports no cgo: every C call goes through `functions*.go`.
 //!
 //! # Skipped categories
 //!
-//! Same set as the other host-side bindings:
-//!
-//! * `TypeCategory::Recursive`        — would create infinite-size types.
-//! * `TypeCategory::VecRef`           — raw slice pointers, internal.
-//! * `TypeCategory::Boxed`            — internal heap wrappers.
-//! * `TypeCategory::GenericTemplate`  — generic shells, not instantiable.
-//! * `TypeCategory::DestructorOrClone`— internal callback typedefs.
-//! * `TypeCategory::CallbackTypedef`  — raw fn-pointer typedefs (visible
-//!   to users via `C.*`; no wrapper makes sense).
+//! * `TypeCategory::Recursive`, `VecRef`, `Boxed`, `GenericTemplate`,
+//!   `DestructorOrClone`, `CallbackTypedef` — unless the class declares
+//!   capabilities (`_partialEq`, `_toDbgString`, ...), which take pointers
+//!   and are always safe to wrap.
 
 use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
+use super::types::{go_pointer_to, go_value_type};
 use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case};
 
 /// Generate the contents of `wrappers.go`.
@@ -83,6 +69,8 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         emit_struct_wrapper(&mut b, s, ir, config);
     }
 
+    emit_enum_trait_methods(&mut b, ir, config);
+
     Ok(b.finish())
 }
 
@@ -90,23 +78,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 /// wrapper name to box it in so a `runtime.SetFinalizer` GC safety net can
 /// be armed — mirroring how self-returning factories/methods are handled.
 ///
-/// Returns `None` (keep the raw `C.Az*` return) unless ALL hold:
+/// Returns `None` (keep the raw `Az*` return) unless ALL hold:
 ///   * the return is a bare type name — pointers/refs (`*`, `&`) are
 ///     borrows the callee still owns, so we must never free them;
-///   * the IR has a matching struct whose wrapper is actually emitted
-///     (`should_emit_wrapper`) — otherwise `*Type` would be undefined Go;
-///   * that type has an `Az<T>_delete` (`has_destructor`) — the gate that
-///     makes the wrapper's `Close()` (which the finalizer calls) exist.
-///
-/// A raw `C.Az<T>` returned by value with an `Az<T>_delete` had NO
-/// finalizer and no `Close()`, so a caller that forgot the manual
-/// `C.Az<T>_delete` leaked it. Boxing + finalizing fixes that leak, and is
-/// double-free-safe: the value is a fresh, unaliased allocation owned
-/// solely by the new wrapper, freed at most once (Close clears the
-/// finalizer; the finalizer path clears itself).
+///   * the IR has a matching struct whose wrapper is actually emitted;
+///   * that type has an `Az<T>_delete` — the gate that makes the
+///     wrapper's `Close()` (which the finalizer calls) exist.
 fn owned_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<String> {
     let t = ret_ty.trim();
-    // Borrows / raw pointers are not owned — never attach a destructor.
     if t.starts_with('&') || t.starts_with('*') {
         return None;
     }
@@ -130,31 +109,23 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// cleanup. A `runtime.SetFinalizer` safety net runs the destructor on GC");
     b.line("// if you forget; the finalizer is cleared inside `Close()` so the same");
     b.line("// destructor never executes twice. Methods/factories that RETURN an owned");
-    b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed,");
-    b.line("// so a caller who forgets `Close()` on the result still doesn't leak.");
+    b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed.");
+    b.line("// Every C call goes through the raw layer in functions*.go; this file has");
+    b.line("// no cgo of its own.");
     b.blank();
     b.line("package azul");
     b.blank();
-
-    b.line("/*");
-    b.line("#include <stdlib.h>");
-    b.line("#include \"azul.h\"");
-    b.line("*/");
-    b.line("import \"C\"");
-    b.blank();
+    // `unsafe` is needed by any signature carrying a raw pointer
+    // (`unsafe.Pointer` args and returns such as `RefAny.GetDataPtr`);
+    // `runtime` by the finalizer safety net. Both are blank-referenced
+    // below so a package that happens to use neither still compiles.
     b.line("import (");
-    b.indent();
-    b.line("\"runtime\"");
-    b.line("\"unsafe\"");
-    b.dedent();
+    b.line("    \"runtime\"");
+    b.line("    \"unsafe\"");
     b.line(")");
     b.blank();
-    // Keep imports live regardless of which wrapper bodies happen to
-    // reference them — this protects against api.json shapes that emit
-    // few or no destructor wrappers.
-    b.line("var _ = unsafe.Sizeof(uintptr(0))");
     b.line("var _ = runtime.GC");
-    b.line("var _ = C.size_t(0)");
+    b.line("var _ = unsafe.Sizeof(uintptr(0))");
     b.blank();
 }
 
@@ -197,38 +168,10 @@ fn has_declared_capability(class_name: &str, ir: &CodegenIR) -> bool {
         .any(|f| f.kind.is_declared_capability())
 }
 
-fn has_destructor(class_name: &str, ir: &CodegenIR) -> bool {
+pub(crate) fn has_destructor(class_name: &str, ir: &CodegenIR) -> bool {
     ir.functions
         .iter()
         .any(|f| f.class_name == class_name && f.kind == FunctionKind::Delete)
-}
-
-fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
-    ir.functions.iter().any(|f| {
-        f.class_name == class_name
-            && matches!(
-                f.kind,
-                FunctionKind::Constructor
-                    | FunctionKind::Method
-                    | FunctionKind::MethodMut
-                    | FunctionKind::StaticMethod
-                    | FunctionKind::Default
-                    | FunctionKind::DeepCopy
-                    // The auto-generated trait entry points count as useful:
-                    // a class whose only exports are `_partialEq` / `_cmp` /
-                    // `_hash` / `_toDbgString` still has something a caller
-                    // wants, and excluding them here gave it no wrapper at
-                    // all. Emitted by `emit_trait_methods`, which must stay in
-                    // step with this list - landing only one half makes the
-                    // measured gap WORSE, because the class then exists as a
-                    // wrapper with nothing on it.
-                    | FunctionKind::PartialEq
-                    | FunctionKind::PartialCmp
-                    | FunctionKind::Cmp
-                    | FunctionKind::Hash
-                    | FunctionKind::DebugToString
-            )
-    })
 }
 
 // ============================================================================
@@ -240,18 +183,26 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     let ffi_name = ffi_type_name(&s.name);
     let has_delete = has_destructor(&s.name, ir);
 
-    if !s.doc.is_empty() {
-        for d in &s.doc {
-            b.line(&format!("// {}", d));
-        }
+    for d in &s.doc {
+        b.line(&format!("// {}", d));
     }
 
     b.line(&format!("type {} struct {{", go_name));
     b.indent();
     if has_delete {
-        b.line(&format!("inner *C.{}", ffi_name));
+            b.line(&format!("inner *{}", ffi_name));
+            // `inner` is a pointer, and two very different things hand one out:
+            // a constructor, which allocates the value on the Go heap and owns
+            // it, and a callback argument, which points into the invoker's
+            // argument array and owns nothing. Without this flag `Close()`
+            // could not tell them apart and ran the destructor on a value the
+            // caller still owns.
+            b.line("// borrowed marks an `inner` this wrapper does NOT own: a");
+            b.line("// callback argument pointing into the caller's frame.");
+            b.line("// Close() must not run the destructor on such a pointer.");
+            b.line("borrowed bool");
     } else {
-        b.line(&format!("inner C.{}", ffi_name));
+        b.line(&format!("inner {}", ffi_name));
     }
     b.dedent();
     b.line("}");
@@ -277,9 +228,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(
-                    b, &go_name, f, &self_arg, ir, config, /* clone */ false,
-                );
+                emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ false);
             }
             FunctionKind::DeepCopy => {
                 emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ true);
@@ -307,8 +256,15 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.line("return nil");
         b.dedent();
         b.line("}");
-        b.line(&format!("C.{}_delete(self.inner)", ffi_name));
-        b.line("C.free(unsafe.Pointer(self.inner))");
+            b.line("if self.borrowed {");
+            b.indent();
+            b.line("// Someone else's value: drop our view of it and stop there.");
+            b.line("self.inner = nil");
+            b.line("runtime.SetFinalizer(self, nil)");
+            b.line("return nil");
+            b.dedent();
+            b.line("}");
+            b.line(&format!("{}_delete(self.inner)", ffi_name));
         b.line("self.inner = nil");
         b.line("runtime.SetFinalizer(self, nil)");
         b.line("return nil");
@@ -316,6 +272,17 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.line("}");
         b.blank();
     }
+}
+
+/// `v := <call>; ret := &<W>{ inner: &v }; SetFinalizer(...)` — box an
+/// owned return in its wrapper (the value escapes to the Go heap).
+fn emit_boxed_return(b: &mut CodeBuilder, var: &str, wrapper: &str, call: &str) {
+    b.line(&format!("{}_val := {}", var, call));
+    b.line(&format!("{} := &{}{{ inner: &{}_val }}", var, wrapper, var));
+    b.line(&format!(
+        "runtime.SetFinalizer({}, func(x *{}) {{ x.Close() }})",
+        var, wrapper
+    ));
 }
 
 // ============================================================================
@@ -340,10 +307,8 @@ fn emit_static_factory(
         format!("New{}{}", go_name, pascal)
     };
 
-    if !f.doc.is_empty() {
-        for d in &f.doc {
-            b.line(&format!("// {}", d));
-        }
+    for d in &f.doc {
+        b.line(&format!("// {}", d));
     }
 
     let params = format_params(&f.args, self_arg, /* skip_self */ false, ir);
@@ -355,9 +320,6 @@ fn emit_static_factory(
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
-    // Owned NON-self return: box it in its wrapper type so we can arm a
-    // GC-safety-net finalizer (see owned_wrapper_return). `None` keeps the
-    // raw `C.Az*` return for primitives/borrows/wrapperless types.
     let owned_wrapper = if returns_self {
         None
     } else {
@@ -383,43 +345,19 @@ fn emit_static_factory(
     b.line(&header);
     b.indent();
 
-    // Functions with a callback-WRAPPER-struct arg (Az<Kind>Callback, per
-    // the host-invoker allowlist) must link the `<c_name>Struct` C-ABI
-    // export: the plain export takes a bare fn pointer (cgo `*[0]byte`),
-    // which is both a compile error for the struct-typed Go param AND
-    // would discard the host-handle ctx. See managed_host_invoker.rs
-    // (`managed_c_symbol`) and the 2026-07-04 triple-export note.
-    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
-    let call = format!("C.{}({})", c_symbol, call_args);
+    // The raw layer is named after the api.json C name; the `Struct`
+    // symbol substitution for callback-wrapper args happens inside it.
+    let call = format!("{}({})", f.c_name, call_args);
 
     if returns_self {
         if has_delete {
-            let ffi_name = ffi_type_name(&f.class_name);
-            b.line(&format!("self := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
-            b.line(&format!("*self.inner = {}", call));
-            // Safety net: if user forgets `Close()`, GC will eventually
-            // run the destructor.
-            b.line(&format!(
-                "runtime.SetFinalizer(self, func(x *{}) {{ x.Close() }})",
-                go_name
-            ));
+            emit_boxed_return(b, "self", go_name, &call);
         } else {
             b.line(&format!("self := &{}{{ inner: {} }}", go_name, call));
         }
         b.line("return self");
     } else if let Some(w) = &owned_wrapper {
-        // Owned non-self return: box in the wrapper + arm the same GC
-        // safety net used for self-returns. The value is a fresh, unaliased
-        // C allocation owned solely by `ret`, so Close()/finalizer free it
-        // at most once — no double-free.
-        let ret_ty_name = f.return_type.as_deref().unwrap().trim();
-        let ret_ffi_name = ffi_type_name(ret_ty_name);
-        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
-        b.line(&format!("*ret.inner = {}", call));
-        b.line(&format!(
-            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
-            w
-        ));
+        emit_boxed_return(b, "ret", w, &call);
         b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
@@ -452,10 +390,8 @@ fn emit_instance_method(
     };
     let safe_method = sanitize_identifier(&method_label);
 
-    if !f.doc.is_empty() {
-        for d in &f.doc {
-            b.line(&format!("// {}", d));
-        }
+    for d in &f.doc {
+        b.line(&format!("// {}", d));
     }
 
     let params = format_params(&f.args, self_arg, /* skip_self */ true, ir);
@@ -467,7 +403,6 @@ fn emit_instance_method(
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
-    // Owned NON-self return: box + finalize (see owned_wrapper_return).
     let owned_wrapper = if returns_self {
         None
     } else {
@@ -498,10 +433,8 @@ fn emit_instance_method(
 
     // Some C ABIs take self by VALUE (e.g.
     // `AzScrollIntoViewOptions_withInstant(AzScrollIntoViewOptions self, ...)`)
-    // rather than by pointer. Detect via the first arg's ref_kind ==
-    // Owned and pass `self.inner` (struct value) instead of
-    // `&self.inner` (pointer). Same pattern as the C# / Java / Kotlin
-    // wrappers landed in Phase 5.
+    // rather than by pointer: the first arg's ref_kind is Owned. The raw
+    // layer then takes the native value, which consumes the wrapper.
     let self_by_value = f
         .args
         .first()
@@ -509,18 +442,11 @@ fn emit_instance_method(
         .unwrap_or(false);
 
     let self_has_delete = has_destructor(&f.class_name, ir);
-    let self_expr = if self_has_delete {
-        if self_by_value {
-            "*self.inner"
-        } else {
-            "self.inner"
-        }
-    } else {
-        if self_by_value {
-            "self.inner"
-        } else {
-            "&self.inner"
-        }
+    let self_expr = match (self_has_delete, self_by_value) {
+        (true, true) => "*self.inner",
+        (true, false) => "self.inner",
+        (false, true) => "self.inner",
+        (false, false) => "&self.inner",
     };
 
     let call_args_full = if user_call_args.is_empty() {
@@ -528,63 +454,40 @@ fn emit_instance_method(
     } else {
         format!("{}, {}", self_expr, user_call_args)
     };
+    let call = format!("{}({})", f.c_name, call_args_full);
 
-    // Same `<c_name>Struct` substitution as emit_static_factory: functions
-    // taking a callback wrapper struct must link the Struct-suffixed
-    // C-ABI export (see managed_host_invoker::managed_c_symbol).
-    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
-    let call = format!("C.{}({})", c_symbol, call_args_full);
+    // A by-value self is moved into the callee: the wrapper must neither
+    // free the stale bytes (Close/finalizer) nor be used again.
+    let consume_self = |b: &mut CodeBuilder| {
+        if self_by_value {
+            if self_has_delete {
+                b.line("self.inner = nil");
+            }
+            b.line("runtime.SetFinalizer(self, nil)");
+        }
+    };
 
     if returns_self {
-        if has_destructor(&f.class_name, ir) {
-            let ffi_name = ffi_type_name(&f.class_name);
-            b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
-            b.line(&format!("*ret.inner = {}", call));
-            b.line(&format!(
-                "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
-                go_name
-            ));
+        if self_has_delete {
+            emit_boxed_return(b, "ret", go_name, &call);
         } else {
             b.line(&format!("ret := &{}{{ inner: {} }}", go_name, call));
         }
-        // If self was consumed by-value, clear its finalizer so the
-        // user's deferred `self.Close()` (or the GC's eventual
-        // finalizer fire) doesn't double-drop the stale bytes.
-        if self_by_value {
-            b.line("runtime.SetFinalizer(self, nil)");
-        }
+        consume_self(b);
         b.line("return ret");
     } else if let Some(w) = &owned_wrapper {
-        // Owned non-self return: box in the wrapper + arm the same GC
-        // safety net used for self-returns. Fresh unaliased allocation
-        // owned solely by `ret`, freed at most once — no double-free.
-        let ret_ty_name = f.return_type.as_deref().unwrap().trim();
-        let ret_ffi_name = ffi_type_name(ret_ty_name);
-        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
-        b.line(&format!("*ret.inner = {}", call));
-        b.line(&format!(
-            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
-            w
-        ));
-        // If self was consumed by-value, cancel its finalizer so the
-        // stale bytes aren't double-freed.
-        if self_by_value {
-            b.line("runtime.SetFinalizer(self, nil)");
-        }
+        emit_boxed_return(b, "ret", w, &call);
+        consume_self(b);
         b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
-        if self_by_value {
-            b.line("runtime.SetFinalizer(self, nil)");
-        }
+        consume_self(b);
+    } else if self_by_value {
+        b.line(&format!("ret := {}", call));
+        consume_self(b);
+        b.line("return ret");
     } else {
-        if self_by_value {
-            b.line(&format!("ret := {}", call));
-            b.line("runtime.SetFinalizer(self, nil)");
-            b.line("return ret");
-        } else {
-            b.line(&format!("return {}", call));
-        }
+        b.line(&format!("return {}", call));
     }
 
     b.dedent();
@@ -604,10 +507,7 @@ fn format_params(
 ) -> String {
     let mut out = Vec::new();
     // When skip_self is set this is an instance method — the first IR
-    // arg IS the implicit self regardless of how api.json named it
-    // (`instance`, lowercased class name, etc.). Skip args[0]
-    // unconditionally; same fix the C# / Java / Kotlin / Ruby
-    // wrappers landed in Phase 5/6.
+    // arg IS the implicit self regardless of how api.json named it.
     let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
         if skip_self && !args.is_empty() {
             Box::new(args.iter().skip(1))
@@ -655,104 +555,24 @@ fn is_self_arg(name: &str, self_arg: &str) -> bool {
         || (!self_arg.is_empty() && name == self_arg)
 }
 
-/// Map an IR argument type to its Go-side representation.
-///
-/// We reach for `C.<TypeName>` for known FFI types because that's the
-/// ground truth cgo sees. Pointers are emitted as `*C.<TypeName>` /
-/// `unsafe.Pointer` depending on what the IR knows.
-fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String {
-    let trimmed = type_name.trim();
-
-    if let Some(rest) = trimmed.strip_prefix("*const ") {
-        return format!("*{}", map_arg_type(rest, ArgRefKind::Owned, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix("*mut ") {
-        return format!("*{}", map_arg_type(rest, ArgRefKind::Owned, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix("&mut ") {
-        return format!("*{}", map_arg_type(rest, ArgRefKind::Owned, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix('&') {
-        return format!("*{}", map_arg_type(rest, ArgRefKind::Owned, ir));
-    }
-
-    if let Some(go) = super::primitive_to_go(trimmed) {
-        if go.is_empty() {
-            return "unsafe.Pointer".to_string();
-        }
-        // Primitive args are routed through cgo's typedef so the
-        // resulting Go is interoperable with C.* signatures.
-        let base = super::primitive_to_cgo(trimmed).unwrap_or(go).to_string();
-        return apply_arg_ref_kind(base, ref_kind);
-    }
-
-    let base = if ir.find_struct(trimmed).is_some()
-        || ir.find_enum(trimmed).is_some()
-        || ir.find_type_alias(trimmed).is_some()
-        || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
-    {
-        format!("C.{}", ffi_type_name(trimmed))
-    } else {
-        // SKIPPED: type {trimmed} is unknown to the IR; routing as opaque pointer.
-        "unsafe.Pointer".to_string()
-    };
-
-    apply_arg_ref_kind(base, ref_kind)
-}
-
-fn apply_arg_ref_kind(base: String, ref_kind: ArgRefKind) -> String {
+/// Go-native type of an argument as the raw layer spells it.
+pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String {
+    let base = go_value_type(type_name, ir);
     match ref_kind {
         ArgRefKind::Owned => base,
         ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-            format!("*{}", base)
+            go_pointer_to(&base)
         }
     }
 }
 
-fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
-    let trimmed = ty.trim();
-
-    // Pointer-to-void variants. In Go these are `unsafe.Pointer`, not
-    // `*<empty>` — the latter (which the recursive path produced before
-    // by stripping `*const ` and mapping `c_void` to "") is invalid Go
-    // syntax and surfaces as `expected type, found '{'` at compile time.
-    let pointer_to_void = matches!(
-        trimmed,
-        "*const c_void" | "*mut c_void" | "*const void" | "*mut void"
-    );
-    if pointer_to_void {
-        return "unsafe.Pointer".to_string();
+/// Go-native type of a return as the raw layer spells it.
+pub(crate) fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
+    let t = ty.trim();
+    if t == "()" || t == "void" || t == "c_void" {
+        return String::new();
     }
-
-    if let Some(rest) = trimmed.strip_prefix("*const ") {
-        return format!("*{}", map_return_type(rest, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix("*mut ") {
-        return format!("*{}", map_return_type(rest, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix("&mut ") {
-        return format!("*{}", map_return_type(rest, ir));
-    }
-    if let Some(rest) = trimmed.strip_prefix('&') {
-        return format!("*{}", map_return_type(rest, ir));
-    }
-
-    if let Some(go) = super::primitive_to_go(trimmed) {
-        if go.is_empty() {
-            return "".to_string();
-        }
-        return super::primitive_to_cgo(trimmed).unwrap_or(go).to_string();
-    }
-
-    if ir.find_struct(trimmed).is_some()
-        || ir.find_enum(trimmed).is_some()
-        || ir.find_type_alias(trimmed).is_some()
-        || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
-    {
-        format!("C.{}", ffi_type_name(trimmed))
-    } else {
-        "unsafe.Pointer".to_string()
-    }
+    go_value_type(t, ir)
 }
 
 // ============================================================================
@@ -762,16 +582,22 @@ fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
 /// Give the auto-generated trait exports a Go name.
 ///
 /// libazul exports `Az{T}_partialEq`, `_partialCmp`, `_cmp`, `_hash` and
-/// `_toDbgString` for every class whose api.json `derive` list asks for them,
-/// and until this existed no Go wrapper named any of them - so no Go caller
-/// could compare, order, hash or print an azul value. Only the kinds a class
-/// actually exports are emitted, so a type that declares no `Hash` gets no
-/// `Hash()`.
+/// `_toDbgString` for every class whose api.json `derive` list asks for them.
+/// Only the kinds a class actually exports are emitted, so a type that
+/// declares no `Hash` gets no `Hash()`.
 fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: &CodegenIR) {
-    let ffi = format!("Az{}", class_name);
+    let ffi = ffi_type_name(class_name);
     let has_delete = has_destructor(class_name, ir);
-    let self_expr = if has_delete { "self.inner" } else { "&self.inner" };
-    let other_expr = if has_delete { "other.inner" } else { "&other.inner" };
+    let self_expr = if has_delete {
+        "self.inner"
+    } else {
+        "&self.inner"
+    };
+    let other_expr = if has_delete {
+        "other.inner"
+    } else {
+        "&other.inner"
+    };
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for f in ir.functions_for_class(class_name) {
         let name = match f.kind {
@@ -789,39 +615,27 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
         match f.kind {
             FunctionKind::PartialEq => {
                 b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
-                b.line(&format!(
-                    "func (self *{go_name}) Equal(other *{go_name}) bool {{"
-                ));
-                b.line(&format!(
-                    "    return bool(C.{ffi}_partialEq({self_expr}, {other_expr}))"
-                ));
+                b.line(&format!("func (self *{go_name}) Equal(other *{go_name}) bool {{"));
+                b.line(&format!("    return {ffi}_partialEq({self_expr}, {other_expr})"));
                 b.line("}");
             }
             FunctionKind::PartialCmp => {
                 b.line("// PartialOrder delegates to the Rust PartialOrd. The C ABI answers");
                 b.line("// 0 = less, 1 = equal, 2 = greater.");
-                b.line(&format!(
-                    "func (self *{go_name}) PartialOrder(other *{go_name}) uint8 {{"
-                ));
-                b.line(&format!(
-                    "    return uint8(C.{ffi}_partialCmp({self_expr}, {other_expr}))"
-                ));
+                b.line(&format!("func (self *{go_name}) PartialOrder(other *{go_name}) uint8 {{"));
+                b.line(&format!("    return {ffi}_partialCmp({self_expr}, {other_expr})"));
                 b.line("}");
             }
             FunctionKind::Cmp => {
                 b.line("// Order delegates to the Rust Ord. Same encoding as PartialOrder.");
-                b.line(&format!(
-                    "func (self *{go_name}) Order(other *{go_name}) uint8 {{"
-                ));
-                b.line(&format!(
-                    "    return uint8(C.{ffi}_cmp({self_expr}, {other_expr}))"
-                ));
+                b.line(&format!("func (self *{go_name}) Order(other *{go_name}) uint8 {{"));
+                b.line(&format!("    return {ffi}_cmp({self_expr}, {other_expr})"));
                 b.line("}");
             }
             FunctionKind::Hash => {
                 b.line("// Hash delegates to the Rust Hash, as a 64-bit digest.");
                 b.line(&format!("func (self *{go_name}) Hash() uint64 {{"));
-                b.line(&format!("    return uint64(C.{ffi}_hash({self_expr}))"));
+                b.line(&format!("    return {ffi}_hash({self_expr})"));
                 b.line("}");
             }
             FunctionKind::DebugToString => {
@@ -829,12 +643,99 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
                 b.line("// The AzString the ABI hands back owns its buffer and GoStr only");
                 b.line("// copies, so it is freed here rather than leaked once per call.");
                 b.line(&format!("func (self *{go_name}) String() string {{"));
-                b.line(&format!("    s := C.{ffi}_toDbgString({self_expr})"));
-                b.line("    defer C.AzString_delete(&s)");
+                b.line(&format!("    s := {ffi}_toDbgString({self_expr})"));
+                b.line("    defer AzString_delete(&s)");
                 b.line("    return GoStr(s)");
                 b.line("}");
             }
             _ => unreachable!(),
+        }
+    }
+}
+
+/// The trait entry points of enums and tagged unions, as methods on the
+/// Go-native type itself (`func (self AzUpdate) Equal(other AzUpdate) bool`)
+/// plus a package-level `<Name>Default()` for the Rust `Default`.
+fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    let mut classes: Vec<&str> = ir
+        .enums
+        .iter()
+        .filter(|e| config.should_include_type(&e.name) && e.generic_params.is_empty())
+        .map(|e| e.name.as_str())
+        .collect();
+    classes.extend(
+        ir.type_aliases
+            .iter()
+            .filter(|t| config.should_include_type(&t.name) && t.monomorphized_def.is_some())
+            .map(|t| t.name.as_str()),
+    );
+    for class_name in classes {
+        let ffi = ffi_type_name(class_name);
+        let bare = class_name;
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for f in ir.functions_for_class(class_name) {
+            let name = match f.kind {
+                FunctionKind::PartialEq => "Equal",
+                FunctionKind::PartialCmp => "PartialOrder",
+                FunctionKind::Cmp => "Order",
+                FunctionKind::Hash => "Hash",
+                FunctionKind::DebugToString => "String",
+                FunctionKind::DeepCopy => "Clone",
+                FunctionKind::Default => "Default",
+                _ => continue,
+            };
+            if !seen.insert(name) {
+                continue;
+            }
+            b.blank();
+            match f.kind {
+                FunctionKind::DeepCopy => {
+                    b.line("// Clone is a deep copy, delegating to the Rust Clone.");
+                    b.line(&format!("func (self *{ffi}) Clone() {ffi} {{"));
+                    b.line(&format!("    return {ffi}_clone(self)"));
+                    b.line("}");
+                }
+                FunctionKind::Default => {
+                    b.line(&format!("// {bare}Default is the Rust Default."));
+                    b.line(&format!("func {bare}Default() {ffi} {{"));
+                    b.line(&format!("    return {ffi}_default()"));
+                    b.line("}");
+                }
+                FunctionKind::PartialEq => {
+                    b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
+                    b.line(&format!("func (self *{ffi}) Equal(other *{ffi}) bool {{"));
+                    b.line(&format!("    return {ffi}_partialEq(self, other)"));
+                    b.line("}");
+                }
+                FunctionKind::PartialCmp => {
+                    b.line("// PartialOrder delegates to the Rust PartialOrd. The C ABI answers");
+                    b.line("// 0 = less, 1 = equal, 2 = greater.");
+                    b.line(&format!("func (self *{ffi}) PartialOrder(other *{ffi}) uint8 {{"));
+                    b.line(&format!("    return {ffi}_partialCmp(self, other)"));
+                    b.line("}");
+                }
+                FunctionKind::Cmp => {
+                    b.line("// Order delegates to the Rust Ord. Same encoding as PartialOrder.");
+                    b.line(&format!("func (self *{ffi}) Order(other *{ffi}) uint8 {{"));
+                    b.line(&format!("    return {ffi}_cmp(self, other)"));
+                    b.line("}");
+                }
+                FunctionKind::Hash => {
+                    b.line("// Hash delegates to the Rust Hash, as a 64-bit digest.");
+                    b.line(&format!("func (self *{ffi}) Hash() uint64 {{"));
+                    b.line(&format!("    return {ffi}_hash(self)"));
+                    b.line("}");
+                }
+                FunctionKind::DebugToString => {
+                    b.line("// String is the Rust `{:#?}` rendering; it implements fmt.Stringer.");
+                    b.line(&format!("func (self *{ffi}) String() string {{"));
+                    b.line(&format!("    s := {ffi}_toDbgString(self)"));
+                    b.line("    defer AzString_delete(&s)");
+                    b.line("    return GoStr(s)");
+                    b.line("}");
+                }
+                _ => unreachable!(),
+            }
         }
     }
 }

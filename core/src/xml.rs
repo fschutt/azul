@@ -407,7 +407,10 @@ impl Xml {
         resources.into()
     }
 
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
     fn scan_node(node: &XmlNode, resources: &mut Vec<ExternalResource>) {
         let tag_name = node.node_type.inner.as_str().to_lowercase();
 
@@ -1784,12 +1787,14 @@ pub enum ComponentFieldValueSource {
     Binding(AzString),
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Runtime value for a component field — the "instance" counterpart
 /// to `ComponentFieldType` (which is the "class" / type descriptor).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
-#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
+#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C
+                                     // ABI/api.json
 pub enum ComponentFieldValue {
     String(AzString),
     Bool(bool),
@@ -2019,10 +2024,10 @@ impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
 
 #[cfg(feature = "serde-json")]
 mod serde_impl {
+    use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+
     #[allow(clippy::wildcard_imports)] // serde impl module mirrors the parent surface
     use super::*;
-    use serde::ser::SerializeStruct;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     // --- AzString helpers ---
 
@@ -2411,7 +2416,8 @@ impl_result!(
 pub type ComponentRenderFn =
     fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> ResultStyledDomRenderDomError;
 
-/// Compile function type: takes component definition + target language + data model, returns source code.
+/// Compile function type: takes component definition + target language + data model, returns source
+/// code.
 pub type ComponentCompileFn = fn(
     &ComponentDef,
     &CompileTarget,
@@ -2463,7 +2469,6 @@ impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
 
 /// A component definition — the "class" / "template" of a component.
 /// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
-///
 #[derive(Clone)]
 #[repr(C)]
 pub struct ComponentDef {
@@ -2897,23 +2902,28 @@ fn builtin_compile_fn(
     let text = data.get_default_string("text");
 
     let r: Result<AzString, CompileError> = match target {
-        CompileTarget::Rust => {
-            text.map_or_else(|| Ok(format!("Dom::create_node(NodeType::{type_name})").into()), |text_str| Ok(format!(
-                    "Dom::create_node(NodeType::{}).with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(\"{}\")])",
+        CompileTarget::Rust => text.map_or_else(
+            || Ok(format!("Dom::create_node(NodeType::{type_name})").into()),
+            |text_str| {
+                Ok(format!(
+                    "Dom::create_node(NodeType::{}).with_children(vec!\
+                     [Dom::create_text_do_not_use_without_block_level_wrapper(\"{}\")])",
                     type_name,
                     text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                ).into()))
-        }
-        CompileTarget::C => {
-            text.map_or_else(|| Ok(format!("AzDom_create{type_name}()").into()), |text_str| Ok(format!(
-                    "AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{}\"))",
-                    text_str
-                        .as_str()
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
                 )
-                .into()))
-        }
+                .into())
+            },
+        ),
+        CompileTarget::C => text.map_or_else(
+            || Ok(format!("AzDom_create{type_name}()").into()),
+            |text_str| {
+                Ok(format!(
+                    "AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{}\"))",
+                    text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
+                )
+                .into())
+            },
+        ),
         CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
         CompileTarget::Python => Ok(format!("Dom.create_{}()", type_name.to_lowercase()).into()),
     };
@@ -2952,8 +2962,9 @@ pub fn user_defined_render_fn(
     data: &ComponentDataModel,
     component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    use crate::dom::{Dom, NodeType};
     use azul_css::css::Css;
+
+    use crate::dom::{Dom, NodeType};
 
     let mut children: Vec<Dom> = Vec::new();
 
@@ -3157,12 +3168,16 @@ pub fn user_defined_compile_fn(
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
                         lines.push(alloc::format!(
-                            "{inner_indent}children.push(Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"));"
+                            "{inner_indent}children.\
+                             push(Dom::create_text_do_not_use_without_block_level_wrapper(\"\
+                             {escaped}\"));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
                         lines.push(alloc::format!(
-                            "{inner_indent}children.push(Dom::create_text_do_not_use_without_block_level_wrapper(format!(\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
+                            "{inner_indent}children.\
+                             push(Dom::create_text_do_not_use_without_block_level_wrapper(format!\
+                             (\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -3208,7 +3223,9 @@ pub fn user_defined_compile_fn(
                     OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
                         let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
                         lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{escaped}\")));"
+                            "{inner_indent}AzDom_addChild(&root, \
+                             AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{escaped}\"\
+                             )));"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -3274,7 +3291,9 @@ pub fn user_defined_compile_fn(
                             .replace('"', "\\\"")
                             .replace('\'', "\\'");
                         lines.push(alloc::format!(
-                            "{inner_indent}root = root.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"))"
+                            "{inner_indent}root = \
+                             root.with_child(Dom.\
+                             create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"))"
                         ));
                     }
                     OptionComponentDefaultValue::Some(
@@ -3307,9 +3326,9 @@ pub fn user_defined_compile_fn(
 /// * `default_text` - Default text content for the preview, or `None` if the element has no text.
 ///   Pass `Some("Button text")` for `<button>`, `Some("")` for text elements like `<span>` that
 ///   accept text but have no meaningful default.
-/// * `css` - Component-level CSS string. For most builtin elements this is `""` because
-///   styling comes from `ua_css.rs` and the `SystemStyle`. Components that need extra
-///   styling (e.g. a future high-level button widget) can pass CSS here.
+/// * `css` - Component-level CSS string. For most builtin elements this is `""` because styling
+///   comes from `ua_css.rs` and the `SystemStyle`. Components that need extra styling (e.g. a
+///   future high-level button widget) can pass CSS here.
 fn builtin_component_def(
     tag: &str,
     display_name: &str,
@@ -3370,7 +3389,8 @@ fn data_field(
 /// what the component needs as configuration (e.g., `href` for `<a>`,
 /// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
 /// are NOT included here — they are added separately by the debug server.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
+                                 // branch per input variant)
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
     use ComponentDefaultValue as D;
     use ComponentFieldType::{Bool, String, I32};
@@ -4190,15 +4210,22 @@ fn builtin_if_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("if"),
         display_name: AzString::from_const_str("If"),
-        description: AzString::from_const_str("Conditional rendering: shows 'then' if condition is true, else shows 'else' (if provided)."),
+        description: AzString::from_const_str(
+            "Conditional rendering: shows 'then' if condition is true, else shows 'else' (if \
+             provided).",
+        ),
         css: AzString::from_const_str(""),
         source: ComponentSource::Builtin,
         data_model: ComponentDataModel {
             name: AzString::from_const_str("IfData"),
             description: AzString::from_const_str("Data for conditional rendering"),
-            fields: alloc::vec![
-                data_field("condition", ComponentFieldType::Bool, Some(ComponentDefaultValue::Bool(false)), "The boolean condition to evaluate"),
-            ].into(),
+            fields: alloc::vec![data_field(
+                "condition",
+                ComponentFieldType::Bool,
+                Some(ComponentDefaultValue::Bool(false)),
+                "The boolean condition to evaluate"
+            ),]
+            .into(),
         },
         render_fn: builtin_if_render_fn,
         compile_fn: builtin_if_compile_fn,
@@ -4246,16 +4273,20 @@ fn builtin_if_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition {\n    // then branch\n    Dom::create_div()\n} else {\n    // else branch\n    Dom::create_div()\n}"
+            "if data.condition {\n    // then branch\n    Dom::create_div()\n} else {\n    // \
+             else branch\n    Dom::create_div()\n}",
         )),
         CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // else branch\n    AzDom_createDiv();\n}"
+            "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // \
+             else branch\n    AzDom_createDiv();\n}",
         )),
         CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    Dom::create_div();\n} else {\n    // else branch\n    Dom::create_div();\n}"
+            "if (data.condition) {\n    // then branch\n    Dom::create_div();\n} else {\n    // \
+             else branch\n    Dom::create_div();\n}",
         )),
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition:\n    # then branch\n    Dom.create_div()\nelse:\n    # else branch\n    Dom.create_div()"
+            "if data.condition:\n    # then branch\n    Dom.create_div()\nelse:\n    # else \
+             branch\n    Dom.create_div()",
         )),
     }
 }
@@ -4328,16 +4359,24 @@ fn builtin_for_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let mut children = Vec::new();\nfor i in 0..data.count {\n    children.push(Dom::create_div());\n}\nDom::create_div().with_children(children)"
+            "let mut children = Vec::new();\nfor i in 0..data.count {\n    \
+             children.push(Dom::create_div());\n}\nDom::create_div().with_children(children)",
         )),
-        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) {\n    AzDom_addChild(&container, AzDom_createDiv());\n}"
-        )),
-        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "auto container = Dom::create_div();\nfor (uint32_t i = 0; i < data.count; i++) {\n    container.add_child(Dom::create_div());\n}"
-        )),
+        CompileTarget::C => {
+            ResultStringCompileError::Ok(AzString::from(
+                "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) \
+                 {\n    AzDom_addChild(&container, AzDom_createDiv());\n}",
+            ))
+        }
+        CompileTarget::Cpp => {
+            ResultStringCompileError::Ok(AzString::from(
+                "auto container = Dom::create_div();\nfor (uint32_t i = 0; i < data.count; i++) \
+                 {\n    container.add_child(Dom::create_div());\n}",
+            ))
+        }
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "container = Dom.create_div()\nfor i in range(data.count):\n    container = container.with_child(Dom.create_div())"
+            "container = Dom.create_div()\nfor i in range(data.count):\n    container = \
+             container.with_child(Dom.create_div())",
         )),
     }
 }
@@ -4410,16 +4449,22 @@ fn builtin_map_compile_fn(
 ) -> ResultStringCompileError {
     match target {
         CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let items: Vec<serde_json::Value> = serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = items.iter().map(|item| {\n    Dom::create_div() // map template\n}).collect();\nDom::create_div().with_children(children)"
+            "let items: Vec<serde_json::Value> = \
+             serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = \
+             items.iter().map(|item| {\n    Dom::create_div() // map \
+             template\n}).collect();\nDom::create_div().with_children(children)",
         )),
         CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// TODO: iterate parsed JSON array"
+            "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// \
+             TODO: iterate parsed JSON array",
         )),
         CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nauto container = Dom::create_div();\n// TODO: iterate parsed JSON array"
+            "// Parse data.data_json and map each item\nauto container = Dom::create_div();\n// \
+             TODO: iterate parsed JSON array",
         )),
         CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.create_div()\nfor item in items:\n    container = container.with_child(Dom.create_div())"
+            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.create_div()\nfor \
+             item in items:\n    container = container.with_child(Dom.create_div())",
         )),
     }
 }
@@ -4613,7 +4658,7 @@ impl DomXml {
         assert!(
             !(self.parsed_dom != fixed),
             "\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: \
-                 ----------\r\n{}\r\n",
+             ----------\r\n{}\r\n",
             self.parsed_dom.get_html_string("", "", true),
             fixed.get_html_string("", "", true)
         );
@@ -5180,7 +5225,9 @@ pub fn get_html_node(
     html_children.push(XmlNodeChild::Element(
         XmlNode::create("body").with_children(body_children),
     ));
-    Ok(Cow::Owned(XmlNode::create("html").with_children(html_children)))
+    Ok(Cow::Owned(
+        XmlNode::create("html").with_children(html_children),
+    ))
 }
 
 /// Find the one and only `<body>` node, return error if
@@ -5334,7 +5381,8 @@ fn get_item_internal<'a>(
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 /// # Errors
 ///
-/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5348,7 +5396,8 @@ pub fn str_to_dom<'a>(
 ///
 /// **Note**: `str_to_dom()` now delegates to this function, so you can use
 /// either one. This function is kept for backward compatibility.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
+                                   // break the C ABI/api.json
 fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5379,7 +5428,8 @@ fn str_to_dom_fast<'a>(
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 /// # Errors
 ///
-/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
 pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5511,7 +5561,8 @@ fn main() {
 }
 
 // Compile all components to source code
-#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
+                                         // ownership-transfer convention)
 fn compile_components(
     components: Vec<(
         ComponentName,
@@ -5533,8 +5584,8 @@ fn compile_components(
             // let css_blocks = ...
 
             format!(
-                "#[allow(unused_imports)]\r\npub mod {name} {{\r\n    use azul::dom::Dom;\r\n    use \
-                 azul::str::String as AzString;\r\n{f}\r\n}}"
+                "#[allow(unused_imports)]\r\npub mod {name} {{\r\n    use azul::dom::Dom;\r\n    \
+                 use azul::str::String as AzString;\r\n{f}\r\n}}"
             )
         })
         .collect::<Vec<String>>()
@@ -5801,14 +5852,12 @@ fn apply_xml_node_attributes(
     // both were being dropped.
     //
     //   * the `viewBox`, which is the element's USER-SPACE coordinate system.
-    //     `SvgNodeData::ViewBox` existed as a variant but nothing ever produced
-    //     one, so a parsed `<svg>` had no record of what coordinate space its
-    //     children were drawn in.
-    //   * an INTRINSIC SIZE. An `<svg>` is a replaced element: it is as big as
-    //     `width`/`height` say, and failing that as big as its viewBox (SVG's
-    //     own default sizing rule). Without one the element lays out 0x0 and
-    //     takes no space at all - which is what an icon parsed straight from a
-    //     theme file did, and why it came out blank.
+    //     `SvgNodeData::ViewBox` existed as a variant but nothing ever produced one, so a parsed
+    //     `<svg>` had no record of what coordinate space its children were drawn in.
+    //   * an INTRINSIC SIZE. An `<svg>` is a replaced element: it is as big as `width`/`height`
+    //     say, and failing that as big as its viewBox (SVG's own default sizing rule). Without one
+    //     the element lays out 0x0 and takes no space at all - which is what an icon parsed
+    //     straight from a theme file did, and why it came out blank.
     //
     // These are INTRINSIC dimensions, not a demand: they are pushed ahead of
     // the inline `style` below, so a call site that says how big it wants the
@@ -5861,14 +5910,12 @@ fn apply_xml_node_attributes(
     // its geometry (`SvgNodeData::*`, pushed as a clip mask by the display
     // list). Two things make that work, and both are ordinary CSS:
     //
-    //   * the box has to BE the `<svg>`'s viewport - the clip mask is
-    //     rasterised into the node's paint rect, so a shape that laid out as
-    //     an ordinary in-flow block would be clipped against the wrong
-    //     rectangle (and, being empty, would be 0-high anyway);
-    //   * `fill` has to reach the cascade. The presentation ATTRIBUTE is
-    //     translated here; `style="fill:…"` and a stylesheet rule need nothing,
-    //     because `fill` is an accepted spelling of `background-color`
-    //     (`COMBINED_CSS_PROPERTIES_KEY_MAP`).
+    //   * the box has to BE the `<svg>`'s viewport - the clip mask is rasterised into the node's
+    //     paint rect, so a shape that laid out as an ordinary in-flow block would be clipped
+    //     against the wrong rectangle (and, being empty, would be 0-high anyway);
+    //   * `fill` has to reach the cascade. The presentation ATTRIBUTE is translated here;
+    //     `style="fill:…"` and a stylesheet rule need nothing, because `fill` is an accepted
+    //     spelling of `background-color` (`COMBINED_CSS_PROPERTIES_KEY_MAP`).
     //
     // `fill="none"` deliberately emits NOTHING rather than a transparent
     // background: it must not shadow a stylesheet rule that does set a fill.
@@ -5879,19 +5926,19 @@ fn apply_xml_node_attributes(
         )
     {
         use azul_css::props::{
-            layout::{
-                LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop,
-            },
+            layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
             property::CssProperty,
         };
         let simple = azul_css::dynamic_selector::CssPropertyWithConditions::simple;
-        intrinsic_props.push(simple(CssProperty::const_position(LayoutPosition::Absolute)));
+        intrinsic_props.push(simple(CssProperty::const_position(
+            LayoutPosition::Absolute,
+        )));
         intrinsic_props.push(simple(CssProperty::const_left(LayoutLeft::const_px(0))));
         intrinsic_props.push(simple(CssProperty::const_top(LayoutTop::const_px(0))));
         intrinsic_props.push(simple(CssProperty::const_right(LayoutRight::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(
-            0,
-        ))));
+        intrinsic_props.push(simple(CssProperty::const_bottom(
+            LayoutInsetBottom::const_px(0),
+        )));
 
         if let Some(fill) = xml_node.attributes.get_key("fill") {
             let fill = fill.as_str().trim();
@@ -6065,7 +6112,8 @@ fn apply_xml_node_attributes(
                 let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
                 let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
                 if rx > 0.0 && ry > 0.0 {
-                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for y-kappa)
+                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
+                    // y-kappa)
                     use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
                     const KAPPA: f32 = 0.552_284_8;
                     let kx = rx * KAPPA;
@@ -6351,8 +6399,7 @@ impl CompactDomBuilder {
 
     /// Open a new element node. Must be paired with `close_node()`.
     pub fn open_node(&mut self, node_data: crate::dom::NodeData) {
-        use crate::id::NodeId;
-        use crate::styled_dom::NodeHierarchyItem;
+        use crate::{id::NodeId, styled_dom::NodeHierarchyItem};
 
         let idx = self.hierarchy.len();
 
@@ -6488,7 +6535,8 @@ fn xml_node_to_fast_dom<'a>(
 
 /// Render a DOM from an XML body node using the fast arena-based path.
 /// Builds a `FastDom` directly (no tree intermediary), then creates `StyledDom`.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
+                                   // break the C ABI/api.json
 fn render_dom_from_body_node_fast<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
@@ -6637,11 +6685,20 @@ pub enum DynamicItem {
 /// let split = split_dynamic_string(s);
 /// let output = vec![
 ///     Str("hello ".to_string()),
-///     Var { name: "a".to_string(), format_spec: None },
+///     Var {
+///         name: "a".to_string(),
+///         format_spec: None,
+///     },
 ///     Str(", ".to_string()),
-///     Var { name: "b".to_string(), format_spec: None },
+///     Var {
+///         name: "b".to_string(),
+///         format_spec: None,
+///     },
 ///     Str("{ ".to_string()),
-///     Var { name: "c".to_string(), format_spec: None },
+///     Var {
+///         name: "c".to_string(),
+///         format_spec: None,
+///     },
 ///     Str(" }".to_string()),
 /// ];
 /// assert_eq!(output, split);
@@ -6776,9 +6833,16 @@ fn combine_and_replace_dynamic_items(
 /// # use azul_core::xml::{format_args_dynamic, ComponentArgument, ComponentArgumentVec};
 /// # use azul_css::AzString;
 /// let variables: ComponentArgumentVec = vec![
-///     ComponentArgument { name: AzString::from("a"), arg_type: AzString::from("value1") },
-///     ComponentArgument { name: AzString::from("b"), arg_type: AzString::from("value2") },
-/// ].into();
+///     ComponentArgument {
+///         name: AzString::from("a"),
+///         arg_type: AzString::from("value1"),
+///     },
+///     ComponentArgument {
+///         name: AzString::from("b"),
+///         arg_type: AzString::from("value2"),
+///     },
+/// ]
+/// .into();
 ///
 /// let initial = "hello {a}, {b}{{ {c} }}";
 /// let expected = "hello value1, value2{ {c} }".to_string();
@@ -6827,7 +6891,8 @@ fn decode_entities(input: &str) -> String {
                 if semi_rel <= MAX_ENTITY_BODY {
                     let body = &input[i + 1..i + 1 + semi_rel];
                     let end = i + 1 + semi_rel; // index of ';'
-                                                // Leave &nbsp; for the per-line pass in prepare_string.
+                                                // Leave &nbsp; for the per-line pass in
+                                                // prepare_string.
                     if body.eq_ignore_ascii_case("nbsp") {
                         out.push_str(&input[i..=end]);
                         i = end + 1;
@@ -6935,9 +7000,7 @@ pub struct CssMatcher {
 
 impl CssMatcher {
     fn get_hash(&self) -> u64 {
-        use core::hash::Hash;
-
-        use core::hash::Hasher;
+        use core::hash::{Hash, Hasher};
 
         let mut hasher = crate::hash::DefaultHasher::new();
         for p in &self.path {
@@ -7222,8 +7285,10 @@ pub fn compile_body_node_to_rust_code<'a>(
                     let text = text.trim();
                     if !text.is_empty() {
                         let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-                        let _ = write!(dom_string,
-                            "{t}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"),\r\n"
+                        let _ = write!(
+                            dom_string,
+                            "{t}Dom::create_text_do_not_use_without_block_level_wrapper(\"\
+                             {escaped}\"),\r\n"
                         );
                     }
                 }
@@ -7359,7 +7424,8 @@ fn format_args_for_rust_code(input: &str) -> String {
 // component_map is forwarded through the codegen recursion for parity with the
 // component-expanding path; this Rust-codegen path only threads it into recursive calls.
 #[allow(clippy::only_used_in_recursion)]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
+                                 // branch per input variant)
 fn compile_node_to_rust_code_inner(
     node: &XmlNode,
     component_map: &ComponentMap,
@@ -7500,7 +7566,8 @@ fn compile_node_to_rust_code_inner(
                     let t2 = String::from("    ").repeat(tabs);
                     let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
                     Some(Ok(format!(
-                        "{t2}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\")"
+                        "{t2}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"\
+                         )"
                     )))
                 }
             }
@@ -7842,7 +7909,8 @@ const WITH_TEXT_TAGS: &[&str] = &[
 ];
 
 /// Pick the semantic constructor for `tag` (lowercase HTML tag) + `node`.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
+                                 // branch per input variant)
 fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
     // Helper for the common "no caption skip" case.
     fn sem(suffix: impl Into<String>, args: Vec<CtorArg>, consumes_text: bool) -> NodeCtor {
@@ -8360,7 +8428,8 @@ fn compile_node_fluent(
 }
 
 /// Build the `<body>` render-expression for `syntax`'s language.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
+                                   // break the C ABI/api.json
 fn compile_body_fluent<'a>(
     body_node: &'a XmlNode,
     syntax: &FluentSyntax,
@@ -8471,19 +8540,13 @@ pub fn str_to_cpp_code<'a>(
         body_matcher(body_node),
     )?;
     Ok(alloc::format!(
-        "// Auto-generated UI source code (C++). Build:\n\
-         //   clang++ -std=c++20 -I <azul>/target/codegen main.cpp -lazul\n\
-         #include \"azul20.hpp\"\n\
-         using namespace azul;\n\n\
-         struct Data {{}};\n\n\
-         AzDom render(AzRefAny data, AzLayoutCallbackInfo info) {{\n    \
-         return {render};\n}}\n\n\
-         int main() {{\n    \
-         RefAny data = RefAny::create(Data{{}});\n    \
-         WindowCreateOptions window = WindowCreateOptions::create(render);\n    \
-         App app = App::create(std::move(data), AppConfig::default_());\n    \
-         app.run(std::move(window));\n    \
-         return 0;\n}}\n"
+        "// Auto-generated UI source code (C++). Build:\n//   clang++ -std=c++20 -I \
+         <azul>/target/codegen main.cpp -lazul\n#include \"azul20.hpp\"\nusing namespace \
+         azul;\n\nstruct Data {{}};\n\nAzDom render(AzRefAny data, AzLayoutCallbackInfo info) \
+         {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
+         RefAny::create(Data{{}});\n    WindowCreateOptions window = \
+         WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
+         AppConfig::default_());\n    app.run(std::move(window));\n    return 0;\n}}\n"
     ))
 }
 
@@ -8506,15 +8569,11 @@ pub fn str_to_python_code<'a>(
         body_matcher(body_node),
     )?;
     Ok(alloc::format!(
-        "# Auto-generated UI source code (Python). Run: python3 main.py\n\
-         import azul\n\n\
-         class Data:\n    pass\n\n\
-         def render(data, info):\n    return (\n        {}\n    )\n\n\
-         def main():\n    \
-         app = azul.App.create(Data(), azul.AppConfig.create())\n    \
-         window = azul.WindowCreateOptions.create(render)\n    \
-         app.run(window)\n\n\
-         if __name__ == \"__main__\":\n    main()\n",
+        "# Auto-generated UI source code (Python). Run: python3 main.py\nimport azul\n\nclass \
+         Data:\n    pass\n\ndef render(data, info):\n    return (\n        {}\n    )\n\ndef \
+         main():\n    app = azul.App.create(Data(), azul.AppConfig.create())\n    window = \
+         azul.WindowCreateOptions.create(render)\n    app.run(window)\n\nif __name__ == \
+         \"__main__\":\n    main()\n",
         render.replace("\r\n", "\n        ")
     ))
 }
@@ -8648,8 +8707,10 @@ fn compile_node_c(
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = writeln!(out,
-                        "    AzDom_addChild(&{var}, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
+                    let _ = writeln!(
+                        out,
+                        "    AzDom_addChild(&{var}, \
+                         AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
                     );
                 }
             }
@@ -8725,8 +8786,10 @@ pub fn str_to_c_code<'a>(
                 let text = text.trim();
                 if !text.is_empty() {
                     let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = writeln!(body,
-                        "    AzDom_addChild(&{root}, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
+                    let _ = writeln!(
+                        body,
+                        "    AzDom_addChild(&{root}, \
+                         AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
                     );
                 }
             }
@@ -8734,21 +8797,15 @@ pub fn str_to_c_code<'a>(
     }
 
     Ok(alloc::format!(
-        "/* Auto-generated UI source code (C). Build:\n\
-         *   clang -I <azul>/target/codegen main.c -lazul\n */\n\
-         #include \"azul.h\"\n\
-         #include <string.h>\n\
-         #define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\n\
-         AzDom render(AzRefAny data, AzLayoutCallbackInfo info) {{\n\
-         {body}    return {root};\n}}\n\n\
-         int main(void) {{\n    \
-         AzString data_type = AZ_STR(\"Data\");\n    \
-         AzRefAny data = AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);\n    \
-         AzApp app = AzApp_create(data, AzAppConfig_create());\n    \
-         AzWindowCreateOptions window = AzWindowCreateOptions_create(render);\n    \
-         AzApp_run(&app, window);\n    \
-         AzApp_delete(&app);\n    \
-         return 0;\n}}\n"
+        "/* Auto-generated UI source code (C). Build:\n*   clang -I <azul>/target/codegen main.c \
+         -lazul\n */\n#include \"azul.h\"\n#include <string.h>\n#define AZ_STR(s) \
+         AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\nAzDom render(AzRefAny data, \
+         AzLayoutCallbackInfo info) {{\n{body}    return {root};\n}}\n\nint main(void) {{\n    \
+         AzString data_type = AZ_STR(\"Data\");\n    AzRefAny data = \
+         AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);\n    \
+         AzApp app = AzApp_create(data, AzAppConfig_create());\n    AzWindowCreateOptions window \
+         = AzWindowCreateOptions_create(render);\n    AzApp_run(&app, window);\n    \
+         AzApp_delete(&app);\n    return 0;\n}}\n"
     ))
 }
 

@@ -34,7 +34,10 @@ pub fn generate_vbp(class_names: &[String]) -> String {
     out.push_str("Type=Exe\n");
 
     // Reference to stdole2.tlb (every VB6 project uses this).
-    out.push_str("Reference=*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#..\\..\\Windows\\system32\\stdole2.tlb#OLE Automation\n");
+    out.push_str(
+        "Reference=*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#..\\..\\Windows\\system32\\\
+         stdole2.tlb#OLE Automation\n",
+    );
 
     // Main module.
     out.push_str("Module=Azul; Azul.bas\n");

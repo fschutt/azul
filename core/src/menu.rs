@@ -34,16 +34,15 @@ use crate::{
 /// accelerators itself (Windows, X11, Wayland, headless; macOS's menu bar
 /// uses `AppKit` key equivalents, its context menus this).
 ///
-/// * The combo names its modifiers with the modifier keys (`LControl`,
-///   `LShift`, `LAlt`, `LWin`; the right-hand twins are equivalent) and
-///   exactly ONE non-modifier key, which must be `pressed`.
-/// * `LWin` / `RWin` mean the platform's PRIMARY shortcut modifier — Cmd on
-///   macOS, Ctrl everywhere else — so `[LWin, S]` is Cmd+S on a Mac and
-///   Ctrl+S on Windows/Linux from one definition (the MWA-A2 rule behind
-///   `KeyboardState::primary_down`). `LControl` stays the Control key on
-///   every platform.
-/// * The match is EXACT: `Ctrl+S` does not fire while Shift is also held, so
-///   `Ctrl+S` and `Ctrl+Shift+S` can coexist in one menu.
+/// * The combo names its modifiers with the modifier keys (`LControl`, `LShift`, `LAlt`, `LWin`;
+///   the right-hand twins are equivalent) and exactly ONE non-modifier key, which must be
+///   `pressed`.
+/// * `LWin` / `RWin` mean the platform's PRIMARY shortcut modifier — Cmd on macOS, Ctrl everywhere
+///   else — so `[LWin, S]` is Cmd+S on a Mac and Ctrl+S on Windows/Linux from one definition (the
+///   MWA-A2 rule behind `KeyboardState::primary_down`). `LControl` stays the Control key on every
+///   platform.
+/// * The match is EXACT: `Ctrl+S` does not fire while Shift is also held, so `Ctrl+S` and
+///   `Ctrl+Shift+S` can coexist in one menu.
 #[must_use]
 pub fn accelerator_matches(
     combo: &VirtualKeyCodeCombo,
@@ -233,14 +232,16 @@ pub enum MenuItemState {
     Disabled,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents a single item in a menu.
 ///
 /// Menu items can be regular text items with labels and callbacks,
 /// visual separators, or line breaks for horizontal menu layouts.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
-#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
+#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C
+                                     // ABI/api.json
 pub enum MenuItem {
     /// A regular menu item with a label, optional icon, callback, and sub-items
     String(StringMenuItem),

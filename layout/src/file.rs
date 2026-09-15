@@ -3,16 +3,15 @@
 //! Provides C-compatible wrappers around Rust's std::fs API.
 //! This allows C code to use Rust's file operations without importing stdio.h.
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
+use core::fmt;
+#[cfg(feature = "std")]
+use std::path::Path;
+
 use azul_css::{
     impl_option, impl_option_inner, impl_result, impl_result_inner, impl_vec, impl_vec_clone,
     impl_vec_debug, impl_vec_mut, impl_vec_partialeq, AzString, EmptyStruct, U8Vec,
 };
-use core::fmt;
-
-#[cfg(feature = "std")]
-use std::path::Path;
 
 #[cfg(feature = "std")]
 fn path_to_azstring(p: impl AsRef<Path>) -> AzString {
@@ -227,7 +226,8 @@ impl_result!(
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
     let data = std::fs::read(path).map_err(FileError::from_io_error)?;
     Ok(U8Vec::from(data))
@@ -237,7 +237,8 @@ pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
     let data = std::fs::read_to_string(path).map_err(FileError::from_io_error)?;
     Ok(AzString::from(data))
@@ -247,7 +248,8 @@ pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data)
         .map(|()| EmptyStruct::default())
@@ -258,7 +260,8 @@ pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data.as_bytes())
         .map(|()| EmptyStruct::default())
@@ -269,10 +272,10 @@ pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileErro
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
-    use std::fs::OpenOptions;
-    use std::io::Write;
+    use std::{fs::OpenOptions, io::Write};
 
     let mut file = OpenOptions::new()
         .create(true)
@@ -289,7 +292,8 @@ pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
     std::fs::copy(from, to).map_err(FileError::from_io_error)
 }
@@ -298,7 +302,8 @@ pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
     std::fs::rename(from, to)
         .map(|()| EmptyStruct::default())
@@ -309,7 +314,8 @@ pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_file(path)
         .map(|()| EmptyStruct::default())
@@ -341,7 +347,8 @@ pub fn path_is_dir(path: &str) -> bool {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
     let meta = std::fs::symlink_metadata(path).map_err(FileError::from_io_error)?;
 
@@ -466,7 +473,8 @@ pub fn file_metadata(_path: &str) -> Result<FileMetadata, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir(path)
         .map(|()| EmptyStruct::default())
@@ -477,7 +485,8 @@ pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir_all(path)
         .map(|()| EmptyStruct::default())
@@ -488,7 +497,8 @@ pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir(path)
         .map(|()| EmptyStruct::default())
@@ -499,7 +509,8 @@ pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir_all(path)
         .map(|()| EmptyStruct::default())
@@ -510,7 +521,8 @@ pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
     let entries = std::fs::read_dir(path).map_err(FileError::from_io_error)?;
 
@@ -607,7 +619,8 @@ pub fn path_extension(path: &str) -> Option<AzString> {
 #[cfg(feature = "std")]
 /// # Errors
 ///
-/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+/// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied,
+/// or an I/O error).
 pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
     let canonical = std::fs::canonicalize(path).map_err(FileError::from_io_error)?;
     Ok(path_to_azstring(canonical))
@@ -819,7 +832,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn get_current_dir() -> Result<Self, FileError> {
         match std::env::current_dir() {
             Ok(p) => Ok(Self {
@@ -829,7 +843,8 @@ impl FilePath {
         }
     }
 
-    /// Returns the user's home directory (e.g., /home/username on Linux, C:\Users\username on Windows)
+    /// Returns the user's home directory (e.g., /home/username on Linux, C:\Users\username on
+    /// Windows)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_home_dir() -> Option<Self> {
@@ -847,7 +862,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
+    /// Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support
+    /// on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_config_dir() -> Option<Self> {
@@ -856,7 +872,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's local config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
+    /// Returns the user's local config directory (e.g., ~/.config on Linux, ~/Library/Application
+    /// Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_config_local_dir() -> Option<Self> {
@@ -865,7 +882,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
+    /// Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application
+    /// Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_data_dir() -> Option<Self> {
@@ -874,7 +892,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's local data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
+    /// Returns the user's local data directory (e.g., ~/.local/share on Linux,
+    /// ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_data_local_dir() -> Option<Self> {
@@ -919,7 +938,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)
+    /// Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on
+    /// macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_font_dir() -> Option<Self> {
@@ -937,7 +957,8 @@ impl FilePath {
         })
     }
 
-    /// Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)
+    /// Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on
+    /// macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
     #[must_use]
     pub fn get_preference_dir() -> Option<Self> {
@@ -1071,7 +1092,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn create_dir_all(&self) -> Result<EmptyStruct, FileError> {
         dir_create_all(self.inner.as_str())
     }
@@ -1080,7 +1102,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn create_dir(&self) -> Result<EmptyStruct, FileError> {
         dir_create(self.inner.as_str())
     }
@@ -1089,7 +1112,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn remove_file(&self) -> Result<EmptyStruct, FileError> {
         file_delete(self.inner.as_str())
     }
@@ -1098,7 +1122,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn remove_dir(&self) -> Result<EmptyStruct, FileError> {
         dir_delete(self.inner.as_str())
     }
@@ -1107,7 +1132,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn remove_dir_all(&self) -> Result<EmptyStruct, FileError> {
         dir_delete_all(self.inner.as_str())
     }
@@ -1149,7 +1175,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn read_bytes_blocking(&self) -> Result<U8Vec, FileError> {
         // Canned e2e documents (`e2e://...`) are served from the mock store;
         // every other path is a real file.
@@ -1165,7 +1192,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn read_string_blocking(&self) -> Result<AzString, FileError> {
         #[cfg(feature = "text_layout")]
         if let Some(bytes) = crate::request::mock::take_file_read(self.inner.as_str()) {
@@ -1183,7 +1211,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn write_bytes(&self, data: &U8Vec) -> Result<EmptyStruct, FileError> {
         file_write(self.inner.as_str(), data.as_ref())
     }
@@ -1192,7 +1221,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn write_string(&self, data: &AzString) -> Result<EmptyStruct, FileError> {
         file_write_string(self.inner.as_str(), data.as_str())
     }
@@ -1201,7 +1231,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn copy_to(&self, dest: &Self) -> Result<u64, FileError> {
         file_copy(self.inner.as_str(), dest.inner.as_str())
     }
@@ -1210,7 +1241,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn rename_to(&self, dest: &Self) -> Result<EmptyStruct, FileError> {
         file_rename(self.inner.as_str(), dest.inner.as_str())
     }
@@ -1245,7 +1277,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn read_dir_blocking(&self) -> Result<DirEntryVec, FileError> {
         dir_list(self.inner.as_str())
     }
@@ -1254,7 +1287,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn metadata(&self) -> Result<FileMetadata, FileError> {
         file_metadata(self.inner.as_str())
     }
@@ -1263,7 +1297,8 @@ impl FilePath {
     #[cfg(feature = "std")]
     /// # Errors
     ///
-    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
+    /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission
+    /// denied, or an I/O error).
     pub fn canonicalize(&self) -> Result<Self, FileError> {
         path_canonicalize(self.inner.as_str()).map(|p| Self { inner: p })
     }
@@ -2171,8 +2206,8 @@ mod autotest_generated {
             Ok(resolved) => assert_eq!(
                 resolved.as_str(),
                 canon.as_str(),
-                "resolving `..` through a regular file must not escape to a \
-                 different path than the file itself"
+                "resolving `..` through a regular file must not escape to a different path than \
+                 the file itself"
             ),
         }
     }
@@ -2367,7 +2402,10 @@ mod autotest_generated {
         let f = nested.join_str(&AzString::from(String::from("data.bin")));
         let payload = U8Vec::from_vec(vec![0u8, 0xFF, 0x41]);
         assert!(f.write_bytes(&payload).is_ok());
-        assert_eq!(f.read_bytes_blocking().expect("read").as_slice(), payload.as_slice());
+        assert_eq!(
+            f.read_bytes_blocking().expect("read").as_slice(),
+            payload.as_slice()
+        );
         assert_eq!(f.metadata().expect("meta").size, 3);
         assert_eq!(f.file_name().expect("name").as_str(), "data.bin");
         assert_eq!(f.extension().expect("ext").as_str(), "bin");

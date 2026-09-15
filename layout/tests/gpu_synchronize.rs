@@ -10,8 +10,8 @@
 //! This test layouts a DOM with a node carrying non-default `transform` and
 //! `opacity`, then verifies that after one relayout:
 //! - The GPU cache has entries for the node's transform and opacity keys.
-//! - The `GpuEventChanges` accumulated on `GpuStateManager.pending_changes`
-//!   contain `Added` events for both.
+//! - The `GpuEventChanges` accumulated on `GpuStateManager.pending_changes` contain `Added` events
+//!   for both.
 //!
 //! After mutating the DOM with new values, relayout must produce `Changed`
 //! events and update the stored values.

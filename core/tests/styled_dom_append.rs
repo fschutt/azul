@@ -6,8 +6,7 @@
 //! - When these fields are 0, it means "no node" (None)
 //! - When > 0, the actual NodeId index is (value - 1)
 
-use azul_core::dom::Dom;
-use azul_core::styled_dom::StyledDom;
+use azul_core::{dom::Dom, styled_dom::StyledDom};
 use azul_css::css::Css;
 
 fn empty_css() -> Css {

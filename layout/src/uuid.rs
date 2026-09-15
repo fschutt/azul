@@ -140,8 +140,9 @@ impl Uuid {
 
 #[cfg(test)]
 mod uuid_tests {
-    use super::*;
     use std::collections::HashSet;
+
+    use super::*;
 
     #[test]
     fn v4_is_canonical_hyphenated_lowercase() {

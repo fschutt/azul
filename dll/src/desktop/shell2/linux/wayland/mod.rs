@@ -103,12 +103,11 @@ pub(super) static CONFIGURES_RESIZED: core::sync::atomic::AtomicUsize =
 /// Spell out the errno `wl_display_get_error` returns, because the two common
 /// values mean opposite things about WHERE the fault is:
 ///
-/// * `EPIPE` — the compositor had already closed the socket when we wrote. The
-///   protocol violation happened BEFORE this and is not visible here; the
-///   compositor's own log (`error in client communication (pid N)` from
-///   libwayland-server) is the corroborating record.
-/// * `EPROTO` — libwayland raised the error locally; `wl_display_get_protocol_error`
-///   then names the interface, object id and error code.
+/// * `EPIPE` — the compositor had already closed the socket when we wrote. The protocol violation
+///   happened BEFORE this and is not visible here; the compositor's own log (`error in client
+///   communication (pid N)` from libwayland-server) is the corroborating record.
+/// * `EPROTO` — libwayland raised the error locally; `wl_display_get_protocol_error` then names the
+///   interface, object id and error code.
 pub(super) fn errno_name(e: i32) -> &'static str {
     match e {
         0 => "no error",
@@ -119,6 +118,51 @@ pub(super) fn errno_name(e: i32) -> &'static str {
         libc::ENOMEM => "ENOMEM",
         _ => "see errno(3)",
     }
+}
+
+/// The compositor's `wl_display.error` event, if it is still unread in `bytes`.
+///
+/// A compositor that rejects a request queues `wl_display.error` (sender
+/// object 1, opcode 0: offending object id, error code, message) and closes
+/// the socket. When our next WRITE hits the closed socket first, libwayland
+/// latches EPIPE and never reads again, so the event that names the rejected
+/// request stays in the kernel's receive buffer. `bytes` is a `MSG_PEEK` of
+/// that buffer; it may begin mid-message (libwayland reads in chunks), so every
+/// offset is tried and a match must be self-consistent: the header's size
+/// equals the padded string length plus 20, and the string ends in its NUL.
+pub(super) fn find_display_error_event(bytes: &[u8]) -> Option<(u32, u32, String)> {
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+    };
+    (0..bytes.len()).find_map(|at| {
+        if word(at)? != 1 {
+            return None;
+        }
+        let size_opcode = word(at + 4)?;
+        let (size, opcode) = ((size_opcode >> 16) as usize, size_opcode & 0xffff);
+        let (object, code, len) = (word(at + 8)?, word(at + 12)?, word(at + 16)? as usize);
+        if opcode != 0 || len == 0 || size != 20 + ((len + 3) & !3) {
+            return None;
+        }
+        let text = bytes.get(at + 20..at + 20 + len)?;
+        let (nul, message) = text.split_last()?;
+        (*nul == 0).then(|| (object, code, String::from_utf8_lossy(message).into_owned()))
+    })
+}
+
+/// Wall-clock milliseconds of the previous `poll_event`, so a lost
+/// connection can say how long the event loop was away before it. A client
+/// that stops reading lets the compositor's per-client event buffer fill, and
+/// libwayland-server drops such a client WITHOUT a protocol error — the same
+/// EPIPE, told apart only by this gap.
+static LAST_POLL_MS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn wall_clock_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Trim IME surrounding text to the protocol's size budget, keeping the
@@ -202,6 +246,7 @@ mod dlopen;
 mod events;
 mod gl;
 pub mod menu;
+pub(crate) mod screencopy;
 mod tooltip;
 
 use std::{
@@ -243,18 +288,20 @@ use super::{
     common::{compose::ComposeAction, gl::GlFunctions},
     x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
 };
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::desktop::{
-    shell2::common::{
-        event::{
-            self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE,
-            BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+use crate::{
+    desktop::{
+        shell2::common::{
+            debug_server::LogCategory,
+            event::{
+                self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE,
+                BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+            },
+            WindowError,
         },
-        WindowError,
+        wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
     },
-    wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
+    log_debug, log_error, log_info, log_trace, log_warn,
 };
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Tracks the current rendering mode of the window.
 enum RenderMode {
@@ -502,7 +549,8 @@ pub struct WaylandWindow {
     text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>, /* Wayland text-input
                                  * v3 manager */
     text_input: Option<*mut defines::zwp_text_input_v3>, // Wayland text-input v3 instance
-    text_input_active: bool, // Whether compositor has activated text input for our surface
+    text_input_active: bool,                             /* Whether compositor has activated
+                                                          * text input for our surface */
     text_input_enabled: bool, // Whether we've called enable() for current focus
     text_input_pending: events::TextInputPendingState, // Pending IME state between events
     /// The other seats' `zwp_text_input_v3` (9b-ii-a-i-d-ii-c), by seat id.
@@ -1069,9 +1117,7 @@ fn apply_key_state_change(
     // plus 8), so no keymap lookup is needed and the answer holds whatever
     // layout xkb has loaded.
     keyboard_state.current_physical_key = if is_pressed {
-        azul_core::window::OptionPhysicalKey::Some(
-            azul_core::window::PhysicalKey::from_evdev(key),
-        )
+        azul_core::window::OptionPhysicalKey::Some(azul_core::window::PhysicalKey::from_evdev(key))
     } else {
         azul_core::window::OptionPhysicalKey::None
     };
@@ -1141,6 +1187,9 @@ fn axis_frame_delta(is_trackpad: bool, raw: (f32, f32), discrete: (f32, f32)) ->
 
 impl WaylandWindow {
     pub fn poll_event(&mut self) -> Option<WaylandEvent> {
+        let now_ms = wall_clock_ms();
+        let previous_poll_ms = LAST_POLL_MS.swap(now_ms, core::sync::atomic::Ordering::Relaxed);
+
         // First pump after the run loop boxed us: re-point all listeners to this stable
         // address (they were registered against the now-moved `new()` stack frame).
         self.ensure_listeners_rebound();
@@ -1209,11 +1258,12 @@ impl WaylandWindow {
             // and not one word from azul. Losing the display is fatal to the
             // window, so it prints no matter how logging is configured.
             let fatal = format!(
-                "[WL] CONNECTION LOST — closing the window. hup={hung_up} \
-                 errno={display_error} ({}) dispatched={dispatched}{} — \
+                "[WL] CONNECTION LOST — closing the window. hup={hung_up} errno={display_error} \
+                 ({}) dispatched={dispatched}{} — previous poll {}ms before this one, \
                  configures={} {}",
                 errno_name(display_error),
                 self.describe_protocol_error(display_error),
+                now_ms.saturating_sub(previous_poll_ms),
                 CONFIGURES_SEEN.load(core::sync::atomic::Ordering::Relaxed),
                 pool_census(),
             );
@@ -1270,6 +1320,32 @@ impl WaylandWindow {
     /// Empty string for anything that is not a protocol error (a hangup, a
     /// dead socket), so the caller can append it unconditionally.
     fn describe_protocol_error(&self, display_error: i32) -> String {
+        if display_error == libc::EPIPE {
+            // The compositor's verdict is usually still on the socket: it
+            // queued `wl_display.error` and closed, our write failed first,
+            // and libwayland stopped reading. Peek (never consume) for it.
+            let fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
+            let mut unread = vec![0u8; 1 << 16];
+            let n = unsafe {
+                libc::recv(
+                    fd,
+                    unread.as_mut_ptr().cast(),
+                    unread.len(),
+                    libc::MSG_PEEK | libc::MSG_DONTWAIT,
+                )
+            };
+            let unread = usize::try_from(n).map_or(&[][..], |n| &unread[..n]);
+            return match find_display_error_event(unread) {
+                Some((object, code, message)) => format!(
+                    " [compositor protocol error on object {object}, code {code}: {message}]"
+                ),
+                None => format!(
+                    " [no wl_display.error among the {} unread bytes: the compositor \
+                     dropped the client without naming a request]",
+                    unread.len()
+                ),
+            };
+        }
         if display_error != libc::EPROTO {
             return String::new();
         }
@@ -1731,7 +1807,8 @@ impl WaylandWindow {
 
         log_debug!(
             LogCategory::Window,
-            "[Wayland] Queuing fallback menu window at parent-relative ({}, {}) - will be created in event loop",
+            "[Wayland] Queuing fallback menu window at parent-relative ({}, {}) - will be created \
+             in event loop",
             position.x,
             position.y
         );
@@ -1898,17 +1975,10 @@ impl WaylandWindow {
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
-        if options.window_state.background_color.is_none() {
-            use azul_core::window::WindowBackgroundMaterial;
-            if matches!(
-                options.window_state.flags.background_material,
-                WindowBackgroundMaterial::Opaque
-            ) {
-                options.window_state.background_color =
-                    resources.system_style.colors.window_background;
-            }
-            // For materials, leave background_color as None - renderer handles transparency
-        }
+        crate::desktop::shell2::common::resolve_initial_background_color(
+            &mut options,
+            &resources.system_style,
+        );
 
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
@@ -1994,6 +2064,9 @@ impl WaylandWindow {
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
+            options.theme,
+            options.background_color_light,
+            options.background_color_dark,
             resources.fc_cache.clone(),
             resources.system_style.clone(),
             resources.app_data.clone(),
@@ -2167,13 +2240,6 @@ impl WaylandWindow {
                 })?;
         }
 
-        // Initialize monitor cache once at window creation
-        if let Some(ref lw) = window.common.layout_window {
-            if let Ok(mut guard) = lw.monitors.lock() {
-                *guard = crate::desktop::display::get_monitors();
-            }
-        }
-
         // 'static: the proxy keeps the pointer (a stack-local would be a
         // use-after-free once globals arrive after this frame, e.g. hotplug).
         static REGISTRY_LISTENER: defines::wl_registry_listener = defines::wl_registry_listener {
@@ -2194,10 +2260,31 @@ impl WaylandWindow {
         // leaving wl_compositor/xdg_wm_base unbound (null) → segfault below in
         // create_surface. Use the queue-aware roundtrip.
         unsafe { (window.wayland.wl_display_roundtrip_queue)(display, window.event_queue) };
+        // A SECOND roundtrip before the monitor cache is seeded. Each
+        // wl_output bound above describes itself (geometry, mode, scale,
+        // done) only in reply to that bind, so those events are still queued
+        // here. Seeding first meant `get_monitors()` found no compositor
+        // answer and fell through to the CLI chain on EVERY launch, spawning
+        // swaymsg / hyprctl / kscreen-doctor / wlr-randr from the UI thread.
+        // On KDE Plasma with the NVIDIA driver `kscreen-doctor -o --json`
+        // aborts inside libnvidia-eglcore, so each Azul app start put a crash
+        // notification on the desktop. Once this roundtrip has run,
+        // `wl_output_done_handler` has published the outputs and the seed
+        // below reads them.
+        unsafe { (window.wayland.wl_display_roundtrip_queue)(display, window.event_queue) };
+
+        // Initialize monitor cache once at window creation
+        if let Some(ref lw) = window.common.layout_window {
+            if let Ok(mut guard) = lw.monitors.lock() {
+                *guard = crate::desktop::display::get_monitors();
+            }
+        }
 
         if window.compositor.is_null() || window.xdg_wm_base.is_null() {
             return Err(WindowError::PlatformError(
-                "Wayland: required globals (wl_compositor / xdg_wm_base) not advertised by compositor".into(),
+                "Wayland: required globals (wl_compositor / xdg_wm_base) not advertised by \
+                 compositor"
+                    .into(),
             ));
         }
 
@@ -2310,10 +2397,20 @@ impl WaylandWindow {
         };
         window.track_listener(window.xdg_toplevel);
 
-        // Request server-side decorations (xdg-decoration-unstable-v1) so the
-        // compositor draws a titlebar (move / close), instead of relying on
-        // client-side decorations azul doesn't render -> the window was an
-        // immovable, uncloseable bare rectangle on Wayland. get_toplevel_decoration:
+        // Negotiate decorations (xdg-decoration-unstable-v1). Which MODE is
+        // decided further down from `flags.decorations` (MWA-B6): azul renders
+        // its own titlebar — `desktop::csd` + `azul_layout::widgets::titlebar`
+        // — so a window that wants CSD, or is frameless, asks for
+        // `client_side` and the compositor draws nothing. Everything else asks
+        // for `server_side`. (This comment used to say azul does not render
+        // client-side decorations; that has not been true since CSD landed,
+        // and the `else` branch below now falls back to a CSD titlebar on a
+        // compositor that offers no xdg-decoration at all, such as GNOME.)
+        //
+        // Which mode is live also decides whether a CLIENT-SIDE screenshot can
+        // see the decorations: under CSD they are part of the surface azul
+        // paints, under SSD they live in the compositor and are out of reach.
+        // get_toplevel_decoration:
         // opcode 1, "no" (new_id<zxdg_toplevel_decoration_v1>, object<xdg_toplevel>),
         // then set_mode(server_side=2): opcode 1, "u". The compositor confirms via the
         // configure event (toplevel_decoration_configure_handler).
@@ -2441,14 +2538,13 @@ impl WaylandWindow {
         let height = options.window_state.size.dimensions.height as i32;
 
         // Backend selection.
-        //  - AZ_BACKEND=cpu (or HwAcceleration::Disabled): NO GL trial at all —
-        //    render purely on the CPU (wl_shm + cpurender, zero Mesa), leaving
-        //    gl_context_ptr = None so image/canvas callbacks produce CPU pixmaps
-        //    instead of GL textures.
+        //  - AZ_BACKEND=cpu (or HwAcceleration::Disabled): NO GL trial at all — render purely on
+        //    the CPU (wl_shm + cpurender, zero Mesa), leaving gl_context_ptr = None so image/canvas
+        //    callbacks produce CPU pixmaps instead of GL textures.
         //  - AZ_BACKEND=gpu: force GL even if it turns out to be a software driver.
-        //  - default (Auto): try GL, but if the driver is a software rasteriser
-        //    (llvmpipe/swrast) drop it and render on the CPU — tiny-skia cpurender
-        //    is faster than software GL and avoids desktop-GLSL shader issues.
+        //  - default (Auto): try GL, but if the driver is a software rasteriser (llvmpipe/swrast)
+        //    drop it and render on the CPU — tiny-skia cpurender is faster than software GL and
+        //    avoids desktop-GLSL shader issues.
         use crate::desktop::shell2::common::compositor::{AzBackend, GpuCheckResult};
         let backend = AzBackend::resolve(
             options
@@ -2482,7 +2578,8 @@ impl WaylandWindow {
                         None => {
                             log_warn!(
                                 LogCategory::Rendering,
-                                "[Wayland] GL function loading failed — falling back to CPU rendering"
+                                "[Wayland] GL function loading failed — falling back to CPU \
+                                 rendering"
                             );
                             drop(gl_context);
                             break 'gpu RenderMode::Cpu(Some(CpuFallbackState::new(
@@ -2890,14 +2987,13 @@ impl WaylandWindow {
         //
         // A frame request can be raised at a moment when it cannot be acted on,
         // and on Wayland the raise alone schedules nothing:
-        //   * the CPU present found BOTH shm buffers still held by the
-        //     compositor and skipped the attach. The wl_buffer.release that
-        //     later frees a slot only flips the slot's `busy` flag — its
-        //     listener user-data IS the bare bool, it cannot re-run the frame;
+        //   * the CPU present found BOTH shm buffers still held by the compositor and skipped the
+        //     attach. The wl_buffer.release that later frees a slot only flips the slot's `busy`
+        //     flag — its listener user-data IS the bare bool, it cannot re-run the frame;
         //   * the first CPU frame ran before the lazy shm allocation existed;
-        //   * a redraw was requested while the frame-callback latch was armed,
-        //     and the `done` that cleared the latch was dispatched later in
-        //     the same batch, after the request had already been swallowed.
+        //   * a redraw was requested while the frame-callback latch was armed, and the `done` that
+        //     cleared the latch was dispatched later in the same batch, after the request had
+        //     already been swallowed.
         // In all of these the needs_redraw / regeneration request is still
         // raised, but nothing was committed and no frame callback was armed,
         // so a `-1` poll below would sleep ON TOP OF work it owes until the
@@ -3828,8 +3924,12 @@ impl WaylandWindow {
         if let Some(pos) = last_pos {
             let now = azul_core::task::Instant::from(std::time::Instant::now());
             if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.gesture_drag_manager
-                    .touch_up(touch_point_key(seat_id, id as u64), pos, now, pos);
+                lw.gesture_drag_manager.touch_up(
+                    touch_point_key(seat_id, id as u64),
+                    pos,
+                    now,
+                    pos,
+                );
             }
         }
         let result = self.process_window_events(0);
@@ -3848,7 +3948,11 @@ impl WaylandWindow {
         self.snapshot_window_state_baseline("wayland.handle_touch_cancel");
         let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
-        let gone: Vec<TouchPoint> = pts.iter().copied().filter(|p| p.seat_id == seat_id).collect();
+        let gone: Vec<TouchPoint> = pts
+            .iter()
+            .copied()
+            .filter(|p| p.seat_id == seat_id)
+            .collect();
         pts.retain(|p| p.seat_id != seat_id);
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
@@ -4922,13 +5026,14 @@ impl WaylandWindow {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::refany::RefAny;
-                    use azul_core::task::Duration;
-                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                    use azul_layout::scroll_timer::{
-                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    use azul_core::{
+                        refany::RefAny,
+                        task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
                     };
-                    use azul_layout::timer::{Timer, TimerCallbackType};
+                    use azul_layout::{
+                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                        timer::{Timer, TimerCallbackType},
+                    };
 
                     let physics_state = ScrollPhysicsState::new(
                         queue,
@@ -4976,7 +5081,12 @@ impl WaylandWindow {
         }
     }
 
-    pub(super) fn handle_seat_pointer_axis_discrete(&mut self, seat_id: u64, axis: u32, discrete: i32) {
+    pub(super) fn handle_seat_pointer_axis_discrete(
+        &mut self,
+        seat_id: u64,
+        axis: u32,
+        discrete: i32,
+    ) {
         let frame = self.seat_axis.entry(seat_id).or_default();
         if frame.value120_seen {
             return;
@@ -4989,7 +5099,12 @@ impl WaylandWindow {
         frame.pending = true;
     }
 
-    pub(super) fn handle_seat_pointer_axis_value120(&mut self, seat_id: u64, axis: u32, value120: i32) {
+    pub(super) fn handle_seat_pointer_axis_value120(
+        &mut self,
+        seat_id: u64,
+        axis: u32,
+        value120: i32,
+    ) {
         let detents = value120 as f32 / WL_POINTER_AXIS_VALUE120_PER_DETENT;
         let frame = self.seat_axis.entry(seat_id).or_default();
         match axis {
@@ -5035,11 +5150,13 @@ impl WaylandWindow {
     /// the seat's own input point, where its scroll deltas went.
     pub(super) fn handle_seat_pointer_axis_stop(&mut self, seat_id: u64) {
         use azul_core::task::Instant;
-        use azul_layout::managers::hover::InputPointId;
-        use azul_layout::managers::scroll_state::ScrollInputSource;
+        use azul_layout::managers::{hover::InputPointId, scroll_state::ScrollInputSource};
 
         self.flush_seat_axis(seat_id);
-        let source = self.seat_axis.get(&seat_id).map_or(WL_AXIS_SOURCE_WHEEL, |f| f.source);
+        let source = self
+            .seat_axis
+            .get(&seat_id)
+            .map_or(WL_AXIS_SOURCE_WHEEL, |f| f.source);
         if source != WL_AXIS_SOURCE_FINGER && source != WL_AXIS_SOURCE_CONTINUOUS {
             return;
         }
@@ -5094,15 +5211,19 @@ impl WaylandWindow {
             use crate::desktop::shell2::common::event::PlatformWindow;
             self.update_seat_hit_test_at(seat_id, pos);
         }
-        self.dispatch_scroll_delta(InputPointId::for_seat(seat_id), delta_x, delta_y, is_trackpad);
+        self.dispatch_scroll_delta(
+            InputPointId::for_seat(seat_id),
+            delta_x,
+            delta_y,
+            is_trackpad,
+        );
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }
 
     pub fn handle_pointer_axis_stop(&mut self) {
         use azul_core::task::Instant;
-        use azul_layout::managers::hover::InputPointId;
-        use azul_layout::managers::scroll_state::ScrollInputSource;
+        use azul_layout::managers::{hover::InputPointId, scroll_state::ScrollInputSource};
 
         // axis_stop rides in the same frame as any axis events that preceded it,
         // and TrackpadEnd is only meaningful AFTER them.
@@ -5434,10 +5555,10 @@ impl WaylandWindow {
     /// buffers at the given LOGICAL size.
     ///
     /// - Fractional path: physical = ceil(logical × dpi/96) — the exact size
-    ///   `CpuBackend::render_frame` produces — with buffer scale 1 (the
-    ///   viewport maps it back to logical).
-    /// - Integer path: physical = logical × round(dpi/96), buffer scale =
-    ///   round(dpi/96) (announced via set_buffer_scale at attach).
+    ///   `CpuBackend::render_frame` produces — with buffer scale 1 (the viewport maps it back to
+    ///   logical).
+    /// - Integer path: physical = logical × round(dpi/96), buffer scale = round(dpi/96) (announced
+    ///   via set_buffer_scale at attach).
     fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32) -> (i32, i32, i32) {
         if self.fractional_scale_active() {
             let d = (self.common.current_window_state().size.dpi as f32 / 96.0).max(0.01);
@@ -5522,8 +5643,8 @@ impl WaylandWindow {
         }
         if self.last_input_serial == 0 {
             crate::plog_info!(
-                "[wl-clipboard] set_selection: no input serial yet — copy dropped \
-                 (compositor ignores a serial-less selection)"
+                "[wl-clipboard] set_selection: no input serial yet — copy dropped (compositor \
+                 ignores a serial-less selection)"
             );
             return false;
         }
@@ -6440,8 +6561,7 @@ impl WaylandWindow {
     /// (event-diff and OS-sync) so that sync_window_state() works correctly for
     /// future changes.
     fn apply_initial_window_state(&mut self) {
-        use azul_core::geom::OptionLogicalSize;
-        use azul_core::window::WindowFrame;
+        use azul_core::{geom::OptionLogicalSize, window::WindowFrame};
 
         let mut needs_commit = false;
 
@@ -6749,7 +6869,8 @@ impl WaylandWindow {
                     log_debug!(
                         LogCategory::Platform,
                         "[Wayland] Blur effects requested ({:?}) but no blur manager available - \
-                         window will be transparent without blur (compositor may not support org.kde.kwin.blur)",
+                         window will be transparent without blur (compositor may not support \
+                         org.kde.kwin.blur)",
                         material
                     );
                 }
@@ -6880,8 +7001,8 @@ impl WaylandWindow {
     /// Render a frame if needed, sending the appropriate WebRender transaction.
     ///
     /// Two paths:
-    /// 1. **Full path** (a regeneration is pending): Regenerate layout, build full
-    ///    transaction (fonts, images, display lists, scroll offsets, GPU values).
+    /// 1. **Full path** (a regeneration is pending): Regenerate layout, build full transaction
+    ///    (fonts, images, display lists, scroll offsets, GPU values).
     /// 2. **Lightweight path** (only a redraw is pending, layout unchanged): Build lightweight
     ///    transaction (image callbacks, scroll offsets, GPU values only — skip scene builder).
     ///
@@ -7097,8 +7218,9 @@ impl WaylandWindow {
                     }
                 }
 
-                // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).
-                // If present, we need a full display list rebuild rather than lightweight.
+                // Process pending VirtualView updates (queued by ScrollTo →
+                // check_and_queue_virtual_view_reinvoke). If present, we need a
+                // full display list rebuild rather than lightweight.
                 let has_virtual_view_updates =
                     !layout_window.pending_virtual_view_updates.is_empty();
                 if has_virtual_view_updates {
@@ -7551,9 +7673,8 @@ impl WaylandWindow {
                                             // undefined pixels.
                                             log_error!(
                                                 LogCategory::Rendering,
-                                                "[native-bb] INCREMENTAL render into \
-                                                 never-filled slot {} — undefined pixels \
-                                                 may be on screen",
+                                                "[native-bb] INCREMENTAL render into never-filled \
+                                                 slot {} — undefined pixels may be on screen",
                                                 slot
                                             );
                                         }
@@ -7606,13 +7727,16 @@ impl WaylandWindow {
                                                     native_expected_h,
                                                 )])
                                             } else {
+                                                // EXACT rects: the present set's
+                                                // 16-rect cap would widen a busy
+                                                // frame to the whole buffer and
+                                                // toggle every retained pixel.
                                                 self.cpu_backend
                                                     .last_present_damage
-                                                    .to_present_rects_physical(
+                                                    .to_rects_physical(
                                                         dpi,
                                                         native_expected_w,
                                                         native_expected_h,
-                                                        false,
                                                     )
                                             };
                                             let int_rects: Vec<(i32, i32, i32, i32)> =
@@ -7992,16 +8116,15 @@ impl WaylandWindow {
                 self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
                 log_debug!(
                     LogCategory::Rendering,
-                    "[Wayland] frame rendered with no visual change — nothing committed, \
-                     requests retired, frame callback not armed",
+                    "[Wayland] frame rendered with no visual change — nothing committed, requests \
+                     retired, frame callback not armed",
                 );
             } else {
                 log_warn!(
                     LogCategory::Rendering,
-                    "[Wayland] frame produced no buffer commit (lazy CPU alloc, both shm \
-                     buffers held, or no renderer) — requests stay raised; not arming the \
-                     frame callback, so the next frame is not blocked waiting for a `done` \
-                     that cannot come",
+                    "[Wayland] frame produced no buffer commit (lazy CPU alloc, both shm buffers \
+                     held, or no renderer) — requests stay raised; not arming the frame callback, \
+                     so the next frame is not blocked waiting for a `done` that cannot come",
                 );
             }
             return;
@@ -8299,7 +8422,8 @@ impl WaylandWindow {
             match existing {
                 Some(sf) if !sf.is_null() => sf,
                 _ => {
-                    let sf = unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
+                    let sf =
+                        unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
                     if !sf.is_null() {
                         self.seat_cursor_surfaces.insert(seat_id, sf);
                     }
@@ -8390,17 +8514,15 @@ impl Drop for WaylandWindow {
         // *after* this body had already destroyed `self.surface` and called
         // `wl_display_disconnect`. Both variants then touched freed objects:
         //
-        //   * `RenderMode::Gpu` holds a `GlContext` whose Drop does
-        //     eglDestroySurface / eglDestroyContext / eglTerminate and then
-        //     `wl_egl_window_destroy`. The EGLSurface and the wl_egl_window
-        //     both wrap `self.surface`, and eglTerminate wants the wl_display
-        //     still connected. Under nvidia this faulted inside
-        //     libnvidia-egl-wayland.so.1 — the reported teardown SIGSEGV.
+        //   * `RenderMode::Gpu` holds a `GlContext` whose Drop does eglDestroySurface /
+        //     eglDestroyContext / eglTerminate and then `wl_egl_window_destroy`. The EGLSurface and
+        //     the wl_egl_window both wrap `self.surface`, and eglTerminate wants the wl_display
+        //     still connected. Under nvidia this faulted inside libnvidia-egl-wayland.so.1 — the
+        //     reported teardown SIGSEGV.
         //
-        //   * `RenderMode::Cpu` holds a `CpuFallbackState` whose Drop calls
-        //     `wl_buffer_destroy` and `wl_shm_pool_destroy` on proxies of a
-        //     display that has already been disconnected. Same defect, second
-        //     code path, and it was never in the bug report because the crash
+        //   * `RenderMode::Cpu` holds a `CpuFallbackState` whose Drop calls `wl_buffer_destroy` and
+        //     `wl_shm_pool_destroy` on proxies of a display that has already been disconnected.
+        //     Same defect, second code path, and it was never in the bug report because the crash
         //     only reproduced on the GPU backend.
         //
         // Replacing (rather than `ManuallyDrop`/`Option::take` gymnastics)
@@ -8413,14 +8535,12 @@ impl Drop for WaylandWindow {
         // both double-frees.
         // Order matters twice over, so do it explicitly:
         //
-        //   1. `common.gl_context_ptr`'s Drop is not bookkeeping — it runs
-        //      `glDeleteProgram` for the SVG, multicolor, FXAA and brush
-        //      shaders (`azul_core::gl::GlContextPtrInner::drop`). Those are
-        //      real GL calls and need a live, CURRENT context. It is a field
-        //      of `self.common`, so it used to run after everything below,
-        //      dispatching through function pointers into a library
-        //      eglTerminate had already torn down — the crash landed in
-        //      `?? ()` one frame under `delete_program`.
+        //   1. `common.gl_context_ptr`'s Drop is not bookkeeping — it runs `glDeleteProgram` for
+        //      the SVG, multicolor, FXAA and brush shaders
+        //      (`azul_core::gl::GlContextPtrInner::drop`). Those are real GL calls and need a live,
+        //      CURRENT context. It is a field of `self.common`, so it used to run after everything
+        //      below, dispatching through function pointers into a library eglTerminate had already
+        //      torn down — the crash landed in `?? ()` one frame under `delete_program`.
         //   2. Only then may the EGL context itself go.
         if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
             gl_context.make_current();
@@ -8756,8 +8876,8 @@ impl CpuFallbackState {
             } else if !native_backbuffer_enabled() {
                 "ARGB8888 (AZ_NATIVE_BACKBUFFER=0)"
             } else {
-                "ARGB8888 + commit-swizzle — renderer targets the slot; damage rects \
-                 converted in place (ABGR8888 not advertised at 8-bit)"
+                "ARGB8888 + commit-swizzle — renderer targets the slot; damage rects converted in \
+                 place (ABGR8888 not advertised at 8-bit)"
             }
         );
 
@@ -9371,6 +9491,9 @@ impl WaylandPopup {
         }
         let mut common = event::CommonWindowState::new(
             current_window_state,
+            options.theme,
+            options.background_color_light,
+            options.background_color_dark,
             parent.common.fc_cache.clone(),
             parent.resources.system_style.clone(),
             parent.common.app_data.clone(),
@@ -9533,8 +9656,13 @@ impl WaylandPopup {
         let buf_w = (logical_w * dpi_factor).ceil() as i32;
         let buf_h = (logical_h * dpi_factor).ceil() as i32;
         crate::plog_info!(
-            "[wayland-popup] configured -> rendering menu: {:.0}x{:.0} logical, {}x{} px (dpi {:.2})",
-            logical_w, logical_h, buf_w, buf_h, dpi_factor
+            "[wayland-popup] configured -> rendering menu: {:.0}x{:.0} logical, {}x{} px (dpi \
+             {:.2})",
+            logical_w,
+            logical_h,
+            buf_w,
+            buf_h,
+            dpi_factor
         );
 
         // Fractional viewport scaling (inherited from the parent window):
@@ -9692,8 +9820,9 @@ impl WaylandPopup {
     /// a root layout exists afterwards.
     #[cfg(feature = "cpurender")]
     fn ensure_layout(&mut self) -> bool {
-        use crate::desktop::shell2::common::event::PlatformWindow as _;
         use azul_core::dom::DomId;
+
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
         let has_root = self
             .common
             .layout_window
@@ -10373,7 +10502,9 @@ impl WaylandWindow {
         self.seat_text_inputs
             .iter()
             .find(|(_, ti)| **ti == text_input)
-            .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| *seat_id)
+            .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| {
+                *seat_id
+            })
     }
 
     /// Enable / disable every other seat's text input to match whether that
@@ -10433,7 +10564,10 @@ impl WaylandWindow {
                 rect.size.width.max(1.0) as i32,
                 rect.size.height.max(1.0) as i32,
             );
-            commit(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            commit(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_COMMIT,
+            );
             (self.wayland.wl_display_flush)(self.display);
         }
     }
@@ -10445,7 +10579,10 @@ impl WaylandWindow {
         type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
         let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
         unsafe {
-            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_ENABLE);
+            marshal(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_ENABLE,
+            );
             type ContentTypeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32, u32);
             let content_type: ContentTypeFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
             content_type(
@@ -10459,7 +10596,10 @@ impl WaylandWindow {
         self.seat_text_input_enabled.insert(seat_id);
         self.send_seat_surrounding_text(seat_id);
         unsafe {
-            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            marshal(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_COMMIT,
+            );
             (self.wayland.wl_display_flush)(self.display);
         }
     }
@@ -10471,8 +10611,14 @@ impl WaylandWindow {
         type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
         let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
         unsafe {
-            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_DISABLE);
-            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            marshal(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_DISABLE,
+            );
+            marshal(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_COMMIT,
+            );
             (self.wayland.wl_display_flush)(self.display);
         }
         self.seat_text_input_enabled.remove(&seat_id);
@@ -11002,6 +11148,64 @@ extern "C" fn popup_done(data: *mut c_void, _xdg_popup: *mut defines::xdg_popup)
 /// and libwayland's hard per-message size cap. An oversized string here is a
 /// CONNECTION-FATAL protocol failure, not a cosmetic truncation, so these pin
 /// the budget, the UTF-8 boundary safety, and the offset rebasing.
+#[cfg(test)]
+mod display_error_event_tests {
+    use super::find_display_error_event;
+
+    fn message(object: u32, opcode: u32, args: &[u8]) -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(&object.to_ne_bytes());
+        m.extend_from_slice(&(((8 + args.len() as u32) << 16) | opcode).to_ne_bytes());
+        m.extend_from_slice(args);
+        m
+    }
+
+    fn error_event(object: u32, code: u32, text: &str) -> Vec<u8> {
+        let mut args = Vec::new();
+        args.extend_from_slice(&object.to_ne_bytes());
+        args.extend_from_slice(&code.to_ne_bytes());
+        args.extend_from_slice(&(text.len() as u32 + 1).to_ne_bytes());
+        args.extend_from_slice(text.as_bytes());
+        args.push(0);
+        while args.len() % 4 != 0 {
+            args.push(0);
+        }
+        message(1, 0, &args)
+    }
+
+    #[test]
+    fn finds_the_error_behind_other_events() {
+        let mut stream = message(25, 2, &[0; 12]); // a wl_pointer.motion
+        stream.extend(message(1, 1, &7u32.to_ne_bytes())); // wl_display.delete_id
+        stream.extend(error_event(32, 1, "invalid destination size"));
+        assert_eq!(
+            find_display_error_event(&stream),
+            Some((32, 1, "invalid destination size".to_string()))
+        );
+    }
+
+    #[test]
+    fn finds_the_error_when_the_peek_starts_mid_message() {
+        let mut stream = message(25, 2, &[0; 12]);
+        stream.extend(error_event(4278190082, 0, "x"));
+        assert_eq!(
+            find_display_error_event(&stream[6..]),
+            Some((4278190082, 0, "x".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_truncated_or_inconsistent_error_is_not_reported() {
+        let full = error_event(32, 1, "invalid destination size");
+        assert_eq!(find_display_error_event(&full[..full.len() - 4]), None);
+        let mut bad_size = full.clone();
+        bad_size[6] = bad_size[6].wrapping_add(4); // header size no longer matches
+        assert_eq!(find_display_error_event(&bad_size), None);
+        assert_eq!(find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())), None);
+        assert_eq!(find_display_error_event(&[]), None);
+    }
+}
+
 #[cfg(test)]
 mod primary_selection_tests {
     use azul_core::events::MouseButton;

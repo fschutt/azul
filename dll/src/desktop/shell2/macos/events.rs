@@ -1,8 +1,5 @@
 //! macOS Event handling - converts NSEvent to Azul events and dispatches callbacks.
 
-use super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
-
 use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId, ScrollbarOrientation},
@@ -27,16 +24,17 @@ use azul_layout::{
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_foundation::NSPoint;
 
-use super::MacOSWindow;
+use super::{super::common::debug_server::LogCategory, MacOSWindow};
+// The keycode table lives in `common` so it is tested on every host: nothing in
+// CI compiles this module, so a test next to the table would never run.
+use crate::desktop::shell2::common::event::macos_keycode_to_virtual_key as convert_keycode;
 // Re-export common types
-pub use crate::desktop::shell2::common::event::HitTestNode;
+pub(super) use crate::desktop::shell2::common::event::HitTestNode;
 // Import V2 cross-platform event processing trait
 use crate::desktop::shell2::common::event::{
     PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
 };
-// The keycode table lives in `common` so it is tested on every host: nothing in
-// CI compiles this module, so a test next to the table would never run.
-use crate::desktop::shell2::common::event::macos_keycode_to_virtual_key as convert_keycode;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // macOS hardware keycodes for modifier keys
 const MACOS_KEYCODE_LSHIFT: u16 = 0x38;
@@ -548,7 +546,7 @@ impl MacOSWindow {
                 })
                 .unwrap_or((0, 0));
             crate::log_debug!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                LogCategory::Input,
                 "[scrollWheel] hit test at ({:.1},{:.1}): {} hovered, {} scrollable",
                 position.x,
                 position.y,
@@ -640,7 +638,7 @@ impl MacOSWindow {
                     )
                 {
                     crate::log_debug!(
-                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        LogCategory::Input,
                         "[scrollWheel] queued for node {:?}/{:?}, start_timer={}",
                         _dom_id, _node_id, start_timer
                     );
@@ -669,13 +667,14 @@ impl MacOSWindow {
             // (must be done outside the borrow of layout_window)
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::refany::RefAny;
-                    use azul_core::task::Duration;
-                    use azul_core::task::{TimerId, SCROLL_MOMENTUM_TIMER_ID};
-                    use azul_layout::scroll_timer::{
-                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    use azul_core::{
+                        refany::RefAny,
+                        task::{Duration, TimerId, SCROLL_MOMENTUM_TIMER_ID},
                     };
-                    use azul_layout::timer::{Timer, TimerCallbackType};
+                    use azul_layout::{
+                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                        timer::{Timer, TimerCallbackType},
+                    };
 
                     let physics_state = ScrollPhysicsState::new(
                         queue,
@@ -722,12 +721,12 @@ impl MacOSWindow {
             .as_ref()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
         crate::log_debug!(
-            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            LogCategory::Input,
             "[handle_key_down] keyCode={}, char={:?}, cmd={}, ctrl={}, focused={:?}",
             key_code,
             character,
-            modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command),
-            modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control),
+            modifiers.contains(NSEventModifierFlags::Command),
+            modifiers.contains(NSEventModifierFlags::Control),
             focused
         );
 
@@ -773,8 +772,8 @@ impl MacOSWindow {
         // Control characters and modified keys (Cmd+X, Ctrl+C) are NOT inserted as text.
         if let Some(ch) = character {
             let is_control_char = ch.is_control();
-            let has_cmd = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command);
-            let has_ctrl = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control);
+            let has_cmd = modifiers.contains(NSEventModifierFlags::Command);
+            let has_ctrl = modifiers.contains(NSEventModifierFlags::Control);
             // macOS function keys (arrows, F1-F12, etc.) produce Unicode chars in the
             // Private Use Area (U+F700-U+F7FF). These are NOT is_control() but must
             // not be inserted as text — they are navigation/action keys.
@@ -783,7 +782,7 @@ impl MacOSWindow {
             if !is_control_char && !is_function_key && !has_cmd && !has_ctrl {
                 let text_input = ch.to_string();
                 crate::log_debug!(
-                    crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                    LogCategory::Input,
                     "[handle_key_down] recording text '{}' for this pass",
                     text_input
                 );
@@ -799,7 +798,7 @@ impl MacOSWindow {
         // V2 system will detect VirtualKeyDown from state diff
         let result = self.process_window_events(0);
         crate::log_debug!(
-            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            LogCategory::Input,
             "[handle_key_down] process_window_events result={:?}",
             result
         );
@@ -856,7 +855,7 @@ impl MacOSWindow {
             .map(|lw| lw.text_edit_manager.has_active_editing())
             .unwrap_or(false);
         crate::log_debug!(
-            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            LogCategory::Input,
             "[handle_text_input] text='{}', focused={:?}, has_cursor={}",
             text,
             focused,
@@ -905,13 +904,9 @@ impl MacOSWindow {
         // stopped — visible now that an imperative `set_css_property` can
         // seed a CSS transition (a switch would have frozen at its `from`
         // value instead of snapping to the new one).
-        let still_animating = self
-            .common
-            .layout_window
-            .as_ref()
-            .is_some_and(|lw| {
-                lw.scroll_manager.has_active_animations() || lw.needs_animation_frame()
-            });
+        let still_animating = self.common.layout_window.as_ref().is_some_and(|lw| {
+            lw.scroll_manager.has_active_animations() || lw.needs_animation_frame()
+        });
         if still_animating {
             self.request_redraw();
         }
@@ -1063,11 +1058,11 @@ impl MacOSWindow {
         // the recorded-query channel exists precisely so the engine can tell
         // WHICH sizes the callback cares about, instead of assuming all of
         // them.
-        let old_logical = azul_core::geom::LogicalSize::new(
+        let old_logical = LogicalSize::new(
             old_context.viewport_width,
             old_context.viewport_height,
         );
-        let new_logical = azul_core::geom::LogicalSize::new(
+        let new_logical = LogicalSize::new(
             self.dynamic_selector_context.viewport_width,
             self.dynamic_selector_context.viewport_height,
         );

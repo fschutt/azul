@@ -4,9 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::codegen::v2::config::*;
-use crate::codegen::v2::generator::CodeBuilder;
-use crate::codegen::v2::ir::*;
+use crate::codegen::v2::{config::*, generator::CodeBuilder, ir::*};
 
 // ============================================================================
 // GL Type Aliases

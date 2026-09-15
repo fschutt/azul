@@ -120,10 +120,7 @@ pub fn ensure(project_root: Option<&Path>) -> anyhow::Result<PathBuf> {
         }
     }
 
-    let dir = cache_root().join(format!(
-        "{}-{ASSET_REVISION}",
-        env!("CARGO_PKG_VERSION")
-    ));
+    let dir = cache_root().join(format!("{}-{ASSET_REVISION}", env!("CARGO_PKG_VERSION")));
     for (rel, contents, exec) in ASSETS {
         let path = dir.join(rel);
         // Content-compare rather than blindly rewriting: several azul-doc

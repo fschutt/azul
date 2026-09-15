@@ -14,9 +14,6 @@ my_data_destructor(::Ptr{Cvoid})::Cvoid = nothing
 vptr(r::Ref) = Ptr{Cvoid}(pointer_from_objref(r))
 
 function my_data_upcast(model::MyDataModel)
-    # AzRefAny_newC copies the bytes into its own heap allocation, so a
-    # pointer to a Ref-boxed local is fine; run_destructor=false ⇒ libazul
-    # won't free ours.
     local_ref = Ref(model)
     return GC.@preserve local_ref begin
         wrapper = Azul.AzGlVoidPtrConst(vptr(local_ref), false)
@@ -34,8 +31,6 @@ function my_data_upcast(model::MyDataModel)
     end
 end
 
-# `dref` must be kept alive by the caller (GC.@preserve) for the duration
-# of the returned pointer's use.
 function my_data_ptr(dref::Ref{Azul.AzRefAny})
     p = vptr(dref)
     Azul.AzRefAny_isType(p, my_data_type_id()) || return Ptr{MyDataModel}(C_NULL)
@@ -67,11 +62,8 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
 
     label_ref = Ref(Azul.AzDom_createPWithText(Azul.az_string(string(counter))))
 
-    font_size = Azul.AzStyleFontSize_px(32.0f0)
-    css_prop = Azul.AzCssProperty_fontSize(font_size)
-    cond = Azul.AzCssPropertyWithConditions_simple(css_prop)
     GC.@preserve label_ref begin
-        Azul.AzDom_addCssProperty(vptr(label_ref), cond)
+        Azul.AzDom_setCss(vptr(label_ref), Azul.az_string("font-size: 32px; margin: 0;"))
     end
 
     button = Ref(Azul.AzButton_create(Azul.az_string("Increase counter")))
@@ -98,15 +90,12 @@ function main()
     layout_ptr = @cfunction(layout, Azul.AzDom, (Azul.AzRefAny, Azul.AzLayoutCallbackInfo))
     window = Azul.AzWindowCreateOptions_create(layout_ptr)
 
-    # isbits structs are immutable — customize the window with functional
-    # updates (`setfields`) instead of field assignment.
     ws = window.window_state
     window = Azul.setfields(window;
         window_state = Azul.setfields(ws;
             title = Azul.az_string("Hello World"),
             size = Azul.setfields(ws.size;
-                dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0)),
-            flags = Azul.setfields(ws.flags;
+                dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0))))
 
     app = Ref(Azul.AzApp_create(data, Azul.AzAppConfig_create()))
     GC.@preserve app begin

@@ -113,7 +113,8 @@ impl<P: Copy + PartialEq> SeatTable<P> {
     /// The pointer proxy a seat currently has, if any.
     #[must_use]
     pub fn pointer_of(&self, seat: P) -> Option<P> {
-        self.index_of_seat(seat).and_then(|i| self.entries[i].pointer)
+        self.index_of_seat(seat)
+            .and_then(|i| self.entries[i].pointer)
     }
 
     /// The seat gained (`Some`) or lost (`None`) its pointer capability.
@@ -137,7 +138,8 @@ impl<P: Copy + PartialEq> SeatTable<P> {
 
     #[must_use]
     pub fn keyboard_of(&self, seat: P) -> Option<P> {
-        self.index_of_seat(seat).and_then(|i| self.entries[i].keyboard)
+        self.index_of_seat(seat)
+            .and_then(|i| self.entries[i].keyboard)
     }
 
     pub fn set_keyboard(&mut self, seat: P, keyboard: Option<P>) {
@@ -216,9 +218,17 @@ mod tests {
     #[test]
     fn the_first_seat_is_the_primary_and_the_rest_are_named_by_their_global() {
         let mut t: SeatTable<P> = SeatTable::new();
-        assert_eq!(t.insert(7, 100, 9), PRIMARY_POINTER_SEAT, "bound first: primary");
+        assert_eq!(
+            t.insert(7, 100, 9),
+            PRIMARY_POINTER_SEAT,
+            "bound first: primary"
+        );
         assert_eq!(t.insert(12, 200, 9), 12, "bound second: its global name");
-        assert_eq!(t.insert(3, 300, 9), 3, "a LOWER global name is still not the primary");
+        assert_eq!(
+            t.insert(3, 300, 9),
+            3,
+            "a LOWER global name is still not the primary"
+        );
         assert!(t.is_primary(100));
         assert!(!t.is_primary(200));
         assert_eq!(t.seat_id_of(300), Some(3));
@@ -241,12 +251,20 @@ mod tests {
         t.set_pointer(200, Some(2000));
         assert_eq!(t.seat_id_for_pointer(1000), PRIMARY_POINTER_SEAT);
         assert_eq!(t.seat_id_for_pointer(2000), 2);
-        assert_eq!(t.seat_id_for_pointer(3000), PRIMARY_POINTER_SEAT, "unknown: primary");
+        assert_eq!(
+            t.seat_id_for_pointer(3000),
+            PRIMARY_POINTER_SEAT,
+            "unknown: primary"
+        );
         assert_eq!(t.pointer_of(200), Some(2000));
         // The capability went away.
         t.set_pointer(200, None);
         assert_eq!(t.pointer_of(200), None);
-        assert_eq!(t.seat_id_for_pointer(2000), PRIMARY_POINTER_SEAT, "no longer anyone's");
+        assert_eq!(
+            t.seat_id_for_pointer(2000),
+            PRIMARY_POINTER_SEAT,
+            "no longer anyone's"
+        );
         // A seat never bound is ignored, not inserted.
         t.set_pointer(999, Some(9990));
         assert_eq!(t.len(), 2);

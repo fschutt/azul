@@ -1,16 +1,18 @@
 //! CSS properties for styling scrollbars.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
-use crate::props::{
-    basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-    formatter::PrintAsCssValue,
-    layout::{
-        dimensions::LayoutWidth,
-        spacing::{LayoutPaddingLeft, LayoutPaddingRight},
+use crate::{
+    corety::AzString,
+    props::{
+        basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        formatter::PrintAsCssValue,
+        layout::{
+            dimensions::LayoutWidth,
+            spacing::{LayoutPaddingLeft, LayoutPaddingRight},
+        },
+        style::background::StyleBackgroundContent,
     },
-    style::background::StyleBackgroundContent,
 };
 
 // ============================================================================
@@ -230,12 +232,12 @@ impl_option!(
 /// OS-level `ScrollbarPreferences.visibility` (from System Preferences)
 /// when set to `Auto`.
 ///
-/// - `Always`: Classic, always-visible scrollbar (Chrome/Windows/Linux default).
-///   Scrollbar reserves layout space.
-/// - `WhenScrolling`: Overlay scrollbar that fades in on scroll activity
-///   and fades out after a delay. Does not reserve layout space.
-/// - `Auto`: Use the OS preference. On macOS this typically means `WhenScrolling`,
-///   on Windows/Linux this typically means `Always`.
+/// - `Always`: Classic, always-visible scrollbar (Chrome/Windows/Linux default). Scrollbar reserves
+///   layout space.
+/// - `WhenScrolling`: Overlay scrollbar that fades in on scroll activity and fades out after a
+///   delay. Does not reserve layout space.
+/// - `Auto`: Use the OS preference. On macOS this typically means `WhenScrolling`, on Windows/Linux
+///   this typically means `Always`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum ScrollbarVisibilityMode {
@@ -338,11 +340,10 @@ impl PrintAsCssValue for ScrollbarFadeDuration {
 ///
 /// Analogous to `-webkit-overflow-scrolling` on iOS Safari.
 ///
-/// - `Auto`: Use the global `ScrollPhysics` from `SystemStyle`. On platforms
-///   with `overscroll_elasticity == 0.0` (e.g. Windows), this means no rubber-banding.
-/// - `Touch`: Force momentum scrolling with rubber-banding on this node,
-///   regardless of the global `ScrollPhysics` setting. Uses iOS-like elasticity
-///   if the global elasticity is zero.
+/// - `Auto`: Use the global `ScrollPhysics` from `SystemStyle`. On platforms with
+///   `overscroll_elasticity == 0.0` (e.g. Windows), this means no rubber-banding.
+/// - `Touch`: Force momentum scrolling with rubber-banding on this node, regardless of the global
+///   `ScrollPhysics` setting. Uses iOS-like elasticity if the global elasticity is zero.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum OverflowScrolling {

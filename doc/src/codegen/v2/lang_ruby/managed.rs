@@ -23,9 +23,9 @@
 //! has *only* pointer args (and an out-pointer for the return value),
 //! which is what the static thunk in libazul calls.
 
-use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{
-    has_return, host_invoker_kinds, to_snake_case, wrapper_name,
+use super::super::{
+    ir::{CallbackTypedefDef, CodegenIR},
+    managed_host_invoker::{has_return, host_invoker_kinds, to_snake_case, wrapper_name},
 };
 
 /// Emit Ruby code that registers the host-invoker plumbing and
@@ -197,7 +197,10 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("return nil if callable.nil?");
     builder.line("unless callable.respond_to?(:call)");
     builder.indent();
-    builder.line("raise ArgumentError, \"Azul._register_callback: expected callable, got #{callable.class}\"");
+    builder.line(
+        "raise ArgumentError, \"Azul._register_callback: expected callable, got \
+         #{callable.class}\"",
+    );
     builder.dedent();
     builder.line("end");
     builder.line("id = _alloc_handle(callable)");

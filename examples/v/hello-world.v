@@ -7,7 +7,7 @@ mut:
 	counter u32
 }
 
-const my_data_type_id = u64(0x617a756c5f6d646d) // "azul_mdm"
+const my_data_type_id = u64(0x617a756c5f6d646d)
 
 fn my_data_destructor(ptr voidptr) {
 }
@@ -17,8 +17,6 @@ fn az_str(s string) azul.AzString {
 }
 
 fn my_data_upcast(model MyDataModel) azul.AzRefAny {
-	// AzRefAny_newC copies the bytes into its own allocation, so a stack
-	// pointer is fine; run_destructor = false = don't free the caller's ptr.
 	mut local := model
 	type_name := az_str('MyDataModel')
 	blob := azul.AzGlVoidPtrConst{
@@ -28,12 +26,12 @@ fn my_data_upcast(model MyDataModel) azul.AzRefAny {
 	return C.AzRefAny_newC(
 		blob,
 		usize(sizeof(MyDataModel)),
-		usize(4), // align of a u32-only POD struct
+		usize(4),
 		my_data_type_id,
 		type_name,
 		my_data_destructor,
-		usize(0), // no serialize_fn
-		usize(0), // no deserialize_fn
+		usize(0),
+		usize(0),
 	)
 }
 
@@ -48,8 +46,6 @@ fn my_data_downcast(refany &azul.AzRefAny) &MyDataModel {
 	return unsafe { &MyDataModel(ptr) }
 }
 
-// Top-level V fns compile to real C functions, so their addresses go straight
-// to the C-ABI setters.
 fn on_click(data azul.AzRefAny, info azul.AzCallbackInfo) azul.AzUpdate {
 	mut d := data
 	m := my_data_downcast(&d)
@@ -73,10 +69,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	counter_str := az_str(counter_val.str())
 	mut label := C.AzDom_createPWithText(counter_str)
 
-	font_size := C.AzStyleFontSize_px(32.0)
-	css_prop := C.AzCssProperty_fontSize(font_size)
-	cond := C.AzCssPropertyWithConditions_simple(css_prop)
-	C.AzDom_addCssProperty(&label, cond)
+	C.AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"))
 
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)

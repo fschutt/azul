@@ -45,9 +45,6 @@ mod x11_properties;
 
 use std::env;
 
-use super::super::common::debug_server::LogCategory;
-use crate::log_debug;
-
 pub use actions_protocol::drain_pending_menu_callbacks;
 pub(crate) use actions_protocol::{queue_menu_callback, DbusAction, PendingMenuCallback};
 pub use manager::GnomeMenuManager;
@@ -56,6 +53,9 @@ pub(crate) use menu_protocol::{DbusMenuGroup, DbusMenuItem};
 pub(crate) use protocol_impl::{register_actions_interface, register_menus_interface};
 pub use shared_dbus::get_shared_dbus_lib;
 pub(crate) use x11_properties::X11Properties;
+
+use super::super::common::debug_server::LogCategory;
+use crate::log_debug;
 
 /// Check if GNOME native menus should be used
 ///

@@ -159,12 +159,13 @@ fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use azul_core::id::NodeId;
     use azul_core::{
         dom::{DomId, DomNodeId},
+        id::NodeId,
         styled_dom::NodeHierarchyItemId,
     };
+
+    use super::*;
 
     /// The journal is process-global state, so its tests must not run
     /// concurrently with each other — without this they interleave

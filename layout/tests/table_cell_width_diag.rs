@@ -114,7 +114,8 @@ fn dump_layout_tree(lw: &LayoutWindow, label: &str) {
         let display_str = format!("{:?}", warm.computed_style.display);
 
         eprintln!(
-            "  [{i:>2}] {dom_id_str} fc={fc_str:<30} parent={parent_str:<5} children={children:?} {size_str} {pos_str} display={display_str}{anon_str}{overflow_str}",
+            "  [{i:>2}] {dom_id_str} fc={fc_str:<30} parent={parent_str:<5} children={children:?} \
+             {size_str} {pos_str} display={display_str}{anon_str}{overflow_str}",
         );
     }
     eprintln!();
@@ -681,41 +682,33 @@ fn print_children_recursive(tree: &LayoutTree, node: usize, indent: usize) {
 fn diag_longer_text_nested_inline() {
     eprintln!("\n########## DIAGNOSTIC: LONGER TEXT IN NESTED INLINE ##########");
 
-    let dom = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(
-                                    Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-                                            "This is a very long text string that should definitely have significant width"
-                                        ))
-                                )
-                        )
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("short"))
-                        )
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(
-                                    Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-                                            "Another very long text that should be wide"
-                                        ))
-                                )
-                        )
-                )
-        );
+    let dom = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_node(NodeType::A).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "This is a very long text string that should definitely have \
+                             significant width",
+                        ),
+                    ),
+                ),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("short"),
+                ),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_node(NodeType::A).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Another very long text that should be wide",
+                        ),
+                    ),
+                ),
+            )),
+    );
 
     let lw = layout_dom(dom, "", 800.0, 600.0);
     let tree = lw.layout_cache.tree.as_ref().unwrap();

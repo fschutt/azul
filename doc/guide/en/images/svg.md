@@ -172,7 +172,7 @@ use azul::prelude::*;
 let svg_bytes = std::fs::read("logo.svg").unwrap();
 let svg = Svg::from_bytes(svg_bytes.into(), SvgParseOptions::default()).unwrap();
 let raw = svg.render(SvgRenderOptions::default()).unwrap();
-let image = ImageRef::new_rawimage(raw);
+let image = ImageRef::create_rawimage(raw);
 // `image` is now embeddable as `Dom::create_image(image)`, or you
 // can write the raw RGBA buffer to a PNG with the `image` crate.
 ```

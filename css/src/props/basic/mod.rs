@@ -11,8 +11,8 @@
 //! - `font` — font-family, font-weight, and related types
 //! - `geometry` — geometric primitives (points, sizes, rects)
 //! - `length` — CSS length units (`px`, `em`, `%`, …)
-//! - `parse` — shared low-level parsing helpers (not glob-re-exported;
-//!   use qualified paths, e.g. `basic::parse::parse_pixel_value`)
+//! - `parse` — shared low-level parsing helpers (not glob-re-exported; use qualified paths, e.g.
+//!   `basic::parse::parse_pixel_value`)
 //! - `pixel` — device-pixel types
 //! - `time` — duration / time units
 

@@ -15,8 +15,7 @@
 //! clusters/run and per-glyph detail only where ligatures / marks /
 //! GPOS offsets actually occur.
 
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 
 use azul_core::{
     dom::NodeId,
@@ -24,12 +23,13 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 
-use super::cache::Point;
-use super::cache::{
-    BidiDirection, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait, PositionedItem,
-    ShapedItem, StyleProperties, UnifiedLayout,
+use super::{
+    cache::{
+        BidiDirection, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait, Point,
+        PositionedItem, ShapedItem, StyleProperties, UnifiedLayout,
+    },
+    glyphs::{PdfGlyphRun, PdfPositionedGlyph, PositionedGlyph, SimpleGlyphRun},
 };
-use super::glyphs::{PdfGlyphRun, PdfPositionedGlyph, PositionedGlyph, SimpleGlyphRun};
 use crate::text3::script::Script;
 
 /// One per shaped cluster. Dense, POD, no Drop glue, no owned heap.

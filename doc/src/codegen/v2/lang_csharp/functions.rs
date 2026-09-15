@@ -12,10 +12,14 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{map_type_to_csharp, sanitize_identifier, DLL_NAME};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_csharp, sanitize_identifier, DLL_NAME,
+};
 
 pub fn generate_native_methods(
     builder: &mut CodeBuilder,
@@ -50,38 +54,47 @@ pub fn generate_native_methods(
     builder.line("{");
     builder.indent();
     builder.line(
-        "System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(typeof(NativeMethods).Assembly, _ResolveAzul);",
+        "System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(typeof(NativeMethods).\
+         Assembly, _ResolveAzul);",
     );
     builder.dedent();
     builder.line("}");
     builder.blank();
     builder.line(
-        "private static System.IntPtr _ResolveAzul(string name, System.Reflection.Assembly assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)",
+        "private static System.IntPtr _ResolveAzul(string name, System.Reflection.Assembly \
+         assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)",
     );
     builder.line("{");
     builder.indent();
     builder.line("if (name != DllName) return System.IntPtr.Zero;");
     builder.line(
-        "string file = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? \"azul.dll\"",
+        "string file = \
+         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.\
+         InteropServices.OSPlatform.Windows) ? \"azul.dll\"",
     );
     builder.line(
-        "    : System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) ? \"libazul.dylib\"",
+        "    : System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.\
+         InteropServices.OSPlatform.OSX) ? \"libazul.dylib\"",
     );
     builder.line("    : \"libazul.so\";");
     builder.line(
-        "foreach (var dir in new[] { System.AppContext.BaseDirectory, System.IO.Directory.GetCurrentDirectory() })",
+        "foreach (var dir in new[] { System.AppContext.BaseDirectory, \
+         System.IO.Directory.GetCurrentDirectory() })",
     );
     builder.line("{");
     builder.indent();
     builder.line("if (string.IsNullOrEmpty(dir)) continue;");
     builder.line("var candidate = System.IO.Path.Combine(dir, file);");
     builder.line(
-        "if (System.IO.File.Exists(candidate) && System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle)) return handle;",
+        "if (System.IO.File.Exists(candidate) && \
+         System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle)) return \
+         handle;",
     );
     builder.dedent();
     builder.line("}");
     builder.line(
-        "return System.Runtime.InteropServices.NativeLibrary.TryLoad(DllName, assembly, searchPath, out var def) ? def : System.IntPtr.Zero;",
+        "return System.Runtime.InteropServices.NativeLibrary.TryLoad(DllName, assembly, \
+         searchPath, out var def) ? def : System.IntPtr.Zero;",
     );
     builder.dedent();
     builder.line("}");

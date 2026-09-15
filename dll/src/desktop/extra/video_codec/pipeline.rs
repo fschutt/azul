@@ -15,8 +15,7 @@
 use azul_core::video::{OptionVideoFrame, VideoFrameVec};
 use azul_css::{impl_option, impl_option_inner, U8Vec};
 
-use super::demux::demux_mp4_h264;
-use super::VideoDecoder;
+use super::{demux::demux_mp4_h264, VideoDecoder};
 
 /// A decoded clip: stream geometry plus whatever frames the backend produced.
 ///

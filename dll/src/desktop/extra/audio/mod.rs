@@ -16,11 +16,10 @@
 //! API surface + ownership are real and codegen-exposed; the real backend
 //! swaps in behind a feature later.
 
-use azul_css::impl_option_inner;
 use core::ffi::c_void;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
-use azul_css::{AzString, StringVec};
+use azul_css::{impl_option_inner, AzString, StringVec};
 
 #[cfg(target_os = "android")]
 mod aaudio;
@@ -145,10 +144,9 @@ impl AudioSink {
             let engine_ok = false;
             if !engine_ok {
                 crate::plog_warn!(
-                    "[audio] no playback engine opened for this sink (backend \
-                     unavailable or device open failed — see lines above) — the \
-                     handle reports is_open()=true but frames will be counted and \
-                     DISCARDED, no audio will play"
+                    "[audio] no playback engine opened for this sink (backend unavailable or \
+                     device open failed — see lines above) — the handle reports is_open()=true \
+                     but frames will be counted and DISCARDED, no audio will play"
                 );
             }
         }
@@ -336,8 +334,9 @@ impl AudioDeviceList {
     /// [`AudioDeviceListResult`]. Linux: PipeWire/PulseAudio via
     /// `pactl list short sinks/sources`; macOS: the CoreAudio HAL
     /// (`AudioObjectGetPropertyData` on the system object, dlopen'd at runtime —
-    /// no link-time dep); empty on platforms without an enumeration backend yet
-    /// (and if `pactl` isn't installed / CoreAudio can't be loaded).
+    /// no link-time dep); Windows: WASAPI endpoints through cpal; empty on
+    /// platforms without an enumeration backend yet (and if `pactl` isn't
+    /// installed / CoreAudio can't be loaded).
     pub fn enumerate(
         data: azul_core::refany::RefAny,
         on_result: azul_layout::callbacks::ResumeCallback,
@@ -379,7 +378,24 @@ impl AudioDeviceList {
             let (outputs, inputs) = coreaudio_device_names();
             AudioDeviceList { outputs, inputs }
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(target_os = "windows")]
+        {
+            use cpal::traits::{DeviceTrait, HostTrait};
+            let host = cpal::default_host();
+            let outputs: Vec<AzString> = host
+                .output_devices()
+                .map(|list| list.filter_map(|d| d.name().ok()).map(AzString::from).collect())
+                .unwrap_or_default();
+            let inputs: Vec<AzString> = host
+                .input_devices()
+                .map(|list| list.filter_map(|d| d.name().ok()).map(AzString::from).collect())
+                .unwrap_or_default();
+            AudioDeviceList {
+                outputs: StringVec::from_vec(outputs),
+                inputs: StringVec::from_vec(inputs),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             AudioDeviceList {
                 outputs: StringVec::from_vec(Vec::new()),
@@ -454,7 +470,7 @@ fn coreaudio_device_names() -> (StringVec, StringVec) {
     let fns = HAL
         .get_or_init(|| unsafe {
             let lib = crate::desktop::open_first_lib(&[
-                "/System/Library/Frameworks/CoreAudio.framework/CoreAudio",
+                "/System/Library/Frameworks/CoreAudio.framework/CoreAudio"
             ])?;
             let fns = HalFns {
                 get_size: *lib.get(b"AudioObjectGetPropertyDataSize\0").ok()?,

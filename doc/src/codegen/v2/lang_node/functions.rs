@@ -20,9 +20,13 @@
 //! All bound symbols are collected into a flat `lib` object so wrappers
 //! can dispatch through `lib.AzApp_create(...)`.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{map_type_to_koffi, sanitize_js_identifier};
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_koffi, sanitize_js_identifier,
+};
 
 pub fn generate_function_bindings(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("// ----------------------------------------------------------------------------");

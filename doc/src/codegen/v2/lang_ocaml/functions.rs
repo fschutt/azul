@@ -7,27 +7,26 @@
 //! consumer's machine.
 //!
 //! Naming:
-//! - The OCaml-side identifier is `lower_snake_case` and corresponds
-//!   to `func.c_name` lower-snaked: e.g. `AzApp_create` becomes
-//!   `az_app_create`. This keeps the FFI bindings textually distinct
-//!   from the idiomatic surface (which lives inside nested modules
-//!   like `Azul.App.create`).
-//! - The `foreign "..."` link name uses the **exact** C symbol from
-//!   `func.c_name`. The dynamic linker is case-sensitive even though
-//!   OCaml itself is.
+//! - The OCaml-side identifier is `lower_snake_case` and corresponds to `func.c_name` lower-snaked:
+//!   e.g. `AzApp_create` becomes `az_app_create`. This keeps the FFI bindings textually distinct
+//!   from the idiomatic surface (which lives inside nested modules like `Azul.App.create`).
+//! - The `foreign "..."` link name uses the **exact** C symbol from `func.c_name`. The dynamic
+//!   linker is case-sensitive even though OCaml itself is.
 //!
 //! Argument and return-type coercion:
-//! - Owned types: pass-by-value. Maps to the corresponding Ctypes view
-//!   (`uint32_t`, `az_app`, etc.).
-//! - References / mutable references / pointers: collapse to `(ptr T)`
-//!   (typed pointer when `T` is known) or `(ptr void)` (opaque).
+//! - Owned types: pass-by-value. Maps to the corresponding Ctypes view (`uint32_t`, `az_app`,
+//!   etc.).
+//! - References / mutable references / pointers: collapse to `(ptr T)` (typed pointer when `T` is
+//!   known) or `(ptr void)` (opaque).
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
     inner_pointer_form, map_type_to_ocaml, sanitize_doc, sanitize_identifier, to_snake_case,
 };
 
@@ -35,10 +34,11 @@ use super::{
 // Top-level entry
 // ============================================================================
 
-pub fn emit_foreign_bindings(
+pub fn emit_foreign_bindings_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder
         .line("(* -------------------------------------------------------------------------- *)");
@@ -48,7 +48,7 @@ pub fn emit_foreign_bindings(
         .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|func| belongs(&func.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }

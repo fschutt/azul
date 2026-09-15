@@ -7,32 +7,28 @@
 //!
 //! # Four ways `UIPasteboard` is not `NSPasteboard`
 //!
-//! * **There are no item OBJECTS.** macOS allocates `NSPasteboardItem`s and
-//!   calls `setData:forType:` on each; iOS models the whole pasteboard as
-//!   `[[String: Any]]` — an array of dictionaries keyed by UTI. So a write
-//!   builds `NSArray<NSDictionary<NSString, NSData>>` and hands it over in one
-//!   `setItems:` call.
+//! * **There are no item OBJECTS.** macOS allocates `NSPasteboardItem`s and calls
+//!   `setData:forType:` on each; iOS models the whole pasteboard as `[[String: Any]]` — an array of
+//!   dictionaries keyed by UTI. So a write builds `NSArray<NSDictionary<NSString, NSData>>` and
+//!   hands it over in one `setItems:` call.
 //!
-//! * **`setItems:` REPLACES everything.** There is no `clearContents` /
-//!   `declareTypes:` two-step to get wrong; the array you pass is the
-//!   pasteboard afterwards.
+//! * **`setItems:` REPLACES everything.** There is no `clearContents` / `declareTypes:` two-step to
+//!   get wrong; the array you pass is the pasteboard afterwards.
 //!
-//! * **Nothing is a promise.** The macOS caveat that `dataForType:` may return
-//!   nil for an advertised type does not apply — every value in `items` is
-//!   already materialised, so a key that is present has data.
+//! * **Nothing is a promise.** The macOS caveat that `dataForType:` may return nil for an
+//!   advertised type does not apply — every value in `items` is already materialised, so a key that
+//!   is present has data.
 //!
-//! * **Reading is user-visible.** Since iOS 14 a paste raises a system banner
-//!   ("… pasted from …"), which is why this does NOT read the pasteboard
-//!   speculatively — only in response to an actual paste. `detectPatterns` is
-//!   the API for probing without the banner, and is deliberately not used
-//!   here: azul pastes what the user asked for, it does not sniff.
+//! * **Reading is user-visible.** Since iOS 14 a paste raises a system banner ("… pasted from …"),
+//!   which is why this does NOT read the pasteboard speculatively — only in response to an actual
+//!   paste. `detectPatterns` is the API for probing without the banner, and is deliberately not
+//!   used here: azul pastes what the user asked for, it does not sniff.
 //!
 //! The convenience properties (`string`, `image`, `url`) are avoided on
 //! purpose: each collapses the payload to a single flavor, which is exactly
 //! the flattening the typed-payload layer exists to prevent.
 
-use objc::runtime::Object;
-use objc::{class, msg_send, sel, sel_impl};
+use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 use rich_clipboard::{ClipboardItem, ClipboardPayload, Platform};
 
 use super::super::common::clipboard::MAX_FLAVOR_BYTES;

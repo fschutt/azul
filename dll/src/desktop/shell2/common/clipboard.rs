@@ -2,17 +2,15 @@
 //!
 //! Clipboard support has three layers (rich-clipboard's `plan/INTEGRATION.md`):
 //!
-//! 1. **Transport** — `shell2/<platform>/clipboard.rs`: OS calls only
-//!    (`NSPasteboard`, `OpenClipboard`, ICCCM selections, `wl_data_offer`),
-//!    no format knowledge. Produces and consumes [`ClipboardPayload`]: every
-//!    encoding the source offered, still as bytes.
-//! 2. **Codecs + policy** — the `rich-clipboard` crate: picks the richest
-//!    flavor on a read (RTF over HTML over plain text), and fans one item out
-//!    to every flavor the platform wants on a write, so styled text is
-//!    published as RTF *and* HTML *and* plain text simultaneously and a paste
-//!    lands in Word styled rather than flattened.
-//! 3. **azul** — [`ClipboardContent`] (the FFI type: plain text plus styled
-//!    runs). This module owns the conversions in both directions.
+//! 1. **Transport** — `shell2/<platform>/clipboard.rs`: OS calls only (`NSPasteboard`,
+//!    `OpenClipboard`, ICCCM selections, `wl_data_offer`), no format knowledge. Produces and
+//!    consumes [`ClipboardPayload`]: every encoding the source offered, still as bytes.
+//! 2. **Codecs + policy** — the `rich-clipboard` crate: picks the richest flavor on a read (RTF
+//!    over HTML over plain text), and fans one item out to every flavor the platform wants on a
+//!    write, so styled text is published as RTF *and* HTML *and* plain text simultaneously and a
+//!    paste lands in Word styled rather than flattened.
+//! 3. **azul** — [`ClipboardContent`] (the FFI type: plain text plus styled runs). This module owns
+//!    the conversions in both directions.
 //!
 //! The platform transports currently ship only the plain-text flavor, so
 //! [`get_system_clipboard`] wraps their text into a payload and

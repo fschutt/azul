@@ -8,25 +8,25 @@
 //! ## Output surface
 //!
 //! Spec (`azul.ads`):
-//! - access-type declarations for the releaser + per-kind invoker
-//!   procedure types, with `pragma Convention (C, …)`
-//! - pragma Import for AzApp_setHostHandleReleaser,
-//!   AzRefAny_newHostHandle, AzRefAny_getHostHandle, plus per-kind
-//!   setter/createFromHostHandle bindings
-//! - public surface: `function Azul_RefAny_Create (Value : System.Address)
-//!   return Az_RefAny;` and `function Azul_RefAny_Get (RefAny :
-//!   System.Address) return System.Address;`
+//! - access-type declarations for the releaser + per-kind invoker procedure types, with `pragma
+//!   Convention (C, …)`
+//! - pragma Import for AzApp_setHostHandleReleaser, AzRefAny_newHostHandle, AzRefAny_getHostHandle,
+//!   plus per-kind setter/createFromHostHandle bindings
+//! - public surface: `function Azul_RefAny_Create (Value : System.Address) return Az_RefAny;` and
+//!   `function Azul_RefAny_Get (RefAny : System.Address) return System.Address;`
 //!
 //! Body (`azul.adb`):
-//! - module-level dynamic-vector handle table (Vector instances would
-//!   require Ada.Containers, so we stick with `array of` + manual resize)
+//! - module-level dynamic-vector handle table (Vector instances would require Ada.Containers, so we
+//!   stick with `array of` + manual resize)
 //! - releaser procedure + per-kind invoker stubs
 //! - `Azul_RefAny_Create` / `Azul_RefAny_Get` implementations
 //! - module initialisation block that registers the releaser + invokers
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use super::super::{
+    generator::CodeBuilder,
+    ir::CodegenIR,
+    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+};
 
 /// Emit spec (`azul.ads`) declarations. Call from inside the
 /// `package Azul is` body, after the regular function imports.
@@ -75,10 +75,16 @@ pub fn emit_managed_spec(builder: &mut CodeBuilder, ir: &CodegenIR) {
         "pragma Import (C, Az_App_Set_Host_Handle_Releaser, \"AzApp_setHostHandleReleaser\");",
     );
     builder.blank();
-    builder.line("function Az_RefAny_New_Host_Handle (Id : Interfaces.C.unsigned_long_long) return Az_RefAny;");
+    builder.line(
+        "function Az_RefAny_New_Host_Handle (Id : Interfaces.C.unsigned_long_long) return \
+         Az_RefAny;",
+    );
     builder.line("pragma Import (C, Az_RefAny_New_Host_Handle, \"AzRefAny_newHostHandle\");");
     builder.blank();
-    builder.line("function Az_RefAny_Get_Host_Handle (RefAny : System.Address) return Interfaces.C.unsigned_long_long;");
+    builder.line(
+        "function Az_RefAny_Get_Host_Handle (RefAny : System.Address) return \
+         Interfaces.C.unsigned_long_long;",
+    );
     builder.line("pragma Import (C, Az_RefAny_Get_Host_Handle, \"AzRefAny_getHostHandle\");");
     builder.blank();
 
@@ -94,7 +100,8 @@ pub fn emit_managed_spec(builder: &mut CodeBuilder, ir: &CodegenIR) {
         ));
         builder.blank();
         builder.line(&format!(
-            "function Az_{w}_Create_From_Host_Handle (Id : Interfaces.C.unsigned_long_long) return Az_{w};",
+            "function Az_{w}_Create_From_Host_Handle (Id : Interfaces.C.unsigned_long_long) \
+             return Az_{w};",
             w = wrapper
         ));
         builder.line(&format!(

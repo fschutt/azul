@@ -39,7 +39,10 @@ fn extract_bundle() -> Result<std::path::PathBuf, String> {
     let mut p = 0usize;
     let read_u32 = |b: &[u8], p: &mut usize| -> Result<usize, String> {
         let v = u32::from_le_bytes(
-            b.get(*p..*p + 4).ok_or("bundle truncated")?.try_into().unwrap(),
+            b.get(*p..*p + 4)
+                .ok_or("bundle truncated")?
+                .try_into()
+                .unwrap(),
         ) as usize;
         *p += 4;
         Ok(v)
@@ -70,7 +73,11 @@ fn extract_bundle() -> Result<std::path::PathBuf, String> {
 fn pick_runtime() -> Option<(String, Vec<String>)> {
     if let Ok(rt) = std::env::var("AZ_E2E_RUNTIME") {
         if !rt.is_empty() {
-            let extra = if rt.contains("deno") { vec!["run".into(), "-A".into()] } else { vec![] };
+            let extra = if rt.contains("deno") {
+                vec!["run".into(), "-A".into()]
+            } else {
+                vec![]
+            };
             return Some((rt, extra));
         }
     }
@@ -116,8 +123,8 @@ pub fn maybe_run_and_exit() {
     };
     let Some((rt, extra)) = pick_runtime() else {
         eprintln!(
-            "error: no JS runtime found for the web-e2e executor — install node, bun, or \
-             deno (or set AZ_E2E_RUNTIME to a binary path)."
+            "error: no JS runtime found for the web-e2e executor — install node, bun, or deno (or \
+             set AZ_E2E_RUNTIME to a binary path)."
         );
         std::process::exit(2);
     };

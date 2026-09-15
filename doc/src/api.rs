@@ -606,7 +606,12 @@ impl Installation {
     pub fn variants_for(&self, lang: &str, os: &str) -> Vec<&InstallVariant> {
         self.languages
             .get(lang)
-            .map(|c| c.install.iter().filter(|v| v.os.iter().any(|o| o == os)).collect())
+            .map(|c| {
+                c.install
+                    .iter()
+                    .filter(|v| v.os.iter().any(|o| o == os))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -671,7 +676,11 @@ impl InstallationStep {
         };
 
         match self {
-            InstallationStep::Code { language, content, file } => InstallationStep::Code {
+            InstallationStep::Code {
+                language,
+                content,
+                file,
+            } => InstallationStep::Code {
                 file: file.clone(),
                 language: language.clone(),
                 content: do_interpolate(content),
@@ -903,9 +912,66 @@ impl Example {
                 extra: extra_code,
             },
             screenshot: OsDepFiles {
-                windows: load_screenshot(&self.screenshot.windows),
-                linux: load_screenshot(&self.screenshot.linux),
-                mac: load_screenshot(&self.screenshot.mac),
+                windows_light: {
+                    let path = self
+                        .screenshot
+                        .windows
+                        .replace(".windows.png", ".windows.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.windows)
+                    }
+                },
+                windows_dark: {
+                    let path = self
+                        .screenshot
+                        .windows
+                        .replace(".windows.png", ".windows.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.windows)
+                    }
+                },
+                linux_light: {
+                    let path = self
+                        .screenshot
+                        .linux
+                        .replace(".linux.png", ".linux.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.linux)
+                    }
+                },
+                linux_dark: {
+                    let path = self
+                        .screenshot
+                        .linux
+                        .replace(".linux.png", ".linux.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.linux)
+                    }
+                },
+                mac_light: {
+                    let path = self.screenshot.mac.replace(".mac.png", ".mac.light.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.mac)
+                    }
+                },
+                mac_dark: {
+                    let path = self.screenshot.mac.replace(".mac.png", ".mac.dark.png");
+                    if img_path.join(&path).exists() {
+                        load_screenshot(&path)
+                    } else {
+                        load_screenshot(&self.screenshot.mac)
+                    }
+                },
             },
         })
     }
@@ -931,9 +997,12 @@ pub struct LoadedExample {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OsDepFiles {
-    pub windows: Vec<u8>,
-    pub linux: Vec<u8>,
-    pub mac: Vec<u8>,
+    pub windows_light: Vec<u8>,
+    pub windows_dark: Vec<u8>,
+    pub linux_light: Vec<u8>,
+    pub linux_dark: Vec<u8>,
+    pub mac_light: Vec<u8>,
+    pub mac_dark: Vec<u8>,
 }
 
 /// Code for each C++ standard version
@@ -1649,14 +1718,44 @@ pub fn is_behind_pointer(type_str: &str) -> bool {
 /// Primitive types that should never be added to the API as classes
 /// These are built-in language types that don't need Az prefix
 const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
-    "u32", "u64", "u8", "()", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
+    "bool",
+    "f32",
+    "f64",
+    "fn",
+    "i128",
+    "i16",
+    "i32",
+    "i64",
+    "i8",
+    "isize",
+    "slice",
+    "u128",
+    "u16",
+    "u32",
+    "u64",
+    "u8",
+    "()",
+    "usize",
+    "c_void",
+    "str",
+    "char",
+    "c_char",
+    "c_schar",
+    "c_uchar",
     // The rest of the `core::ffi` integer family. `c_int` was already USED by
     // api.json (the three `glGet*Location` return types) while missing from
     // this list, so it read as a class that does not exist; the others are
     // here so the next one to be used does not repeat that.
-    "c_int", "c_uint", "c_short", "c_ushort", "c_long", "c_ulong", "c_longlong", "c_ulonglong",
-    "c_float", "c_double",
+    "c_int",
+    "c_uint",
+    "c_short",
+    "c_ushort",
+    "c_long",
+    "c_ulong",
+    "c_longlong",
+    "c_ulonglong",
+    "c_float",
+    "c_double",
 ];
 
 /// Single-letter types are usually generic type parameters
@@ -1716,7 +1815,7 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
 
     // Include callback_typedefs - they can be referenced and need patches
     // (e.g. FooDestructorType is referenced from FooDestructor enum)
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (_class_name, class_data) in &module_data.classes {
                 types.extend(extract_types_from_class_data(class_data));
@@ -1736,7 +1835,7 @@ pub fn collect_all_referenced_types_from_api_with_chains(
     let mut types = BTreeSet::new();
     let mut chains: BTreeMap<String, String> = BTreeMap::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Track types from functions with their chain
@@ -1904,7 +2003,8 @@ pub fn collect_all_referenced_types_from_api_with_chains(
 /// Returns the set of type names that are defined but never reachable.
 pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
     let mut reachable_types: BTreeSet<String> = BTreeSet::new();
-    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new(); // type_name -> (module, version)
+    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new(); // type_name ->
+                                                                                     // (module, version)
 
     // Collect all defined types and build a lookup for their definitions
     // Important: Keep only the "most complete" definition (one with struct_fields or enum_fields)
@@ -1951,7 +2051,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
     // Phase 1: Collect all "entry point" types from functions and constructors
     let mut types_to_process: Vec<String> = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Add the class itself if it has functions or constructors
@@ -1968,12 +2068,11 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                     .unwrap_or(false);
                 let is_callback_typedef = class_data.callback_typedef.is_some();
 
-                if has_functions || has_constructors || is_callback_typedef {
-                    if !reachable_types.contains(class_name) {
+                if (has_functions || has_constructors || is_callback_typedef)
+                    && !reachable_types.contains(class_name) {
                         reachable_types.insert(class_name.clone());
                         types_to_process.push(class_name.clone());
                     }
-                }
 
                 // Extract types from functions
                 if let Some(functions) = &class_data.functions {
@@ -2025,7 +2124,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
 
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
-        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        let current_batch: Vec<String> = std::mem::take(&mut types_to_process);
 
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
@@ -2227,7 +2326,7 @@ fn find_unused_types_simulating_removal(
     // Phase 1: Collect entry points (functions, constructors, callbacks)
     let mut types_to_process: Vec<String> = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Skip removed types
@@ -2248,12 +2347,11 @@ fn find_unused_types_simulating_removal(
                 let is_callback_typedef = class_data.callback_typedef.is_some();
 
                 // If this type has functions/constructors/callbacks, it's an entry point
-                if has_functions || has_constructors || is_callback_typedef {
-                    if !reachable_types.contains(class_name) {
+                if (has_functions || has_constructors || is_callback_typedef)
+                    && !reachable_types.contains(class_name) {
                         reachable_types.insert(class_name.clone());
                         types_to_process.push(class_name.clone());
                     }
-                }
 
                 // Also mark types referenced by functions/constructors as reachable
                 if let Some(functions) = &class_data.functions {
@@ -2297,7 +2395,7 @@ fn find_unused_types_simulating_removal(
 
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
-        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        let current_batch: Vec<String> = std::mem::take(&mut types_to_process);
 
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
@@ -2439,7 +2537,7 @@ pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::p
 pub fn remove_empty_modules(api_data: &mut ApiData) -> usize {
     let mut total_removed = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         let empty_modules: Vec<String> = version_data
             .api
             .iter()
@@ -2499,7 +2597,7 @@ fn extract_array_info(type_str: &str) -> (String, Option<usize>) {
 pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 // Process struct fields
@@ -2545,7 +2643,7 @@ pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
 
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 if let Some(type_alias) = &mut class_data.type_alias {
@@ -2642,7 +2740,7 @@ pub fn normalize_enum_variant_types(api_data: &mut ApiData) -> usize {
 
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 if let Some(enum_fields) = &mut class_data.enum_fields {

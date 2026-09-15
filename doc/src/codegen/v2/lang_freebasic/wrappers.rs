@@ -4,19 +4,16 @@
 //! function, we emit an idiomatic `Type` inside `Namespace Azul ...
 //! End Namespace`. The wrapper:
 //!
-//! 1. Holds the underlying FFI record (`AzTypeName`) by value in a
-//!    private `raw` field, plus an `owned` flag so `Wrap`-style
-//!    factories can opt out of automatic deletion.
-//! 2. Exposes a `Constructor (...)` overload per IR
-//!    `FunctionKind::Constructor` / `FunctionKind::Default` method on
-//!    the type. FreeBASIC supports overloaded constructors out of the
-//!    box so we don't need to suffix names like in Pascal.
-//! 3. Exposes a `Destructor ()` that calls `<TypeName>_delete(@raw)`
-//!    when `owned` is true. The destructor fires automatically when
-//!    a stack-allocated wrapper goes out of scope (or `Delete` is
-//!    called on a heap-allocated one).
-//! 4. Surfaces every non-trait method as an idiomatic instance method
-//!    delegating to the matching FFI symbol.
+//! 1. Holds the underlying FFI record (`AzTypeName`) by value in a private `raw` field, plus an
+//!    `owned` flag so `Wrap`-style factories can opt out of automatic deletion.
+//! 2. Exposes a `Constructor (...)` overload per IR `FunctionKind::Constructor` /
+//!    `FunctionKind::Default` method on the type. FreeBASIC supports overloaded constructors out of
+//!    the box so we don't need to suffix names like in Pascal.
+//! 3. Exposes a `Destructor ()` that calls `<TypeName>_delete(@raw)` when `owned` is true. The
+//!    destructor fires automatically when a stack-allocated wrapper goes out of scope (or `Delete`
+//!    is called on a heap-allocated one).
+//! 4. Surfaces every non-trait method as an idiomatic instance method delegating to the matching
+//!    FFI symbol.
 //!
 //! User-facing names drop the `Az` prefix:  `AzApp`  →  `Azul.App`,
 //! `AzDom` → `Azul.Dom`, etc. The names are emitted as nested types
@@ -27,13 +24,17 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+        },
+    },
+    ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier, to_pascal_case,
+    types::ptr_type_for_arg,
 };
-use super::types::ptr_type_for_arg;
-use super::{ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier, to_pascal_case};
 
 // ============================================================================
 // Public entry point
@@ -421,11 +422,7 @@ fn emit_method_impl(
 
 /// Filter the implicit `self` argument out of a function's arg list.
 fn visible_user_args(func: &FunctionDef) -> Vec<&FunctionArg> {
-    let class_lower = func.class_name.to_lowercase();
-    func.args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect()
+    func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect()
 }
 
 fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {

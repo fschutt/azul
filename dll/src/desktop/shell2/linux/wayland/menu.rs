@@ -18,9 +18,7 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
-use super::WaylandWindow;
-
-use super::super::super::common::debug_server::LogCategory;
+use super::{super::super::common::debug_server::LogCategory, WaylandWindow};
 use crate::log_error;
 
 /// Data passed to the menu layout callback

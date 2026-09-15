@@ -2,19 +2,16 @@
 //!
 //! Emits two files into the Go package:
 //!
-//! * `callbacks.go` — cgo preamble declaring libazul's host-invoker C ABI
-//!   (the `AzApp_set<Kind>Invoker` / `Az<Kind>_createFromHostHandle` /
-//!   `AzRefAny_newHostHandle` exports are NOT in `azul.h`, so this file
-//!   declares them), a handle registry (`sync.Map` + atomic counter), the
-//!   per-kind `Register<Kind>(fn)` helpers, `RefAnyWrap`/`RefAnyGet`,
-//!   string helpers, smart factories (`NewWindowCreateOptions`,
-//!   `NewAppWithData`, `RunWindow`, per-widget `On<Event>` setters), and
-//!   the cross-package `Raw()` accessors.
-//! * `callbacks_export.go` — the `//export` trampolines, one per invoker
-//!   *arity* (total pointer parameters after the `uint64` handle). Files
-//!   containing `//export` must not define anything in their cgo preamble
-//!   (cgo copies the preamble into two generated C files), hence the
-//!   separate file with a minimal `#include <stdint.h>` preamble.
+//! * `callbacks.go` — cgo preamble declaring libazul's host-invoker C ABI (the
+//!   `AzApp_set<Kind>Invoker` / `Az<Kind>_createFromHostHandle` / `AzRefAny_newHostHandle` exports
+//!   are NOT in `azul.h`, so this file declares them), a handle registry (`sync.Map` + atomic
+//!   counter), the per-kind `Register<Kind>(fn)` helpers, `RefAnyWrap`/`RefAnyGet`, string helpers,
+//!   smart factories (`NewWindowCreateOptions`, `NewAppWithData`, `RunWindow`, per-widget
+//!   `On<Event>` setters), and the cross-package `Raw()` accessors.
+//! * `callbacks_export.go` — the `//export` trampolines, one per invoker *arity* (total pointer
+//!   parameters after the `uint64` handle). Files containing `//export` must not define anything in
+//!   their cgo preamble (cgo copies the preamble into two generated C files), hence the separate
+//!   file with a minimal `#include <stdint.h>` preamble.
 //!
 //! # How the dispatch works
 //!
@@ -30,15 +27,18 @@
 //! in the wrapper structs from `wrappers.go`, calls the user's Go
 //! function, and writes the result through the trailing out-pointer.
 //!
-//! # Cross-package rules this layer relies on
+//! # No C types on the Go side
 //!
-//! cgo types are package-local: a consumer package can never NAME
-//! `C.AzDom`, but it CAN hold and pass values of that type obtained from
-//! this package via type inference. The Go-facing callback signatures
-//! therefore use only wrapper types (`*RefAny`, `*CallbackInfo`, `*Dom`),
-//! Go enums from `types.go` (`AzUpdate`), primitives, and
-//! `unsafe.Pointer` — all namable by consumers. `Raw()` bridges wrapper
-//! values back into the `C.Az*`-typed parameters of `wrappers.go`.
+//! The preamble includes azul.h (the host-invoker exports are declared
+//! against `AzRefAny` etc.), but Go never names a C type: the two calls
+//! that return a struct by value (`AzRefAny_newHostHandle`,
+//! `Az<Kind>_createFromHostHandle`) go through `static inline` shims that
+//! write into Go-owned memory, and every pointer crosses as
+//! `unsafe.Pointer`. Callback arguments are cast to the Go-native `Az*`
+//! types from `types.go`; the Go-facing signatures use wrapper types
+//! (`*RefAny`, `*CallbackInfo`, `*Dom`), native enums (`AzUpdate`),
+//! primitives, and `unsafe.Pointer`. `Raw()` hands out the native value
+//! (`AzDom`) for the raw-layer and wrapper parameters.
 //!
 
 
@@ -47,9 +47,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{CodegenIR, FunctionKind};
-use super::super::managed_host_invoker::{
-    host_invoker_kinds, is_callback_wrapper, managed_c_symbol, wrapper_name,
-};
+use super::super::managed_host_invoker::{host_invoker_kinds, is_callback_wrapper, wrapper_name};
 use super::wrappers::should_emit_wrapper;
 
 /// Map an IR callback-arg / return type name to its C-ABI name
@@ -62,6 +60,11 @@ fn c_typename(t: &str) -> String {
     } else {
         format!("Az{}", t)
     }
+}
+
+/// Go-native type name of a callback arg / return (`Dom` -> `AzDom`).
+fn go_native(t: &str) -> String {
+    format!("Az{}", t)
 }
 
 /// `CheckBoxState` → `checkBoxState`.
@@ -303,7 +306,10 @@ fn emit_cgo_preamble(b: &mut CodeBuilder, kinds: &[Kind], arities: &[usize]) {
     b.line("// ---- host-invoker C ABI (exported by libazul; not declared in azul.h) ----");
     b.line("extern void AzApp_setHostHandleReleaser(void (*releaser)(uint64_t));");
     b.line("extern AzRefAny AzRefAny_newHostHandle(uint64_t id);");
-    b.line("extern uint64_t AzRefAny_getHostHandle(const AzRefAny* refany);");
+    b.line("extern uint64_t AzRefAny_getHostHandle(const void* refany);");
+    b.line("// Struct-returning exports are wrapped so Go never names a C type: the");
+    b.line("// result is written into Go-owned memory of the native Az* type.");
+    b.line("static inline void azGoRefAnyNewHostHandle(uint64_t id, void* out) { *(AzRefAny*)out = AzRefAny_newHostHandle(id); }");
     b.blank();
     for k in kinds {
         let mut parts = vec!["uint64_t".to_string()];
@@ -324,6 +330,10 @@ fn emit_cgo_preamble(b: &mut CodeBuilder, kinds: &[Kind], arities: &[usize]) {
         ));
         b.line(&format!(
             "extern Az{w} Az{w}_createFromHostHandle(uint64_t);",
+            w = k.wrapper
+        ));
+        b.line(&format!(
+            "static inline void azGoCreate{w}(uint64_t id, void* out) {{ *(Az{w}*)out = Az{w}_createFromHostHandle(id); }}",
             w = k.wrapper
         ));
         b.blank();
@@ -415,31 +425,48 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.blank();
     b.line("// Str copies a Go string into a freshly allocated AzString. The returned");
     b.line("// value is consumed by whichever libazul call it is passed to.");
-    b.line("func Str(s string) C.AzString {");
+    b.line("func Str(s string) AzString {");
     b.line("    b := []byte(s)");
-    b.line("    ptr := (*C.uint8_t)(unsafe.Pointer(&azGoEmptyByte))");
+    b.line("    ptr := &azGoEmptyByte");
     b.line("    if len(b) > 0 {");
-    b.line("        ptr = (*C.uint8_t)(unsafe.Pointer(&b[0]))");
+    b.line("        ptr = &b[0]");
     b.line("    }");
-    b.line("    return C.AzString_fromUtf8(ptr, C.size_t(len(b)))");
+    b.line("    return AzString_fromUtf8(ptr, uintptr(len(b)))");
     b.line("}");
     b.blank();
     b.line("// GoStr copies an AzString's UTF-8 bytes into a Go string. The AzString");
     b.line("// is only read, never consumed.");
-    b.line("func GoStr(s C.AzString) string {");
-    b.line("    if s.vec.ptr == nil || s.vec.len == 0 {");
+    b.line("func GoStr(s AzString) string {");
+    b.line("    if s.Vec.Ptr == nil || s.Vec.Len == 0 {");
     b.line("        return \"\"");
     b.line("    }");
-    b.line("    return string(unsafe.Slice((*byte)(unsafe.Pointer(s.vec.ptr)), int(s.vec.len)))");
+    b.line("    return string(unsafe.Slice((*byte)(s.Vec.Ptr), int(s.Vec.Len)))");
     b.line("}");
     b.blank();
     b.line("// NewString wraps a Go string in a managed *String.");
     b.line("func NewString(s string) *String {");
-    b.line("    inner := (*C.AzString)(C.malloc(C.size_t(unsafe.Sizeof(C.AzString{}))))");
-    b.line("    *inner = Str(s)");
-    b.line("    self := &String{ inner: inner }");
+    b.line("    inner := Str(s)");
+    b.line("    self := &String{ inner: &inner }");
     b.line("    runtime.SetFinalizer(self, func(x *String) { x.Close() })");
     b.line("    return self");
+    b.line("}");
+    b.blank();
+    // A managed `*String` had no way to read its own text. The obvious name,
+    // `String()`, is taken: api.json gives the class `Debug`, so the wrapper
+    // generator emits a `String()` returning `AzString_toDbgString`, and two
+    // methods of that name in one package do not compile. Deleting the
+    // content accessor resolved the clash and left `fmt.Println(NewString(..))`
+    // printing a Rust `{:#?}` dump with no way to get at the text at all.
+    b.line("// Value returns the string's contents.");
+    b.line("//");
+    b.line("// Not named String(): that method exists on this type as the fmt.Stringer");
+    b.line("// debug form (AzString_toDbgString), because api.json declares Debug for");
+    b.line("// the class. Use Value() for the text and String() to inspect it.");
+    b.line("func (self *String) Value() string {");
+    b.line("    if self == nil || self.inner == nil {");
+    b.line("        return \"\"");
+    b.line("    }");
+    b.line("    return GoStr(*self.inner)");
     b.line("}");
     b.blank();
 }
@@ -456,9 +483,9 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("// callbacks should observe mutations across invocations.");
     b.line("func RefAnyWrap(value any) *RefAny {");
     b.line("    id := azGoNewHandle(value)");
-    b.line("    inner := (*C.AzRefAny)(C.malloc(C.size_t(unsafe.Sizeof(C.AzRefAny{}))))");
-    b.line("    *inner = C.AzRefAny_newHostHandle(C.uint64_t(id))");
-    b.line("    self := &RefAny{ inner: inner }");
+    b.line("    var inner AzRefAny");
+    b.line("    C.azGoRefAnyNewHostHandle(C.uint64_t(id), unsafe.Pointer(&inner))");
+    b.line("    self := &RefAny{ inner: &inner }");
     b.line("    runtime.SetFinalizer(self, func(x *RefAny) { x.Close() })");
     b.line("    return self");
     b.line("}");
@@ -470,7 +497,7 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("    if ref == nil || ref.inner == nil {");
     b.line("        return nil, false");
     b.line("    }");
-    b.line("    id := uint64(C.AzRefAny_getHostHandle(ref.inner))");
+    b.line("    id := uint64(C.AzRefAny_getHostHandle(unsafe.Pointer(ref.inner)))");
     b.line("    if id == 0 {");
     b.line("        return nil, false");
     b.line("    }");
@@ -516,8 +543,8 @@ fn emit_register_fns(
         b.line("// for the duration of the call - do not retain or Close them.");
         if let RetKind::OutParam(r) = &rk {
             b.line(&format!(
-                "// The result must be written through `out` (*C.{}); no Go",
-                c_typename(r)
+                "// The result must be written through `out` (*{}); no Go",
+                go_native(r)
             ));
             b.line("// wrapper type exists for this return type yet.");
         }
@@ -530,34 +557,38 @@ fn emit_register_fns(
         }
         b.blank();
         b.line(&format!(
-            "// Register{} wraps a Go function in a C Az{}",
+            "// Register{} wraps a Go function in an Az{}",
             k.wrapper, k.wrapper
         ));
         b.line("// callback struct whose ctx carries a handle into the Go registry. Pass");
-        b.line("// the result to any C-ABI parameter of that callback type.");
+        b.line("// the result to any parameter of that callback type.");
         b.line(&format!(
-            "func Register{w}(fn {w}Func) C.Az{w} {{",
+            "func Register{w}(fn {w}Func) Az{w} {{",
             w = k.wrapper
         ));
         b.line("    id := azGoNewHandle(azGoAdapter(func(args []unsafe.Pointer) {");
         for (i, (nm, t)) in names.iter().zip(&k.arg_types).enumerate() {
             if t == "usize" {
                 b.line(&format!(
-                    "        {} := uint(*(*C.size_t)(args[{}]))",
+                    "        {} := uint(*(*uintptr)(args[{}]))",
                     nm, i
                 ));
             } else if wrapper_types.iter().any(|w| w == t) {
-                let has_del = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
+                let has_del = ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
                 let inner_expr = if has_del {
-                    format!("(*C.{})(args[{}])", c_typename(t), i)
+                    format!("(*{})(args[{}])", go_native(t), i)
                 } else {
-                    format!("*(*C.{})(args[{}])", c_typename(t), i)
+                    format!("*(*{})(args[{}])", go_native(t), i)
                 };
+                // `args[i]` points into the host invoker's argument array,
+                // which was never malloc'd: this wrapper borrows it.
+                let borrowed = if has_del { ", borrowed: true" } else { "" };
                 b.line(&format!(
-                    "        {} := &{}{{ inner: {} }}",
-                    nm,
-                    t,
-                    inner_expr
+                    "        {} := &{}{{ inner: {}{} }}",
+                    nm, t, inner_expr, borrowed
                 ));
             } else {
                 b.line(&format!("        {} := args[{}]", nm, i));
@@ -569,26 +600,29 @@ fn emit_register_fns(
             RetKind::Void => b.line(&format!("        fn({})", call_args)),
             RetKind::OutParam(_) => b.line(&format!("        fn({}, args[{}])", call_args, n_args)),
             RetKind::Enum(r) => b.line(&format!(
-                "        *(*C.{c})(args[{n}]) = C.{c}(fn({a}))",
-                c = c_typename(r),
+                "        *(*{c})(args[{n}]) = fn({a})",
+                c = go_native(r),
                 n = n_args,
                 a = call_args
             )),
             RetKind::Wrapper(r) => {
-                let has_del = ir.functions.iter().any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
+                let has_del = ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
                 b.line(&format!("        ret := fn({})", call_args));
                 b.line("        if ret != nil {");
                 if has_del {
                     b.line(&format!(
-                        "            *(*C.{})(args[{}]) = *ret.inner",
-                        c_typename(r),
+                        "            *(*{})(args[{}]) = *ret.inner",
+                        go_native(r),
                         n_args
                     ));
-                    b.line("            C.free(unsafe.Pointer(ret.inner))");
+                    b.line("            ret.inner = nil");
                 } else {
                     b.line(&format!(
-                        "            *(*C.{})(args[{}]) = ret.inner",
-                        c_typename(r),
+                        "            *(*{})(args[{}]) = ret.inner",
+                        go_native(r),
                         n_args
                     ));
                 }
@@ -597,10 +631,12 @@ fn emit_register_fns(
             }
         }
         b.line("    }))");
+        b.line(&format!("    var out Az{w}", w = k.wrapper));
         b.line(&format!(
-            "    return C.Az{w}_createFromHostHandle(C.uint64_t(id))",
+            "    C.azGoCreate{w}(C.uint64_t(id), unsafe.Pointer(&out))",
             w = k.wrapper
         ));
+        b.line("    return out");
         b.line("}");
         b.blank();
     }
@@ -619,11 +655,9 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("// NewWindowCreateOptions builds WindowCreateOptions whose layout callback");
     b.line("// is the given Go function (host-invoker registered, ctx-preserving).");
     b.line("func NewWindowCreateOptions(fn LayoutCallbackFunc) *WindowCreateOptions {");
-    b.line("    wco := C.AzWindowCreateOptions_default()");
-    b.line("    wco.window_state.layout_callback = RegisterLayoutCallback(fn)");
-    b.line("    inner := (*C.AzWindowCreateOptions)(C.malloc(C.size_t(unsafe.Sizeof(C.AzWindowCreateOptions{}))))");
-    b.line("    *inner = wco");
-    b.line("    self := &WindowCreateOptions{ inner: inner }");
+    b.line("    wco := AzWindowCreateOptions_default()");
+    b.line("    wco.WindowState.LayoutCallback = RegisterLayoutCallback(fn)");
+    b.line("    self := &WindowCreateOptions{ inner: &wco }");
     b.line("    runtime.SetFinalizer(self, func(x *WindowCreateOptions) { x.Close() })");
     b.line("    return self");
     b.line("}");
@@ -631,22 +665,20 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("// NewAppWithData creates an App whose app data is an arbitrary Go value");
     b.line("// (wrapped via RefAnyWrap). Pass nil config for the default AppConfig.");
     b.line("func NewAppWithData(data any, config *AppConfig) *App {");
-    b.line("    var cfg C.AzAppConfig");
+    b.line("    var cfg AzAppConfig");
     b.line("    if config != nil {");
     b.line("        cfg = *config.inner");
-    b.line("        C.free(unsafe.Pointer(config.inner))");
+    b.line("        config.inner = nil");
     b.line("        runtime.SetFinalizer(config, nil)");
     b.line("    } else {");
-    b.line("        cfg = C.AzAppConfig_create()");
+    b.line("        cfg = AzAppConfig_create()");
     b.line("    }");
     b.line("    ref := RefAnyWrap(data)");
     b.line("    inner := *ref.inner");
-    b.line("    C.free(unsafe.Pointer(ref.inner))");
+    b.line("    ref.inner = nil");
     b.line("    runtime.SetFinalizer(ref, nil)");
-    b.line("    app_val := C.AzApp_create(inner, cfg)");
-    b.line("    app_ptr := (*C.AzApp)(C.malloc(C.size_t(unsafe.Sizeof(C.AzApp{}))))");
-    b.line("    *app_ptr = app_val");
-    b.line("    self := &App{ inner: app_ptr }");
+    b.line("    app_val := AzApp_create(inner, cfg)");
+    b.line("    self := &App{ inner: &app_val }");
     b.line("    runtime.SetFinalizer(self, func(x *App) { x.Close() })");
     b.line("    return self");
     b.line("}");
@@ -654,9 +686,9 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("// RunWindow consumes win and enters the main loop.");
     b.line("func (self *App) RunWindow(win *WindowCreateOptions) {");
     b.line("    inner := *win.inner");
-    b.line("    C.free(unsafe.Pointer(win.inner))");
+    b.line("    win.inner = nil");
     b.line("    runtime.SetFinalizer(win, nil)");
-    b.line("    C.AzApp_run(self.inner, inner)");
+    b.line("    AzApp_run(self.inner, inner)");
     b.line("}");
     b.blank();
 
@@ -698,11 +730,18 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
                 "func (self *{}) {}(data *RefAny, fn {}Func) {{",
                 go_name, method, cb_ty
             ));
-            let self_has_del = ir.functions.iter().any(|f| f.class_name == s.name && f.kind == FunctionKind::Delete);
-            let self_expr = if self_has_del { "self.inner" } else { "&self.inner" };
+            let self_has_del = ir
+                .functions
+                .iter()
+                .any(|f| f.class_name == s.name && f.kind == FunctionKind::Delete);
+            let self_expr = if self_has_del {
+                "self.inner"
+            } else {
+                "&self.inner"
+            };
             b.line(&format!(
-                "    C.{}({}, C.AzRefAny_clone(data.inner), Register{}(fn))",
-                managed_c_symbol(f),
+                "    {}({}, AzRefAny_clone(data.inner), Register{}(fn))",
+                f.c_name,
                 self_expr,
                 cb_ty
             ));
@@ -717,26 +756,24 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
     b.line("// Raw accessors (cross-package bridge)");
     b.line("// ============================================================================");
     b.line("//");
-    b.line("// cgo types are package-local: a consumer package cannot NAME C.AzDom, but");
-    b.line("// it CAN hold and pass values of that type obtained from this package via");
-    b.line("// type inference. Raw() hands out the underlying C value and disarms the");
+    b.line("// Raw() hands out the underlying Go-native Az* value and disarms the");
     b.line("// wrapper's finalizer (ownership transfer): pass the result to a consuming");
     b.line("// libazul parameter (AddChild, RunWindow, ...). Clone() the wrapper first");
     b.line("// if you still need it afterwards.");
     b.blank();
     for t in wrapper_types {
         b.line(&format!(
-            "// Raw returns the underlying C.Az{} value, transferring ownership to",
+            "// Raw returns the underlying Az{} value, transferring ownership to",
             t
         ));
         b.line("// the caller (the wrapper's finalizer, if any, is disarmed).");
-        b.line(&format!("func (self *{t}) Raw() C.Az{t} {{", t = t));
+        b.line(&format!("func (self *{t}) Raw() Az{t} {{", t = t));
         b.line("    runtime.SetFinalizer(self, nil)");
-        
+
         let has_delete = ir.functions.iter().any(|f| f.class_name == *t && f.kind == FunctionKind::Delete);
         if has_delete {
             b.line("    val := *self.inner");
-            b.line("    C.free(unsafe.Pointer(self.inner))");
+            b.line("    self.inner = nil");
             b.line("    return val");
         } else {
             b.line("    return self.inner");

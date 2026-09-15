@@ -19,20 +19,21 @@ use crate::desktop::shell2::common::debug_server::LogCategory;
 /// see the Wayland `CONFIGURES_SEEN` for why the count matters.
 pub(super) static WM_SIZE_SEEN: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(0);
-use crate::impl_platform_window_getters;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
 pub mod accessibility;
 pub mod clipboard;
+pub mod direct_manipulation;
 pub mod dlopen;
 pub mod dnd;
-pub mod direct_manipulation;
-pub mod radial_controller;
 mod dpi;
 mod gl;
 pub mod menu;
+pub mod radial_controller;
 pub mod registry;
 pub(crate) mod system_style;
+#[cfg(feature = "cpurender")]
+mod subpixel;
 mod tooltip;
 mod wcreate;
 pub mod win_event;
@@ -132,6 +133,8 @@ struct NativeDib {
     ptr: *mut u8,
     w: i32,
     h: i32,
+    /// Whether a frame has been rendered into this DIB (it is the retained frame).
+    has_frame: bool,
 }
 
 /// Set to `false` the first time the RGBA-mask probe fails — GDI stacks that
@@ -166,6 +169,9 @@ pub struct Win32Window {
     /// former per-backend glyph_cache / retained_pixmap / previous_display_list.
     #[cfg(feature = "cpurender")]
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
+    /// Monitor the LCD stripe order was last read for.
+    #[cfg(feature = "cpurender")]
+    panel_monitor: isize,
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
@@ -306,17 +312,10 @@ impl Win32Window {
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
-        if options.window_state.background_color.is_none() {
-            use azul_core::window::WindowBackgroundMaterial;
-            if matches!(
-                options.window_state.flags.background_material,
-                WindowBackgroundMaterial::Opaque
-            ) {
-                options.window_state.background_color =
-                    config.system_style.colors.window_background;
-            }
-            // For materials, leave background_color as None - renderer handles transparency
-        }
+        crate::desktop::shell2::common::resolve_initial_background_color(
+            &mut options,
+            &config.system_style,
+        );
 
         let total_start = std::time::Instant::now();
         let mut step_start = std::time::Instant::now();
@@ -423,7 +422,7 @@ impl Win32Window {
         }
 
         // Initialize OpenGL context + WebRender (if hardware rendering requested)
-        let mut gl_functions = GlFunctions::initialize();
+        let mut gl_functions = GlFunctions::initialize(&win32);
 
         // Determine renderer type via the unified backend resolution
         // (AZ_BACKEND env var > programmatic hw_accel > Auto). Auto/Gpu try
@@ -468,13 +467,8 @@ impl Win32Window {
                 if hdc.is_null() {
                     return Err(WindowError::PlatformError("Failed to get HDC".into()));
                 }
-                #[cfg(target_os = "windows")]
-                unsafe {
-                    use winapi::um::wingdi::wglMakeCurrent;
-                    wglMakeCurrent(
-                        hdc as winapi::shared::windef::HDC,
-                        hglrc as winapi::shared::windef::HGLRC,
-                    );
+                if let Some(wgl) = win32.opengl32 {
+                    unsafe { (wgl.wglMakeCurrent)(hdc, hglrc) };
                 }
                 gl_functions.load();
                 let gl_ctx_inner = azul_core::gl::GlContextPtr::new(
@@ -798,6 +792,9 @@ impl Win32Window {
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu);
         let mut common = event::CommonWindowState::new(
             current_window_state,
+            options.theme,
+            options.background_color_light,
+            options.background_color_dark,
             fc_cache,
             system_style,
             app_data,
@@ -831,6 +828,8 @@ impl Win32Window {
             new_frame_ready,
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            #[cfg(feature = "cpurender")]
+            panel_monitor: 0,
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             #[cfg(feature = "cpurender")]
@@ -905,8 +904,7 @@ impl Win32Window {
             // so this happens here rather than in the struct literal.
             // `None` (no Dial paired, or a Windows build without the
             // interface) is the ordinary outcome and changes nothing else.
-            result.radial_controller =
-                radial_controller::RadialControllerOwner::new(hwnd as isize);
+            result.radial_controller = radial_controller::RadialControllerOwner::new(hwnd as isize);
 
             let initial_material = result
                 .common
@@ -944,6 +942,10 @@ impl Win32Window {
                         .windows_options,
                 );
             }
+            // Before the first show, so a dark window never flashes a light caption.
+            result.apply_titlebar_theme();
+            #[cfg(feature = "cpurender")]
+            result.sync_panel_subpixel_order(true);
 
             let regen_epoch_seen = result.common.regen_epoch();
             if let Err(e) = result.regenerate_layout() {
@@ -1298,13 +1300,15 @@ impl Win32Window {
                                                             ptr: bits as *mut u8,
                                                             w: native_pw,
                                                             h: native_ph,
+                                                            // Nothing rendered into a new DIB yet.
+                                                            has_frame: false,
                                                         });
                                                     } else {
                                                         log_warn!(
                                                             LogCategory::Rendering,
-                                                            "[native-bb] GDI ignores RGBA \
-                                                             DIB masks (probe read {:#08x}) \
-                                                             — legacy path for this process",
+                                                            "[native-bb] GDI ignores RGBA DIB \
+                                                             masks (probe read {:#08x}) — legacy \
+                                                             path for this process",
                                                             col
                                                         );
                                                         NATIVE_DIB_SUPPORTED.store(
@@ -1355,19 +1359,24 @@ impl Win32Window {
                             // leave a pointer into the DIB armed across frames.
                             self.cpu_backend.native_target = None;
 
-                            if self.cpu_backend.rendered_native {
-                                // #27: pixels are already in the DIB section —
-                                // present = BitBlt the damage rects. WM_PAINT
-                                // full-rect fallback mirrors the legacy path
-                                // (FrameDamage::None → one full rect).
+                            // Present whenever the DIB holds a frame: an unchanged frame re-presents in full.
+                            let dib_has_frame =
+                                self.native_dib.as_ref().map_or(false, |d| d.has_frame);
+                            let rendered_now = self.cpu_backend.rendered_native;
+                            if rendered_now || dib_has_frame {
                                 if let Some(ref d) = self.native_dib {
-                                    let rects = self
-                                        .cpu_backend
-                                        .last_present_damage
-                                        .to_present_rects_physical(
-                                            dpi, d.w as u32, d.h as u32, false,
-                                        )
-                                        .unwrap_or_else(|| vec![(0, 0, d.w as u32, d.h as u32)]);
+                                    let rects = if rendered_now {
+                                        self.cpu_backend
+                                            .last_present_damage
+                                            .to_present_rects_physical(
+                                                dpi, d.w as u32, d.h as u32, false,
+                                            )
+                                            .unwrap_or_else(|| {
+                                                vec![(0, 0, d.w as u32, d.h as u32)]
+                                            })
+                                    } else {
+                                        vec![(0, 0, d.w as u32, d.h as u32)]
+                                    };
                                     unsafe {
                                         let hdc = (self.win32.user32.GetDC)(self.hwnd);
                                         if !hdc.is_null() {
@@ -1386,6 +1395,11 @@ impl Win32Window {
                                             }
                                             (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
                                         }
+                                    }
+                                }
+                                if rendered_now {
+                                    if let Some(d) = self.native_dib.as_mut() {
+                                        d.has_frame = true;
                                     }
                                 }
                                 rendered = true;
@@ -1583,13 +1597,8 @@ impl Win32Window {
             };
 
             // Make OpenGL context current
-            #[cfg(target_os = "windows")]
-            {
-                use winapi::um::wingdi::wglMakeCurrent;
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                (wgl.wglMakeCurrent)(hdc, hglrc);
             }
 
             if !layout_was_regenerated {
@@ -1748,8 +1757,7 @@ impl Win32Window {
                 if let Some(gl) = self.common.gl_context_ptr.as_ref() {
                     gl.finish();
                 }
-                use winapi::um::wingdi::SwapBuffers;
-                SwapBuffers(hdc as winapi::shared::windef::HDC);
+                (self.win32.gdi32.SwapBuffers)(hdc);
             }
 
             // Show window after first successful render
@@ -1874,18 +1882,15 @@ impl Win32Window {
         } = &self.render_mode
         {
             // Make OpenGL context current BEFORE generate_frame
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
 
             if let (Some(layout_window), Some(render_api), Some(document_id)) = (
@@ -1944,18 +1949,15 @@ impl Win32Window {
         } = &self.render_mode
         {
             // Make OpenGL context current BEFORE generate_frame
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
 
             if let (Some(layout_window), Some(render_api), Some(document_id)) = (
@@ -1995,14 +1997,13 @@ impl Win32Window {
     /// WM_PAINT then just repainted the STALE layout.
     ///
     /// Mirrors the `WM_COMMAND` `match event_result` arm:
-    /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing
-    ///   StyledDom + `request_relayout_only()`, then invalidate (WM_PAINT's
-    ///   relayout-only branch sends the frame).
-    /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` →
-    ///   `request_regeneration()` + invalidate (full `regenerate_layout()` in
-    ///   WM_PAINT).
-    /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` →
-    ///   invalidate only (preserves the old `!DoNothing` repaint).
+    /// - `ShouldIncrementalRelayout` → `incremental_relayout()` on the existing StyledDom +
+    ///   `request_relayout_only()`, then invalidate (WM_PAINT's relayout-only branch sends the
+    ///   frame).
+    /// - `ShouldRegenerateDom* | UpdateHitTesterAndProcessAgain` → `request_regeneration()` +
+    ///   invalidate (full `regenerate_layout()` in WM_PAINT).
+    /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` → invalidate only
+    ///   (preserves the old `!DoNothing` repaint).
     /// - `DoNothing` → nothing (preserves the old no-op).
     fn route_main_window_result(
         &mut self,
@@ -2573,10 +2574,11 @@ impl Win32Window {
         // Win32): `csd_resize_edge_at` is pure and unit-tested on every CI
         // host, so the band geometry cannot drift per platform. Everything
         // here is in PHYSICAL screen pixels — position, size and band alike.
+        use azul_core::geom::{LogicalPosition, LogicalSize};
+
         use crate::desktop::shell2::common::event::{
             csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
         };
-        use azul_core::geom::{LogicalPosition, LogicalSize};
         let band = libm::roundf(CSD_RESIZE_BAND_PX * dpi_factor).max(1.0);
         let edge = csd_resize_edge_at(
             LogicalPosition::new((x - wr.left) as f32, (y - wr.top) as f32),
@@ -2635,6 +2637,84 @@ impl Win32Window {
         }
     }
 
+    /// The first frame was presented while hidden and before window_proc was reachable: repaint and resync the size.
+    pub fn finish_first_frame(&mut self) {
+        unsafe {
+            let mut cr: dlopen::RECT = std::mem::zeroed();
+            let replay = if (self.win32.user32.GetClientRect)(self.hwnd, &mut cr) != 0 {
+                let (w, h) = (cr.right - cr.left, cr.bottom - cr.top);
+                let ws = self.common.current_window_state();
+                let hf = ws.size.get_hidpi_factor().inner.get();
+                let laid_w = libm::roundf(ws.size.dimensions.width * hf) as i32;
+                let laid_h = libm::roundf(ws.size.dimensions.height * hf) as i32;
+                (w > 0 && h > 0 && (w != laid_w || h != laid_h)).then_some((w, h))
+            } else {
+                None
+            };
+            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+            if let Some((w, h)) = replay {
+                const WM_SIZE: u32 = 0x0005;
+                const SIZE_RESTORED: usize = 0;
+                const SIZE_MAXIMIZED: usize = 2;
+                let kind = if (self.win32.user32.IsZoomed)(self.hwnd) != 0 {
+                    SIZE_MAXIMIZED
+                } else {
+                    SIZE_RESTORED
+                };
+                let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
+                // Last statement: window_proc re-borrows this window.
+                (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+            }
+        }
+    }
+
+    /// Re-reads the panel's LCD stripe order when the window may have changed monitors.
+    #[cfg(feature = "cpurender")]
+    pub fn sync_panel_subpixel_order(&mut self, force: bool) {
+        let monitor = subpixel::monitor_of(&self.win32.user32, self.hwnd);
+        if monitor == self.panel_monitor && !force {
+            return;
+        }
+        self.panel_monitor = monitor;
+        let order = subpixel::subpixel_order_of(&self.win32, monitor);
+        if self.cpu_backend.glyph_cache.set_lcd_subpixel_order(order) {
+            log_debug!(
+                LogCategory::Rendering,
+                "[Win32] LCD subpixel order is now {:?} (monitor {:#x})",
+                order,
+                monitor
+            );
+            self.cpu_backend.force_full_repaint = true;
+            unsafe {
+                (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+            }
+        }
+    }
+
+    /// Dark caption for a dark theme (attribute 20, or 19 before Windows 10 20H1).
+    pub fn apply_titlebar_theme(&self) {
+        let Some(ref dwmapi) = self.win32.dwmapi_funcs else {
+            return;
+        };
+        let dark: i32 = i32::from(matches!(
+            self.common.current_window_state().theme,
+            azul_core::window::WindowTheme::DarkMode
+        ));
+        unsafe {
+            let set = |attr: u32| {
+                (dwmapi.DwmSetWindowAttribute)(
+                    self.hwnd,
+                    attr,
+                    &dark as *const i32 as *const core::ffi::c_void,
+                    core::mem::size_of::<i32>() as u32,
+                )
+            };
+            if set(dlopen::DWMWA_USE_IMMERSIVE_DARK_MODE) != 0 {
+                let _ = set(19);
+            }
+        }
+    }
+
     /// Synchronize window state with Windows OS
     ///
     /// Applies changes from current_window_state to the OS window.
@@ -2652,6 +2732,11 @@ impl Win32Window {
             Some(pair) => pair,
             None => return, // First frame, nothing to sync
         };
+
+        // App-driven theme change (system changes arrive via WM_SETTINGCHANGE).
+        if previous.theme != current.theme {
+            self.apply_titlebar_theme();
+        }
 
         // Title changed?
         if previous.title != current.title {
@@ -3100,8 +3185,8 @@ impl Win32Window {
             let backdrop_type = match material {
                 WindowBackgroundMaterial::Sidebar
                 | WindowBackgroundMaterial::Menu
-                | WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, // Acrylic
-                WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, // Mica
+                | WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, /* Acrylic */
+                WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, /* Mica */
                 WindowBackgroundMaterial::MicaAlt => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TABBEDWINDOW,
                 _ => return, // Already handled above
             };
@@ -3119,8 +3204,8 @@ impl Win32Window {
                 // HRESULT != S_OK - this is expected on Windows 10 or older Windows 11 versions
                 log_debug!(
                     LogCategory::Platform,
-                    "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - \
-                     likely Windows 10 or pre-22H2 Windows 11",
+                    "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - likely \
+                     Windows 10 or pre-22H2 Windows 11",
                     result as u32
                 );
                 return;
@@ -3233,15 +3318,12 @@ impl Win32Window {
         // --- Drain the THREAD queue (hwnd filter = NULL) ---
         // The hwnd-filtered peek above cannot see two whole classes of
         // message (same hole run.rs's Win32 loop had, fixed the same way):
-        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which
-        //     is associated with no window at all — an hwnd-filtered
-        //     PeekMessage/GetMessage can NEVER retrieve it, so a
-        //     PostQuitMessage from user or library code was invisible to
-        //     this pump;
-        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL),
-        //     which stayed in the queue forever and, being "available",
-        //     defeat any WaitMessage a caller blocks on between polls — an
-        //     idle block turns into a spin.
+        //   * WM_QUIT, which `PostQuitMessage` posts to the THREAD and which is associated with no
+        //     window at all — an hwnd-filtered PeekMessage/GetMessage can NEVER retrieve it, so a
+        //     PostQuitMessage from user or library code was invisible to this pump;
+        //   * genuine thread messages (`PostThreadMessage`, hwnd == NULL), which stayed in the
+        //     queue forever and, being "available", defeat any WaitMessage a caller blocks on
+        //     between polls — an idle block turns into a spin.
         // An hwnd filter of NULL retrieves messages for any window of this
         // thread PLUS thread messages, which is exactly the remainder;
         // DispatchMessageW routes window messages by msg.hwnd, so nothing is
@@ -3425,8 +3507,10 @@ impl Win32Window {
         // The event loop will create the window with Win32Window::new()
         log_debug!(
             LogCategory::Window,
-            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop Phase 3",
-            pt.x, pt.y
+            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop \
+             Phase 3",
+            pt.x,
+            pt.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -3469,7 +3553,7 @@ fn win32_msg_name(msg: u32) -> &'static str {
     }
 }
 
-// Helper function for default window processing when Win32 libraries aren't available
+// Default processing for messages that arrive before WM_NCCREATE cached the window's tables.
 #[inline]
 unsafe fn default_window_proc(
     hwnd: HWND,
@@ -3477,14 +3561,9 @@ unsafe fn default_window_proc(
     wparam: dlopen::WPARAM,
     lparam: dlopen::LPARAM,
 ) -> dlopen::LRESULT {
-    #[cfg(target_os = "windows")]
-    {
-        use winapi::um::winuser::DefWindowProcW;
-        DefWindowProcW(hwnd as winapi::shared::windef::HWND, msg, wparam, lparam)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        0
+    match dlopen::Win32Libraries::shared() {
+        Some(win32) => (win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam),
+        None => 0,
     }
 }
 
@@ -3833,6 +3912,7 @@ fn pump_modal_loop_work() {
                     registry::register_window(new_hwnd, new_window_ptr);
                     (*new_window_ptr).register_drag_drop();
                     (*new_window_ptr).finish_frameless_frame();
+                    (*new_window_ptr).finish_first_frame();
                 },
                 Err(e) => {
                     log_error!(
@@ -3896,27 +3976,22 @@ fn pump_modal_loop_work() {
 /// Either of two things says "appearance", and both tests are needed because
 /// they cover disjoint senders:
 ///
-///   * `lParam` naming one of the documented theme sections. "ImmersiveColorSet"
-///     is THE dark-mode / accent-colour notification — it is what Windows sends
-///     when the user flips Settings > Personalisation > Colours, and it arrives
-///     with `wParam` 0, so the wParam test below would never catch it.
-///   * a non-zero `wParam`, which means the message came from
-///     `SystemParametersInfo` and names an `SPI_*` action. Every metric
-///     `discover()` reads — non-client fonts, caret width and blink, wheel
-///     scroll lines, hover time, double-click time and distance, high contrast,
-///     client-area animation — changes through one of those, and enumerating
-///     them individually would be a list to keep in sync with a discovery
-///     function that reads more of them over time. The noisy broadcasts above
-///     all carry `wParam` 0, so the coarse test is enough to exclude them.
+///   * `lParam` naming one of the documented theme sections. "ImmersiveColorSet" is THE dark-mode /
+///     accent-colour notification — it is what Windows sends when the user flips Settings >
+///     Personalisation > Colours, and it arrives with `wParam` 0, so the wParam test below would
+///     never catch it.
+///   * a non-zero `wParam`, which means the message came from `SystemParametersInfo` and names an
+///     `SPI_*` action. Every metric `discover()` reads — non-client fonts, caret width and blink,
+///     wheel scroll lines, hover time, double-click time and distance, high contrast, client-area
+///     animation — changes through one of those, and enumerating them individually would be a list
+///     to keep in sync with a discovery function that reads more of them over time. The noisy
+///     broadcasts above all carry `wParam` 0, so the coarse test is enough to exclude them.
 ///
 /// A NULL `lParam` with `wParam` 0 is accepted: some senders pass neither, and
 /// paying a discovery for an ambiguous message is the safe side of this filter
 /// — the failure mode of being too strict is silently keeping the old theme,
 /// which is the entire bug being fixed.
-unsafe fn settingchange_touches_appearance(
-    wparam: dlopen::WPARAM,
-    lparam: dlopen::LPARAM,
-) -> bool {
+unsafe fn settingchange_touches_appearance(wparam: dlopen::WPARAM, lparam: dlopen::LPARAM) -> bool {
     if wparam != 0 {
         return true;
     }
@@ -4224,8 +4299,8 @@ unsafe extern "system" fn window_proc(
                 ) {
                     log_error!(
                         LogCategory::Layout,
-                        "[Win32] resize fast-path relayout failed: {e} — falling back to a \
-                         full regeneration"
+                        "[Win32] resize fast-path relayout failed: {e} — falling back to a full \
+                         regeneration"
                     );
                     resize_relayout_failed = true;
                 }
@@ -4514,6 +4589,10 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.position = pos,
             );
+
+            // A move can land on a monitor with a different stripe order.
+            #[cfg(feature = "cpurender")]
+            window.sync_panel_subpixel_order(false);
 
             // Detect which monitor the window is on via MonitorFromWindow
             // This updates monitor_id so that DPI/MonitorChanged events can fire
@@ -5464,15 +5543,14 @@ unsafe extern "system" fn window_proc(
                 const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
                 let scale = 1.0 + scroll_amount * PINCH_STEP_PER_NOTCH;
                 if let Some(ref mut lw) = window.common.layout_window {
-                    lw.gesture_drag_manager.inject_native_gesture(
-                        NativeGestureEvent::Pinch(DetectedPinch {
+                    lw.gesture_drag_manager
+                        .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                             scale,
                             center: logical_pos,
                             initial_distance: PINCH_NOMINAL_DISTANCE,
                             current_distance: PINCH_NOMINAL_DISTANCE * scale,
                             duration_ms: 0,
-                        }),
-                    );
+                        }));
                 }
             }
 
@@ -5543,13 +5621,14 @@ unsafe extern "system" fn window_proc(
                 // Start the scroll momentum timer if this is the first input
                 if should_start_timer {
                     if let Some(queue) = input_queue_clone {
-                        use azul_core::refany::RefAny;
-                        use azul_core::task::Duration;
-                        use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                        use azul_layout::scroll_timer::{
-                            scroll_physics_timer_callback, ScrollPhysicsState,
+                        use azul_core::{
+                            refany::RefAny,
+                            task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
                         };
-                        use azul_layout::timer::{Timer, TimerCallbackType};
+                        use azul_layout::{
+                            scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                            timer::{Timer, TimerCallbackType},
+                        };
 
                         let physics_state = ScrollPhysicsState::new(
                             queue,
@@ -5588,7 +5667,8 @@ unsafe extern "system" fn window_proc(
             let vk_code = wparam as u32;
             let scan_code = ((lparam >> 16) & 0xFF) as u32;
             let repeat_count = (lparam & 0xFFFF) as u16;
-            let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key state
+            let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key
+                                                                           // state
 
             // Translate virtual key to azul key. `None` — a key the table has
             // no entry for — is NOT a reason to skip the handler: the SCANCODE
@@ -6265,8 +6345,9 @@ unsafe extern "system" fn window_proc(
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
-                        // queued in layout_window.pending_virtual_view_updates and will be processed
-                        // in the render path — no full layout regeneration needed.
+                        // queued in layout_window.pending_virtual_view_updates and will be
+                        // processed in the render path — no full layout
+                        // regeneration needed.
                         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         | ProcessEventResult::ShouldReRenderCurrentWindow => {
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -6403,6 +6484,10 @@ unsafe extern "system" fn window_proc(
             // separates a hotplug from a mode change. Equal counts emit
             // nothing, which is what keeps dragging a window between displays
             // from looking like an unplug.
+            //
+            // A display change can swap the panel behind the same monitor handle.
+            #[cfg(feature = "cpurender")]
+            window.sync_panel_subpixel_order(true);
             if let Some(ref mut lw) = window.common.layout_window {
                 let before = lw.monitors.lock().map(|g| g.len()).unwrap_or(0);
                 let after = {
@@ -6729,6 +6814,19 @@ unsafe extern "system" fn window_proc(
             // `adopt_system_style` makes an unnecessary re-discovery free of
             // RELAYOUT, but not free of the discovery itself, which is the
             // expensive half.
+            // The ClearType tuner changes the stripe order without the window moving.
+            #[cfg(feature = "cpurender")]
+            if msg == WM_SETTINGCHANGE {
+                const SPI_SETFONTSMOOTHING: usize = 0x004B;
+                const SPI_SETFONTSMOOTHINGTYPE: usize = 0x200B;
+                const SPI_SETFONTSMOOTHINGORIENTATION: usize = 0x2013;
+                if matches!(
+                    wparam as usize,
+                    SPI_SETFONTSMOOTHING | SPI_SETFONTSMOOTHINGTYPE | SPI_SETFONTSMOOTHINGORIENTATION
+                ) {
+                    window.sync_panel_subpixel_order(true);
+                }
+            }
             if msg == WM_SETTINGCHANGE && !settingchange_touches_appearance(wparam, lparam) {
                 return 0;
             }
@@ -6745,6 +6843,7 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.theme = new_theme,
             );
+            window.apply_titlebar_theme();
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
             // Full rebuild or restyle, decided from what the app's `layout()`
@@ -6951,18 +7050,15 @@ impl Win32Window {
             hdc: stored_hdc,
         } = &self.render_mode
         {
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use winapi::um::wingdi::wglMakeCurrent;
-                let hdc = if !stored_hdc.is_null() {
-                    *stored_hdc
-                } else {
-                    (self.win32.user32.GetDC)(self.hwnd)
-                };
-                wglMakeCurrent(
-                    hdc as winapi::shared::windef::HDC,
-                    *hglrc as winapi::shared::windef::HGLRC,
-                );
+            if let Some(wgl) = self.win32.opengl32 {
+                unsafe {
+                    let hdc = if !stored_hdc.is_null() {
+                        *stored_hdc
+                    } else {
+                        (self.win32.user32.GetDC)(self.hwnd)
+                    };
+                    (wgl.wglMakeCurrent)(hdc, *hglrc);
+                }
             }
         }
         self.common.deinit_renderer();
@@ -7775,8 +7871,9 @@ mod tests {
     /// compile this module at all.
     #[test]
     fn xbutton_wparam_names_the_thumb_buttons() {
-        use crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button;
         use azul_core::events::MouseButton;
+
+        use crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button;
 
         assert_eq!(
             win32_xbutton_to_mouse_button(0x0001 << 16),
@@ -7794,13 +7891,12 @@ mod tests {
 /// Three traps, each of which silently produces a wrong icon rather than an
 /// error:
 ///
-/// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` /
-///    `UpdateLayeredWindow` which want premultiplied. Feeding it premultiplied
-///    pixels gives dark fringes on every antialiased edge.
+/// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` / `UpdateLayeredWindow`
+///    which want premultiplied. Feeding it premultiplied pixels gives dark fringes on every
+///    antialiased edge.
 /// 2. **Channel order is B,G,R,A**, not the R,G,B,A we are handed.
-/// 3. **Rows are bottom-up unless the height is NEGATIVE.** A positive height
-///    with top-down data yields a vertically mirrored icon, which reads as
-///    "wrong icon" rather than as a bug.
+/// 3. **Rows are bottom-up unless the height is NEGATIVE.** A positive height with top-down data
+///    yields a vertically mirrored icon, which reads as "wrong icon" rather than as a bug.
 ///
 /// The 1bpp AND mask is required by `ICONINFO` even though a 32bpp colour
 /// bitmap blends by its own alpha; all-zero means "draw every pixel".

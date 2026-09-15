@@ -8,16 +8,14 @@ class WidgetShowcase:
         self.checkbox_checked = False
         self.text_input = ""
 
-CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
-
 def small(icon, label):
-    return RibbonItem.SmallButton(RibbonButton.new(icon, label))
+    return RibbonItem.SmallButton(RibbonButton.create(icon, label))
 
 def menu(icon, label):
-    return RibbonItem.SmallButton(RibbonButton.new(icon, label).with_arrow(RibbonArrow.Menu))
+    return RibbonItem.SmallButton(RibbonButton.create(icon, label).with_arrow(RibbonArrow.Menu))
 
 def large(icon, label, arrow):
-    return RibbonItem.LargeButton(RibbonButton.new(icon, label).with_arrow(arrow))
+    return RibbonItem.LargeButton(RibbonButton.create(icon, label).with_arrow(arrow))
 
 def stack(items, container):
     for item in items:
@@ -25,20 +23,20 @@ def stack(items, container):
     return container
 
 def home_tab():
-    clipboard = (RibbonGroup.new("Clipboard")
+    clipboard = (RibbonGroup.create("Clipboard")
                  .with_item(large("content_paste", "Paste", RibbonArrow.Split))
                  .with_item(RibbonItem.Column(stack([
                      small("content_cut", "Cut"),
                      small("content_copy", "Copy"),
                      small("format_paint", "Format Painter"),
-                 ], RibbonColumn.new()))))
+                 ], RibbonColumn.create()))))
 
     font_top = RibbonItem.Row(stack([
         small("text_increase", ""),
         small("text_decrease", ""),
         menu("text_fields", ""),
         small("format_clear", ""),
-    ], RibbonRow.new()))
+    ], RibbonRow.create()))
     font_bottom = RibbonItem.Row(stack([
         small("format_bold", ""),
         small("format_italic", ""),
@@ -46,9 +44,9 @@ def home_tab():
         small("strikethrough_s", ""),
         RibbonItem.Separator(),
         menu("format_color_text", ""),
-    ], RibbonRow.new()))
-    font = RibbonGroup.new("Font").with_item(
-        RibbonItem.Column(stack([font_top, font_bottom], RibbonColumn.new())))
+    ], RibbonRow.create()))
+    font = RibbonGroup.create("Font").with_item(
+        RibbonItem.Column(stack([font_top, font_bottom], RibbonColumn.create())))
 
     para_top = RibbonItem.Row(stack([
         menu("format_list_bulleted", ""),
@@ -56,57 +54,62 @@ def home_tab():
         RibbonItem.Separator(),
         small("format_indent_decrease", ""),
         small("format_indent_increase", ""),
-    ], RibbonRow.new()))
+    ], RibbonRow.create()))
     para_bottom = RibbonItem.Row(stack([
         small("format_align_left", ""),
         small("format_align_center", ""),
         small("format_align_right", ""),
         RibbonItem.Separator(),
         menu("format_line_spacing", ""),
-    ], RibbonRow.new()))
-    paragraph = RibbonGroup.new("Paragraph").with_item(
-        RibbonItem.Column(stack([para_top, para_bottom], RibbonColumn.new())))
+    ], RibbonRow.create()))
+    paragraph = RibbonGroup.create("Paragraph").with_item(
+        RibbonItem.Column(stack([para_top, para_bottom], RibbonColumn.create())))
 
-    editing = RibbonGroup.new("Editing").with_item(RibbonItem.Column(stack([
+    editing = RibbonGroup.create("Editing").with_item(RibbonItem.Column(stack([
         menu("search", "Find"),
         small("find_replace", "Replace"),
         menu("highlight_alt", "Select"),
-    ], RibbonColumn.new())))
+    ], RibbonColumn.create())))
 
-    return (RibbonTab.new("HOME")
+    return (RibbonTab.create("HOME")
             .with_group(clipboard)
             .with_group(font)
             .with_group(paragraph)
             .with_group(editing))
 
 def ribbon(data):
-    return (Ribbon.new(RibbonTabVec.from_item(home_tab()))
-            .with_app_button(RibbonAppButton.new("FILE"))
+    return (Ribbon.create(RibbonTabVec.from_item(home_tab()))
+            .with_app_button(RibbonAppButton.create("FILE"))
             .with_active_tab(data.active_tab)
             .dom())
 
 def layout(data, info):
-    button = (Dom.create_div()
-              .with_css("margin-bottom:10px;padding:10px;background:#4CAF50;"
-                        "color:white;cursor:pointer;")
-              .with_child(Dom.create_p_with_text("Click me!"))
-              .with_callback(CLICK, data, on_button_click))
+    theme = UiTheme.Flora if data.checkbox_checked else UiTheme.Flat
+
+    button = (Button.create("Click me!")
+              .with_theme(theme)
+              .with_on_click(data, on_button_click)
+              .dom()
+              .with_css("margin-bottom:10px;"))
 
     checkbox = (CheckBox.create(data.checkbox_checked)
+                .with_theme(theme)
                 .with_on_toggle(data, on_checkbox_toggle)
                 .dom()
                 .with_css("margin-bottom:10px;"))
 
     progress = (ProgressBar.create(data.progress_value)
+                .with_theme(theme)
                 .dom()
                 .with_css("margin-bottom:10px;"))
 
     text_input = (TextInput.create()
                   .with_placeholder("Enter text here...")
+                  .with_theme(theme)
                   .dom()
                   .with_css("margin-bottom:10px;"))
 
-    color_input = (ColorInput.create(ColorU(100, 150, 200, 255))
+    color_input = (ColorInput.create(ColorU.create(100, 150, 200, 255))
                    .dom()
                    .with_css("margin-bottom:10px;"))
 

@@ -11,15 +11,13 @@
 //! pass (the fossil at `paged_layout.rs:1-11` documents why the mutable
 //! alternative failed). Two laws every consumer may rely on:
 //!
-//! 1. **Determinism**: identical input (content + constraints + incoming
-//!    token) produces an identical outgoing token, comparable with `==`.
-//!    Equality is structural; float fields inherit text3's rounding-tolerant
-//!    `Rect` comparison, which is safe in the conservative direction — a
-//!    false *inequality* merely re-lays one extra page, a false *equality*
-//!    cannot arise from tolerant comparison of identical-bits passes.
-//! 2. **Progress**: an outgoing token never equals the incoming token of
-//!    the same fragmentainer (the page loop asserts this; violating it is
-//!    the NG infinite-loop class).
+//! 1. **Determinism**: identical input (content + constraints + incoming token) produces an
+//!    identical outgoing token, comparable with `==`. Equality is structural; float fields inherit
+//!    text3's rounding-tolerant `Rect` comparison, which is safe in the conservative direction — a
+//!    false *inequality* merely re-lays one extra page, a false *equality* cannot arise from
+//!    tolerant comparison of identical-bits passes.
+//! 2. **Progress**: an outgoing token never equals the incoming token of the same fragmentainer
+//!    (the page loop asserts this; violating it is the NG infinite-loop class).
 //!
 //! `token_fingerprint` is a FAST-PATH REJECTOR for K34 convergence checks:
 //! `a == b ⇒ fingerprint(a) == fingerprint(b)` (it hashes a subset of the
@@ -32,8 +30,7 @@
 //! README); no engine implementation source was consulted. See the design
 //! doc §9.
 
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use crate::text3::cache::{BreakCursor, Hyphens, LineBreakStrictness, ShapedItem, WordBreak};
 

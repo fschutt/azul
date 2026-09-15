@@ -12,18 +12,13 @@
 //! itself. The `FcFontCache` used to resolve the font is threaded in via
 //! `new()`. Runtime verification needs a real Wayland compositor.
 
-use std::ffi::CString;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{ffi::CString, rc::Rc, sync::Arc};
 
-use azul_core::geom::LogicalPosition;
-use azul_core::resources::DpiScaleFactor;
+use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 use azul_css::props::basic::ColorU;
 use rust_fontconfig::FcFontCache;
 
-use super::{defines::*, dlopen::Wayland};
-
-use super::super::super::common::debug_server::LogCategory;
+use super::{super::super::common::debug_server::LogCategory, defines::*, dlopen::Wayland};
 use crate::log_error;
 
 /// Tooltip font size in logical pixels.

@@ -14,10 +14,14 @@
 //! server. The real WebTransport (HTTP/3 / QUIC via `web-transport-quinn`) engine
 //! lands behind a `webtransport-native` feature — see `doc/webtransport-plan.md`.
 
-use core::ffi::c_void;
-use core::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
-use std::thread::JoinHandle;
+use core::{
+    ffi::c_void,
+    sync::atomic::{AtomicBool, Ordering},
+};
+use std::{
+    sync::{mpsc, Arc, Mutex},
+    thread::JoinHandle,
+};
 
 use azul_core::audio::AudioFrame;
 use azul_css::{AzString, F32Vec, U8Vec};

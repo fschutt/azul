@@ -9,22 +9,22 @@
 //! so any future refactor that "drops dead code" first has to remove this
 //! test.
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
-use azul_core::events::MouseButton;
-use azul_core::geom::LogicalPosition;
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_core::window::{
-    AcceleratorKey, FullScreenMode, OptionVirtualKeyCode, TouchPoint, TouchToolType,
-    VirtualKeyCode, WindowFrame, PRIMARY_POINTER_SEAT,
+use azul::desktop::shell2::headless::{HeadlessEvent, HeadlessWindow};
+use azul_core::{
+    events::MouseButton,
+    geom::LogicalPosition,
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+    window::{
+        AcceleratorKey, FullScreenMode, OptionVirtualKeyCode, TouchPoint, TouchToolType,
+        VirtualKeyCode, WindowFrame, PRIMARY_POINTER_SEAT,
+    },
 };
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
-
-use azul::desktop::shell2::headless::{HeadlessEvent, HeadlessWindow};
 
 fn make_window() -> HeadlessWindow {
     let fc_cache = Arc::new(FcFontCache::default());

@@ -108,19 +108,19 @@ pub fn log(
         LogLevel::Error => log::Level::Error,
     };
     let target: &str = match category {
-        LogCategory::General => "azul",
-        LogCategory::Window => "azul::window",
-        LogCategory::EventLoop => "azul::eventloop",
-        LogCategory::Input => "azul::input",
-        LogCategory::Layout => "azul::layout",
-        LogCategory::Text => "azul::text",
-        LogCategory::DisplayList => "azul::displaylist",
-        LogCategory::Rendering => "azul::render",
-        LogCategory::Resources => "azul::resources",
-        LogCategory::Callbacks => "azul::callbacks",
-        LogCategory::Timer => "azul::timer",
-        LogCategory::DebugServer => "azul::debug",
-        LogCategory::Platform => "azul::platform",
+        General => "azul",
+        Window => "azul::window",
+        EventLoop => "azul::eventloop",
+        Input => "azul::input",
+        Layout => "azul::layout",
+        Text => "azul::text",
+        DisplayList => "azul::displaylist",
+        Rendering => "azul::render",
+        Resources => "azul::resources",
+        Callbacks => "azul::callbacks",
+        Timer => "azul::timer",
+        DebugServer => "azul::debug",
+        Platform => "azul::platform",
     };
     log::log!(target: target, lvl, "{}", message.into());
 }

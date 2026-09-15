@@ -11,9 +11,10 @@ use azul_layout::window_state::WindowCreateOptions;
 use super::dlopen::{
     constants::*, encode_wide, Win32Libraries, HDC, HGLRC, HINSTANCE, HWND, POINT, RECT, WNDCLASSW,
 };
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::desktop::shell2::common::WindowError;
-use crate::{log_debug, log_error, log_trace, log_warn};
+use crate::{
+    desktop::shell2::common::{debug_server::LogCategory, WindowError},
+    log_debug, log_error, log_trace, log_warn,
+};
 
 /// Win32 window class name
 pub const CLASS_NAME: &str = "AzulWindowClass";
@@ -122,11 +123,12 @@ pub fn create_hwnd(
         };
 
         // Window style - based on decorations option
+        use azul_core::window::WindowDecorations;
+
         use super::dlopen::constants::{
             WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
             WS_THICKFRAME,
         };
-        use azul_core::window::WindowDecorations;
 
         let style = match options.window_state.flags.decorations {
             WindowDecorations::Normal => {
@@ -253,8 +255,13 @@ pub fn create_gl_context(
         hinstance
     );
 
+    let Some(wgl) = win32.opengl32 else {
+        log_error!(LogCategory::Rendering, "[GL] opengl32.dll not available");
+        return Err(WindowError::PlatformError("opengl32.dll not available".into()));
+    };
+
     log_trace!(LogCategory::Rendering, "[GL] loading ExtraWglFunctions");
-    let extra_wgl = ExtraWglFunctions::load().map_err(|e| {
+    let extra_wgl = ExtraWglFunctions::load(win32).map_err(|e| {
         log_error!(
             LogCategory::Rendering,
             "[GL] Failed to load WGL extensions: {:?}",
@@ -369,11 +376,11 @@ pub fn create_gl_context(
     // Set pixel format
     log_trace!(LogCategory::Rendering, "[GL] setting pixel format");
     unsafe {
-        use winapi::um::wingdi::{DescribePixelFormat, SetPixelFormat, PIXELFORMATDESCRIPTOR};
+        use super::dlopen::PIXELFORMATDESCRIPTOR;
 
         let mut pfd: PIXELFORMATDESCRIPTOR = std::mem::zeroed();
-        DescribePixelFormat(
-            hdc as _,
+        (win32.gdi32.DescribePixelFormat)(
+            hdc,
             pixel_format,
             std::mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
             &mut pfd,
@@ -384,7 +391,7 @@ pub fn create_gl_context(
             pfd.dwFlags
         );
 
-        let set_result = SetPixelFormat(hdc as _, pixel_format, &pfd);
+        let set_result = (win32.gdi32.SetPixelFormat)(hdc, pixel_format, &pfd);
         log_trace!(
             LogCategory::Rendering,
             "[GL] SetPixelFormat returned: {}",
@@ -466,8 +473,7 @@ pub fn create_gl_context(
                 LogCategory::Rendering,
                 "[GL] GL 3.0 failed, trying legacy wglCreateContext"
             );
-            use winapi::um::wingdi::wglCreateContext;
-            hglrc = wglCreateContext(hdc as _) as _;
+            hglrc = (wgl.wglCreateContext)(hdc) as _;
             log_trace!(
                 LogCategory::Rendering,
                 "[GL] wglCreateContext (legacy) returned: {:?}",
@@ -499,12 +505,8 @@ pub fn create_gl_context(
 
     #[cfg(target_os = "windows")]
     unsafe {
-        use winapi::um::wingdi::wglMakeCurrent;
         log_trace!(LogCategory::Rendering, "[GL] calling wglMakeCurrent");
-        let result = wglMakeCurrent(
-            hdc as winapi::shared::windef::HDC,
-            hglrc as winapi::shared::windef::HGLRC,
-        );
+        let result = (wgl.wglMakeCurrent)(hdc, hglrc);
         log_trace!(
             LogCategory::Rendering,
             "[GL] wglMakeCurrent returned: {}",
@@ -527,7 +529,6 @@ pub fn create_gl_context(
         // Query and log OpenGL info
         log_trace!(LogCategory::Rendering, "[GL] querying OpenGL info");
         use winapi::um::libloaderapi::GetProcAddress;
-        use winapi::um::wingdi::wglGetProcAddress;
 
         // Get glGetString and glGetIntegerv
         let opengl32 = winapi::um::libloaderapi::GetModuleHandleA(b"opengl32.dll\0".as_ptr() as _);

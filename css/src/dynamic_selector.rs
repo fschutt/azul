@@ -1,10 +1,13 @@
 //! Dynamic CSS selectors for runtime evaluation based on OS, media queries, container queries, etc.
 
-use crate::corety::{AzString, OptionString};
-use crate::props::property::CssProperty;
+use crate::{
+    corety::{AzString, OptionString},
+    props::property::CssProperty,
+};
 
 /// State flags for pseudo-classes (used in `DynamicSelectorContext`)
-/// Note: This is a CSS-only version. See `azul_core::styled_dom::StyledNodeState` for the main type.
+/// Note: This is a CSS-only version. See `azul_core::styled_dom::StyledNodeState` for the main
+/// type.
 //
 // TODO(superplan g8 item 3): unify with `azul_core::styled_dom::StyledNodeState`
 // (core/src/styled_dom.rs:190). The two structs now carry the *identical* 10 fields
@@ -404,7 +407,8 @@ pub enum OsVersionCondition {
 }
 
 /// A desktop environment together with a numeric version (e.g. GNOME 40).
-/// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style selectors.
+/// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style
+/// selectors.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DesktopEnvVersion {
@@ -802,7 +806,8 @@ pub enum MediaType {
     All,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
@@ -820,12 +825,23 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash]
 );
 
-
 /// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
 /// CI). Returns `None` when unset or unrecognised.
 ///
 /// Reads the environment directly, like `system.rs`'s `AZ_RICING` override
 /// right next door: this crate is std.
+/// The theme `AZ_THEME=light|dark` pins, if set.
+///
+/// Public because the pin has to outrank EVERY other source of the theme — the
+/// system style and the window's own theme alike — or a screenshot run that
+/// set it would still come out in whatever theme the machine happened to be
+/// in. `from_system_style` applies it; a caller layering a window theme on
+/// top of that context must check it too.
+#[must_use]
+pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
+    option_env_theme()
+}
+
 #[must_use]
 fn option_env_theme() -> Option<ThemeCondition> {
     match std::env::var("AZ_THEME")
@@ -1155,6 +1171,31 @@ impl DynamicSelectorContext {
         ctx
     }
 
+    /// The facets of this context that change what a display list PAINTS
+    /// without changing what the cascade RESOLVES.
+    ///
+    /// The UA's colour defaults — the inherited text colour, `<hr>`'s rule,
+    /// the native button's border — are answered at query time from the
+    /// context's theme and never enter a node's resolved style, so two
+    /// cascades of the same DOM under different themes hash identically. A
+    /// display-list cache keyed on resolved style alone therefore served the
+    /// OTHER theme's list after a switch: dark window, black text. This is
+    /// the key component that tells them apart.
+    ///
+    /// Since 2026-09-12 the UA colour defaults ARE cascaded (they live in
+    /// the resolved style and every theme flip bumps
+    /// `CssPropertyCache::cascade_epoch`, which the display-list key also
+    /// carries), so this component is redundant. Kept: it is one hash of one
+    /// enum, and it keys the list on the theme even for a path that forgets
+    /// to bump the epoch.
+    #[must_use]
+    pub fn paint_defaults_fingerprint(&self) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.theme.hash(&mut h);
+        h.finish()
+    }
+
     /// Update viewport dimensions (e.g., on window resize)
     #[must_use]
     pub fn with_viewport(&self, width: f32, height: f32) -> Self {
@@ -1401,7 +1442,8 @@ impl DynamicSelector {
 /// - `(linux)`                     → `[Os(Linux)]`
 /// - `(linux:gnome)`               → `[Os(Linux), OsVersion(DesktopEnvironment(Gnome))]`
 /// - `(windows >= win-11)`         → `[Os(Windows), OsVersion(Min(WIN_11))]`
-/// - `(linux:gnome > 40)`          → `[Os(Linux), OsVersion(DesktopEnvMin{ env: Gnome, version_id: 40 })]`
+/// - `(linux:gnome > 40)`          → `[Os(Linux), OsVersion(DesktopEnvMin{ env: Gnome, version_id:
+///   40 })]`
 /// - `(any)` / `(*)` / `(all)`     → `[]` (always-match, no conditions emitted)
 ///
 /// Returns `None` only when the content is a parse error.
@@ -1503,7 +1545,8 @@ enum VersionOp {
 /// `>` and `<` are treated as `>=` / `<=` because version IDs are discrete integers.
 #[cfg(feature = "parser")]
 fn split_op_and_version(s: &str) -> (&str, Option<(VersionOp, &str)>) {
-    // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same position).
+    // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same
+    // position).
     let candidates: &[(&str, VersionOp)] = &[
         (">=", VersionOp::Min),
         ("<=", VersionOp::Max),
@@ -1705,6 +1748,52 @@ impl CssPropertyWithConditions {
         )
     }
 
+    /// A property that applies only while hovered AND the theme is dark.
+    ///
+    /// Conditions conjoin (`matches` requires all of them), so this is the
+    /// dark-mode twin of [`Self::on_hover`]. It exists because the plain
+    /// `on_hover` colour is a LIGHT-mode value: a widget that declares only
+    /// `on_hover` keeps painting that light highlight on a dark surface, which
+    /// is how every interactive state in this toolkit came to be light-only —
+    /// the states are declared where the theme is not in scope, so nothing
+    /// prompts for the other half.
+    #[must_use]
+    pub const fn dark_on_hover(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Hover),
+            ],
+        )
+    }
+
+    /// A property that applies only while active (pressed) AND the theme is
+    /// dark. See [`Self::dark_on_hover`].
+    #[must_use]
+    pub const fn dark_on_active(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Active),
+            ],
+        )
+    }
+
+    /// A property that applies only while focused AND the theme is dark.
+    /// See [`Self::dark_on_hover`].
+    #[must_use]
+    pub const fn dark_on_focus(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::Focus),
+            ],
+        )
+    }
+
     /// Style the PROMPT the engine paints for an empty editable
     /// (`::placeholder`), not the element itself.
     #[must_use]
@@ -1740,6 +1829,101 @@ impl CssPropertyWithConditions {
     #[must_use]
     pub const fn light_theme(property: CssProperty) -> Self {
         Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Light)])
+    }
+
+    /// A light value TOGETHER with its dark twin, in the only order that
+    /// works: `[simple(light), dark_theme(dark)]`.
+    ///
+    /// Inline declarations resolve last-match-wins, so a `dark_theme(X)`
+    /// pushed BEFORE an unconditional `X` of the same property is dead under
+    /// the dark theme, and a `dark_theme(X)` with no light `X` at all leaves
+    /// the light window with the UA default. Both were shipped by hand more
+    /// than once (theme-chain analysis 2026-09-12, R6 / I8): the widgets
+    /// declare their light face in one place and the theme module appends
+    /// twins in another, and nothing checked the pair. Building the pair
+    /// here makes half of one unrepresentable; the widget lint
+    /// (`widgets::theme_pairs`) catches the hand-rolled remainder.
+    ///
+    /// Both halves must be the same property type — that is what makes them
+    /// a pair — and a mismatch is a programming error, checked in debug.
+    #[must_use]
+    pub fn themed(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed(): the dark twin must be the same property as its light value"
+        );
+        [Self::simple(light), Self::dark_theme(dark)]
+    }
+
+    /// [`Self::themed`] for the hover state: `[on_hover(light), dark_on_hover(dark)]`.
+    #[must_use]
+    pub fn themed_on_hover(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_hover(): type mismatch"
+        );
+        [Self::on_hover(light), Self::dark_on_hover(dark)]
+    }
+
+    /// [`Self::themed`] for the pressed state: `[on_active(light), dark_on_active(dark)]`.
+    #[must_use]
+    pub fn themed_on_active(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_active(): type mismatch"
+        );
+        [Self::on_active(light), Self::dark_on_active(dark)]
+    }
+
+    /// [`Self::themed`] for the focused state: `[on_focus(light), dark_on_focus(dark)]`.
+    #[must_use]
+    pub fn themed_on_focus(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_focus(): type mismatch"
+        );
+        [Self::on_focus(light), Self::dark_on_focus(dark)]
+    }
+
+    /// Whether this declaration is a DARK twin: carries a
+    /// `Theme(Dark)` condition (possibly alongside pseudo-state ones).
+    #[must_use]
+    pub fn is_dark_twin(&self) -> bool {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+    }
+
+    /// The pseudo-state conditions of this declaration, in order — what a
+    /// dark twin and its light counterpart must share.
+    #[must_use]
+    pub fn pseudo_state_conditions(&self) -> Vec<PseudoStateType> {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .filter_map(|c| match c {
+                DynamicSelector::PseudoState(s) => Some(*s),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether this declaration can be the LIGHT half of a pair: no
+    /// `Theme(Dark)` condition, and no condition other than pseudo-states and
+    /// an explicit `Theme(Light)`.
+    #[must_use]
+    pub fn is_light_half(&self) -> bool {
+        self.apply_if.as_slice().iter().all(|c| {
+            matches!(
+                c,
+                DynamicSelector::PseudoState(_) | DynamicSelector::Theme(ThemeCondition::Light)
+            )
+        })
     }
 
     /// Create a property for Windows only (const version)
@@ -1818,6 +2002,18 @@ impl_vec_clone!(
     CssPropertyWithConditions,
     CssPropertyWithConditionsVec,
     CssPropertyWithConditionsVecDestructor
+);
+
+impl_option!(
+    CssPropertyWithConditionsVec,
+    OptionCssPropertyWithConditionsVec,
+    copy = false,
+    // `PartialOrd` and `Ord` keep parity with the wrapped vec (which has both,
+    // via `impl_vec_partialord!` and the manual `Ord` below). Widgets holding a
+    // style field derive comparison — `Button` derives `PartialOrd`, `NodeData`
+    // needs `Ord` — and the widget theme migration made those fields optional,
+    // so the wrapper has to be as comparable as what it wraps.
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord]
 );
 
 // Manual implementations for Eq and Ord (required for NodeData derives)
@@ -2161,7 +2357,8 @@ impl CssPropertyWithConditionsVec {
                     let px_value = value
                         .strip_suffix("px")
                         .and_then(|v| v.trim().parse::<f32>().ok())
-                        .filter(|px| !px.is_nan()); // reject NaN (sentinel); keep inf (never-matching)
+                        .filter(|px| !px.is_nan()); // reject NaN (sentinel); keep inf
+                                                    // (never-matching)
                     match key {
                         "min-width" => {
                             if let Some(px) = px_value {
@@ -2421,7 +2618,8 @@ mod tests {
 
     #[test]
     fn test_inline_combined_style_with_overflow() {
-        let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: #222;overflow: scroll;";
+        let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: \
+                     #222;overflow: scroll;";
         let parsed = CssPropertyWithConditionsVec::parse(style);
         let props = parsed.into_library_owned_vec();
         // padding:20px expands to 4, background:1, font-size:1, color:1, overflow:2 = 10
@@ -2471,8 +2669,10 @@ mod tests {
 )]
 mod autotest_generated {
     use core::cmp::Ordering;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        hash::{Hash, Hasher},
+    };
 
     use super::*;
     use crate::props::property::CssPropertyType;
@@ -5262,5 +5462,68 @@ mod safe_area_context_tests {
         }
         assert_eq!(EnvVariable::from_css_name("safe-area-inset"), None);
         assert_eq!(EnvVariable::from_css_name(""), None);
+    }
+}
+
+#[cfg(test)]
+mod themed_pairs {
+    //! Item 7 of the theme-chain analysis (2026-09-12): the pair builder.
+    use super::*;
+    use crate::props::{basic::color::ColorU, style::StyleTextColor};
+
+    fn colour(v: u8) -> CssProperty {
+        CssProperty::const_text_color(StyleTextColor {
+            inner: ColorU::rgb(v, v, v),
+        })
+    }
+
+    #[test]
+    fn themed_emits_the_light_value_first_and_the_dark_twin_second() {
+        let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
+        assert!(!light.is_conditional(), "the light half is unconditional");
+        assert!(dark.is_dark_twin());
+        assert_eq!(light.property, colour(0));
+        assert_eq!(dark.property, colour(255));
+        assert_eq!(dark.pseudo_state_conditions(), Vec::new());
+        assert!(light.is_light_half());
+        assert!(!dark.is_light_half());
+    }
+
+    #[test]
+    fn the_state_variants_carry_the_state_on_both_halves() {
+        let [l, d] = CssPropertyWithConditions::themed_on_hover(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Hover]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Hover]);
+        assert!(d.is_dark_twin() && !l.is_dark_twin());
+        let [l, d] = CssPropertyWithConditions::themed_on_active(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Active]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Active]);
+        let [l, d] = CssPropertyWithConditions::themed_on_focus(colour(1), colour(2));
+        assert_eq!(l.pseudo_state_conditions(), vec![PseudoStateType::Focus]);
+        assert_eq!(d.pseudo_state_conditions(), vec![PseudoStateType::Focus]);
+    }
+
+    #[test]
+    fn the_dark_twin_only_matches_a_dark_context() {
+        let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Light,
+            ..Default::default()
+        };
+        assert!(light.matches(&ctx) && !dark.matches(&ctx));
+        let ctx = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        };
+        assert!(
+            light.matches(&ctx) && dark.matches(&ctx),
+            "last match wins: the twin"
+        );
+    }
+
+    #[test]
+    fn a_light_theme_only_value_is_a_light_half_but_an_os_gated_one_is_not() {
+        assert!(CssPropertyWithConditions::light_theme(colour(0)).is_light_half());
+        assert!(!CssPropertyWithConditions::on_macos(colour(0)).is_light_half());
     }
 }

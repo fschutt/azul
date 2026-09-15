@@ -17,13 +17,15 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind,
-    MonomorphizedTypeDef, StructDef, TypeAliasDef,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, MonomorphizedKind,
+            MonomorphizedTypeDef, StructDef, TypeAliasDef,
+        },
+    },
     enum_backing, ffi_type_name, field_type_for_ref_kind, include_enum, include_struct,
     map_type_to_julia, sanitize_comment, sanitize_identifier, tag_type,
 };

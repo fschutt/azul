@@ -56,12 +56,11 @@ pub fn select_word_at_cursor(
 /// "Paragraph" is the run of inline content between HARD breaks (`<br>`, a
 /// preserved newline) — soft wraps do not divide it. Two consequences, both of
 /// which the old `line_index` filter got wrong:
-///   * a wrapped paragraph selects whole instead of one visual line (no editor
-///     selects a soft-wrapped fragment on triple-click), and
-///   * a visually reordered (bidi/RTL) paragraph yields `start <= end`, because
-///     the endpoints are taken in logical order rather than from the ends of
-///     the visual item vector — an inverted range mis-highlights, as
-///     `get_selection_rects` walks logically.
+///   * a wrapped paragraph selects whole instead of one visual line (no editor selects a
+///     soft-wrapped fragment on triple-click), and
+///   * a visually reordered (bidi/RTL) paragraph yields `start <= end`, because the endpoints are
+///     taken in logical order rather than from the ends of the visual item vector — an inverted
+///     range mis-highlights, as `get_selection_rects` walks logically.
 ///
 /// Same gathering discipline as [`extract_line_text_and_clusters`], which fixed
 /// this class for WORD selection: work on the logical sequence, not on one
@@ -160,10 +159,10 @@ fn find_cluster_at_cursor<'a>(
 /// LOGICAL byte order — NOT visual (`layout.items`) order, and NOT restricted to a
 /// single visual line. This makes word segmentation correct in two cases the old
 /// per-visual-line code broke:
-///   * bidi text, where visual order differs from logical order, so word boundaries
-///     computed on the visual concatenation mapped back to the wrong clusters, and
-///   * a word split across a soft wrap, where filtering to one `line_index` only
-///     selected the fragment on the clicked line.
+///   * bidi text, where visual order differs from logical order, so word boundaries computed on the
+///     visual concatenation mapped back to the wrong clusters, and
+///   * a word split across a soft wrap, where filtering to one `line_index` only selected the
+///     fragment on the clicked line.
 fn extract_line_text_and_clusters(
     item_idx: usize,
     layout: &UnifiedLayout,

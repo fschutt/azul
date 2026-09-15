@@ -187,10 +187,19 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
             println!("cargo:rustc-link-search=native={}", dir.display());
             println!("cargo:rustc-link-lib=dylib={dylib_link_name}");
         } else {
+            refuse_to_overwrite_the_linked_library(dir, &out_dir, target);
+
             // Local library: copy to OUT_DIR to avoid cdylib self-link,
             // set rpath so the binary finds the dylib next to itself.
             let link_dir = PathBuf::from(&out_dir);
             let dst = link_dir.join(lib_filename(target));
+            // MSVC links the import library, so it must sit next to the copied DLL.
+            if target.contains("windows-msvc") {
+                let import_lib = dir.join("azul.dll.lib");
+                if import_lib.exists() {
+                    let _ = fs::copy(&import_lib, link_dir.join("azul.dll.lib"));
+                }
+            }
             if src != dst && src.exists() {
                 let _ = fs::copy(&src, &dst);
                 if target.contains("apple") {
@@ -226,9 +235,9 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
                 if src != dst1 && src.exists() {
                     let _ = fs::copy(&src, &dst1);
                 }
-                // target/{release,debug}/examples/
+                // target/{release,debug}/examples/ (may not exist on a first build)
                 let examples_dir = bd.join("examples");
-                if examples_dir.is_dir() {
+                if fs::create_dir_all(&examples_dir).is_ok() {
                     let _ = fs::copy(&src, examples_dir.join(lib_name));
                 }
                 // target/{release,debug}/deps/
@@ -266,6 +275,38 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
     );
     println!("cargo:warning=Set AZ_LINK_PATH to the directory containing the library");
     println!("cargo:warning=Searched: {}", searched.join(", "));
+}
+
+/// Refuses a link-dynamic build whose stub cdylib would overwrite the library it links.
+fn refuse_to_overwrite_the_linked_library(found_in: &Path, out_dir: &str, target: &str) {
+    // Only azul-dll is a cdylib; the pre-rendered `azul` crate (same file) is an rlib.
+    if env::var("CARGO_PKG_NAME").map_or(true, |name| name != "azul-dll") {
+        return;
+    }
+    // OUT_DIR is <target-dir>/<profile>/build/<crate>-<hash>/out.
+    let Some(profile_dir) = Path::new(out_dir).ancestors().nth(3) else {
+        return;
+    };
+    let same_dir = match (fs::canonicalize(found_in), fs::canonicalize(profile_dir)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => found_in == profile_dir,
+    };
+    if !same_dir {
+        return;
+    }
+    panic!(
+        "\n\nrefusing to build azul-dll for link-dynamic into {dir}:\n\
+         this build would overwrite the library it links against ({lib}) with an\n\
+         empty stub (azul-dll is also a cdylib, and cargo copies it into that same\n\
+         directory).\n\n\
+         Build the consumer into a separate target directory; it still finds the\n\
+         prebuilt library in {dir}:\n\n    \
+         CARGO_TARGET_DIR=target/consumer cargo build ...\n\n\
+         or point AZ_LINK_PATH at a copy of the library outside the target directory.\n\
+         (`cargo check` is refused too: a build script cannot tell it from a build.)\n",
+        dir = found_in.display(),
+        lib = lib_filename(target),
+    );
 }
 
 /// System libraries a consumer must link ALONGSIDE the prebuilt `libazul.a`.

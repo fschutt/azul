@@ -1,22 +1,19 @@
 //! iOS file picker via `UIDocumentPickerViewController`.
 //!
 //! Flow:
-//! 1. `dispatch_open_file` stores the caller's `FilePickerHandle` clone in
-//!    `PENDING_PICKERS` keyed by a fresh request ID.
-//! 2. We build a `[UTType]` filter array, alloc the picker
-//!    `[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:asCopy:YES]`
-//!    (iOS 14+; `asCopy:YES` copies the file into the app's tmp sandbox
-//!    so the caller gets a regular `file://` URL with no security-scoped
-//!    bracketing required).
-//! 3. We alloc an `AzulDocumentPickerDelegate` NSObject (registered once
-//!    via `objc::declare::ClassDecl`, same pattern as `AzulGestureTarget`),
-//!    set its `requestID` ivar, and attach it to the picker via
-//!    `objc_setAssociatedObject` (so the picker retains the delegate
-//!    for its lifetime — UIKit doesn't retain delegates itself).
+//! 1. `dispatch_open_file` stores the caller's `FilePickerHandle` clone in `PENDING_PICKERS` keyed
+//!    by a fresh request ID.
+//! 2. We build a `[UTType]` filter array, alloc the picker `[[UIDocumentPickerViewController alloc]
+//!    initForOpeningContentTypes:asCopy:YES]` (iOS 14+; `asCopy:YES` copies the file into the app's
+//!    tmp sandbox so the caller gets a regular `file://` URL with no security-scoped bracketing
+//!    required).
+//! 3. We alloc an `AzulDocumentPickerDelegate` NSObject (registered once via
+//!    `objc::declare::ClassDecl`, same pattern as `AzulGestureTarget`), set its `requestID` ivar,
+//!    and attach it to the picker via `objc_setAssociatedObject` (so the picker retains the
+//!    delegate for its lifetime — UIKit doesn't retain delegates itself).
 //! 4. Present from the key window's root view controller.
-//! 5. Two delegate selectors read `requestID` back out, look up the
-//!    handle in `PENDING_PICKERS`, write the status, and remove the
-//!    entry.
+//! 5. Two delegate selectors read `requestID` back out, look up the handle in `PENDING_PICKERS`,
+//!    write the status, and remove the entry.
 //!
 //! `Info.plist` keys are *not* needed for the picker itself — it runs
 //! out-of-process and grants the app per-URL read access via the OS.
@@ -30,6 +27,8 @@
 #![allow(non_snake_case)]
 
 #[cfg(target_os = "ios")]
+use std::collections::BTreeMap;
+#[cfg(target_os = "ios")]
 use std::os::raw::c_void;
 #[cfg(target_os = "ios")]
 use std::ptr;
@@ -37,20 +36,16 @@ use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(target_os = "ios")]
 use std::sync::Mutex;
+#[cfg(target_os = "ios")]
+use std::sync::Once;
 
+use azul_css::{corety::OptionString, AzString, OptionStringVec, StringVec};
 #[cfg(target_os = "ios")]
 use objc::declare::ClassDecl;
 #[cfg(target_os = "ios")]
 use objc::runtime::{Class, Object, Sel};
 #[cfg(target_os = "ios")]
 use objc::{class, msg_send, sel, sel_impl};
-
-#[cfg(target_os = "ios")]
-use std::collections::BTreeMap;
-#[cfg(target_os = "ios")]
-use std::sync::Once;
-
-use azul_css::{corety::OptionString, AzString, OptionStringVec, StringVec};
 
 use super::{FilePickerHandle, FilePickerStatus};
 

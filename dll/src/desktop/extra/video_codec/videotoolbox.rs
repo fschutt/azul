@@ -11,12 +11,11 @@
 //! what `demux.rs` emits and what goes over UDP in azul-meet); VideoToolbox
 //! speaks **AVCC** (4-byte big-endian length prefixes, out-of-band parameter
 //! sets). This module converts both directions:
-//!   - encode: SPS/PPS pulled from the output format description and emitted
-//!     in-band ahead of every keyframe; each length-prefixed NAL rewritten
-//!     with `00 00 00 01` start codes.
+//!   - encode: SPS/PPS pulled from the output format description and emitted in-band ahead of every
+//!     keyframe; each length-prefixed NAL rewritten with `00 00 00 01` start codes.
 //!   - decode: SPS(7)/PPS(8) NALs collected from the Annex-B stream feed
-//!     `CMVideoFormatDescriptionCreateFromH264ParameterSets`; VCL NALs are
-//!     re-prefixed with 4-byte lengths and wrapped in a `CMSampleBuffer`.
+//!     `CMVideoFormatDescriptionCreateFromH264ParameterSets`; VCL NALs are re-prefixed with 4-byte
+//!     lengths and wrapped in a `CMSampleBuffer`.
 //!
 //! Input frames are RGBA8 (the toolkit's universal frame format); the Apple
 //! encoders accept `kCVPixelFormatType_32BGRA` directly (an internal
@@ -25,9 +24,11 @@
 //! H.265 is not wired yet (the demos are H.264, same scope as the Vulkan
 //! backend) — `open(h265=true)` yields the stub.
 
-use std::collections::VecDeque;
-use std::ffi::c_void;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    collections::VecDeque,
+    ffi::c_void,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use azul_core::video::VideoFrame;
 use azul_css::U8Vec;
@@ -436,7 +437,7 @@ struct EncShared {
 }
 
 /// A live VTCompressionSession (H.264, realtime, no B-frames).
-pub struct VtEncoder {
+pub(super) struct VtEncoder {
     session: *mut c_void,
     shared: Arc<EncShared>,
     width: u32,
@@ -542,7 +543,7 @@ extern "C" fn enc_output(
 impl VtEncoder {
     /// Open a realtime H.264 VTCompressionSession. `None` if VideoToolbox is
     /// unavailable or the session can't be created (caller keeps the stub).
-    pub fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
+    pub(super) fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
         let lib = VtLib::get()?;
         let shared = Arc::new(EncShared {
             chunks: Mutex::new(VecDeque::new()),
@@ -629,7 +630,7 @@ impl VtEncoder {
     }
 
     /// Encode one RGBA frame → Annex-B chunk(s). Empty while VT buffers.
-    pub fn encode(&mut self, rgba: &[u8], force_keyframe: bool) -> Vec<u8> {
+    pub(super) fn encode(&mut self, rgba: &[u8], force_keyframe: bool) -> Vec<u8> {
         let lib = match VtLib::get() {
             Some(l) => l,
             None => return Vec::new(),
@@ -748,7 +749,7 @@ struct DecShared {
 }
 
 /// A live VTDecompressionSession fed Annex-B H.264.
-pub struct VtDecoder {
+pub(super) struct VtDecoder {
     session: *mut c_void,
     format_desc: *mut c_void,
     shared: Arc<DecShared>,
@@ -810,7 +811,7 @@ extern "C" fn dec_output(
 impl VtDecoder {
     /// `None` if VideoToolbox is unavailable (caller keeps the stub). The
     /// session itself is created lazily once SPS+PPS arrive in the stream.
-    pub fn open_h264() -> Option<VtDecoder> {
+    pub(super) fn open_h264() -> Option<VtDecoder> {
         VtLib::get()?;
         crate::plog_info!("[video] VideoToolbox H.264 decoder open (session on first SPS/PPS)");
         Some(VtDecoder {
@@ -899,7 +900,7 @@ impl VtDecoder {
 
     /// Feed one Annex-B chunk; decoded frames appear via the callback
     /// (synchronous decode → typically before this returns).
-    pub fn decode(&mut self, data: &[u8]) -> Vec<VideoFrame> {
+    pub(super) fn decode(&mut self, data: &[u8]) -> Vec<VideoFrame> {
         let lib = match VtLib::get() {
             Some(l) => l,
             None => return Vec::new(),
@@ -996,7 +997,7 @@ impl VtDecoder {
 
     /// End-of-stream: nothing is held back (synchronous decode, no B-frame
     /// delay in this profile) — just drain the queue.
-    pub fn flush(&mut self) -> Vec<VideoFrame> {
+    pub(super) fn flush(&mut self) -> Vec<VideoFrame> {
         self.drain()
     }
 

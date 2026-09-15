@@ -7,14 +7,16 @@ use std::{
     rc::Rc,
 };
 
-use super::defines::*;
 // Re-export types from defines for convenience
 use super::super::common::compose::{xkb_compose_state, xkb_compose_table, ComposeFns};
+use super::defines::*;
 pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, GC};
-use crate::desktop::shell2::common::{
-    dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+use crate::{
+    desktop::shell2::common::{
+        dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+    },
+    load_symbol,
 };
-use crate::load_symbol;
 
 /// Wrapper for dlopen, dlsym, dlclose.
 pub struct Library {
@@ -418,7 +420,8 @@ pub struct Xkb {
     // `char*` is `*mut c_char`, not `*mut i8`: c_char is `u8` on arm, riscv,
     // powerpc and s390x, and the caller's `[c_char; 32]` buffer only type-checks
     // where the two coincide (x86). Same class as the [0i8; 32] fixes.
-    pub xkb_state_key_get_utf8: unsafe extern "C" fn(*mut xkb_state, u32, *mut core::ffi::c_char, usize) -> i32,
+    pub xkb_state_key_get_utf8:
+        unsafe extern "C" fn(*mut xkb_state, u32, *mut core::ffi::c_char, usize) -> i32,
     /// Does this key auto-repeat? The keymap knows (modifiers, locks and
     /// several function keys do not), which is strictly better than a
     /// hand-rolled list of "keys that should not repeat".
@@ -451,12 +454,8 @@ pub struct XkbX11 {
     _lib: Library,
     _xcb: Library,
     /// `xkb_x11_keymap_new_from_device(ctx, conn, device_id, flags)`
-    pub xkb_x11_keymap_new_from_device: unsafe extern "C" fn(
-        *mut xkb_context,
-        *mut std::ffi::c_void,
-        i32,
-        u32,
-    ) -> *mut xkb_keymap,
+    pub xkb_x11_keymap_new_from_device:
+        unsafe extern "C" fn(*mut xkb_context, *mut std::ffi::c_void, i32, u32) -> *mut xkb_keymap,
     /// `xkb_x11_state_new_from_device(keymap, conn, device_id)`
     pub xkb_x11_state_new_from_device:
         unsafe extern "C" fn(*mut xkb_keymap, *mut std::ffi::c_void, i32) -> *mut xkb_state,

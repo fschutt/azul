@@ -3,31 +3,22 @@
 //!
 //! Three callers drive it:
 //!
-//! - The **layout pass** scans the styled DOM for `GeolocationProbe`
-//!   `NodeTypes`. When the first probe appears the framework fires
-//!   `PermissionDiffEvent::Subscribe(Capability::Geolocation)` and the
-//!   platform backend starts a native `CLLocationManager` /
-//!   `LocationManager` / `geoclue` subscription. The reverse on the
-//!   last probe leaving.
+//! - The **layout pass** scans the styled DOM for `GeolocationProbe` `NodeTypes`. When the first
+//!   probe appears the framework fires `PermissionDiffEvent::Subscribe(Capability::Geolocation)`
+//!   and the platform backend starts a native `CLLocationManager` / `LocationManager` / `geoclue`
+//!   subscription. The reverse on the last probe leaving.
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/geolocation/<plat>.rs`)
-//!   calls `set_latest_fix(...)` whenever the native subscription
-//!   delivers an update. The manager debounces and records the most
-//!   recent value; callbacks read it via `CallbackInfo::get_geolocation_fix`.
+//! - The **platform backend** (`dll/src/desktop/extra/geolocation/<plat>.rs`) calls
+//!   `set_latest_fix(...)` whenever the native subscription delivers an update. The manager
+//!   debounces and records the most recent value; callbacks read it via
+//!   `CallbackInfo::get_geolocation_fix`.
 //!
-//! - **Callbacks** read `latest_fix()` synchronously to render the map
-//!   centre, decide whether to show "acquiring signal…", etc.
+//! - **Callbacks** read `latest_fix()` synchronously to render the map centre, decide whether to
+//!   show "acquiring signal…", etc.
 //!
 //! No platform deps; `no_std`-friendly via `alloc::collections::BTreeMap`.
 
-use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::Vec;
-
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
-};
-use azul_core::task::Instant;
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 
 // `LocationFix` + `GeolocationProbeConfig` live in `azul-core` so
 // `NodeType::GeolocationProbe(GeolocationProbeConfig)` can reference
@@ -35,6 +26,11 @@ use azul_core::task::Instant;
 // them here for the existing `azul_layout::managers::geolocation::*`
 // import paths.
 pub use azul_core::geolocation::{GeolocationProbeConfig, LocationFix};
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
+};
 
 /// Diff event the layout pass emits when a probe appears or disappears.
 /// Symmetric to `PermissionDiffEvent` — drives the platform backend's

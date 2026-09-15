@@ -12,32 +12,37 @@
 //! Calling-convention notes:
 //!
 //! - `bind(C)` is the Fortran 2003 way to spell extern "C" linkage.
-//! - C primitives, pointers (`type(c_ptr)`), and `bind(C)` derived types
-//!   are passed by VALUE; we add `, value :: arg` to every dummy
-//!   argument because Fortran defaults to pass-by-reference.
-//! - The `import` statement at the top of each interface body brings
-//!   the host module's derived types (`AzAppConfig`, etc.) into scope
-//!   so the body can reference them.
-//! - We name the Fortran-side procedure with a snake_case alias
-//!   (e.g. `az_app_create`) and bind it to the verbatim C symbol via
-//!   `name="AzApp_create"`. This avoids any case-folding ambiguity in
+//! - C primitives, pointers (`type(c_ptr)`), and `bind(C)` derived types are passed by VALUE; we
+//!   add `, value :: arg` to every dummy argument because Fortran defaults to pass-by-reference.
+//! - The `import` statement at the top of each interface body brings the host module's derived
+//!   types (`AzAppConfig`, etc.) into scope so the body can reference them.
+//! - We name the Fortran-side procedure with a snake_case alias (e.g. `az_app_create`) and bind it
+//!   to the verbatim C symbol via `name="AzApp_create"`. This avoids any case-folding ambiguity in
 //!   user code while keeping the linker symbol exact.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier,
+};
 
-pub fn generate_externals(
+/// The interface block of every function whose class `belongs` accepts —
+/// one api.json module's worth.
+pub fn generate_externals_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
 ) -> Result<()> {
     builder.line("! ----------------------------------------------------------------------");
-    builder.line("! C-ABI interface block: every exported `azul` C symbol is declared");
-    builder.line("! here. Symbol names match the C bindings verbatim via bind(C, name=).");
+    builder.line("! C-ABI interface block: every exported `azul` C symbol of this module");
+    builder.line("! is declared here. Symbol names match the C bindings verbatim via");
+    builder.line("! bind(C, name=).");
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
@@ -45,7 +50,7 @@ pub fn generate_externals(
     builder.indent();
     builder.blank();
 
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
@@ -60,7 +65,7 @@ pub fn generate_externals(
     // block symbol must be re-exported explicitly. Without these
     // `public` declarations, `use azul` in caller code sees a typedef
     // tree but no callable C-ABI functions.
-    for func in &ir.functions {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
@@ -72,7 +77,11 @@ pub fn generate_externals(
     Ok(())
 }
 
-pub(crate) fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+pub(crate) fn should_emit_function(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
@@ -149,7 +158,7 @@ pub(crate) fn fortran_alias_for(c_symbol: &str) -> String {
 fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if !func.doc.is_empty() {
         for d in &func.doc {
-            let safe = d.replace('\r', " ").replace('\n', " ");
+            let safe = d.replace(['\r', '\n'], " ");
             builder.line(&format!("! {}", safe));
         }
     }

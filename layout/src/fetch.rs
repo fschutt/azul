@@ -50,7 +50,10 @@ impl core::fmt::Display for FetchError {
             Self::Io(e) => write!(f, "read failed: {e}"),
             Self::Http(e) => write!(f, "http failed: {e}"),
             Self::HttpUnavailable => {
-                write!(f, "a remote URI needs the `http` feature, which is not built in")
+                write!(
+                    f,
+                    "a remote URI needs the `http` feature, which is not built in"
+                )
             }
         }
     }
@@ -107,9 +110,7 @@ pub fn route_of(uri: &str) -> UriRoute {
     match parse_scheme_and_path(trimmed) {
         // A `file:` URL's path is PERCENT-ENCODED: a space is `%20`, and
         // handing that to the filesystem asks for a file nobody has.
-        Some((scheme, path)) if scheme == "file" => {
-            UriRoute::LocalPath(percent_decode(&path))
-        }
+        Some((scheme, path)) if scheme == "file" => UriRoute::LocalPath(percent_decode(&path)),
         Some((scheme, _)) if scheme == "http" || scheme == "https" => {
             UriRoute::Remote(String::from(trimmed))
         }

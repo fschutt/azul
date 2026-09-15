@@ -3,22 +3,19 @@
 //! This module defines the callback infrastructure used by the event system,
 //! layout engine, and virtual view rendering. Key design patterns:
 //!
-//! - **Core vs Layout callback split**: `CoreCallbackType` and
-//!   `CoreRenderImageCallbackType` store function pointers as `usize` to avoid
-//!   circular dependencies between `azul-core` and `azul-layout`. The actual
-//!   function pointer types are defined in `azul-layout` and transmuted at
-//!   invocation time.
+//! - **Core vs Layout callback split**: `CoreCallbackType` and `CoreRenderImageCallbackType` store
+//!   function pointers as `usize` to avoid circular dependencies between `azul-core` and
+//!   `azul-layout`. The actual function pointer types are defined in `azul-layout` and transmuted
+//!   at invocation time.
 //!
-//! - **FFI callable pattern**: Callback structs carry an optional
-//!   `ctx: OptionRefAny` field that holds a foreign callable (e.g. a Python
-//!   function object). The `extern "C"` trampoline stored in `cb` extracts
-//!   both the user data and the foreign callable from `RefAny` and dispatches
-//!   the call. Native Rust code sets `ctx` to `None`.
+//! - **FFI callable pattern**: Callback structs carry an optional `ctx: OptionRefAny` field that
+//!   holds a foreign callable (e.g. a Python function object). The `extern "C"` trampoline stored
+//!   in `cb` extracts both the user data and the foreign callable from `RefAny` and dispatches the
+//!   call. Native Rust code sets `ctx` to `None`.
 //!
-//! - **Info structs**: `LayoutCallbackInfo`, `VirtualViewCallbackInfo`, and
-//!   the layout-side `CallbackInfo` provide read-only access to framework
-//!   resources (fonts, images, GL context, window size) during callback
-//!   invocation.
+//! - **Info structs**: `LayoutCallbackInfo`, `VirtualViewCallbackInfo`, and the layout-side
+//!   `CallbackInfo` provide read-only access to framework resources (fonts, images, GL context,
+//!   window size) during callback invocation.
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -434,7 +431,7 @@ pub enum EdgeType {
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
@@ -505,27 +502,6 @@ pub enum MeasureDomMode {
     /// box) and report that - "how big does this content want to be", the
     /// answer a label or a popup needs.
     ShrinkToFit,
-}
-
-impl Clone for VirtualViewCallbackInfo {
-    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
-    fn clone(&self) -> Self {
-        Self {
-            reason: self.reason,
-            system_fonts: self.system_fonts,
-            image_cache: self.image_cache,
-            window_theme: self.window_theme,
-            window_frame: self.window_frame,
-            bounds: self.bounds,
-            materialized: self.materialized,
-            virtual_rect: self.virtual_rect,
-            scroll_offset: self.scroll_offset,
-            callable_ptr: self.callable_ptr,
-            measure_dom_fn: self.measure_dom_fn,
-            measure_dom_ctx: self.measure_dom_ctx,
-            _abi_mut: self._abi_mut,
-        }
-    }
 }
 
 impl VirtualViewCallbackInfo {
@@ -814,12 +790,10 @@ impl Default for TimerCallbackReturn {
     }
 }
 
-/// Gives the `layout()` function access to the `RendererResources` and the `Window`
-/// (for querying images and fonts, as well as width / height)
+/// Reference data container for `LayoutCallbackInfo` (all read-only fields).
 ///
-#[derive(Debug)]
-#[repr(C)]
-/// Reference data container for `LayoutCallbackInfo` (all read-only fields)
+/// Gives the `layout()` function access to the `RendererResources` and the
+/// `Window` — querying images and fonts, and the width / height.
 ///
 /// This struct consolidates all readonly references that layout callbacks need to query state.
 /// By grouping these into a single struct, we reduce the number of parameters to
@@ -827,6 +801,8 @@ impl Default for TimerCallbackReturn {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
+#[derive(Debug)]
+#[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
@@ -891,6 +867,7 @@ pub enum RelayoutReason {
     Other,
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct LayoutCallbackInfo {
     /// Single reference to all readonly reference data
@@ -1181,11 +1158,7 @@ impl SystemStyleDependencies {
     /// only a theme switch reveals. Declaring is opt-in; conservatism is the
     /// default.
     #[must_use]
-    pub fn dom_depends_on_change(
-        &self,
-        old: &SystemStyle,
-        new: &SystemStyle,
-    ) -> bool {
+    pub fn dom_depends_on_change(&self, old: &SystemStyle, new: &SystemStyle) -> bool {
         if self.is_empty() {
             return old != new;
         }
@@ -1282,20 +1255,6 @@ pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
 #[must_use]
 pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
     SystemStyleDependencies::empty()
-}
-
-impl Clone for LayoutCallbackInfo {
-    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
-    fn clone(&self) -> Self {
-        Self {
-            ref_data: self.ref_data,
-            window_size: self.window_size,
-            theme: self.theme,
-            relayout_reason: self.relayout_reason,
-            callable_ptr: self.callable_ptr,
-            _abi_mut: self._abi_mut,
-        }
-    }
 }
 
 impl core::fmt::Debug for LayoutCallbackInfo {
@@ -1829,8 +1788,9 @@ pub struct FocusTargetPath {
 /// unsafely cast back to the actual function pointer type:
 /// `extern "C" fn(RefAny, CallbackInfo) -> Update`
 ///
-/// This design allows azul-core to store callbacks without depending on azul-layout's `CallbackInfo`
-/// type. The actual function pointer type is defined in azul-layout as `CallbackType`.
+/// This design allows azul-core to store callbacks without depending on azul-layout's
+/// `CallbackInfo` type. The actual function pointer type is defined in azul-layout as
+/// `CallbackType`.
 pub type CoreCallbackType = usize;
 
 /// Stores a callback as usize (actually a function pointer cast to usize)

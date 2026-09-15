@@ -9,35 +9,33 @@
 //! `push_location_fix`.
 //!
 //! macOS specifics:
-//! - `Info.plist` needs `NSLocationWhenInUseUsageDescription` (legacy
-//!   `NSLocationUsageDescription` for 10.14-).
-//! - Catalina+ requires the app to be signed/notarized or the prompt is
-//!   denied outright.
-//! - Most Macs have no GPS; Apple fuses Wi-Fi BSSID + IP lookup, so
-//!   accuracy is typically ~100 m.
+//! - `Info.plist` needs `NSLocationWhenInUseUsageDescription` (legacy `NSLocationUsageDescription`
+//!   for 10.14-).
+//! - Catalina+ requires the app to be signed/notarized or the prompt is denied outright.
+//! - Most Macs have no GPS; Apple fuses Wi-Fi BSSID + IP lookup, so accuracy is typically ~100 m.
 //!
 //! The delegate class name differs from the iOS one (`AzulMacLocationDelegate`
 //! vs `AzulLocationDelegate`) so the two never collide if both objc runtimes
 //! were ever loaded in one process.
 
-use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
-#[cfg(target_os = "macos")]
-use azul_layout::managers::permission::{
-    push_async_result, Capability, PermissionQuality, PermissionState,
-};
-
-#[cfg(target_os = "macos")]
-use objc::declare::ClassDecl;
-#[cfg(target_os = "macos")]
-use objc::runtime::{Class, Object, Sel};
-#[cfg(target_os = "macos")]
-use objc::{class, msg_send, sel, sel_impl, Encode, Encoding};
 #[cfg(target_os = "macos")]
 use std::ptr;
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::Once;
+
+use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
+#[cfg(target_os = "macos")]
+use azul_layout::managers::permission::{
+    push_async_result, Capability, PermissionQuality, PermissionState,
+};
+#[cfg(target_os = "macos")]
+use objc::declare::ClassDecl;
+#[cfg(target_os = "macos")]
+use objc::runtime::{Class, Object, Sel};
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl, Encode, Encoding};
 
 /// `CLLocationCoordinate2D` — `{ latitude: double, longitude: double }`.
 /// Defined locally so `msg_send!` can do the struct-return for
@@ -105,7 +103,7 @@ unsafe fn manager() -> *mut Object {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn subscribe(high_accuracy: bool, background: bool) {
+unsafe fn subscribe(high_accuracy: bool, background: bool) { unsafe {
     let mgr = manager();
     if mgr.is_null() {
         return;
@@ -117,7 +115,7 @@ unsafe fn subscribe(high_accuracy: bool, background: bool) {
         let _: () = msg_send![mgr, requestWhenInUseAuthorization];
     }
     let _: () = msg_send![mgr, startUpdatingLocation];
-}
+}}
 
 #[cfg(target_os = "macos")]
 unsafe fn set_accuracy(high_accuracy: bool) {

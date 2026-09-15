@@ -9,20 +9,18 @@
 //! headlessly and VALIDATE EVERY LAYER THE LAYOUT CRATE OWNS, so the seam
 //! the defect lives in can be bisected from above:
 //!
-//! * the resize fast path (`resize_only_hint` latch + relayout of the SAME
-//!   StyledDom — `incremental_relayout_for_resize`,
-//!   `dll/src/desktop/shell2/common/layout.rs`), multi-step, live-resize
-//!   shaped, with the editing session alive throughout;
-//! * scroll re-registration + the CPU hit-tester rebuild (the shells'
-//!   finalize tail), hover push, click, drag;
-//! * typed text through the REAL edit pipeline (the content overlay — layout
-//!   re-runs on the DOM's original text and re-applies the edit every pass)
-//!   and the caret reveal, on the real `TextInput` widget DOM;
-//! * assertions at every level: session state, `CursorRect`/`SelectionRect`
-//!   items in the display list (each resize pass included), rasterized
-//!   pixels (so a stale clip cannot hide an item that exists), and
-//!   `compute_display_list_damage` covering the fresh caret (so the present
-//!   path repaints the right region and the DL Arc is never re-served).
+//! * the resize fast path (`resize_only_hint` latch + relayout of the SAME StyledDom —
+//!   `incremental_relayout_for_resize`, `dll/src/desktop/shell2/common/layout.rs`), multi-step,
+//!   live-resize shaped, with the editing session alive throughout;
+//! * scroll re-registration + the CPU hit-tester rebuild (the shells' finalize tail), hover push,
+//!   click, drag;
+//! * typed text through the REAL edit pipeline (the content overlay — layout re-runs on the DOM's
+//!   original text and re-applies the edit every pass) and the caret reveal, on the real
+//!   `TextInput` widget DOM;
+//! * assertions at every level: session state, `CursorRect`/`SelectionRect` items in the display
+//!   list (each resize pass included), rasterized pixels (so a stale clip cannot hide an item that
+//!   exists), and `compute_display_list_damage` covering the fresh caret (so the present path
+//!   repaints the right region and the DL Arc is never re-served).
 //!
 //! All of this is GREEN, which is itself a finding: the state → hit-test →
 //! display-list → raster → damage pipeline in `azul-layout` survives the
@@ -63,11 +61,10 @@ const VALUE: &str = "a quick brown fox jumped over the lazy dog";
 /// scroll box (`overflow-x: auto; overflow-y: hidden; white-space: pre`), the
 /// text is its child. The container tracks the window width so a window
 /// resize is what makes the text overflow.
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; display: block; } \
-                   .container { display: block; width: 100%; padding: 2px; } \
-                   .value { display: block; overflow-x: auto; overflow-y: hidden; \
-                            white-space: pre; scrollbar-width: none; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; display: block; } \
+                   .container { display: block; width: 100%; padding: 2px; } .value { display: \
+                   block; overflow-x: auto; overflow-y: hidden; white-space: pre; \
+                   scrollbar-width: none; }";
 
 fn fixture() -> Dom {
     use azul_core::dom::IdOrClass;
@@ -151,8 +148,10 @@ impl Harness {
     }
 
     fn rebuild_hit_tester(&mut self) {
-        self.hit_tester
-            .rebuild_from_layout_with_gpu(&self.lw.layout_results, Some(&self.lw.gpu_state_manager));
+        self.hit_tester.rebuild_from_layout_with_gpu(
+            &self.lw.layout_results,
+            Some(&self.lw.gpu_state_manager),
+        );
     }
 
     /// Port of `PlatformWindow::update_hit_test_at` — same as
@@ -163,10 +162,9 @@ impl Harness {
         let hit_test = {
             let scroll_manager = &self.lw.scroll_manager;
             let gpu = &self.lw.gpu_state_manager;
-            let resolve =
-                |d: DomId, n: NodeId| -> Option<LogicalPosition> {
-                    scroll_manager.get_current_offset(d, n)
-                };
+            let resolve = |d: DomId, n: NodeId| -> Option<LogicalPosition> {
+                scroll_manager.get_current_offset(d, n)
+            };
             let resolve_tf = |d: DomId, n: NodeId| {
                 gpu.caches
                     .get(&d)
@@ -491,8 +489,8 @@ fn click_still_places_a_caret_after_a_resize_makes_the_text_overflow() {
     let value_width = h.node_width(NodeId::new(2));
     assert!(
         value_width.is_some_and(|w| w < narrow_extent),
-        "premise broken: after the resize the value box ({value_width:?}) does not overflow \
-         (text extent {narrow_extent})"
+        "premise broken: after the resize the value box ({value_width:?}) does not overflow (text \
+         extent {narrow_extent})"
     );
 
     // Click on visible text well inside the narrowed box.
@@ -501,8 +499,8 @@ fn click_still_places_a_caret_after_a_resize_makes_the_text_overflow() {
     let after = h.caret();
     assert!(
         after.is_some(),
-        "THE BUG: after the resize-overflow, the click at {click2:?} placed no caret \
-         (hovered = {:?}, caret before = {before:?})",
+        "THE BUG: after the resize-overflow, the click at {click2:?} placed no caret (hovered = \
+         {:?}, caret before = {before:?})",
         h.hovered_nodes()
     );
     // And the caret must be at the clicked spot, not wherever it was before.
@@ -512,13 +510,12 @@ fn click_still_places_a_caret_after_a_resize_makes_the_text_overflow() {
     );
     assert!(
         !h.caret_items().is_empty(),
-        "THE BUG (visual): the post-resize click updated the caret state but the display \
-         list carries no CursorRect — the caret is invisible"
+        "THE BUG (visual): the post-resize click updated the caret state but the display list \
+         carries no CursorRect — the caret is invisible"
     );
 
     // A drag from the caret must paint a selection.
-    h.lw
-        .process_mouse_drag_for_selection(click2, LogicalPosition::new(120.0, 12.0));
+    h.lw.process_mouse_drag_for_selection(click2, LogicalPosition::new(120.0, 12.0));
     assert!(
         h.selection_items() > 0,
         "THE BUG (visual): the drag extended no painted selection after the resize"
@@ -552,13 +549,11 @@ fn click_still_places_a_caret_after_growing_back() {
     );
     assert!(
         !h.caret_items().is_empty(),
-        "THE BUG (visual): after shrink+grow the caret state exists but no CursorRect is \
-         painted"
+        "THE BUG (visual): after shrink+grow the caret state exists but no CursorRect is painted"
     );
 
     // And the drag must paint bands again.
-    h.lw
-        .process_mouse_drag_for_selection(click, LogicalPosition::new(40.0, 12.0));
+    h.lw.process_mouse_drag_for_selection(click, LogicalPosition::new(40.0, 12.0));
     assert!(
         h.selection_items() > 0,
         "THE BUG (visual): after shrink+grow a drag paints no selection"
@@ -576,8 +571,7 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
 
     let mut h = Harness::new_widget("hello", 800.0, 600.0);
     // Instant caret reveal (the glide timer is armed in the dll, not here).
-    h.lw.system_animations_override =
-        Some(azul_core::resources::SystemAnimations::disabled());
+    h.lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
 
     // Click into the initial value, focus the container (the shells' SetFocus).
     let click1 = LogicalPosition::new(20.0, 24.0);
@@ -609,8 +603,8 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
         h.resize(w, 600.0);
         assert!(
             !h.caret_items().is_empty(),
-            "THE BUG (visual): the resize to {w}px dropped the caret from the display \
-             list while the editing session is alive"
+            "THE BUG (visual): the resize to {w}px dropped the caret from the display list while \
+             the editing session is alive"
         );
     }
 
@@ -622,35 +616,32 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
     #[cfg(feature = "cpurender")]
     let before_click = h.render(&mut glyphs);
     #[cfg(feature = "cpurender")]
-    let dl_before_click = h
-        .lw
-        .layout_results
-        .get(&DomId::ROOT_ID)
-        .unwrap()
-        .display_list
-        .clone();
+    let dl_before_click =
+        h.lw.layout_results
+            .get(&DomId::ROOT_ID)
+            .unwrap()
+            .display_list
+            .clone();
 
     // Click on visible text.
     let click2 = LogicalPosition::new(60.0, 24.0);
     h.click(click2, 5000);
     assert!(
         h.caret().is_some(),
-        "THE BUG: after shrink+grow the widget click at {click2:?} placed no caret; \
-         hovered = {:?}",
+        "THE BUG: after shrink+grow the widget click at {click2:?} placed no caret; hovered = {:?}",
         h.hovered_nodes()
     );
     assert!(
         !h.caret_items().is_empty(),
-        "THE BUG (visual): after shrink+grow the caret state exists but no CursorRect is \
-         painted"
+        "THE BUG (visual): after shrink+grow the caret state exists but no CursorRect is painted"
     );
     #[cfg(feature = "cpurender")]
     let after_click = h.render(&mut glyphs);
     #[cfg(feature = "cpurender")]
     assert!(
         pixel_diff(&before_click, &after_click) > 0,
-        "THE BUG (pixels): the post-grow click changed no pixel — the caret is in the DL \
-         but never reaches the screen (stale clip?)"
+        "THE BUG (pixels): the post-grow click changed no pixel — the caret is in the DL but \
+         never reaches the screen (stale clip?)"
     );
 
     // The DAMAGE layer the CPU present paths run (`compute_display_list_damage`
@@ -659,17 +650,16 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
     // even with a perfect display list. `None` = full repaint = fine.
     #[cfg(feature = "cpurender")]
     {
-        let dl_after_click = h
-            .lw
-            .layout_results
-            .get(&DomId::ROOT_ID)
-            .unwrap()
-            .display_list
-            .clone();
+        let dl_after_click =
+            h.lw.layout_results
+                .get(&DomId::ROOT_ID)
+                .unwrap()
+                .display_list
+                .clone();
         assert!(
             !std::sync::Arc::ptr_eq(&dl_before_click, &dl_after_click),
-            "THE BUG (damage): the click re-served the SAME display-list Arc — the \
-             present path's ptr-eq shortcut reports zero damage and the caret never paints"
+            "THE BUG (damage): the click re-served the SAME display-list Arc — the present path's \
+             ptr-eq shortcut reports zero damage and the caret never paints"
         );
         let offsets = azul_layout::cpurender::ScrollOffsetMap::default();
         if let Some(damage) = azul_layout::cpurender::compute_display_list_damage(
@@ -679,7 +669,10 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
             &offsets,
         ) {
             let caret = h.caret_items();
-            let caret_rect = caret.first().copied().expect("caret item exists (asserted)");
+            let caret_rect = caret
+                .first()
+                .copied()
+                .expect("caret item exists (asserted)");
             let covered = damage.iter().any(|d| {
                 d.origin.x <= caret_rect.origin.x + caret_rect.size.width
                     && caret_rect.origin.x <= d.origin.x + d.size.width
@@ -688,15 +681,14 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
             });
             assert!(
                 covered,
-                "THE BUG (damage): the click's damage {damage:?} does not cover the new \
-                 caret at {caret_rect:?} — the present repaints the wrong region"
+                "THE BUG (damage): the click's damage {damage:?} does not cover the new caret at \
+                 {caret_rect:?} — the present repaints the wrong region"
             );
         }
     }
 
     // Drag: bands must paint.
-    h.lw
-        .process_mouse_drag_for_selection(click2, LogicalPosition::new(140.0, 24.0));
+    h.lw.process_mouse_drag_for_selection(click2, LogicalPosition::new(140.0, 24.0));
     assert!(
         h.selection_items() > 0,
         "THE BUG (visual): after shrink+grow a drag on the widget paints no selection"
@@ -713,7 +705,10 @@ fn the_real_widget_survives_shrink_clip_then_grow_with_typed_text() {
 
 /// Count pixels that differ between two same-size renders.
 #[cfg(feature = "cpurender")]
-fn pixel_diff(a: &azul_layout::cpurender::AzulPixmap, b: &azul_layout::cpurender::AzulPixmap) -> usize {
+fn pixel_diff(
+    a: &azul_layout::cpurender::AzulPixmap,
+    b: &azul_layout::cpurender::AzulPixmap,
+) -> usize {
     assert_eq!(a.width(), b.width());
     assert_eq!(a.height(), b.height());
     let (ad, bd) = (a.data(), b.data());
@@ -770,8 +765,8 @@ fn click_paints_a_visible_caret_after_a_full_regen_resize_cycle() {
     );
     assert!(
         alphas2.iter().any(|(_, a)| *a > 0),
-        "THE BUG: after the full-regen cycle the caret paints with alpha 0 \
-         (invisible): {alphas2:?}"
+        "THE BUG: after the full-regen cycle the caret paints with alpha 0 (invisible): \
+         {alphas2:?}"
     );
     #[cfg(feature = "cpurender")]
     {
@@ -802,7 +797,8 @@ fn click_paints_a_visible_caret_after_a_full_regen_resize_cycle() {
             .count();
         assert!(
             painted * 2 >= y1.saturating_sub(y0),
-            "THE BUG (pixels): the post-regen caret column x={cx} rows {y0}..{y1} is              unpainted ({painted} non-white rows); before/after diff was {}",
+            "THE BUG (pixels): the post-regen caret column x={cx} rows {y0}..{y1} is              \
+             unpainted ({painted} non-white rows); before/after diff was {}",
             pixel_diff(&before_click, &after_click)
         );
     }

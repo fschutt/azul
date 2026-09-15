@@ -105,9 +105,13 @@ pub mod lang_swift;
 pub mod lang_v;
 pub mod managed_host_invoker;
 pub mod managed_lang_helpers;
+pub mod module_plan;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
+use std::path::Path;
+
+use anyhow::Result;
 pub use config::*;
 pub use generator::*;
 pub use ir::*;
@@ -116,8 +120,6 @@ pub use lang_reexports::generate_reexports;
 pub use rust::{RustDynamicGenerator, RustStaticGenerator};
 
 use crate::api::ApiData;
-use anyhow::Result;
-use std::path::Path;
 
 // ============================================================================
 // Helper: Build IR from ApiData
@@ -128,7 +130,7 @@ fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
         .get_latest_version_str()
         .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
     let version_data = api_data
-        .get_version(&version_str)
+        .get_version(version_str)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
     let ir_builder = IRBuilder::new(version_data);
@@ -287,8 +289,9 @@ pub fn generate_red(api_data: &ApiData) -> Result<String> {
     lang_red::generate(&ir, &config)
 }
 
-/// Generate D bindings as String. Returns `azul.d` (explicit `module azul`
-/// FFI translation; callbacks are C-direct `extern(C)` fn pointers).
+/// Generate D bindings as String. Returns `azul.d`, `module azul` in one file:
+/// the C ABI declared in D plus the idiomatic API over it (handle structs, D
+/// enums, native string / Nullable / arrays, delegates for callbacks).
 pub fn generate_d(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
@@ -311,9 +314,10 @@ pub fn generate_v(api_data: &ApiData) -> Result<String> {
     lang_v::generate(&ir, &config)
 }
 
-/// Generate Swift bindings as String. Returns `azul.swift` (a thin idiomatic
-/// layer over the C header, imported via a Clang module map; callbacks are
-/// C-direct `@convention(c)` fn pointers). Pair with [`generate_swift_modulemap`].
+/// Generate Swift bindings as String. Returns `azul.swift`, the `Azul` module in
+/// one file (classes, structs and enums over the C header, which Swift imports
+/// through a Clang module map; closures for callbacks). Pair with
+/// [`generate_swift_modulemap`].
 pub fn generate_swift(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
@@ -358,20 +362,13 @@ pub fn generate_perl(api_data: &ApiData) -> Result<String> {
     lang_perl::generate(&ir, &config)
 }
 
-/// Generate OCaml bindings as a `(mli, ml)` pair. The generator returns the
-/// interface and implementation in one String separated by
-/// [`lang_ocaml::SPLIT_MARKER`]; this helper splits them.
-pub fn generate_ocaml(api_data: &ApiData) -> Result<(String, String)> {
+/// Generate OCaml bindings as a multi-file String separated by
+/// [`lang_ocaml::FILE_MARKER`] / [`lang_ocaml::END_MARKER`] headers (one
+/// unit per api.json module behind the `azul.ml` facade).
+pub fn generate_ocaml(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
-    let combined = lang_ocaml::generate(&ir, &config)?;
-    match combined.split_once(lang_ocaml::SPLIT_MARKER) {
-        Some((mli, ml)) => Ok((mli.trim_end().to_string(), ml.trim_start().to_string())),
-        None => Err(anyhow::anyhow!(
-            "OCaml generator output did not contain SPLIT_MARKER ({:?})",
-            lang_ocaml::SPLIT_MARKER
-        )),
-    }
+    lang_ocaml::generate(&ir, &config)
 }
 
 /// Generate Haskell bindings as a multi-file String separated by
@@ -397,8 +394,10 @@ pub fn generate_kotlin(api_data: &ApiData) -> Result<String> {
     lang_kotlin::generate(&ir, &config)
 }
 
-/// Generate Fortran (F2003 iso_c_binding) bindings as String. Returns
-/// `azul.f90` source.
+/// Generate Fortran (F2003 iso_c_binding) bindings as a multi-file String
+/// separated by [`lang_fortran::FILE_MARKER`] / [`lang_fortran::END_MARKER`]
+/// headers (one module per api.json module behind the `azul` facade, plus
+/// the Makefile).
 pub fn generate_fortran(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
@@ -503,7 +502,7 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 ///
 /// This generates all standard code generation targets:
 /// - DLL static API
-/// - DLL dynamic API  
+/// - DLL dynamic API
 /// - C header
 /// - C++ header
 /// - Public Rust API
@@ -638,7 +637,10 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
         code.len()
     );
     println!("     To use this, update dll/src/lib.rs include!() path to:");
-    println!("     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/python_api.rs\"));");
+    println!(
+        "     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \
+         \"/../target/codegen/python_api.rs\"));"
+    );
 
     Ok(())
 }

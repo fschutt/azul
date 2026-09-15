@@ -9,52 +9,66 @@
 //! ```
 //!
 //! Conventions:
-//! - The Haskell-side identifier is `c_<C symbol>` so the FFI bindings
-//!   are textually distinct from the idiomatic surface.
-//! - Every import is `safe`. A `RefAny` built by `refAnyCreate` carries a
-//!   host handle whose destructor calls back into Haskell through the
-//!   registered releaser, so ANY function that may drop a `RefAny` — every
-//!   `_delete`, every by-value consumer — can re-enter Haskell. A call-in
-//!   during an `unsafe` foreign call is undefined behaviour in GHC
-//!   (deadlock or abort); the cost of `safe` is a few nanoseconds per call
-//!   against a GUI toolkit's frame budget.
-//! - Every C function is treated as living in `IO`, since calls have
-//!   side effects from Haskell's perspective even when the Rust side
-//!   is morally pure (e.g. construction of a `Dom`).
-//! - Argument and return types use the Haskell representation chosen
-//!   in `types.rs` for the matching IR type. Pointers to FFI types
-//!   become `Ptr <Name>`; primitives become their `Foreign.C.Types`
+//! - The Haskell-side identifier is `c_<C symbol>` so the FFI bindings are textually distinct from
+//!   the idiomatic surface.
+//! - Every import is `safe`. A `RefAny` built by `refAnyCreate` carries a host handle whose
+//!   destructor calls back into Haskell through the registered releaser, so ANY function that may
+//!   drop a `RefAny` — every `_delete`, every by-value consumer — can re-enter Haskell. A call-in
+//!   during an `unsafe` foreign call is undefined behaviour in GHC (deadlock or abort); the cost of
+//!   `safe` is a few nanoseconds per call against a GUI toolkit's frame budget.
+//! - Every C function is treated as living in `IO`, since calls have side effects from Haskell's
+//!   perspective even when the Rust side is morally pure (e.g. construction of a `Dom`).
+//! - Argument and return types use the Haskell representation chosen in `types.rs` for the matching
+//!   IR type. Pointers to FFI types become `Ptr <Name>`; primitives become their `Foreign.C.Types`
 //!   equivalent.
-//! - Functions whose C-ABI signature passes or returns a struct by value
-//!   route through the `<name>_via` shim (`cshim.rs`): aggregate args are
-//!   `Ptr T`, an aggregate return is a trailing `Ptr T` out-parameter.
+//! - Functions whose C-ABI signature passes or returns a struct by value route through the
+//!   `<name>_via` shim (`cshim.rs`): aggregate args are `Ptr T`, an aggregate return is a trailing
+//!   `Ptr T` out-parameter.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, TypeCategory};
-use super::super::managed_host_invoker;
-use super::sanitize_doc;
-use super::types::haskell_field_type;
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, TypeCategory},
+        managed_host_invoker,
+    },
+    sanitize_doc,
+    types::haskell_field_type,
+};
 
 // ============================================================================
 // Top-level entry
 // ============================================================================
 
+/// Every import in one module (the pre-split shape, kept for the tests).
 pub fn emit_foreign_imports(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    for func in &ir.functions {
+    emit_foreign_imports_for(builder, ir, config, &|_| true)?;
+    emit_host_invoker_imports(builder, ir, config);
+    Ok(())
+}
+
+/// The imports of every function whose class, and every callback typedef
+/// whose name, `belongs` accepts — one api.json module's worth. The
+/// host-invoker protocol is not per module; see
+/// [`emit_host_invoker_imports`].
+pub fn emit_foreign_imports_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    for func in ir.functions.iter().filter(|f| belongs(&f.class_name)) {
         if !should_emit_function(func, ir, config) {
             continue;
         }
         emit_one(builder, func, ir);
     }
-
-    emit_host_invoker_imports(builder, ir, config);
 
     // Callback wrappers: emit `foreign import ccall "wrapper"` for each
     // callback typedef so users can pass Haskell functions across the
@@ -64,7 +78,7 @@ pub fn emit_foreign_imports(
     builder.line("-- Callback wrappers: turn a Haskell function into a C function pointer.");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -78,22 +92,21 @@ pub fn emit_foreign_imports(
     // Haskell-friendly inner with by-pointer args and out-pointer
     // return. The three imports below let user code:
     //
-    //   1. Wrap a Haskell fn `(Ptr Arg1 -> ... -> Ptr Ret -> IO ())` as
-    //      a `FunPtr` via `mk_<X>_inner`.
-    //   2. Register that FunPtr via `c_<X>_set_inner` so the trampoline
-    //      knows where to delegate.
-    //   3. Take `p_<X>_trampoline` as the actual C fn pointer to splice
-    //      into AzLayoutCallback / button.with_on_click / etc.
+    //   1. Wrap a Haskell fn `(Ptr Arg1 -> ... -> Ptr Ret -> IO ())` as a `FunPtr` via
+    //      `mk_<X>_inner`.
+    //   2. Register that FunPtr via `c_<X>_set_inner` so the trampoline knows where to delegate.
+    //   3. Take `p_<X>_trampoline` as the actual C fn pointer to splice into AzLayoutCallback /
+    //      button.with_on_click / etc.
     //
     // This is the raw path for callback kinds WITHOUT a host invoker; the
     // kinds in `HOST_INVOKER_KINDS` go through `Azul`'s managed layer.
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Inbound trampolines (Haskell-friendly out-pointer inner + C-ABI trampoline).");
-    builder.line("-- See cbits/azul_shims.c for the matching `Az<X>_trampoline` / `_set_inner`.");
+    builder.line("-- See cbits/azul_<module>.c for the matching `Az<X>_trampoline` / `_set_inner`.");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -108,7 +121,7 @@ pub fn emit_foreign_imports(
 /// The `_via` forms are the shims `cshim.rs` emits for the by-value
 /// returns. The managed layer in `Azul` builds `refAnyCreate` and the
 /// closure-taking callback setters on top of these.
-fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+pub fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Host-invoker protocol: host-handle RefAny + per-kind invokers.");
@@ -141,7 +154,10 @@ fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: 
             continue;
         }
         let sig = host_invoker_signature(cb, ir);
-        builder.line(&format!("-- {} invoker: handle, one pointer per callback arg, out-pointer return.", wrapper));
+        builder.line(&format!(
+            "-- {} invoker: handle, one pointer per callback arg, out-pointer return.",
+            wrapper
+        ));
         builder.line("foreign import ccall \"wrapper\"");
         builder.indent();
         builder.line(&format!(
@@ -210,7 +226,18 @@ pub fn emit_callback_register_helpers(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    if ir.callback_typedefs.is_empty() {
+    emit_callback_register_helpers_for(builder, ir, config, &|_| true)
+}
+
+/// The `register<X>Callback` helpers of the callback typedefs `belongs`
+/// accepts.
+pub fn emit_callback_register_helpers_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    if !ir.callback_typedefs.iter().any(|cb| belongs(&cb.name)) {
         return Ok(());
     }
     builder.blank();
@@ -218,7 +245,7 @@ pub fn emit_callback_register_helpers(
     builder.line("-- Per-callback-typedef `register<X>Callback` helpers (raw trampoline path).");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
         if !config.should_include_type(&cb.name) {
             continue;
         }
@@ -332,7 +359,11 @@ fn emit_one_register_helper(
 /// is defined as `should_emit_function(..) && needs_shim(..)`, so a function
 /// can never get a `foreign import "<name>_via"` without the C shim that
 /// defines `<name>_via`.
-pub(super) fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+pub(super) fn should_emit_function(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
@@ -417,7 +448,11 @@ impl FfiSig {
         if atoms.is_empty() {
             format!("IO {}", paren_if_needed(&self.ret_type))
         } else {
-            format!("{} -> IO {}", atoms.join(" -> "), paren_if_needed(&self.ret_type))
+            format!(
+                "{} -> IO {}",
+                atoms.join(" -> "),
+                paren_if_needed(&self.ret_type)
+            )
         }
     }
 }
@@ -627,13 +662,13 @@ fn emit_inbound_trampoline_imports(
         None => false,
     };
 
-    let inner_ret_ty;
-    if ret_is_aggregate {
+    
+    let inner_ret_ty = if ret_is_aggregate {
         let raw = haskell_field_type(cb.return_type.as_deref().unwrap(), FieldRefKind::Owned, ir);
         inner_atoms.push(format!("Ptr {}", paren_if_needed(&raw)));
-        inner_ret_ty = "()".to_string();
+        "()".to_string()
     } else {
-        inner_ret_ty = match cb.return_type.as_deref() {
+        match cb.return_type.as_deref() {
             None => "()".to_string(),
             Some(r) => {
                 let t = r.trim();
@@ -643,8 +678,8 @@ fn emit_inbound_trampoline_imports(
                     haskell_field_type(t, FieldRefKind::Owned, ir)
                 }
             }
-        };
-    }
+        }
+    };
 
     let inner_func_ty = if inner_atoms.is_empty() {
         format!("IO {}", paren_if_needed(&inner_ret_ty))

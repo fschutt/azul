@@ -107,6 +107,16 @@ pub const LONG_PRESS_TIMER_ID: TimerId = TimerId { id: 0x0006 };
 /// callback terminates itself the tick after the tween state goes idle.
 pub const CARET_TWEEN_TIMER_ID: TimerId = TimerId { id: 0x0007 };
 
+/// Reserved timer ID for the CSS animation frame driver (~16ms).
+///
+/// Armed by the shared event dispatcher whenever a CSS transition or keyframe
+/// track is in flight (`LayoutWindow::needs_animation_frame`). Its callback is
+/// an inert marker: when it expires, the dispatcher advances the animations by
+/// the wall clock and schedules the frame, then disarms it once nothing moves.
+/// The `WebRender` frame path ticks on its own; the CPU-rendered shells had no
+/// driver at all, so a declared `animation` never ran there.
+pub const CSS_ANIMATION_TIMER_ID: TimerId = TimerId { id: 0x0008 };
+
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;
 
@@ -986,11 +996,10 @@ impl Duration {
     /// Three behaviours changed, all in the safe direction:
     ///
     /// 1. Cross-unit comparisons now answer, instead of always `false`.
-    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false`
-    ///    (there was no `StdDuration` to defer to); it now compares properly.
-    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows
-    ///    `u64` used to panic inside `StdDuration::new`; `u128` nanoseconds
-    ///    cannot overflow.
+    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false` (there was no
+    ///    `StdDuration` to defer to); it now compares properly.
+    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows `u64` used to panic
+    ///    inside `StdDuration::new`; `u128` nanoseconds cannot overflow.
     #[must_use]
     pub const fn greater_than(&self, other: &Self) -> bool {
         self.as_nanos() > other.as_nanos()
@@ -1186,7 +1195,8 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Message that can be sent from the main thread to the Thread using the `ThreadId`.
 ///
 /// The thread can ignore the event.

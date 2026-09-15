@@ -1,7 +1,9 @@
 // Tests for CSS attribute selectors: [attr], [attr="v"], [attr~="v"], etc.
 
-use azul_css::css::{AttributeMatchOp, CssPathSelector};
-use azul_css::parser2::{new_from_str, parse_attribute_selector};
+use azul_css::{
+    css::{AttributeMatchOp, CssPathSelector},
+    parser2::{new_from_str, parse_attribute_selector},
+};
 
 fn extract_attr(css: &str) -> Vec<(String, AttributeMatchOp, Option<String>)> {
     let (result, _) = new_from_str(css);

@@ -20,7 +20,6 @@ use core::{
 
 #[cfg(feature = "parser")]
 use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
-use crate::system::SystemFontType;
 use crate::{
     codegen::format::{FormatAsRustCode, GetHash},
     corety::{AzString, U8Vec},
@@ -34,6 +33,7 @@ use crate::{
         },
         formatter::PrintAsCssValue,
     },
+    system::SystemFontType,
 };
 
 // --- Font Weight ---
@@ -302,7 +302,8 @@ impl Drop for FontRef {
 ///
 /// Can be:
 /// - `System(AzString)`: A named font family (e.g., "Arial", "Times New Roman")
-/// - `SystemType(SystemFontType)`: A semantic system font type (e.g., `system:ui`, `system:monospace`)
+/// - `SystemType(SystemFontType)`: A semantic system font type (e.g., `system:ui`,
+///   `system:monospace`)
 /// - `File(AzString)`: A font loaded from a file URL
 /// - `Ref(FontRef)`: A reference to a pre-loaded font
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -441,7 +442,8 @@ impl From<ParseIntError> for CssFontWeightParseError<'_> {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssFontWeightParseErrorOwned {
@@ -729,8 +731,8 @@ pub struct FontMetrics {
     pub us_win_ascent: OptionU16,
     pub us_win_descent: OptionU16,
 
-    // +spec:font-metrics:d3b654 - cap-height and x-height metrics for visual text centering (leading-trim)
-    // os/2 version 2 table
+    // +spec:font-metrics:d3b654 - cap-height and x-height metrics for visual text centering
+    // (leading-trim) os/2 version 2 table
     pub sx_height: OptionI16,
     pub s_cap_height: OptionI16,
     pub us_default_char: OptionU16,

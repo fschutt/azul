@@ -5,18 +5,20 @@
 //! and `PropertyContext` (which property is being resolved, affecting % and em semantics).
 //!
 //! **Resolution paths:**
-//! - `resolve_with_context()` — the correct method for new code; properly distinguishes
-//!   em vs rem, and resolves % based on property type per the CSS spec.
-//! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not
-//!   distinguish rem from em. Marked `#[doc(hidden)]`.
+//! - `resolve_with_context()` — the correct method for new code; properly distinguishes em vs rem,
+//!   and resolves % based on property type per the CSS spec.
+//! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not distinguish rem
+//!   from em. Marked `#[doc(hidden)]`.
 
-use crate::corety::{AzString, OptionF32};
 use core::fmt;
 use std::num::ParseFloatError;
 
-use crate::props::{
-    basic::{error::ParseFloatErrorWithInput, FloatValue, SizeMetric},
-    formatter::FormatAsCssValue,
+use crate::{
+    corety::{AzString, OptionF32},
+    props::{
+        basic::{error::ParseFloatErrorWithInput, FloatValue, SizeMetric},
+        formatter::FormatAsCssValue,
+    },
 };
 
 /// Default font size in pixels (16px), matching the CSS "medium" keyword
@@ -668,11 +670,13 @@ impl PixelValue {
                     // Height and vertical properties: containing block height (CSS 2.1 §10.5)
                     PropertyContext::Height => context.containing_block_size.height,
 
-                    // +spec:box-model:66e123 - margin/padding % resolved against inline size (= width in horizontal-tb)
-                    // +spec:width-calculation:bef810 - margin percentages refer to containing block width (even top/bottom)
+                    // +spec:box-model:66e123 - margin/padding % resolved against inline size (=
+                    // width in horizontal-tb) +spec:width-calculation:bef810 -
+                    // margin percentages refer to containing block width (even top/bottom)
                     // Margins: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.3)
-                    // +spec:width-calculation:d78514 - margin percentages refer to width of containing block
-                    // Padding: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.4)
+                    // +spec:width-calculation:d78514 - margin percentages refer to width of
+                    // containing block Padding: ALWAYS containing block WIDTH,
+                    // even for top/bottom! (CSS 2.1 §8.4)
                     PropertyContext::Margin | PropertyContext::Padding => {
                         // CSS3 (writing-modes-4 §7.2) upgrades CSS 2.1's
                         // "always width" to "the INLINE size": physical width
@@ -1307,7 +1311,8 @@ mod tests {
         assert!(parse_pixel_value("").is_err());
         // Modern CSS parsers can be liberal - unitless numbers treated as px
         assert!(parse_pixel_value("10").is_ok()); // Parsed as 10px
-                                                  // This parser is liberal and trims whitespace, so "10 px" is accepted
+                                                  // This parser is liberal and trims whitespace, so
+                                                  // "10 px" is accepted
         assert!(parse_pixel_value("10 px").is_ok()); // Liberal parsing accepts this
         assert!(parse_pixel_value("px").is_err());
         assert!(parse_pixel_value("ten-px").is_err());

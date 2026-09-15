@@ -11,25 +11,23 @@
 //!
 //! # What is easy to get wrong here
 //!
-//! * **The clipboard is a global lock held by one process at a time.** Every
-//!   read and write goes through [`with_clipboard`], which retries the open —
-//!   another application holding it for a few milliseconds is routine, not an
-//!   error — and closes it on the way out even if the body panicked, because
-//!   `Clipboard`'s `Drop` does that.
-//! * **`set` empties the clipboard first.** Publishing a fan-out of four
-//!   formats with it would leave only the last one. The write empties *once*
-//!   and then uses `set_without_clear` per format.
-//! * **Predefined formats have no name.** `GetClipboardFormatNameW` returns
-//!   nothing for `CF_DIB` and friends, so the number is mapped through
-//!   [`WindowsFormat::name`] — which is exactly what `Flavor::from_windows_name`
-//!   reads back — and only registered formats are asked for their string.
-//! * **`CF_BITMAP` and `CF_ENHMETAFILE` are handles, not bytes.** `GlobalSize`
-//!   on an `HBITMAP` is meaningless. They are skipped rather than dumped as
-//!   whatever bytes happen to be at that address.
-//! * **Ask the size before copying.** `GlobalSize` on the handle is the
-//!   `SizeHint::Exact` this platform can state for free, before any copy — so
-//!   an oversize flavor costs nothing and the decode falls through to the
-//!   next-best one.
+//! * **The clipboard is a global lock held by one process at a time.** Every read and write goes
+//!   through [`with_clipboard`], which retries the open — another application holding it for a few
+//!   milliseconds is routine, not an error — and closes it on the way out even if the body
+//!   panicked, because `Clipboard`'s `Drop` does that.
+//! * **`set` empties the clipboard first.** Publishing a fan-out of four formats with it would
+//!   leave only the last one. The write empties *once* and then uses `set_without_clear` per
+//!   format.
+//! * **Predefined formats have no name.** `GetClipboardFormatNameW` returns nothing for `CF_DIB`
+//!   and friends, so the number is mapped through [`WindowsFormat::name`] — which is exactly what
+//!   `Flavor::from_windows_name` reads back — and only registered formats are asked for their
+//!   string.
+//! * **`CF_BITMAP` and `CF_ENHMETAFILE` are handles, not bytes.** `GlobalSize` on an `HBITMAP` is
+//!   meaningless. They are skipped rather than dumped as whatever bytes happen to be at that
+//!   address.
+//! * **Ask the size before copying.** `GlobalSize` on the handle is the `SizeHint::Exact` this
+//!   platform can state for free, before any copy — so an oversize flavor costs nothing and the
+//!   decode falls through to the next-best one.
 //!
 //! **Never run against a real Windows clipboard.** This is written from the
 //! Win32 documentation and `clipboard-win`'s source; treat the first run as a
@@ -38,8 +36,7 @@
 use clipboard_win::{formats, raw, Clipboard};
 use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 
-use super::super::common::clipboard::MAX_FLAVOR_BYTES;
-use super::super::common::debug_server::LogCategory;
+use super::super::common::{clipboard::MAX_FLAVOR_BYTES, debug_server::LogCategory};
 use crate::{log_debug, log_warn};
 
 /// How many times to retry `OpenClipboard` before giving up.

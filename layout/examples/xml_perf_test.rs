@@ -20,7 +20,10 @@ fn main() {
     let span_count = html.matches("<span").count();
     let div_count = html.matches("<div").count();
     let total_tags = html.matches("<").count();
-    println!("Approximate tag counts: {span_count} spans, {div_count} divs, {total_tags} total '<' chars");
+    println!(
+        "Approximate tag counts: {span_count} spans, {div_count} divs, {total_tags} total '<' \
+         chars"
+    );
 
     println!("\n=== Starting XML parsing benchmark ===\n");
 

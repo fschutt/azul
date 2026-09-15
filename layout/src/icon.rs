@@ -28,24 +28,26 @@ use alloc::{
     vec::Vec,
 };
 
-use azul_css::{
-    css::{Css, CssPropertyValue},
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::basic::length::FloatValue,
-    props::basic::{FontRef, StyleFontFamily, StyleFontFamilyVec},
-    props::layout::{LayoutHeight, LayoutWidth},
-    props::property::CssProperty,
-    props::style::filter::{StyleColorMatrix, StyleFilter, StyleFilterVec},
-    props::style::text::StyleTextColor,
-    system::SystemStyle,
-};
-
 use azul_core::{
     dom::{Dom, NodeData},
     icon::IconProviderHandle,
     refany::{OptionRefAny, RefAny},
     resources::ImageRef,
     styled_dom::StyledDom,
+};
+use azul_css::{
+    css::{Css, CssPropertyValue},
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        basic::{length::FloatValue, FontRef, StyleFontFamily, StyleFontFamilyVec},
+        layout::{LayoutHeight, LayoutWidth},
+        property::CssProperty,
+        style::{
+            filter::{StyleColorMatrix, StyleFilter, StyleFilterVec},
+            text::StyleTextColor,
+        },
+    },
+    system::SystemStyle,
 };
 
 // ============================================================================
@@ -383,7 +385,14 @@ pub fn register_image_icon(
     // `register_image_icon_sized` instead, or it lays out at twice the size
     // it is drawn at.
     let size = image.get_size();
-    register_image_icon_sized(provider, pack_name, icon_name, image, size.width, size.height);
+    register_image_icon_sized(
+        provider,
+        pack_name,
+        icon_name,
+        image,
+        size.width,
+        size.height,
+    );
 }
 
 /// Register an image icon whose NATURAL SIZE differs from its bitmap's.
@@ -453,9 +462,9 @@ pub fn register_icons_from_zip(
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][icons] register_icons_from_zip called, but this build has no \
-             `zip` feature — NO icons were registered from the pack. Rebuild \
-             azul-layout with the `zip` (+ `image_decoding`) features"
+            "[azul][icons] register_icons_from_zip called, but this build has no `zip` feature — \
+             NO icons were registered from the pack. Rebuild azul-layout with the `zip` (+ \
+             `image_decoding`) features"
         );
     });
 }
@@ -504,9 +513,12 @@ pub fn register_font_icon(
 #[cfg(all(feature = "zip", feature = "image_decoding"))]
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
-    use crate::image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError};
-    use crate::zip::{ZipFile, ZipReadConfig};
     use std::path::Path;
+
+    use crate::{
+        image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError},
+        zip::{ZipFile, ZipReadConfig},
+    };
 
     let mut result = Vec::new();
     let config = ZipReadConfig::default();
@@ -554,8 +566,8 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][icons] icon ZIP was readable but this build has no \
-             `image_decoding` feature — 0 images decoded, NO icons registered"
+            "[azul][icons] icon ZIP was readable but this build has no `image_decoding` feature — \
+             0 images decoded, NO icons registered"
         );
     });
     Vec::new()
@@ -596,8 +608,8 @@ pub fn register_material_icons(_provider: &mut IconProviderHandle, _font: FontRe
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][icons] register_material_icons called, but this build has no \
-             `icons` feature — NO Material Icons were registered"
+            "[azul][icons] register_material_icons called, but this build has no `icons` feature \
+             — NO Material Icons were registered"
         );
     });
 }
@@ -621,8 +633,7 @@ pub fn register_embedded_material_icons(
     provider: &mut IconProviderHandle,
     font_bytes: &[u8],
 ) -> bool {
-    use crate::font::parsed::ParsedFont;
-    use crate::parsed_font_to_font_ref;
+    use crate::{font::parsed::ParsedFont, parsed_font_to_font_ref};
 
     let mut warnings = Vec::new();
     let Some(parsed_font) = ParsedFont::from_bytes(font_bytes, 0, &mut warnings) else {
@@ -645,9 +656,8 @@ pub fn register_embedded_material_icons(
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
         eprintln!(
-            "[azul][icons] register_embedded_material_icons called, but this build \
-             lacks the `icons` and/or `text_layout` feature — NO icons registered \
-             (returning false)"
+            "[azul][icons] register_embedded_material_icons called, but this build lacks the \
+             `icons` and/or `text_layout` feature — NO icons registered (returning false)"
         );
     });
     false
@@ -1047,7 +1057,14 @@ mod autotest_generated {
     #[test]
     fn an_oversampled_icon_lays_out_at_its_natural_size_not_its_bitmap_size() {
         let mut provider = create_default_icon_provider();
-        register_image_icon_sized(&mut provider, "system", "close", null_img(32, 32), 16.0, 16.0);
+        register_image_icon_sized(
+            &mut provider,
+            "system",
+            "close",
+            null_img(32, 32),
+            16.0,
+            16.0,
+        );
         let data = provider.lookup("close").expect("icon registered");
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(width_px(&out), Some(16.0));
@@ -1071,7 +1088,11 @@ mod autotest_generated {
             register_image_icon_sized(&mut provider, "system", "x", null_img(24, 24), bad, bad);
             let data = provider.lookup("x").expect("icon registered");
             let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
-            assert_eq!(width_px(&out), Some(24.0), "natural size {bad} must be ignored");
+            assert_eq!(
+                width_px(&out),
+                Some(24.0),
+                "natural size {bad} must be ignored"
+            );
             assert_eq!(height_px(&out), Some(24.0));
         }
     }

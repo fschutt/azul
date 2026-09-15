@@ -10,9 +10,11 @@
 //! These types are consumed by `layout/src/managers/a11y.rs` and mapped to
 //! platform accessibility backends in `dll/src/desktop/shell2/`.
 
-use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
 use alloc::vec::Vec;
+
 use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+
+use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
 
 /// Holds information about a UI element for accessibility purposes (e.g., screen readers).
 /// This is a wrapper for platform-specific accessibility APIs like MSAA.
@@ -70,7 +72,8 @@ impl AccessibilityInfo {
     }
 
     /// Overlays `patch` onto `self`, updating only the fields explicitly set in `patch`.
-    #[allow(clippy::needless_pass_by_value)] // by value: crosses the FFI, where the argument arrives owned
+    #[allow(clippy::needless_pass_by_value)] // by value: crosses the FFI, where the argument
+                                             // arrives owned
     pub fn assign(&mut self, patch: Self) {
         if patch.accessibility_name.is_some() {
             self.accessibility_name = patch.accessibility_name.clone();

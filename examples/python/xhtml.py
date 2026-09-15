@@ -25,8 +25,8 @@ def layout(data, info):
 
     parsed = Xml.from_str(src)
     if parsed.is_ok():
-        return Dom.create_from_parsed_xml(parsed.unwrap())
-    return error_dom("the document is not well-formed XML")
+        return Dom.create_from_parsed_xml(parsed.as_ok())
+    return error_dom(str(parsed.as_err()))
 
 app = App.create(None, AppConfig.create())
 window = WindowCreateOptions.create(layout)

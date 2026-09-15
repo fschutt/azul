@@ -14,15 +14,16 @@
 //! source_node_id attribution) extend this file as the §3.2 refactor
 //! reaches the fields they guard.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection, FontStack,
-    InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::cache::{
+        create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection, FontStack,
+        InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    },
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -82,8 +83,7 @@ fn assert_source_roundtrip(input: &str, dir: BidiDirection) {
         assert_eq!(
             *start as usize,
             reconstructed.len(),
-            "cluster {text:?} claims byte {start} but {} bytes precede it \
-             (input {input:?})",
+            "cluster {text:?} claims byte {start} but {} bytes precede it (input {input:?})",
             reconstructed.len()
         );
         reconstructed.push_str(text);

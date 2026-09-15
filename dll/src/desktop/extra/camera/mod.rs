@@ -4,8 +4,7 @@
 //!
 //! Linux registers a v4l2 backend (libv4l2 dlopen'd at runtime - no static
 //! link, so it cross-compiles and only fails gracefully at runtime if libv4l2
-//! is absent). macOS (AVFoundation) / Windows (Media Foundation) / mobile
-//! (Camera2) plug in the same way later.
+//! is absent), macOS AVFoundation, Windows Media Foundation, Android Camera2.
 
 #[cfg(all(target_os = "android", feature = "ndk-sys"))]
 mod android;
@@ -50,9 +49,7 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
-            crate::plog_info!(
-                "[camera] registering Windows (nokhwa/Media Foundation) backend → RGBA"
-            );
+            crate::plog_info!("[camera] registering Windows Media Foundation backend → RGBA");
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: windows::open,

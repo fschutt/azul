@@ -9,11 +9,10 @@
 //!
 //! These tests also guard the two regressions found while fixing the
 //! "8 font-families collapse onto 2 FontIds" bug:
-//!  1. a family registered in memory must be found by the FAST resolver
-//!     (which previously only looked at fonts that exist as files on disk);
+//!  1. a family registered in memory must be found by the FAST resolver (which previously only
+//!     looked at fonts that exist as files on disk);
 //!  2. N distinct families must produce N distinct `FontId`s.
 
-use azul_layout::solver3::LayoutNodeId;
 use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
@@ -25,7 +24,9 @@ use azul_layout::{
     font::loading::build_font_cache,
     font_traits::{FontManager, TextLayoutCache},
     paged::FragmentationContext,
-    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    solver3::{
+        paged_layout::layout_document_paged_with_config, pagination::FakePageConfig, LayoutNodeId,
+    },
     text3::default::PathLoader,
     xml::DomXmlExt,
     Solver3LayoutCache,

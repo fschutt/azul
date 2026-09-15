@@ -19,10 +19,11 @@
     feature = "font_loading"
 ))]
 
-use azul_core::dom::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_core::dom::{Dom, IdOrClass};
-use azul_css::props::basic::{FontRef, StyleFontFamily, StyleFontFamilyVec};
-use azul_css::props::property::CssProperty;
+use azul_core::dom::{CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, IdOrClass};
+use azul_css::props::{
+    basic::{FontRef, StyleFontFamily, StyleFontFamilyVec},
+    property::CssProperty,
+};
 use azul_layout::cpurender::{render_dom_to_image, AzulPixmap};
 
 /// A real, glyph-bearing face to stand in for Material Icons. Any face works — the
@@ -70,9 +71,8 @@ fn text_in_an_embedded_fontref_family_rasterizes() {
 
     assert!(
         dark > 50,
-        "text in an EMBEDDED FontRef family painted {dark} dark pixels — the \
-         renderer resolved no font for a hash layout had already shaped with \
-         (this is the shipped icon-drop regression)"
+        "text in an EMBEDDED FontRef family painted {dark} dark pixels — the renderer resolved no \
+         font for a hash layout had already shaped with (this is the shipped icon-drop regression)"
     );
 }
 

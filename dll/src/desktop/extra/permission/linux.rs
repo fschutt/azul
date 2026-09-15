@@ -30,9 +30,11 @@
 //! `extra/geolocation/linux.rs` owns that session and pushes the
 //! `Capability::Geolocation` outcome from its `Start` result.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Duration,
+};
 
 use azul_layout::managers::permission::{
     push_async_result, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
@@ -169,8 +171,8 @@ fn portal_access_blocking(capability: Capability) -> PermissionState {
             // The one previously-unlogged exit in this file: a malformed
             // portal Response reported NotDetermined with no trace.
             crate::plog_warn!(
-                "[permission] linux: malformed portal Response for {:?} ({}) — \
-                 reporting NotDetermined",
+                "[permission] linux: malformed portal Response for {:?} ({}) — reporting \
+                 NotDetermined",
                 capability,
                 e
             );
@@ -189,8 +191,8 @@ fn portal_access_blocking(capability: Capability) -> PermissionState {
 /// log that the platform is not enforcing.
 fn no_portal_fallback(capability: Capability, why: &str) -> PermissionState {
     crate::plog_warn!(
-        "[permission] linux: {} for {:?} — no portal enforcement, reporting \
-         Granted (kernel auto-grants to processes with device-file access)",
+        "[permission] linux: {} for {:?} — no portal enforcement, reporting Granted (kernel \
+         auto-grants to processes with device-file access)",
         why,
         capability
     );

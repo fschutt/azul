@@ -5,10 +5,10 @@
 //! — want me to install them?" flow:
 //!
 //!   1. probe whether this machine can hardware-decode H.264 right now;
-//!   2. if not, build the remediation plan and PRINT the exact commands that
-//!      would run (consent UI);
-//!   3. only with `--install` (or `AZ_PROVISION_INSTALL=1`) actually run them —
-//!      pkexec pops a graphical password prompt; we never touch the password.
+//!   2. if not, build the remediation plan and PRINT the exact commands that would run (consent
+//!      UI);
+//!   3. only with `--install` (or `AZ_PROVISION_INSTALL=1`) actually run them — pkexec pops a
+//!      graphical password prompt; we never touch the password.
 //!
 //! Run (probe + show plan, safe):
 //!     cargo run -p azul-dll --example video_codec_provision --features link-static
@@ -87,7 +87,11 @@ fn main() {
     }
     println!("  summary        : {}", plan.summary);
     println!("  needs_elevation: {}", plan.needs_elevation);
-    println!("  elevation      : {}  (pkexec = OS shows its own password/biometric box; we never see the password)", plan.elevation);
+    println!(
+        "  elevation      : {}  (pkexec = OS shows its own password/biometric box; we never see \
+         the password)",
+        plan.elevation
+    );
     println!("  needs_reboot   : {}", plan.needs_reboot);
     println!("  commands I would run:");
     for (i, c) in plan.commands.iter().enumerate() {
@@ -98,8 +102,8 @@ fn main() {
         std::env::args().any(|a| a == "--install") || std::env::var("AZ_PROVISION_INSTALL").is_ok();
     if !do_install {
         println!(
-            "\n(dry run — pass --install to actually run the above; pkexec will \
-             prompt for your password.)"
+            "\n(dry run — pass --install to actually run the above; pkexec will prompt for your \
+             password.)"
         );
         return;
     }

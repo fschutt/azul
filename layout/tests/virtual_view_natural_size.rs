@@ -13,20 +13,24 @@
 //! the cost of exactly one extra pass per host dom; a steady-state pass costs
 //! none; and a stated CSS size still wins over the report.
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
-use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{Dom, DomId, DomNodeId, NodeType};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::id::NodeId;
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_core::FastBTreeSet;
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::window::LayoutWindow;
-use azul_layout::window_state::FullWindowState;
+use azul_core::{
+    callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{Dom, DomId, DomNodeId, NodeType},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    id::NodeId,
+    refany::{OptionRefAny, RefAny},
+    resources::RendererResources,
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+    FastBTreeSet,
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 /// The "content" of the view under test: a box of the width the dataset
@@ -48,7 +52,10 @@ extern "C" fn render_label(mut data: RefAny, _info: VirtualViewCallbackInfo) -> 
 
 fn set_width(dataset: &RefAny, width: f32) {
     let mut dataset = dataset.clone();
-    dataset.downcast_mut::<Label>().expect("the label dataset").width = width;
+    dataset
+        .downcast_mut::<Label>()
+        .expect("the label dataset")
+        .width = width;
 }
 
 fn label_view(dataset: RefAny, css: &str) -> Dom {
@@ -72,7 +79,12 @@ fn window_with(view: Dom) -> (LayoutWindow, FullWindowState, NodeId) {
         let nodes = styled_dom.node_data.as_container();
         (0..nodes.len())
             .map(NodeId::new)
-            .find(|n| matches!(nodes.get(*n).map(|d| d.get_node_type()), Some(NodeType::VirtualView)))
+            .find(|n| {
+                matches!(
+                    nodes.get(*n).map(|d| d.get_node_type()),
+                    Some(NodeType::VirtualView)
+                )
+            })
             .expect("the view is in the dom")
     };
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -98,7 +110,11 @@ fn layout(lw: &mut LayoutWindow, styled_dom: StyledDom, window_state: &FullWindo
     if std::env::var("VV_TEST_DEBUG").is_ok() {
         for m in debug_messages.unwrap_or_default() {
             let t = m.message.as_str();
-            if t.contains("irtual") || t.contains("second pass") || t.contains("css_dirty") || t.contains("intrinsic") {
+            if t.contains("irtual")
+                || t.contains("second pass")
+                || t.contains("css_dirty")
+                || t.contains("intrinsic")
+            {
                 eprintln!("[dbg] {t}");
             }
         }
@@ -127,8 +143,11 @@ fn rerender(lw: &mut LayoutWindow, window_state: &FullWindowState, node: NodeId)
     lw.queue_virtual_view_updates(updates);
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
-    let updated =
-        lw.process_pending_virtual_view_updates(window_state, &renderer_resources, &system_callbacks);
+    let updated = lw.process_pending_virtual_view_updates(
+        window_state,
+        &renderer_resources,
+        &system_callbacks,
+    );
     assert_eq!(updated.len(), 1, "the queued view was re-invoked");
 }
 
@@ -141,10 +160,16 @@ fn content_sized_view_is_its_natural_size_on_the_first_frame() {
         (rect.size.width - 64.0).abs() < 0.5 && (rect.size.height - 20.0).abs() < 0.5,
         "the box is the reported natural size, not the 300x150 replaced default: {rect:?}"
     );
-    assert!((rect.origin.y - 2.0).abs() < 0.5, "centered in the 24px row: {rect:?}");
+    assert!(
+        (rect.origin.y - 2.0).abs() < 0.5,
+        "centered in the 24px row: {rect:?}"
+    );
     // Placed after the 40px sibling, and the sibling AFTER the view moved up
     // with it: the second pass re-flowed the host row, not just the view.
-    assert!((rect.origin.x - 40.0).abs() < 0.5, "placed after the 40px sibling: {rect:?}");
+    assert!(
+        (rect.origin.x - 40.0).abs() < 0.5,
+        "placed after the 40px sibling: {rect:?}"
+    );
     let after = node_rect(&lw, NodeId::new(node.index() + 1));
     assert!(
         (after.origin.x - 104.0).abs() < 0.5,
@@ -193,7 +218,10 @@ fn rerender_with_wider_content_grows_the_box_without_a_full_relayout() {
     set_width(&dataset, 30.0);
     rerender(&mut lw, &ws, node);
     let rect = view_rect(&lw, node);
-    assert!((rect.size.width - 30.0).abs() < 0.5, "shrunk to the content: {rect:?}");
+    assert!(
+        (rect.size.width - 30.0).abs() < 0.5,
+        "shrunk to the content: {rect:?}"
+    );
 }
 
 #[test]
@@ -217,7 +245,11 @@ fn steady_state_pass_costs_no_extra_pass() {
     // A full relayout (the shell's incremental_relayout / regenerate_layout)
     // on the SAME dom: the snapshot already carries 64x20, so the view is
     // laid out right the first time and the callback has nothing new to say.
-    let styled_dom = lw.layout_results.remove(&DomId::ROOT_ID).unwrap().styled_dom;
+    let styled_dom = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .unwrap()
+        .styled_dom;
     layout(&mut lw, styled_dom, &ws);
     assert_eq!(
         lw.frame_report.virtual_view_size_passes, 1,
@@ -290,8 +322,14 @@ fn a_box_constrained_by_css_converges_without_a_pass_per_rerender() {
     let node = NodeId::new(2);
     let rect = view_rect(&lw, node);
     assert!((rect.size.width - 64.0).abs() < 0.5, "{rect:?}");
-    assert!((rect.size.height - 24.0).abs() < 0.5, "stretched by the row: {rect:?}");
-    assert_eq!(lw.frame_report.virtual_view_size_passes, 1, "the width needed one pass");
+    assert!(
+        (rect.size.height - 24.0).abs() < 0.5,
+        "stretched by the row: {rect:?}"
+    );
+    assert_eq!(
+        lw.frame_report.virtual_view_size_passes, 1,
+        "the width needed one pass"
+    );
 
     rerender(&mut lw, &ws, node);
     rerender(&mut lw, &ws, node);

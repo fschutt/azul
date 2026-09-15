@@ -1,7 +1,5 @@
 //! Intrinsic and used size calculations for layout nodes
 
-use crate::debug_log;
-use crate::solver3::layout_tree::LayoutNodeId;
 use std::{collections::BTreeSet, sync::Arc};
 
 use azul_core::{
@@ -26,8 +24,8 @@ use rust_fontconfig::FcFontCache;
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
-use crate::text3::cache::AvailableSpace as Text3AvailableSpace;
 use crate::{
+    debug_log,
     font::parsed::ParsedFont,
     font_traits::{
         AvailableSpace, FontLoaderTrait, FontManager, ImageSource, InlineContent, InlineImage,
@@ -42,10 +40,11 @@ use crate::{
             get_display_property, get_element_font_size, get_flex_direction, get_float,
             get_style_properties, get_text_orientation_property, get_writing_mode, MultiValue,
         },
-        layout_tree::{get_display_type, LayoutNodeHot, LayoutTree},
+        layout_tree::{get_display_type, LayoutNodeHot, LayoutNodeId, LayoutTree},
         positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
+    text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
 const FALLBACK_MIN_CONTENT_WIDTH: f32 = 100.0;
@@ -113,9 +112,10 @@ fn resolve_px_with_box_model(
 /// Returns `(containing_block_dimension * percentage).max(0.0)`.
 // +spec:containing-block:43c719 - percentages resolved against containing block width/height
 // +spec:containing-block:723eee - Percentages specify sizing with respect to the containing block
-// +spec:containing-block:8ad6f4 - Percentage resolution against containing block (editorial note: transferred percentages)
-// +spec:containing-block:257f3b - Block-axis percentages resolve against containing block size
-// +spec:containing-block:f1344e - percentage min/max-width resolved against containing block width; negative CB width yields zero
+// +spec:containing-block:8ad6f4 - Percentage resolution against containing block (editorial note:
+// transferred percentages) +spec:containing-block:257f3b - Block-axis percentages resolve against
+// containing block size +spec:containing-block:f1344e - percentage min/max-width resolved against
+// containing block width; negative CB width yields zero
 #[must_use]
 pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
@@ -124,9 +124,9 @@ pub fn resolve_percentage_with_box_model(
     _borders: (f32, f32),
     _paddings: (f32, f32),
 ) -> f32 {
-    // +spec:containing-block:b3388b - percentage resolved against containing block size without re-resolution (css-sizing-3 §5.2.1)
-    // CSS 2.1 Section 10.2: percentages resolve against containing block,
-    // not available space after margins/borders/padding
+    // +spec:containing-block:b3388b - percentage resolved against containing block size without
+    // re-resolution (css-sizing-3 §5.2.1) CSS 2.1 Section 10.2: percentages resolve against
+    // containing block, not available space after margins/borders/padding
     (containing_block_dimension * percentage).max(0.0)
 }
 
@@ -148,11 +148,12 @@ fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 /// // +spec:display-contents:f12d4e - intrinsic sizing: size determined by contents, not context
-// [g71 TEST] #[inline(never)] — RELIABLE bisection (g70, markers in free band) showed new_tree drops
-// 2→0 RIGHT BEFORE this call. It's currently INLINED into layout_document (absent from the lift log),
-// so its frame/entry isn't a separate SP-wrapped @sub_ call. Forcing it OUT makes the call a wrapped
-// @sub_ → enforce_sp_preservation save/restores SP around it. If new_tree survives (sizingEntry=2),
-// the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a no-op — already inlined.)
+// [g71 TEST] #[inline(never)] — RELIABLE bisection (g70, markers in free band) showed new_tree
+// drops 2→0 RIGHT BEFORE this call. It's currently INLINED into layout_document (absent from the
+// lift log), so its frame/entry isn't a separate SP-wrapped @sub_ call. Forcing it OUT makes the
+// call a wrapped @sub_ → enforce_sp_preservation save/restores SP around it. If new_tree survives
+// (sizingEntry=2), the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a
+// no-op — already inlined.)
 #[inline(never)]
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 /// # Errors
@@ -166,10 +167,10 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
 ) -> Result<()> {
     // [az-diag g59 REVERT] RELIABLE field-access bracket (pointer CASTS mis-lift to 0 — g58 proved
     // it; use tree.nodes.len() which is reliable). 0x407B0 = nodes.len at ENTRY. If 2 here but
-    // 0x40734 (line ~142, after compute_dirty_ancestor_closure + calculator) reads 0, the corruption
-    // is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret — prime suspect:
-    // sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4 (post-compute_dirty)
-    // isolates compute_dirty vs calculator-creation.
+    // 0x40734 (line ~142, after compute_dirty_ancestor_closure + calculator) reads 0, the
+    // corruption is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret —
+    // prime suspect: sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4
+    // (post-compute_dirty) isolates compute_dirty vs calculator-creation.
     unsafe {
         crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32));
     }
@@ -186,7 +187,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // tree from root regardless, costing ~2 ms per warm render on
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
-    // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet sret).
+    // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet
+    // sret).
     unsafe {
         crate::az_mark(0x607B4_u32, (tree.nodes.len() as u32));
     }
@@ -272,7 +274,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                               // debug-marker cast
     fn calculate_intrinsic_recursive(
         &mut self,
         tree: &mut LayoutTree,
@@ -398,7 +401,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut intrinsic =
             self.calculate_node_intrinsic_sizes(tree, node_index, &child_intrinsics)?;
 
-        // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
+        // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for
+        // intrinsic sizes
         if let Some(dom_id) = tree
             .get(LayoutNodeId::new(node_index))
             .and_then(|n| n.dom_node_id)
@@ -422,8 +426,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // so border-box declarations shed their border+padding first.
             // Applied BEFORE the min floors so an explicit min still wins.
             {
-                use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-                use azul_css::props::layout::LayoutBoxSizing;
+                use azul_css::props::layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    LayoutBoxSizing,
+                };
                 let box_sizing = match get_css_box_sizing(self.ctx.styled_dom, dom_id, node_state) {
                     MultiValue::Exact(v) => v,
                     _ => LayoutBoxSizing::ContentBox,
@@ -501,7 +507,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
+                                     // routine (one branch per case)
     fn calculate_node_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
@@ -512,12 +519,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        // +spec:block-formatting-context:30def2 - replaced elements use physical 300x150 default, not re-oriented by writing-mode
-        // +spec:display-property:015c41 - replaced elements default to 300x150 intrinsic size per css-sizing-3 §5.1
-        // +spec:display-property:2c6af3 - replaced elements with auto width/height use max-content size
-        // +spec:replaced-elements:6d6030 - Intrinsic sizes for replaced elements (images, virtual views)
-        // VirtualViews are replaced elements with a default intrinsic size of 300x150px
-        // (same as virtualized view elements)
+        // +spec:block-formatting-context:30def2 - replaced elements use physical 300x150 default,
+        // not re-oriented by writing-mode +spec:display-property:015c41 - replaced elements
+        // default to 300x150 intrinsic size per css-sizing-3 §5.1 +spec:display-property:
+        // 2c6af3 - replaced elements with auto width/height use max-content size
+        // +spec:replaced-elements:6d6030 - Intrinsic sizes for replaced elements (images, virtual
+        // views) VirtualViews are replaced elements with a default intrinsic size of
+        // 300x150px (same as virtualized view elements)
         if let Some(dom_id) = node.dom_node_id {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if node_data.is_virtual_view_node() {
@@ -551,10 +559,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 });
             }
 
-            // +spec:containing-block:bb5a12 - replaced element intrinsic sizes using initial containing block
-            // +spec:display-property:7127f9 - intrinsic sizes of replaced elements without natural sizes (300x150 fallback, aspect ratio)
-            // +spec:display-property:f9cede - replaced elements derive intrinsic size from natural dimensions
-            // +spec:writing-modes:b18121 - stretch fit inline size from available space, calculate block size via aspect ratio
+            // +spec:containing-block:bb5a12 - replaced element intrinsic sizes using initial
+            // containing block +spec:display-property:7127f9 - intrinsic sizes of
+            // replaced elements without natural sizes (300x150 fallback, aspect ratio)
+            // +spec:display-property:f9cede - replaced elements derive intrinsic size from natural
+            // dimensions +spec:writing-modes:b18121 - stretch fit inline size from
+            // available space, calculate block size via aspect ratio
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
                 // Overlay→DOM: a runtime-swapped image's intrinsic size must
                 // drive layout (the DOM is immutable; live content is in the
@@ -567,9 +577,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     .resolved_content()
                     .image_for_layout(dom_id)
                     .map_or_else(|| image_ref.get_size(), |img| img.get_size());
-                // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements with aspect ratio but no intrinsic size
-                // Per css-sizing-3 §5.1: "use an inline size matching the corresponding dimension
-                // of the initial containing block and calculate the other dimension using the aspect ratio"
+                // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements
+                // with aspect ratio but no intrinsic size Per css-sizing-3 §5.1:
+                // "use an inline size matching the corresponding dimension
+                // of the initial containing block and calculate the other dimension using the
+                // aspect ratio"
                 let has_intrinsic = size.width > 0.0 || size.height > 0.0;
                 let (width, height) = if size.width > 0.0 && size.height > 0.0 {
                     (size.width, size.height)
@@ -579,9 +591,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
                 } else {
-                    // +spec:replaced-elements:43376b - 300px fallback with 2:1 ratio for replaced elements
-                    // No intrinsic dimensions — cap at 300x150 per CSS 2.2 §10.3.2
-                    // +spec:width-calculation:3b0efe - auto width fallback: 300px capped to device width
+                    // +spec:replaced-elements:43376b - 300px fallback with 2:1 ratio for replaced
+                    // elements No intrinsic dimensions — cap at 300x150 per CSS
+                    // 2.2 §10.3.2 +spec:width-calculation:3b0efe - auto width
+                    // fallback: 300px capped to device width
                     // +spec:width-calculation:16c305 - auto height fallback: 2:1 ratio, max 150px
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
@@ -686,12 +699,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
             FormattingContext::Inline => {
                 // There are THREE cases for FormattingContext::Inline:
-                // 1. A Text node (NodeType::Text) - this IS the text content itself
-                //    -> Needs to measure itself as an atomic inline unit
-                // 2. An IFC root - a block with only inline children (has text child nodes)
-                //    -> Should measure its inline content
-                // 3. A true inline element (display: inline, e.g., <span>) with no text
-                //    -> Returns default(0,0), measured by parent IFC root
+                // 1. A Text node (NodeType::Text) - this IS the text content itself -> Needs to
+                //    measure itself as an atomic inline unit
+                // 2. An IFC root - a block with only inline children (has text child nodes) ->
+                //    Should measure its inline content
+                // 3. A true inline element (display: inline, e.g., <span>) with no text -> Returns
+                //    default(0,0), measured by parent IFC root
                 //
                 // We distinguish by:
                 // - Checking if THIS node is a Text node (case 1)
@@ -766,17 +779,21 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
-    // +spec:intrinsic-sizing:ea2c2c - §5.1 min-content size = size as float with auto; max-content = no wrapping
+    // +spec:intrinsic-sizing:ea2c2c - §5.1 min-content size = size as float with auto; max-content
+    // = no wrapping
     /// Calculate intrinsic sizes for an IFC root (a block containing inline content).
     /// This collects ALL inline descendants' text and measures it ONCE.
-    // +spec:intrinsic-sizing:8f3c0c - hanging glyphs must be excluded from intrinsic size measurement
-    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    // +spec:intrinsic-sizing:8f3c0c - hanging glyphs must be excluded from intrinsic size
+    // measurement
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/
+                                               // debug-marker cast
     fn calculate_ifc_root_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
-        // [g75] 0x60758 = how many times this IFC sizer is entered; 0x6075C = node_index of THIS call.
+        // [g75] 0x60758 = how many times this IFC sizer is entered; 0x6075C = node_index of THIS
+        // call.
         unsafe {
             let c = crate::az_mark_read(0x60758).wrapping_add(1);
             crate::az_mark(0x60758_u32, (c));
@@ -784,21 +801,24 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
         let _p_ifc = crate::probe::Probe::span("intrinsic_ifc_root");
         // Collect all inline content from this IFC root and its inline descendants
-        // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
-        // completion marker B8 (Ok at the source level) yet the IFC sizer never advancing to 0xA1 —
-        // i.e. the lifted `Result<Vec<InlineContent>, LayoutError>` return arrives as Err at this call
-        // site (a complex by-value Result-return mis-lift). 0x60760 = 1 (Ok) / 0xEE (Err-but-B8-ran).
-        // RESILIENCE: on Err, degrade to empty content (→ default intrinsic) instead of aborting the
-        // WHOLE layout with InvalidTree, so the page renders and the next real blocker surfaces.
-        // g76 PROVED: degrading to Vec::new() here (resilience) lets layout proceed past this
+        // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching
+        // its completion marker B8 (Ok at the source level) yet the IFC sizer never
+        // advancing to 0xA1 — i.e. the lifted `Result<Vec<InlineContent>, LayoutError>`
+        // return arrives as Err at this call site (a complex by-value Result-return
+        // mis-lift). 0x60760 = 1 (Ok) / 0xEE (Err-but-B8-ran). RESILIENCE: on Err, degrade
+        // to empty content (→ default intrinsic) instead of aborting the WHOLE layout with
+        // InvalidTree, so the page renders and the next real blocker surfaces. g76 PROVED:
+        // degrading to Vec::new() here (resilience) lets layout proceed past this
         // InvalidTree but then HANGS in the downstream actual-layout shaping (the documented g47
-        // hashbrown empty-map infinite loop). So for a CLEAN (non-hanging) state we PROPAGATE the Err
-        // (same as the original `?`), keeping the 0x60760 diagnostic. To chase the g47 hang, flip the
-        // Err arm back to `Vec::new()`. 0x60760 = 1 (Ok) / 0xEE (Err-despite-B8 = the Result mis-lift).
-        // [g78] OUT-PARAM refactor: the by-value `Result<Vec<InlineContent>, LayoutError>` return
-        // mis-lifted Ok→Err (g76/g77 PROVED it: 0x60760=0xEE despite the source reaching B8). Filling
-        // a `&mut Vec` out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
-        // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now =1.
+        // hashbrown empty-map infinite loop). So for a CLEAN (non-hanging) state we PROPAGATE the
+        // Err (same as the original `?`), keeping the 0x60760 diagnostic. To chase the g47
+        // hang, flip the Err arm back to `Vec::new()`. 0x60760 = 1 (Ok) / 0xEE
+        // (Err-despite-B8 = the Result mis-lift). [g78] OUT-PARAM refactor: the by-value
+        // `Result<Vec<InlineContent>, LayoutError>` return mis-lifted Ok→Err (g76/g77
+        // PROVED it: 0x60760=0xEE despite the source reaching B8). Filling a `&mut Vec`
+        // out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
+        // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now
+        // =1.
         let collect_result = {
             let _p = crate::probe::Probe::span("intrinsic_collect_inline");
             collect_inline_content(self.ctx, tree, node_index)
@@ -823,14 +843,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Get pre-loaded fonts from font manager
         let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
 
-        // +spec:intrinsic-sizing:ae8beb - min-content = zero-width CB, max-content = infinite-width CB
-        // +spec:intrinsic-sizing:8c94e2 - min-content/max-content intrinsic size determination via constrained layout
-        // Use `measure_intrinsic_widths` instead of two `layout_flow` passes (fix B):
-        // it runs stages 1–4 of the pipeline once (logical → BiDi → shape → orient)
-        // and derives min/max-content by scanning the shaped items directly. This
-        // avoids the BreakCursor line-breaking loop entirely — that loop clones
-        // every ShapedCluster it inspects via `peek_next_unit` and accounted for
-        // 24% of total CPU on the text_2000 stress fixture. Shaping is cached
+        // +spec:intrinsic-sizing:ae8beb - min-content = zero-width CB, max-content = infinite-width
+        // CB +spec:intrinsic-sizing:8c94e2 - min-content/max-content intrinsic size
+        // determination via constrained layout Use `measure_intrinsic_widths` instead of
+        // two `layout_flow` passes (fix B): it runs stages 1–4 of the pipeline once
+        // (logical → BiDi → shape → orient) and derives min/max-content by scanning the
+        // shaped items directly. This avoids the BreakCursor line-breaking loop entirely —
+        // that loop clones every ShapedCluster it inspects via `peek_next_unit` and
+        // accounted for 24% of total CPU on the text_2000 stress fixture. Shaping is cached
         // at the per-item level (keyed on text+style), so the subsequent real
         // layout_flow call for this content gets pure cache hits for stages 1–3.
         // Populate the measurement constraints from the IFC root's real white-space
@@ -843,8 +863,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             .get(LayoutNodeId::new(node_index))
             .and_then(|n| n.dom_node_id)
         {
-            use crate::solver3::getters::{get_white_space_property, MultiValue};
             use azul_css::props::style::text::StyleWhiteSpace;
+
+            use crate::solver3::getters::{get_white_space_property, MultiValue};
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             let ws = match get_white_space_property(self.ctx.styled_dom, dom_id, node_state) {
@@ -865,11 +886,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // readable (can't read markers from a hung wasm call). Tests the #4→#3 coupling: if
         // 0x60768(font_chain_cache.len) / 0x6076C(loaded_fonts.len) are 0, the EMPTY FONT CHAIN is
         // the ROOT of the hang (no font → allsorts builds empty hashbrown maps → RawIter loops).
-        // [g82] CONDITIONAL trap: if the font_chain_cache is still EMPTY, shaping would HANG (allsorts
-        // builds empty hashbrown maps → g47 RawIter loop) → trap instead so the markers are readable
-        // (non-hang). If the chain is NON-empty (unique_font_keys BTreeMap fix worked + populated it),
-        // PROCEED into measure → shape → text should MEASURE. g81 hung (no conditional) → need to know
-        // whether the chain populated. 0x60768=chain.len, 0x6076C=loaded_fonts.len, 0x60704=0xA15.
+        // [g82] CONDITIONAL trap: if the font_chain_cache is still EMPTY, shaping would HANG
+        // (allsorts builds empty hashbrown maps → g47 RawIter loop) → trap instead so the
+        // markers are readable (non-hang). If the chain is NON-empty (unique_font_keys
+        // BTreeMap fix worked + populated it), PROCEED into measure → shape → text should
+        // MEASURE. g81 hung (no conditional) → need to know whether the chain populated.
+        // 0x60768=chain.len, 0x6076C=loaded_fonts.len, 0x60704=0xA15.
         #[cfg(feature = "web_lift")]
         {
             let cl = self.ctx.font_manager.font_chain_cache.len();
@@ -878,13 +900,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 crate::az_mark((0x6076C) as u32, (loaded_fonts.len() as u32) as u32);
                 crate::az_mark((0x60704) as u32, (0xA15u32) as u32);
             }
-            // [g88] g85+g87 PROVED whack-a-mole does NOT converge: BTreeMap'd unique_font_keys (chain
-            // ✓), supported_features+lookups_index (g85), ReadCache (g87) — STILL HANGS. Too many
-            // hashbrown empty-map sites across allsorts/std/rust-fontconfig. The ONLY convergent fix is
-            // the SYSTEMIC transpiler empty-static mirror (force the lifted hashbrown ctrl-scan to read
-            // 0xFF not 0x00). TEMP non-hang trap until that lands. ★ REMOVE to test the systemic fix.
-            // [g93] PROCEED into shaping to test the AZ_FORCE_MIRROR_VMADDRS hashbrown-EMPTY_GROUP fix.
-            // If text MEASURES → the forced const pages contained EMPTY_GROUP → systemic fix found.
+            // [g88] g85+g87 PROVED whack-a-mole does NOT converge: BTreeMap'd unique_font_keys
+            // (chain ✓), supported_features+lookups_index (g85), ReadCache (g87) —
+            // STILL HANGS. Too many hashbrown empty-map sites across
+            // allsorts/std/rust-fontconfig. The ONLY convergent fix is the SYSTEMIC
+            // transpiler empty-static mirror (force the lifted hashbrown ctrl-scan to read
+            // 0xFF not 0x00). TEMP non-hang trap until that lands. ★ REMOVE to test the systemic
+            // fix. [g93] PROCEED into shaping to test the AZ_FORCE_MIRROR_VMADDRS
+            // hashbrown-EMPTY_GROUP fix. If text MEASURES → the forced const pages
+            // contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
         let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
@@ -911,8 +935,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let min_width = intrinsic_text.min_content_width;
         let max_width = intrinsic_text.max_content_width;
 
-        // +spec:display-property:c587fd - min-content block size equals max-content block size for block containers, tables, inline boxes
-        // +spec:intrinsic-sizing:02eedc - min-content block size equals max-content block size for block containers
+        // +spec:display-property:c587fd - min-content block size equals max-content block size for
+        // block containers, tables, inline boxes +spec:intrinsic-sizing:02eedc -
+        // min-content block size equals max-content block size for block containers
         // For a single-line max-content layout the height is one line box;
         // `measure_intrinsic_widths` returns exactly that.
         let max_content_height = intrinsic_text.max_content_height;
@@ -932,10 +957,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         })
     }
 
-    // +spec:containing-block:bb0658 - percentage block-sizes behave as auto during intrinsic computation (no CSS height resolution here)
-    // +spec:display-contents:84fe7f - cyclic percentage contributions: percentage-sized children use auto during intrinsic sizing
-    // +spec:min-max-sizing:411904 - percentage block-sizes treated as auto during intrinsic sizing (content-sized CB)
-    // +spec:min-max-sizing:737e62 - percentage heights don't resolve inside content-sized containing blocks
+    // +spec:containing-block:bb0658 - percentage block-sizes behave as auto during intrinsic
+    // computation (no CSS height resolution here) +spec:display-contents:84fe7f - cyclic
+    // percentage contributions: percentage-sized children use auto during intrinsic sizing
+    // +spec:min-max-sizing:411904 - percentage block-sizes treated as auto during intrinsic sizing
+    // (content-sized CB) +spec:min-max-sizing:737e62 - percentage heights don't resolve inside
+    // content-sized containing blocks
     fn calculate_block_intrinsic_sizes(
         &self,
         tree: &LayoutTree,
@@ -956,7 +983,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // NOTE: Text content detection is now handled in calculate_node_intrinsic_sizes
         // which calls calculate_ifc_root_intrinsic_sizes for blocks with inline content.
         // This function now only handles pure block containers (BFC roots).
-        // +spec:height-calculation:d9ca8d - cyclic percentage contributions: percentage min-height/max-height on children should behave as auto when computing intrinsic contributions (not yet implemented)
+        // +spec:height-calculation:d9ca8d - cyclic percentage contributions: percentage
+        // min-height/max-height on children should behave as auto when computing intrinsic
+        // contributions (not yet implemented)
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -973,7 +1002,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .find(|(k, _)| k == &child_index)
                 .map(|(_, v)| v)
             {
-                // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
+                // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto
+                // margins as zero
                 let child_node = tree.get(LayoutNodeId::new(child_index));
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
                     child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
@@ -1321,7 +1351,8 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
 /// - Collects text from DOM children (text nodes may not be in layout tree)
 /// - Recursively collects from inline children (display: inline)
 /// - Treats non-inline children as atomic inline-level boxes
-#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker
+                                           // cast
 fn collect_inline_content_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1416,7 +1447,8 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
 /// Helper to process layout tree children for inline content collection
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn process_layout_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1478,11 +1510,16 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
             let used_width = match css_width {
                 MultiValue::Exact(LayoutWidth::Px(px)) => {
-                    // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to intrinsic contribution (css-sizing-3 §5.2.1)
-                    // +spec:containing-block:5246c0 - cyclic percentage: when containing block size depends on this box's intrinsic contribution, percentages fall back to intrinsic size
-                    // +spec:containing-block:598124 - cyclic percentage contributions use intrinsic size
-                    // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size as contribution during intrinsic sizing
-                    // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto for intrinsic contributions (cyclic percentage)
+                    // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to
+                    // intrinsic contribution (css-sizing-3 §5.2.1)
+                    // +spec:containing-block:5246c0 - cyclic percentage: when containing block size
+                    // depends on this box's intrinsic contribution, percentages fall back to
+                    // intrinsic size +spec:containing-block:598124 - cyclic
+                    // percentage contributions use intrinsic size
+                    // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size
+                    // as contribution during intrinsic sizing
+                    // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto
+                    // for intrinsic contributions (cyclic percentage)
                     // Resolve em/rem against the element's OWN font-size and the root
                     // font-size, NOT a hard-coded 16px — otherwise `width: 5em` on a
                     // font-size:24px inline-block sizes to 80px instead of 120px.
@@ -1501,12 +1538,15 @@ fn process_layout_children<T: ParsedFontTrait>(
                 _ => intrinsic_sizes.max_content_width,
             };
 
-            // +spec:containing-block:5145c5 - percentage block-size ignored in content-sized containing blocks during intrinsic sizing
-            // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
+            // +spec:containing-block:5145c5 - percentage block-size ignored in content-sized
+            // containing blocks during intrinsic sizing Resolve CSS height - use
+            // explicit value if set, otherwise fall back to intrinsic
             let used_height = match css_height {
                 MultiValue::Exact(LayoutHeight::Px(px)) => {
-                    // +spec:containing-block:7d5e79 - percentages behave as auto when containing block height is auto (cyclic percentage contribution)
-                    // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights behave as auto during intrinsic sizing (cyclic percentage contribution)
+                    // +spec:containing-block:7d5e79 - percentages behave as auto when containing
+                    // block height is auto (cyclic percentage contribution)
+                    // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights
+                    // behave as auto during intrinsic sizing (cyclic percentage contribution)
                     // Resolve em/rem against the element's own + root font-size (see width above).
                     let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
                     let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
@@ -1523,8 +1563,16 @@ fn process_layout_children<T: ParsedFontTrait>(
                 _ => intrinsic_sizes.max_content_height,
             };
 
-            debug_log!(ctx, "Found atomic inline child at node {}: display={:?}, intrinsic_width={}, used_width={}, css_width={:?}",
-                child_index, display, intrinsic_sizes.max_content_width, used_width, css_width);
+            debug_log!(
+                ctx,
+                "Found atomic inline child at node {}: display={:?}, intrinsic_width={}, \
+                 used_width={}, css_width={:?}",
+                child_index,
+                display,
+                intrinsic_sizes.max_content_width,
+                used_width,
+                css_width
+            );
 
             // Represent as a rectangular shape with the resolved dimensions
             content.push(InlineContent::Shape(InlineShape {
@@ -1564,11 +1612,13 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     Ok(out)
 }
 
-// +spec:height-calculation:1c899b - width and height properties specify the preferred size of the box
+// +spec:height-calculation:1c899b - width and height properties specify the preferred size of the
+// box
 /// Calculates the used size of a single node based on its CSS properties and
 /// the available space provided by its containing block.
 ///
-/// // +spec:display-contents:71ccde - extrinsic sizing: size determined by context (containing block), not contents
+/// // +spec:display-contents:71ccde - extrinsic sizing: size determined by context (containing
+/// block), not contents
 ///
 /// This implementation correctly handles writing modes and percentage-based sizes
 /// according to the CSS specification:
@@ -1579,7 +1629,8 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 /// 3. The resolved physical `height` is then mapped to the node's logical MAIN size.
 /// 4. A final `LogicalSize` is constructed from these logical dimensions.
 // +spec:overflow:3c4f25 - auto box sizes: four auto-determined size types resolved here
-// +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by suitable value
+// +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by
+// suitable value
 ///    M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
 /// padding).max(0.0)`. Extracted from `calc_used_size`'s auto-width Block arm so the
 ///    `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
@@ -1591,7 +1642,9 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 ///    call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
 ///    was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
 #[inline(never)]
-#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+#[allow(clippy::trivially_copy_pass_by_ref)]
+// <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites
+// for a perf-neutral change)
 /// The AVAILABLE term of a shrink-to-fit width, per constraint kind.
 ///
 /// shrink-to-fit = `min(max(preferred_minimum, available), preferred)`, so a
@@ -1659,9 +1712,7 @@ fn auto_inline_size_for(
     max_content_width: f32,
 ) -> f32 {
     match cb_w {
-        Text3AvailableSpace::Definite(w) => {
-            auto_block_inline_size(&LogicalSize::new(w, 0.0), bp)
-        }
+        Text3AvailableSpace::Definite(w) => auto_block_inline_size(&LogicalSize::new(w, 0.0), bp),
         // `.max(0.0)` also normalises a NaN intrinsic to 0 — an unmeasured box
         // is zero-sized, never a size that poisons everything downstream.
         Text3AvailableSpace::MinContent => min_content_width.max(0.0),
@@ -1670,7 +1721,8 @@ fn auto_inline_size_for(
 }
 
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
@@ -1754,8 +1806,9 @@ pub fn calculate_used_size_for_node(
         matches!(node_data.get_node_type(), NodeType::Image(_)) || node_data.is_virtual_view_node();
 
     // +spec:width-calculation:79cdf8 - inline non-replaced: width property does not apply
-    // +spec:width-calculation:972e86 - §10.3.1: width property does not apply to inline non-replaced elements
-    // For inline non-replaced elements, override any explicit width to Auto.
+    // +spec:width-calculation:972e86 - §10.3.1: width property does not apply to inline
+    // non-replaced elements For inline non-replaced elements, override any explicit width to
+    // Auto.
     let css_width = if display.unwrap_or_default() == LayoutDisplay::Inline && !is_replaced {
         MultiValue::Exact(LayoutWidth::Auto)
     } else {
@@ -1779,7 +1832,8 @@ pub fn calculate_used_size_for_node(
     let height_is_auto =
         css_height.is_auto() || matches!(&css_height, MultiValue::Exact(LayoutHeight::Auto));
 
-    // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are not influenced by box-sizing
+    // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are
+    // not influenced by box-sizing
     let width_is_quantitative = matches!(
         &css_width,
         MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::FitContent(_) | LayoutWidth::Calc(_))
@@ -1799,35 +1853,42 @@ pub fn calculate_used_size_for_node(
     // In horizontal-tb: width = inline size. In vertical modes: width = block size.
     // The physical-to-logical mapping happens in Step 5 below.
     // Percentage values for `width` are resolved against the containing block's width.
-    // +spec:width-calculation:febf0c - width/height "behaves as auto" when computed auto or percentage resolves against indefinite
+    // +spec:width-calculation:febf0c - width/height "behaves as auto" when computed auto or
+    // percentage resolves against indefinite
     let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
             // +spec:width-calculation:ed6a34 - auto width on replaced element uses intrinsic width
             // CSS 2.2 §10.3.2: If 'width' has a computed value of 'auto', and the element
             // has an intrinsic width, then that intrinsic width is the used value of 'width'.
-            // +spec:replaced-elements:992ea5 - block-level replaced elements use inline replaced width rules
-            // §10.3.4: "The used value of 'width' is determined as for inline replaced elements."
-            // +spec:replaced-elements:36de3e - §10.3.2/§10.3.4: auto width for inline/block replaced elements uses intrinsic width
-            // +spec:replaced-elements:b9a780 - §10.3.2: inline replaced auto width = intrinsic width (conditions resolved during intrinsic size calc)
+            // +spec:replaced-elements:992ea5 - block-level replaced elements use inline replaced
+            // width rules §10.3.4: "The used value of 'width' is determined as for
+            // inline replaced elements." +spec:replaced-elements:36de3e -
+            // §10.3.2/§10.3.4: auto width for inline/block replaced elements uses intrinsic width
+            // +spec:replaced-elements:b9a780 - §10.3.2: inline replaced auto width = intrinsic
+            // width (conditions resolved during intrinsic size calc)
             if is_replaced {
-                // +spec:width-calculation:b41dbe - floating/inline replaced: auto width = intrinsic width
-                // +spec:width-calculation:c62d35 - §10.3.2: auto width for replaced elements uses intrinsic width
-                // +spec:width-calculation:d87ca4 - abs-replaced: auto width+height uses intrinsic width
-                // For replaced elements (inline or block-level), auto width = intrinsic width.
+                // +spec:width-calculation:b41dbe - floating/inline replaced: auto width = intrinsic
+                // width +spec:width-calculation:c62d35 - §10.3.2: auto width for
+                // replaced elements uses intrinsic width +spec:width-calculation:
+                // d87ca4 - abs-replaced: auto width+height uses intrinsic width For
+                // replaced elements (inline or block-level), auto width = intrinsic width.
                 // The intrinsic sizes were already computed with the 300px fallback per §10.3.2.
                 intrinsic.max_content_width
             }
-            // +spec:intrinsic-sizing:560697 - shrink-to-fit = clamp(min-content, stretch-fit, max-content)
+            // +spec:intrinsic-sizing:560697 - shrink-to-fit = clamp(min-content, stretch-fit,
+            // max-content)
             else if get_float(styled_dom, id, node_state).unwrap_or(LayoutFloat::None)
                 != LayoutFloat::None
             {
                 // +spec:width-calculation:8d7047 - shrink-to-fit width per CSS2.1§10.3.5
-                // +spec:width-calculation:0bb038 - shrink-to-fit for floating non-replaced elements (§10.3.5)
-                // shrink-to-fit = min(max(preferred minimum width, available width), preferred width)
-                // +spec:table-layout:93b13c - shrink-to-fit for floats, inline-blocks, table-cells;
-                // orthogonal flows would require child block size as input (not yet implemented)
-                // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats: min(max(preferred minimum, available), preferred)
-                // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
+                // +spec:width-calculation:0bb038 - shrink-to-fit for floating non-replaced elements
+                // (§10.3.5) shrink-to-fit = min(max(preferred minimum width,
+                // available width), preferred width) +spec:table-layout:93b13c -
+                // shrink-to-fit for floats, inline-blocks, table-cells; orthogonal
+                // flows would require child block size as input (not yet implemented)
+                // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats:
+                // min(max(preferred minimum, available), preferred) CSS 2.2 §10.3.
+                // 5: For floats, auto width = shrink-to-fit
                 let available_width = shrink_to_fit_available_width(cb_w, box_props);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
@@ -1837,10 +1898,11 @@ pub fn calculate_used_size_for_node(
                     .max(0.0)
             } else if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
                 // +spec:intrinsic-sizing:12a531 - abspos auto size = fit-content (shrink-to-fit)
-                // +spec:width-calculation:0bb038 - shrink-to-fit width for abs-pos non-replaced elements
-                // §10.3.7: abs-pos elements with auto width use shrink-to-fit
-                // +spec:intrinsic-sizing:087b57 - abspos automatic size is fit-content (shrink-to-fit)
-                // +spec:width-calculation:1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
+                // +spec:width-calculation:0bb038 - shrink-to-fit width for abs-pos non-replaced
+                // elements §10.3.7: abs-pos elements with auto width use
+                // shrink-to-fit +spec:intrinsic-sizing:087b57 - abspos automatic
+                // size is fit-content (shrink-to-fit) +spec:width-calculation:
+                // 1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                 let available_width = shrink_to_fit_available_width(cb_w, box_props);
                 let preferred_minimum = intrinsic.min_content_width;
@@ -1852,26 +1914,32 @@ pub fn calculate_used_size_for_node(
             } else {
                 // +spec:width-calculation:472065 - orthogonal flow auto inline size: if this block
                 // container establishes an orthogonal flow (child writing mode axis differs from
-                // parent), its auto inline size should use the parent's block-axis size as available
-                // space, falling back to the initial containing block size. Currently not implemented;
-                // auto width always resolves against the containing block's width.
-                // 'auto' width resolution depends on the display type.
+                // parent), its auto inline size should use the parent's block-axis size as
+                // available space, falling back to the initial containing block
+                // size. Currently not implemented; auto width always resolves
+                // against the containing block's width. 'auto' width resolution
+                // depends on the display type.
                 match display.unwrap_or_default() {
                     LayoutDisplay::Block
                     | LayoutDisplay::FlowRoot
                     | LayoutDisplay::ListItem
                     | LayoutDisplay::Flex
                     | LayoutDisplay::Grid => {
-                        // +spec:box-model:503ea3 - margin + border + padding + width = containing block width
-                        // +spec:box-model:5ed651 - stretch fit: size minus margins (auto=0), border, padding, floored at 0
-                        // +spec:box-model:33b951 - stretch-fit inline size: available space minus margins/border/padding, floored at zero
-                        // +spec:box-model:30b4d0 - stretch fit: available size minus margins (auto as zero), border, padding, floored at zero
-                        // +spec:width-calculation:e2c8f6 - auto width for non-replaced blocks in normal flow per CSS2.1§10.3.3
-                        // For block-level non-replaced elements,
-                        // 'auto' width fills the containing block (minus margins, borders, padding).
+                        // +spec:box-model:503ea3 - margin + border + padding + width = containing
+                        // block width +spec:box-model:5ed651 - stretch fit:
+                        // size minus margins (auto=0), border, padding, floored at 0
+                        // +spec:box-model:33b951 - stretch-fit inline size: available space minus
+                        // margins/border/padding, floored at zero
+                        // +spec:box-model:30b4d0 - stretch fit: available size minus margins (auto
+                        // as zero), border, padding, floored at zero
+                        // +spec:width-calculation:e2c8f6 - auto width for non-replaced blocks in
+                        // normal flow per CSS2.1§10.3.3 For block-level
+                        // non-replaced elements, 'auto' width fills the
+                        // containing block (minus margins, borders, padding).
                         // CSS 2.2 §10.3.3: width = containing_block_width - margin_left -
                         // margin_right - border_left - border_right - padding_left - padding_right
-                        // +spec:width-calculation:aef2da - auto width: other auto values become 0, width follows from constraint equality
+                        // +spec:width-calculation:aef2da - auto width: other auto values become 0,
+                        // width follows from constraint equality
                         // M12.7: compute in a small #[inline(never)] helper with by-ref/out-ptr
                         // args. calc_used_size is a ~6KB fn (38 maxnum, heavy SROA); the remill
                         // lift spills + diverges the available_width copyload feeding `.max`
@@ -1894,10 +1962,10 @@ pub fn calculate_used_size_for_node(
                     LayoutDisplay::InlineBlock
                     | LayoutDisplay::InlineGrid
                     | LayoutDisplay::InlineFlex => {
-                        // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
-                        // shrink-to-fit = min(max(preferred_minimum, available), preferred)
-                        let available_width =
-                            shrink_to_fit_available_width(cb_w, box_props);
+                        // +spec:width-calculation:c01de8 - inline-block auto width uses
+                        // shrink-to-fit (§10.3.9) shrink-to-fit =
+                        // min(max(preferred_minimum, available), preferred)
+                        let available_width = shrink_to_fit_available_width(cb_w, box_props);
                         let preferred_minimum = intrinsic.min_content_width;
                         let preferred = intrinsic.max_content_width;
                         preferred_minimum
@@ -1972,13 +2040,15 @@ pub fn calculate_used_size_for_node(
                 })
             })
         }
-        // +spec:intrinsic-sizing:069c75 - min-content, max-content, fit-content() sizing value keywords
-        // +spec:intrinsic-sizing:1ce4fa - §3.2 min-content/max-content/fit-content() sizing values
+        // +spec:intrinsic-sizing:069c75 - min-content, max-content, fit-content() sizing value
+        // keywords +spec:intrinsic-sizing:1ce4fa - §3.2
+        // min-content/max-content/fit-content() sizing values
         LayoutWidth::MinContent => intrinsic.min_content_width,
         LayoutWidth::MaxContent => intrinsic.max_content_width,
-        // +spec:width-calculation:7b2128 - fit-content formula and non-negative inner size flooring (css-sizing-3 §3.2)
-        // +spec:width-calculation:bf694a - min-content, max-content, fit-content() sizing values
-        // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
+        // +spec:width-calculation:7b2128 - fit-content formula and non-negative inner size flooring
+        // (css-sizing-3 §3.2) +spec:width-calculation:bf694a - min-content, max-content,
+        // fit-content() sizing values css-sizing-3 §3.2: fit-content(<length-percentage>) =
+        // min(max-content, max(min-content, <length-percentage>))
         LayoutWidth::FitContent(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
@@ -2037,8 +2107,8 @@ pub fn calculate_used_size_for_node(
     // +spec:height-calculation:753d8d - Height calculation for various box types (§10.6)
     // +spec:positioning:d5184e - percentage height resolved against containing block height
     // +spec:height-calculation:6a6cac - §10.5 content height resolution (auto, length, percentage)
-    // +spec:height-calculation:d398e4 - §10.5/10.6 height property resolution for different box types
-    // Step 2: Resolve the CSS `height` property into a concrete pixel value.
+    // +spec:height-calculation:d398e4 - §10.5/10.6 height property resolution for different box
+    // types Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // CSS `height` always refers to the physical vertical dimension, regardless of writing mode.
     // Percentage values resolve against the containing block's physical height.
     // In horizontal-tb: height = block size. In vertical modes: height = inline size.
@@ -2047,8 +2117,9 @@ pub fn calculate_used_size_for_node(
     // +spec:height-calculation:0b5b0a - abs-pos replaced elements use intrinsic height for auto
     let resolved_height = match css_height.unwrap_or_default() {
         LayoutHeight::Auto => {
-            // +spec:width-calculation:be5eb1 - auto height means available block space is infinite (unconstrained)
-            // +spec:replaced-elements:994ac6 - §10.6.2: auto height for replaced elements uses intrinsic height or (used width)/ratio
+            // +spec:width-calculation:be5eb1 - auto height means available block space is infinite
+            // (unconstrained) +spec:replaced-elements:994ac6 - §10.6.2: auto height for
+            // replaced elements uses intrinsic height or (used width)/ratio
             //
             // For block-level non-replaced containers in normal flow, CSS 2.2 §10.6.3
             // says auto height is resolved from children after layout. We return 0.0
@@ -2087,8 +2158,7 @@ pub fn calculate_used_size_for_node(
                     );
                     match (off.top, off.bottom, cb_h.definite()) {
                         (Some(t), Some(b), Some(cbh)) => Some(
-                            (cbh - t - b - box_props.margin.top - box_props.margin.bottom)
-                                .max(0.0),
+                            (cbh - t - b - box_props.margin.top - box_props.margin.bottom).max(0.0),
                         ),
                         _ => None,
                     }
@@ -2127,7 +2197,8 @@ pub fn calculate_used_size_for_node(
                 viewport_size.height,
             );
 
-            // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
+            // +spec:height-calculation:37bc8c - percentage heights resolve against definite
+            // containing block height
             pixels_opt.unwrap_or_else(|| {
                 px.to_percent().map_or(intrinsic.max_content_height, |p| {
                     // Percentage against an indefinite block size behaves as
@@ -2146,12 +2217,14 @@ pub fn calculate_used_size_for_node(
                 })
             })
         }
-        // equivalent to automatic size (not min_content_height which is height at min-content width)
+        // equivalent to automatic size (not min_content_height which is height at min-content
+        // width)
         LayoutHeight::MinContent => intrinsic.max_content_height,
         // equivalent to automatic size
         LayoutHeight::MaxContent => intrinsic.max_content_height,
-        // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
-        // For block axis, both min-content and max-content equal auto height
+        // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content,
+        // <length-percentage>)) For block axis, both min-content and max-content equal auto
+        // height
         LayoutHeight::FitContent(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
@@ -2189,10 +2262,11 @@ pub fn calculate_used_size_for_node(
         intrinsic.max_content_height.max(0.0)
     };
 
-    // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic ratio
-    // +spec:replaced-elements:aedb26 - abs-pos replaced: both auto, ratio but no intrinsic w/h → block constraint
-    // CSS Position 3 §6.2 (abs-replaced-width): For absolutely positioned replaced elements,
-    // if width is auto and the element has an intrinsic ratio, width may be derived from height.
+    // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic
+    // ratio +spec:replaced-elements:aedb26 - abs-pos replaced: both auto, ratio but no
+    // intrinsic w/h → block constraint CSS Position 3 §6.2 (abs-replaced-width): For absolutely
+    // positioned replaced elements, if width is auto and the element has an intrinsic ratio,
+    // width may be derived from height.
     let (resolved_width, resolved_height) = if is_replaced
         && width_is_auto
         && matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
@@ -2265,8 +2339,9 @@ pub fn calculate_used_size_for_node(
         (resolved_width, resolved_height)
     };
 
-    // +spec:min-max-sizing:58869e - sizing properties width/height/min-width/min-height/max-width/max-height applied here
-    // +spec:min-max-sizing:2e2414 - max-width/max-height specify maximum box dimensions, applied here
+    // +spec:min-max-sizing:58869e - sizing properties
+    // width/height/min-width/min-height/max-width/max-height applied here +spec:min-max-sizing:
+    // 2e2414 - max-width/max-height specify maximum box dimensions, applied here
     // +spec:min-max-sizing:73f51a - tentative width clamped by max-width then min-width per §10.4
     // +spec:min-max-sizing:e98c4e - preferred size clamped by min/max, box-sizing handled
     // Step 3: Apply min/max constraints (CSS 2.2 § 10.4 and § 10.7)
@@ -2285,8 +2360,9 @@ pub fn calculate_used_size_for_node(
 
     // +spec:margin-collapsing:840eb6 - aspect ratio transfers size constraints across dimensions
     let (constrained_width, constrained_height) = if has_intrinsic_ratio {
-        // +spec:width-calculation:ef71c4 - replaced elements with both width/height auto use constraint violation table
-        // Replaced element with intrinsic ratio: use §10.4 constraint violation table
+        // +spec:width-calculation:ef71c4 - replaced elements with both width/height auto use
+        // constraint violation table Replaced element with intrinsic ratio: use §10.4
+        // constraint violation table
         apply_constraint_violation_table(
             styled_dom,
             id,
@@ -2322,14 +2398,16 @@ pub fn calculate_used_size_for_node(
         (cw, ch)
     };
 
-    // +spec:box-model:cc170b - box-sizing: border-box includes padding+border in specified size; content-box adds them outside; content size floored at zero
-    // +spec:box-model:d9d797 - box-sizing: content-box vs border-box dimension interpretation
-    // +spec:box-model:e2a773 - box-sizing: border-box includes padding+border in width/height; content-box adds them outside
-    // +spec:box-sizing:8159a8 - box-sizing property indicates whether content-box or border-box is measured
-    // +spec:box-sizing:b0ff05 - border-box sets border-box to specified size, content-box calculated from it
-    // +spec:box-sizing:aefeb2 - box-sizing: content-box vs border-box width/height interpretation
-    // +spec:box-sizing:e2e28c - width/height refer to content-box size by default (content-box); box-sizing: border-box makes them refer to border-box size
-    // Step 4: Convert to border-box dimensions, respecting box-sizing property
+    // +spec:box-model:cc170b - box-sizing: border-box includes padding+border in specified size;
+    // content-box adds them outside; content size floored at zero +spec:box-model:d9d797 -
+    // box-sizing: content-box vs border-box dimension interpretation +spec:box-model:e2a773 -
+    // box-sizing: border-box includes padding+border in width/height; content-box adds them outside
+    // +spec:box-sizing:8159a8 - box-sizing property indicates whether content-box or border-box is
+    // measured +spec:box-sizing:b0ff05 - border-box sets border-box to specified size,
+    // content-box calculated from it +spec:box-sizing:aefeb2 - box-sizing: content-box vs
+    // border-box width/height interpretation +spec:box-sizing:e2e28c - width/height refer to
+    // content-box size by default (content-box); box-sizing: border-box makes them refer to
+    // border-box size Step 4: Convert to border-box dimensions, respecting box-sizing property
     // CSS box-sizing:
     // - content-box (default): width/height set content size, border+padding are added
     // - border-box: width/height set border-box size, border+padding are included
@@ -2342,8 +2420,9 @@ pub fn calculate_used_size_for_node(
 
     let (border_box_width, border_box_height) = match box_sizing {
         azul_css::props::layout::LayoutBoxSizing::BorderBox => {
-            // +spec:box-sizing:cdfe09 - box-sizing: border-box makes width/height set the border box
-            // +spec:box-sizing:3ba6d3 - content-box floors at 0px, so border-box can't be less than padding+border
+            // +spec:box-sizing:cdfe09 - box-sizing: border-box makes width/height set the border
+            // box +spec:box-sizing:3ba6d3 - content-box floors at 0px, so border-box
+            // can't be less than padding+border
             let min_border_box_w = box_props.padding.left
                 + box_props.padding.right
                 + box_props.border.left
@@ -2352,13 +2431,14 @@ pub fn calculate_used_size_for_node(
                 + box_props.padding.bottom
                 + box_props.border.top
                 + box_props.border.bottom;
-            // +spec:box-model:4f423b - used values refer to the border box when box-sizing: border-box
-            // border-box: The width/height values already include border and padding
-            // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
-            // properties) on this element determine the border box of the element"
-            // However, non-quantitative values (auto, min-content, max-content) are not
-            // influenced by box-sizing, so they still need border+padding added.
-            // Floor: content-box cannot go negative, so border-box >= padding+border
+            // +spec:box-model:4f423b - used values refer to the border box when box-sizing:
+            // border-box border-box: The width/height values already include border and
+            // padding CSS Box Sizing Level 3: "the specified width and height (and
+            // respective min/max properties) on this element determine the border box
+            // of the element" However, non-quantitative values (auto, min-content,
+            // max-content) are not influenced by box-sizing, so they still need
+            // border+padding added. Floor: content-box cannot go negative, so
+            // border-box >= padding+border
             let bw = if width_is_quantitative {
                 constrained_width.max(min_border_box_w)
             } else {
@@ -2380,7 +2460,8 @@ pub fn calculate_used_size_for_node(
             (bw, bh)
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
-            // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
+            // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding
+            // added outside
             let border_box_width = constrained_width
                 + box_props.padding.left
                 + box_props.padding.right
@@ -2396,8 +2477,8 @@ pub fn calculate_used_size_for_node(
     };
 
     // +spec:block-formatting-context:c6fb58 - vertical writing modes swap layout dimensions
-    // +spec:min-max-sizing:d97870 - width/height/min/max refer to physical dimensions; layout rules are logical
-    // Step 5: Map the resolved physical dimensions to logical dimensions.
+    // +spec:min-max-sizing:d97870 - width/height/min/max refer to physical dimensions; layout rules
+    // are logical Step 5: Map the resolved physical dimensions to logical dimensions.
     //
     // CSS Writing Modes Level 4:
     // - In horizontal-tb: width = inline (cross) size, height = block (main) size.
@@ -2415,20 +2496,22 @@ pub fn calculate_used_size_for_node(
     };
 
     // Step 6: Construct the final LogicalSize from the logical dimensions.
-    // +spec:min-max-sizing:2f66a6 - direction-dependent layout rules abstracted to logical start/end via writing mode
+    // +spec:min-max-sizing:2f66a6 - direction-dependent layout rules abstracted to logical
+    // start/end via writing mode
     let result =
         LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
     Ok(result)
 }
 
-// +spec:min-max-sizing:b02ebc - sizing properties min-width/max-width/min-height/max-height and preferred aspect ratio
-// +spec:replaced-elements:740f3e - constraint violation table for replaced elements with intrinsic ratio and both width/height auto
-// +spec:min-max-sizing:939f2c - use min-width/min-height <length> with aspect ratio for replaced elements
-// with intrinsic ratios. Implements all 10 cases from the spec table, coordinating
-// +spec:min-max-sizing:07620d - CSS 2.2 §10.4 constraint violation table for replaced elements with intrinsic ratios
-// Implements all 11 cases from the spec table, coordinating
-// width and height together to preserve the aspect ratio while respecting min/max constraints.
+// +spec:min-max-sizing:b02ebc - sizing properties min-width/max-width/min-height/max-height and
+// preferred aspect ratio +spec:replaced-elements:740f3e - constraint violation table for replaced
+// elements with intrinsic ratio and both width/height auto +spec:min-max-sizing:939f2c - use
+// min-width/min-height <length> with aspect ratio for replaced elements with intrinsic ratios.
+// Implements all 10 cases from the spec table, coordinating +spec:min-max-sizing:07620d - CSS 2.2
+// §10.4 constraint violation table for replaced elements with intrinsic ratios Implements all 11
+// cases from the spec table, coordinating width and height together to preserve the aspect ratio
+// while respecting min/max constraints.
 fn apply_constraint_violation_table(
     styled_dom: &StyledDom,
     id: NodeId,
@@ -2448,8 +2531,10 @@ fn apply_constraint_violation_table(
     let em = get_element_font_size(styled_dom, id, node_state);
     let rem = super::getters::get_root_font_size(styled_dom, node_state);
 
-    // +spec:min-max-sizing:92ab8d - constraint violation table for replaced elements with intrinsic ratio (cyclic percentage contributions use auto fallback)
-    // +spec:min-max-sizing:ad8605 - min-height/max-height interact with percentage heights; percentages behave as auto in intrinsic contribution calc
+    // +spec:min-max-sizing:92ab8d - constraint violation table for replaced elements with intrinsic
+    // ratio (cyclic percentage contributions use auto fallback) +spec:min-max-sizing:ad8605 -
+    // min-height/max-height interact with percentage heights; percentages behave as auto in
+    // intrinsic contribution calc
 
     // +spec:positioning:c0af55 - automatic minimum size of abspos box is always zero (default 0.0)
     // Resolve min-width (default 0)
@@ -2529,7 +2614,8 @@ fn apply_constraint_violation_table(
     let h_over = h > max_h;
     let h_under = h < min_h;
 
-    // +spec:min-max-sizing:713560 - constraint violation table for replaced elements with intrinsic ratio
+    // +spec:min-max-sizing:713560 - constraint violation table for replaced elements with intrinsic
+    // ratio
     match (w_over, w_under, h_over, h_under) {
         // Row 1: no constraint violation
         (false, false, false, false) => (w, h),
@@ -2575,11 +2661,14 @@ fn apply_constraint_violation_table(
     }
 }
 
-// +spec:min-max-sizing:114b53 - min-width/max-width/min-height/max-height property definitions: initial values, percentage resolution against containing block, applies to elements accepting width/height
-// +spec:min-max-sizing:12667d - width/height/min-width/min-height/max-width/max-height properties from CSS Sizing 3
-/// +spec:min-max-sizing:205e9e - intrinsic size constraints (min/max-content contributions, min/max sizing properties)
-// +spec:min-max-sizing:cac146 - min-width/min-height specify minimum box dimensions; max overridden by min
-// +spec:width-calculation:e77d58 - min/max-width clamping algorithm per CSS 2.2 § 10.4
+// +spec:min-max-sizing:114b53 - min-width/max-width/min-height/max-height property definitions:
+// initial values, percentage resolution against containing block, applies to elements accepting
+// width/height +spec:min-max-sizing:12667d - width/height/min-width/min-height/max-width/max-height
+// properties from CSS Sizing 3
+/// +spec:min-max-sizing:205e9e - intrinsic size constraints (min/max-content contributions, min/max
+/// sizing properties)
+// +spec:min-max-sizing:cac146 - min-width/min-height specify minimum box dimensions; max overridden
+// by min +spec:width-calculation:e77d58 - min/max-width clamping algorithm per CSS 2.2 § 10.4
 // +spec:width-calculation:1d63f0 - min-width/max-width property resolution and value meanings
 /// Apply min-width and max-width constraints to tentative width
 /// Per CSS 2.2 § 10.4: min-width overrides max-width if min > max
@@ -2637,9 +2726,11 @@ fn apply_width_constraints(
 
 /// Apply min-height and max-height constraints to tentative height
 /// Per CSS 2.2 § 10.7: min-height overrides max-height if min > max
-// +spec:height-calculation:22a77a - percentage min/max-height resolved against containing block; if CB height depends on content and element is not absolutely positioned, percentage treated as 0 (min-height) or none (max-height)
-// +spec:height-calculation:982aaf - min-height/max-height constrain box heights to a range
-// +spec:height-calculation:c6c33a - min-height and max-height property resolution and application
+// +spec:height-calculation:22a77a - percentage min/max-height resolved against containing block; if
+// CB height depends on content and element is not absolutely positioned, percentage treated as 0
+// (min-height) or none (max-height) +spec:height-calculation:982aaf - min-height/max-height
+// constrain box heights to a range +spec:height-calculation:c6c33a - min-height and max-height
+// property resolution and application
 fn apply_height_constraints(
     styled_dom: &StyledDom,
     id: NodeId,
@@ -2820,7 +2911,7 @@ mod autotest_generated {
                 reflowed_ifcs: BTreeSet::new(),
                 style_cache: Default::default(),
                 virtual_view_sizes: None,
-            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                 styled_dom: &self.styled_dom,
                 font_manager: &self.font_manager,
                 text_selections: &self.text_selections,
@@ -4082,17 +4173,29 @@ mod autotest_generated {
         let bp = zero_props();
 
         let tcb = crate::solver3::geometry::ContainingBlock::from_flattened(cb);
-        let r =
-            calculate_used_size_for_node(&dom, None, &tcb, isz(0.0, 0.0, 0.0, 42.0), &bp, &VIEWPORT)
-                .expect("anonymous box");
+        let r = calculate_used_size_for_node(
+            &dom,
+            None,
+            &tcb,
+            isz(0.0, 0.0, 0.0, 42.0),
+            &bp,
+            &VIEWPORT,
+        )
+        .expect("anonymous box");
         assert_eq!(r.width, 800.0);
         assert_eq!(r.height, 42.0);
 
         // A non-positive content height means "auto" — resolved later from the
         // laid-out children, so 0.0 (not the negative value) is stored now.
-        let r =
-            calculate_used_size_for_node(&dom, None, &tcb, isz(0.0, 0.0, 0.0, -5.0), &bp, &VIEWPORT)
-                .expect("anonymous box");
+        let r = calculate_used_size_for_node(
+            &dom,
+            None,
+            &tcb,
+            isz(0.0, 0.0, 0.0, -5.0),
+            &bp,
+            &VIEWPORT,
+        )
+        .expect("anonymous box");
         assert_eq!(r.height, 0.0);
     }
 
@@ -4156,8 +4259,7 @@ mod autotest_generated {
         // min-content pass must get the min-content contribution, or every
         // auto block reports the same number for both passes and shrink-to-fit
         // collapses to a constant.
-        use crate::solver3::geometry::ContainingBlock;
-        use crate::text3::cache::AvailableSpace;
+        use crate::{solver3::geometry::ContainingBlock, text3::cache::AvailableSpace};
         let dom = constraints_dom();
         let bp = zero_props();
         let min_cb = ContainingBlock::from_axes(
@@ -4167,14 +4269,12 @@ mod autotest_generated {
         );
         let max_cb = ContainingBlock::from_flattened(size(f32::INFINITY, f32::INFINITY));
         let intrinsic = isz(120.0, 420.0, 0.0, 30.0);
-        let r_min = calculate_used_size_for_node(
-            &dom, Some(AUTOBLOCK), &min_cb, intrinsic, &bp, &VIEWPORT,
-        )
-        .expect("min pass");
-        let r_max = calculate_used_size_for_node(
-            &dom, Some(AUTOBLOCK), &max_cb, intrinsic, &bp, &VIEWPORT,
-        )
-        .expect("max pass");
+        let r_min =
+            calculate_used_size_for_node(&dom, Some(AUTOBLOCK), &min_cb, intrinsic, &bp, &VIEWPORT)
+                .expect("min pass");
+        let r_max =
+            calculate_used_size_for_node(&dom, Some(AUTOBLOCK), &max_cb, intrinsic, &bp, &VIEWPORT)
+                .expect("max pass");
         assert_eq!(r_min.width, 120.0, "min-content pass -> min-content width");
         assert_eq!(r_max.width, 420.0, "max-content pass -> max-content width");
     }
@@ -4183,8 +4283,7 @@ mod autotest_generated {
     fn a_percent_width_under_each_measurement_pass_behaves_as_auto_of_that_kind() {
         // css-sizing-3 §5.2.1 — and with the typed axis, "behaves as auto"
         // can finally distinguish the two passes for percentages too.
-        use crate::solver3::geometry::ContainingBlock;
-        use crate::text3::cache::AvailableSpace;
+        use crate::{solver3::geometry::ContainingBlock, text3::cache::AvailableSpace};
         let dom = constraints_dom();
         let bp = zero_props();
         let intrinsic = isz(120.0, 420.0, 0.0, 30.0);

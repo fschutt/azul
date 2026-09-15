@@ -401,13 +401,13 @@ impl KeyModifiers {
 /// runtime tag — but it cannot express the distinctions WITHIN the pointer
 /// family, and those matter:
 ///
-/// - A touchpad and a mouse both arrive as a synthesized pointer. Telling them
-///   apart is what lets an app know a pinch gesture is possible at all, and
-///   whether "scroll" means a wheel detent or a continuous drag.
-/// - A trackball and a trackpoint have their own acceleration and scroll
-///   semantics, which is why GTK and Android name them separately.
-/// - A pen reported through the pointer path (a stylus acting as a mouse, the
-///   Wayland tablet bridge) is not a finger and not a mouse.
+/// - A touchpad and a mouse both arrive as a synthesized pointer. Telling them apart is what lets
+///   an app know a pinch gesture is possible at all, and whether "scroll" means a wheel detent or a
+///   continuous drag.
+/// - A trackball and a trackpoint have their own acceleration and scroll semantics, which is why
+///   GTK and Android name them separately.
+/// - A pen reported through the pointer path (a stylus acting as a mouse, the Wayland tablet
+///   bridge) is not a finger and not a mouse.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum PointerSource {
@@ -1479,11 +1479,17 @@ pub enum DefaultAction {
     ClearFocus,
     /// Activate the focused element (Enter/Space on activatable elements)
     /// This generates a synthetic Click event on the target
-    ActivateFocusedElement { target: DomNodeId },
+    ActivateFocusedElement {
+        target: DomNodeId,
+    },
     /// Submit the form containing the focused element (Enter in form input)
-    SubmitForm { form_node: DomNodeId },
+    SubmitForm {
+        form_node: DomNodeId,
+    },
     /// Close the current modal/dialog (Escape key when modal is open)
-    CloseModal { modal_node: DomNodeId },
+    CloseModal {
+        modal_node: DomNodeId,
+    },
     /// Scroll the focused scrollable container
     ScrollFocusedContainer {
         direction: ScrollDirection,
@@ -1494,13 +1500,19 @@ pub enum DefaultAction {
     /// Enter in a contenteditable host: record a STRUCTURAL split-block
     /// changeset for the app to apply to its model (azul never mutates the
     /// DOM). Execution = `LayoutWindow::record_structural_default_action`.
-    SplitBlockAtCursor { target: DomNodeId },
+    SplitBlockAtCursor {
+        target: DomNodeId,
+    },
     /// Backspace at block start in a contenteditable host: record a
     /// merge-with-previous-block changeset (same record-only semantics).
-    MergeWithPrevious { target: DomNodeId },
+    MergeWithPrevious {
+        target: DomNodeId,
+    },
     /// Delete at block end in a contenteditable host: record a
     /// merge-with-next-block changeset (same record-only semantics).
-    MergeWithNext { target: DomNodeId },
+    MergeWithNext {
+        target: DomNodeId,
+    },
     /// No default action for this event
     None,
     /// Enter in a PLAIN-TEXT editing context (the editing host's computed
@@ -1509,14 +1521,18 @@ pub enum DefaultAction {
     /// literal `"\n"` through the standard text-input pipeline (which brings
     /// veto, undo, and caret-follow along) instead of recording a structural
     /// block split. APPENDED at the enum tail for ABI stability.
-    InsertLineBreakAtCursor { target: DomNodeId },
+    InsertLineBreakAtCursor {
+        target: DomNodeId,
+    },
     /// Reset a form to its controls' default values (a `type="reset"` control
     /// was activated). APPENDED at the enum tail for ABI stability.
     ///
     /// The sibling of [`Self::SubmitForm`]: both name the FORM rather than the
     /// control that triggered them, because a reset handler belongs on the
     /// form and the button is an implementation detail of how the user asked.
-    ResetForm { form_node: DomNodeId },
+    ResetForm {
+        form_node: DomNodeId,
+    },
 }
 
 /// Amount to scroll for keyboard-based scrolling
@@ -1629,7 +1645,6 @@ fn matches_filter_phase(
     event: &SyntheticEvent,
     current_phase: EventPhase,
 ) -> bool {
-
     // azul has no capture-phase listeners (no `addEventListener(…, capture=true)`
     // equivalent): every `EventFilter` is a bubble-phase listener, which by the W3C
     // model fires only in the Target and Bubble phases — never Capture. Without this
@@ -1729,11 +1744,10 @@ fn matches_hover_filter(
         Drop, DroppedFile, GamepadInput, GeolocationError, GeolocationFix, HoveredFile,
         HoveredFileCancelled, KeyringResult, LeftMouseDown, LeftMouseUp, MiddleMouseDown,
         MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove, MouseOver, MouseUp,
-        PenDoubleTap, PenDown,
-        PenEnter, PenHover, PenLeave, PenMove, PenSqueeze, PenUp, PermissionChanged, RightMouseDown,
-        RightMouseUp,
-        ScreenColorPicked, Scroll, ScrollEnd, ScrollStart, SensorChanged, TextInput, TouchCancel,
-        TouchEnd, TouchMove, TouchStart, VirtualKeyDown, VirtualKeyUp,
+        PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze, PenUp,
+        PermissionChanged, RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd,
+        ScrollStart, SensorChanged, TextInput, TouchCancel, TouchEnd, TouchMove, TouchStart,
+        VirtualKeyDown, VirtualKeyUp,
     };
 
     match (filter, &event.event_type) {
@@ -2030,13 +2044,12 @@ fn matches_window_filter(
         BiometricResult, CloseRequested, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
         Drop, DroppedFile, FocusLost, FocusReceived, FrameChanged, GamepadInput, GeolocationError,
         GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
-        LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove,
-        MouseOver,
-        MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
-        ModifiersChanged, PenUp, PermissionChanged, PointerLockChange, RawMouseMotion, Resized,
-        RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
-        SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
-        VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
+        LeftMouseUp, MiddleMouseDown, MiddleMouseUp, ModifiersChanged, MouseDown, MouseEnter,
+        MouseLeave, MouseMove, MouseOver, MouseUp, Moved, PenDoubleTap, PenDown, PenEnter,
+        PenHover, PenLeave, PenMove, PenSqueeze, PenUp, PermissionChanged, PointerLockChange,
+        RawMouseMotion, Resized, RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll,
+        ScrollEnd, ScrollStart, SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd,
+        TouchMove, TouchStart, VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
     };
 
     match (filter, &event.event_type) {
@@ -2752,7 +2765,8 @@ impl HoverEventFilter {
             Self::PinchOut => Some(FocusEventFilter::PinchOut),
             Self::RotateClockwise => Some(FocusEventFilter::RotateClockwise),
             Self::RotateCounterClockwise => Some(FocusEventFilter::RotateCounterClockwise),
-            Self::MouseOut => Some(FocusEventFilter::MouseLeave), // mouseout → closest focus equivalent
+            Self::MouseOut => Some(FocusEventFilter::MouseLeave), /* mouseout → closest focus
+                                                                    * equivalent */
             Self::FocusIn => Some(FocusEventFilter::FocusIn),
             Self::FocusOut => Some(FocusEventFilter::FocusOut),
             Self::CompositionStart => Some(FocusEventFilter::CompositionStart),
@@ -3794,7 +3808,6 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
     ComponentEventFilter::Docked,
 ];
 
-
 /// Every `ExternalEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
 static ALL_EXTERNAL: &[ExternalEventFilter] = &[
     ExternalEventFilter::Play,
@@ -4322,9 +4335,8 @@ impl core::fmt::Display for E2eSchemaError {
             }
             Self::ExampleMissingSuccess { op, index } => write!(
                 f,
-                "op '{op}' example #{index}: `returns` has no `success` boolean. Every op \
-                 result must say whether it worked, or a failure is indistinguishable from a \
-                 success"
+                "op '{op}' example #{index}: `returns` has no `success` boolean. Every op result \
+                 must say whether it worked, or a failure is indistinguishable from a success"
             ),
         }
     }
@@ -4746,7 +4758,9 @@ impl KeyboardShortcut {
 /// Replace it on `LayoutWindow` to implement vim, game controls, etc.
 /// `extern "C"` trampoline for `default_input_interpreter`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-// SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+// SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the
+// documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force
+// unsafe blocks into the generated dll bindings.
 #[must_use]
 pub extern "C" fn default_input_interpreter_extern(
     _user_data: crate::refany::RefAny,
@@ -5098,11 +5112,13 @@ fn handle_key_down(
         if let Some(shortcut) = KeyboardShortcut::from_key(*vk, primary, shift) {
             // A second seat's shortcut acts on ITS caret (9b-ii-a-i-d-ii-b-i).
             if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
-                return Some(InternalEventAction::AddAndSkip(SystemChange::SeatShortcut {
-                    seat_id: kbd.seat_id,
-                    target,
-                    shortcut,
-                }));
+                return Some(InternalEventAction::AddAndSkip(
+                    SystemChange::SeatShortcut {
+                        seat_id: kbd.seat_id,
+                        target,
+                        shortcut,
+                    },
+                ));
             }
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
@@ -5229,7 +5245,10 @@ pub fn seat_focus_of_events<FM: FocusManagerQuery + ?Sized>(
         {
             continue;
         }
-        out.push((k.seat_id, focus_manager.get_focused_node_for_seat(k.seat_id)));
+        out.push((
+            k.seat_id,
+            focus_manager.get_focused_node_for_seat(k.seat_id),
+        ));
     }
     out
 }

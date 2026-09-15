@@ -21,10 +21,14 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionKind, StructDef, TypeCategory};
-use super::{cobol_identifier, to_cobol_case};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionKind, StructDef, TypeCategory},
+    },
+    cobol_identifier, to_cobol_case,
+};
 
 pub fn generate_wrapper_docs(
     builder: &mut CodeBuilder,

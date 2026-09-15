@@ -2,9 +2,6 @@
 
 // Off-wasm: re-export the real desktop type (zero behaviour change). Gated on
 // the same condition as `crate::desktop`.
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::app::*;
-
 // wasm: stub with an identical `#[repr(C)]` layout (a pointer-width `ptr` +
 // `run_destructor` bool, matching `Box<AppInternal>` + bool) so the C-ABI
 // transmute to `AzApp` stays valid. There is no platform event loop on wasm —
@@ -17,6 +14,9 @@ use core::ffi::c_void;
 use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
 #[cfg(target_arch = "wasm32")]
 use azul_layout::window_state::WindowCreateOptions;
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::app::*;
 
 /// wasm stub of the desktop `App` handle (no native event loop on wasm; the
 /// web backend owns the application lifecycle).

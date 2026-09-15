@@ -17,12 +17,14 @@ use serde::{
 /// In api.json, `"self": "ref"` means `&self`, not a type called "ref".
 /// This enum ensures type-safe parsing and prevents treating borrow modes as types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum BorrowMode {
     /// `&self` / `&T` - immutable reference
     Ref,
     /// `&mut self` / `&mut T` - mutable reference  
     RefMut,
     /// `self` / `T` - ownership transfer (by value)
+    #[default]
     Value,
 }
 
@@ -79,11 +81,6 @@ impl BorrowMode {
     }
 }
 
-impl Default for BorrowMode {
-    fn default() -> Self {
-        BorrowMode::Value
-    }
-}
 
 impl fmt::Display for BorrowMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -244,7 +241,7 @@ impl ParsedFnArgs {
     pub fn has_mut_self(&self) -> bool {
         self.self_param
             .as_ref()
-            .map_or(false, |s| s.borrow_mode == BorrowMode::RefMut)
+            .is_some_and(|s| s.borrow_mode == BorrowMode::RefMut)
     }
 }
 

@@ -331,8 +331,10 @@ fn layout_dom_and_get_content_width(
     width: f32,
     height: f32,
 ) -> Option<f32> {
-    use azul_core::dom::{DomNodeId, NodeId};
-    use azul_core::styled_dom::NodeHierarchyItemId;
+    use azul_core::{
+        dom::{DomNodeId, NodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let mut dom = dom;
@@ -468,7 +470,8 @@ fn test_scrollbar_appears_with_overflow_auto() {
 
     assert!(
         scrollbar_count >= 1,
-        "overflow: auto should show vertical scrollbar when content overflows, got {scrollbar_count} scrollbars"
+        "overflow: auto should show vertical scrollbar when content overflows, got \
+         {scrollbar_count} scrollbars"
     );
 }
 
@@ -497,7 +500,8 @@ fn test_no_scrollbar_when_content_fits_with_overflow_auto() {
 
     assert!(
         scrollbar_count == 0,
-        "overflow: auto should NOT show scrollbar when content fits, got {scrollbar_count} scrollbars"
+        "overflow: auto should NOT show scrollbar when content fits, got {scrollbar_count} \
+         scrollbars"
     );
 }
 
@@ -527,7 +531,8 @@ fn test_horizontal_scrollbar_reduces_height() {
     // Should have at least horizontal scrollbar
     assert!(
         scrollbar_count >= 1,
-        "overflow: auto should show horizontal scrollbar when content is wider, got {scrollbar_count} scrollbars"
+        "overflow: auto should show horizontal scrollbar when content is wider, got \
+         {scrollbar_count} scrollbars"
     );
 }
 
@@ -788,7 +793,8 @@ fn test_scrolling_c_style_layout() {
 
     assert!(
         !vertical_scrollbars.is_empty(),
-        "Flex container with overflow: auto should show vertical scrollbar when items overflow. Got: {bounds:?}"
+        "Flex container with overflow: auto should show vertical scrollbar when items overflow. \
+         Got: {bounds:?}"
     );
 
     let (x, y, w, h, _) = vertical_scrollbars[0];
@@ -935,7 +941,8 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
     // We should definitely have a scrollbar
     assert!(
         small_vertical.is_some(),
-        "Small window (300px) should have vertical scrollbar for 1100px content. Got: {small_info:?}"
+        "Small window (300px) should have vertical scrollbar for 1100px content. Got: \
+         {small_info:?}"
     );
 
     // If both have styled scrollbars with thumbs, compare thumb sizes

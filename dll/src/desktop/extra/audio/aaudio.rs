@@ -7,8 +7,7 @@
 //! so no sample conversion. Mirrors the dlopen rule of `audio/alsa.rs`.
 
 use core::ffi::{c_int, c_void};
-use std::ptr;
-use std::sync::OnceLock;
+use std::{ptr, sync::OnceLock};
 
 // AAudio enum constants (stable ABI).
 const AAUDIO_DIRECTION_OUTPUT: c_int = 0;

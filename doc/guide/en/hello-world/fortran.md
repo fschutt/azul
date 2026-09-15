@@ -29,8 +29,14 @@ default-search-keys:
 ## Introduction
 
 The Fortran binding targets **Fortran 2003+** and talks to the prebuilt
-`libazul` native library through `iso_c_binding`. Everything lives in a
-single generated module, `azul.f90`, which has two layers:
+`libazul` native library through `iso_c_binding`. It is generated as one
+module per api.json module (`azul_types_*.f90`, `azul_ffi_*.f90`,
+`azul_api.f90`, and a facade `azul_dom.f90`, `azul_css.f90`, ... per
+module) behind the `azul` facade in `azul.f90`, so both `use azul` and
+`use azul_dom, only: dom_t` work. Write `use azul, only: ...` with the
+names you need: a bare `use azul` makes gfortran resolve every one of the
+binding's procedures for your unit, which is minutes instead of seconds.
+The binding has two layers:
 
 - **the wrapper layer** — what you write against. One derived type per
   class (`dom_t`, `button_t`, `app_t`, `ref_any_t`, ...) with type-bound
@@ -94,9 +100,11 @@ convention that the Mach-O loader ignores, so run the binary with
 `DYLD_LIBRARY_PATH=.` as shown above (or fix the install name once with
 `install_name_tool`).
 
-Compiling `azul.f90` takes a few seconds and produces `azul.o` plus a
-compiler-managed `azul.mod` that your program `use`s — both are cached
-by `make`, so incremental rebuilds only recompile your own source.
+Compiling the generated modules (`make -j8` compiles independent ones in
+parallel; `sources.txt` lists the order if you drive the compiler by
+hand) produces one `.o` plus a compiler-managed `.mod` each, which your
+program `use`s — all cached by `make`, so incremental rebuilds only
+recompile your own source.
 
 ## Simple "Counter" Example
 

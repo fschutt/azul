@@ -7,24 +7,27 @@
 //! Fake metrics @ size 20: 'a'/'b'/'c' 600u => 12px · space 250u => 5px ·
 //! Hebrew 550u => 11px · U+0301 combining => 0px (stays in its base cluster).
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use azul_core::geom::{LogicalPosition, LogicalRect};
-use azul_core::selection::{
-    CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
+use azul_core::{
+    geom::{LogicalPosition, LogicalRect},
+    selection::{CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor},
 };
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
-    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
-    UnifiedConstraints, UnifiedLayout,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::{
+        cache::{
+            create_logical_items, perform_fragment_layout, reorder_logical_items,
+            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, FontChainKey,
+            FontStack, InlineContent, LoadedFonts, OverflowInfo, ShapedItem, StyleProperties,
+            StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
+        },
+        edit::{delete_backward, delete_forward, edit_text, insert_text, TextEdit},
+        selection::{select_paragraph_at_cursor, select_word_at_cursor},
+    },
 };
-use azul_layout::text3::edit::{delete_backward, delete_forward, edit_text, insert_text, TextEdit};
-use azul_layout::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
 use crate::fakefont::simple_test_font;
@@ -35,7 +38,8 @@ fn assert_px(actual: f32, expected: f32) {
     let delta = (actual - expected).abs();
     assert!(
         delta <= 0.05,
-        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > 0.05px)"
+        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > \
+         0.05px)"
     );
 }
 

@@ -94,7 +94,8 @@ fn test_margin_em_uses_element_font_size() {
     let expected = 0.67 * 32.0; // 21.44
     assert!(
         (resolved - expected).abs() < 0.01,
-        "Margin em should use element font-size (32px), not parent (16px). Expected {expected}, got {resolved}"
+        "Margin em should use element font-size (32px), not parent (16px). Expected {expected}, \
+         got {resolved}"
     );
 }
 

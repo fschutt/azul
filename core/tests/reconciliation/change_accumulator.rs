@@ -1,8 +1,10 @@
 // Tests for ChangeAccumulator: merging changes from multiple paths,
 // classification of layout/paint/no-visual changes, mount/unmount tracking.
 
-use azul_core::diff::{ChangeAccumulator, NodeChangeReport, NodeChangeSet, TextChange};
-use azul_core::id::NodeId;
+use azul_core::{
+    diff::{ChangeAccumulator, NodeChangeReport, NodeChangeSet, TextChange},
+    id::NodeId,
+};
 use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
 // =========================================================================
