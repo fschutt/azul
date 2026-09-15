@@ -219,6 +219,14 @@ pub struct HttpClientConfig {
     pub max_idle_connections: u32,
     /// Idle connections kept open to any one host (default: 8).
     pub max_idle_connections_per_host: u32,
+    /// Seconds a host's DNS answer is reused (default: 0 = look it up for
+    /// every request, like a request without a client does).
+    ///
+    /// Reusing a pooled connection does not skip the lookup: the address is
+    /// resolved before the pool is asked for a connection. With a cache the
+    /// lookup happens once per host per period. A host that moves to another
+    /// address is only reached again once its entry expires.
+    pub dns_cache_secs: u32,
     /// Disable TLS certificate verification for every request of this client
     /// (default: false). Same warning as on `HttpRequestConfig`.
     pub disable_tls_cert_verification: bool,
@@ -229,6 +237,7 @@ impl Default for HttpClientConfig {
         Self {
             max_idle_connections: 32,
             max_idle_connections_per_host: 8,
+            dns_cache_secs: 0,
             disable_tls_cert_verification: false,
         }
     }
@@ -252,6 +261,13 @@ impl HttpClientConfig {
     #[must_use]
     pub const fn with_max_idle_connections_per_host(mut self, n: u32) -> Self {
         self.max_idle_connections_per_host = n;
+        self
+    }
+
+    /// Reuse each host's DNS answer for `secs` seconds (0 = no cache)
+    #[must_use]
+    pub const fn with_dns_cache_secs(mut self, secs: u32) -> Self {
+        self.dns_cache_secs = secs;
         self
     }
 }
@@ -285,11 +301,10 @@ impl HttpClient {
             ptr: Box::new(alloc::sync::Arc::new(HttpClientInner {
                 config,
                 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-                agent: agent_config(config.disable_tls_cert_verification)
-                    .max_idle_connections(config.max_idle_connections as usize)
-                    .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
-                    .build()
-                    .new_agent(),
+                agent: client_agent(
+                    &config,
+                    ureq::unversioned::resolver::DefaultResolver::default(),
+                ),
             })),
             run_destructor: true,
         }
@@ -902,6 +917,106 @@ fn agent_config(
     ureq::Agent::config_builder()
         .tls_config(tls_config)
         .http_status_as_error(false)
+}
+
+/// The agent behind an [`HttpClient`]: pooled per `config`, and resolving hosts
+/// through `resolver`, cached when `config.dns_cache_secs` asks for it.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn client_agent(
+    config: &HttpClientConfig,
+    resolver: impl ureq::unversioned::resolver::Resolver,
+) -> ureq::Agent {
+    let agent_config = agent_config(config.disable_tls_cert_verification)
+        .max_idle_connections(config.max_idle_connections as usize)
+        .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
+        .build();
+    let connector = ureq::unversioned::transport::DefaultConnector::default();
+    if config.dns_cache_secs == 0 {
+        ureq::Agent::with_parts(agent_config, connector, resolver)
+    } else {
+        ureq::Agent::with_parts(
+            agent_config,
+            connector,
+            CachingResolver::new(
+                resolver,
+                std::time::Duration::from_secs(u64::from(config.dns_cache_secs)),
+            ),
+        )
+    }
+}
+
+/// A resolver that answers each `host:port` from memory for `ttl` after asking
+/// `inner` once.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+struct CachingResolver<R> {
+    inner: R,
+    ttl: std::time::Duration,
+    answers: std::sync::Mutex<
+        std::collections::HashMap<String, (std::time::Instant, Vec<std::net::SocketAddr>)>,
+    >,
+}
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl<R> CachingResolver<R> {
+    fn new(inner: R, ttl: std::time::Duration) -> Self {
+        Self {
+            inner,
+            ttl,
+            answers: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl<R: ureq::unversioned::resolver::Resolver> ureq::unversioned::resolver::Resolver
+    for CachingResolver<R>
+{
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let key = uri
+            .scheme()
+            .zip(uri.authority())
+            .and_then(|(scheme, authority)| {
+                ureq::unversioned::resolver::DefaultResolver::host_and_port(scheme, authority)
+            });
+        let Some(key) = key else {
+            return self.inner.resolve(uri, config, timeout); // let it report the bad URL
+        };
+        let cached = self.answers.lock().ok().and_then(|answers| {
+            answers
+                .get(&key)
+                .filter(|(at, _)| at.elapsed() < self.ttl)
+                .map(|(_, addrs)| addrs.clone())
+        });
+        if let Some(addrs) = cached {
+            let mut out = self.inner.empty();
+            for addr in addrs {
+                out.push(addr);
+            }
+            return Ok(out);
+        }
+        // Failures are not cached: the next request asks again.
+        let resolved = self.inner.resolve(uri, config, timeout)?;
+        if let Ok(mut answers) = self.answers.lock() {
+            answers.insert(
+                key,
+                (
+                    std::time::Instant::now(),
+                    resolved.iter().copied().collect(),
+                ),
+            );
+        }
+        Ok(resolved)
+    }
+
+    fn empty(&self) -> ureq::unversioned::resolver::ResolvedSocketAddrs {
+        self.inner.empty()
+    }
 }
 
 /// HTTP verb for [`http_request_with_config`].
@@ -2069,8 +2184,90 @@ mod client_pool_tests {
     fn requests_through_a_client_reuse_one_connection() {
         let (url, accepted) = serve();
         let client = HttpClient::create(HttpClientConfig::default());
-        get_three_times(&url, &HttpRequestConfig::default().with_timeout(5).with_client(client));
+        get_three_times(
+            &url,
+            &HttpRequestConfig::default()
+                .with_timeout(5)
+                .with_client(client),
+        );
         assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    }
+
+    /// Answers every host with 127.0.0.1:`port`, counting how often it is asked.
+    #[derive(Debug)]
+    struct CountingResolver {
+        port: u16,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ureq::unversioned::resolver::Resolver for CountingResolver {
+        fn resolve(
+            &self,
+            _uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut out = self.empty();
+            out.push(std::net::SocketAddr::from(([127, 0, 0, 1], self.port)));
+            Ok(out)
+        }
+    }
+
+    /// A client for a host name only `CountingResolver` knows, so every lookup
+    /// the client makes is counted.
+    fn counted_client(
+        agent: impl FnOnce(CountingResolver) -> ureq::Agent,
+    ) -> (String, Arc<AtomicUsize>) {
+        let (url, _) = serve();
+        let port: u16 = url
+            .trim_end_matches('/')
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("port");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let client = HttpClient {
+            ptr: Box::new(Arc::new(HttpClientInner {
+                config: HttpClientConfig::default(),
+                agent: agent(CountingResolver {
+                    port,
+                    calls: Arc::clone(&calls),
+                }),
+            })),
+            run_destructor: true,
+        };
+        let config = HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_client(client);
+        get_three_times(&format!("http://tiles.azul.invalid:{port}/"), &config);
+        (url, calls)
+    }
+
+    #[test]
+    fn a_client_without_a_dns_cache_looks_the_host_up_for_every_request() {
+        let config = HttpClientConfig::default();
+        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn a_client_with_a_dns_cache_looks_the_host_up_once() {
+        let config = HttpClientConfig::default().with_dns_cache_secs(60);
+        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_expired_dns_answer_is_looked_up_again() {
+        let (_, calls) = counted_client(|resolver| {
+            ureq::Agent::with_parts(
+                agent_config(false).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                CachingResolver::new(resolver, std::time::Duration::ZERO),
+            )
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]

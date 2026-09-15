@@ -10595,6 +10595,9 @@
                                 "max_idle_connections_per_host": {
                                     "type": "u32"
                                 },
+                                "dns_cache_secs": {
+                                    "type": "u32"
+                                },
                                 "disable_tls_cert_verification": {
                                     "type": "bool"
                                 }
@@ -10643,6 +10646,23 @@
                                     "type": "HttpClientConfig"
                                 },
                                 "fn_body": "object.with_max_idle_connections_per_host(n)"
+                            },
+                            "with_dns_cache_secs": {
+                                "doc": [
+                                    "Reuse each host's DNS answer for `secs` seconds (0 = no cache)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "secs": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpClientConfig"
+                                },
+                                "fn_body": "object.with_dns_cache_secs(secs)"
                             }
                         },
                         "repr": "C"

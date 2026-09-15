@@ -113,6 +113,17 @@ dropped. With a client, TLS verification follows the client's
 apply. In the browser the client changes nothing: the browser pools
 connections itself.
 
+A pooled connection skips the TCP and TLS handshake, but not the DNS lookup:
+the host is resolved before the pool is asked for a connection. When many
+requests go to the same few hosts, let the client remember the answer:
+
+```rust,ignore
+let client = HttpClient::create(HttpClientConfig::create().with_dns_cache_secs(300));
+```
+
+The default is `0`, one lookup per request. A host that changes its address
+is reached again once its cached answer expires.
+
 The same idea applies to threads. `ThreadPool::create(n)` starts `n` workers,
 and `pool.create_thread(...)` returns an ordinary `Thread` whose body runs on
 one of them, so many short jobs don't each start an OS thread.
