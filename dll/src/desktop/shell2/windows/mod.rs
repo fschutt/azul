@@ -2651,6 +2651,8 @@ impl Win32Window {
             } else {
                 None
             };
+            // The GPU swap went to a hidden window; the skip heuristic must not drop this repaint.
+            self.needs_gpu_present = true;
             (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
             if let Some((w, h)) = replay {
                 const WM_SIZE: u32 = 0x0005;
