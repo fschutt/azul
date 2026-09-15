@@ -1,3 +1,7 @@
+// The file name has a hyphen, which is not a D identifier, so the module
+// needs a name of its own.
+module hello_world;
+
 import azul;
 
 struct MyDataModel {
@@ -94,7 +98,7 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString counter_str = AzString_fromUtf8(buf.ptr, n);
     AzDom label = AzDom_createPWithText(counter_str);
 
-    AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"));
+    AzDom_setCss(&label, azString("font-size: 32px; margin: 0;"));
 
     AzButton button = AzButton_create(azString("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType.Primary);
@@ -117,7 +121,6 @@ void main() {
     window.window_state.title = azString("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
-
 
     AzApp app = AzApp_create(data, AzAppConfig_create());
     AzApp_run(&app, window);
