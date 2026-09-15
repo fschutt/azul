@@ -4,9 +4,8 @@
 //! thread), exactly like the map widget's `tile_fetch_worker`. Frames are decoded
 //! incrementally — there is NO up-front decode — and presented by WALL-CLOCK, so
 //! late frames are dropped and the window opens immediately while playback speed
-//! stays independent of decode/render speed. Pass [`video_decode_worker`] to
-//! [`VideoWidget::dom_with_decoder`](azul_layout::widgets::video::VideoWidget::dom_with_decoder)
-//! wrapped in a `ThreadCallback`.
+//! stays independent of decode/render speed. [`ensure_video_decoder`] registers
+//! [`video_decode_worker`]; a `VideoWidget` picks it up when it mounts.
 
 use azul_core::{refany::RefAny, task::ThreadReceiver};
 use azul_layout::{
@@ -16,24 +15,37 @@ use azul_layout::{
     widgets::video::video_writeback,
 };
 
-/// FFI entry point the `VideoWidget::dom()` shim calls — wires the off-main
-/// streaming decode worker, mirroring `map_widget_dom`. The worker lives here in
-/// `azul-dll` (it pulls the gpu-video / mp4 dep tree kept out of `azul-layout`),
-/// so `VideoWidget::dom()` in layout can only produce a placeholder; the real
-/// streaming decode is injected here via the layout-internal `dom_with_decoder`
-/// plumbing. The decode itself is `video-native`-gated inside the worker; this
-/// wrapper (and the worker fn) are always present so the `unified` path resolves
-/// in every `cabi_internal` build.
+/// FFI entry point the `VideoWidget::dom()` shim calls, mirroring
+/// `map_widget_dom`: makes sure the streaming decode worker is registered, then
+/// builds the widget, which installs the worker when it mounts. The worker lives
+/// here in `azul-dll` (it pulls the gpu-video / mp4 dep tree kept out of
+/// `azul-layout`). The decode itself is `video-native`-gated inside the worker;
+/// this wrapper (and the worker fn) are always present so the `unified` path
+/// resolves in every `cabi_internal` build.
 pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azul_core::dom::Dom {
-    widget.dom_with_decoder(ThreadCallback {
-        cb: video_decode_worker,
-        ctx: azul_core::refany::OptionRefAny::None,
-    })
+    ensure_video_decoder();
+    widget.dom()
 }
 
-/// Background decode worker. `init` is a `RefAny` holding the source:
-/// - a `String` — a URL, fetched via an HTTP **range request**, or
-/// - a `Vec<u8>` — raw MP4 bytes (e.g. a bundled/local sample).
+/// Install [`video_decode_worker`] as the decode worker every `VideoWidget`
+/// picks up when it mounts, once. Called from the shared per-frame layout pass
+/// (like the map's tile fetcher) and again defensively from
+/// [`video_widget_dom`].
+pub fn ensure_video_decoder() {
+    static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    DONE.get_or_init(|| {
+        let _ = azul_layout::widgets::video::register_video_decoder(ThreadCallback {
+            cb: video_decode_worker,
+            ctx: azul_core::refany::OptionRefAny::None,
+        });
+    });
+}
+
+/// Background decode worker. `init` is a `RefAny` holding a
+/// [`VideoDecodeInit`](azul_layout::widgets::video::VideoDecodeInit): the
+/// `VideoConfig` whose source is a URL (fetched via an HTTP **range request**,
+/// through the init's `HttpClient` when the widget has one), a file, or raw MP4
+/// bytes.
 ///
 /// It decodes the clip incrementally on this thread and streams frames to the
 /// widget's `<img>` via `WriteBack` → `video_writeback` → `present_frame`,
@@ -102,11 +114,12 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
     //    request / local file / in-memory bytes). No RefAny downcast ambiguity — the source is
     //    strongly typed.
     use azul_core::video::VideoSource;
-    let config = match init.downcast_ref::<azul_core::video::VideoConfig>() {
-        Some(c) => c.clone(),
+    let (config, client) = match init.downcast_ref::<azul_layout::widgets::video::VideoDecodeInit>()
+    {
+        Some(i) => (i.config.clone(), i.client.clone()),
         None => {
             if log {
-                eprintln!("[vstream] init is not a VideoConfig");
+                eprintln!("[vstream] init is not a VideoDecodeInit");
             }
             return;
         }
@@ -120,7 +133,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                 if log {
                     eprintln!("[vstream] fetching (Range: bytes=0-) {}", u.as_str());
                 }
-                match fetch_ranged(u.as_str()) {
+                match fetch_ranged(u.as_str(), &client) {
                     Some(b) => b,
                     None => {
                         if log {
@@ -351,10 +364,13 @@ fn scale_frame_bilinear(
     target_arch = "x86_64",
     any(target_os = "linux", target_os = "windows")
 ))]
-fn fetch_ranged(url: &str) -> Option<Vec<u8>> {
+fn fetch_ranged(url: &str, client: &azul_layout::http::OptionHttpClient) -> Option<Vec<u8>> {
     use azul_css::AzString;
-    use azul_layout::http::{HttpRequestConfig, ResultU8VecHttpError};
-    let cfg = HttpRequestConfig::new().with_header("Range", "bytes=0-");
+    use azul_layout::http::{HttpRequestConfig, OptionHttpClient, ResultU8VecHttpError};
+    let mut cfg = HttpRequestConfig::new().with_header("Range", "bytes=0-");
+    if let OptionHttpClient::Some(client) = client {
+        cfg = cfg.with_client(client.clone());
+    }
     match cfg.download_bytes_blocking(AzString::from(url.to_string())) {
         ResultU8VecHttpError::Ok(b) => Some(b.as_slice().to_vec()),
         ResultU8VecHttpError::Err(_) => None,

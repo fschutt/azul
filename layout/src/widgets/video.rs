@@ -24,11 +24,14 @@ use azul_core::{
 use super::capture_common::{
     invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
+use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
+
 use crate::{
     callbacks::{Callback, CallbackInfo, CallbackType},
+    http::{HttpClient, OptionHttpClient},
     thread::{
-        Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
-        WriteBackCallback,
+        OptionThreadPool, Thread, ThreadCallback, ThreadPool, ThreadReceiveMsg, ThreadSender,
+        ThreadWriteBackMsg, WriteBackCallback,
     },
 };
 
@@ -55,7 +58,8 @@ pub struct VideoWidgetState {
     /// the built-in test pattern. Carried forward by [`merge_video_state`].
     pub frames: OptionRefAny,
     /// The off-main-thread streaming decode worker (mirrors the map widget's
-    /// `fetch_callback`). Set via [`VideoWidget::dom_with_decoder`]. When present,
+    /// `fetch_callback`). Installed on mount from [`register_video_decoder`]
+    /// unless the widget replays [`VideoWidget::with_frames`]. When present,
     /// `AfterMount` spawns it on a background `Thread` instead of the replay /
     /// test-pattern workers, so the VK decode runs off the main thread.
     pub decode_callback: Option<ThreadCallback>,
@@ -75,6 +79,38 @@ pub struct VideoWidgetState {
     /// merge). Lets [`merge_video_state`] - which has no `CallbackInfo` - push a
     /// seek to the running worker when `config.timestamp` changes (scrubbing).
     pub seek_sender: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
+    /// The user's `on_mount` hook, copied from the builder so mount can fire
+    /// it. Carried across relayout.
+    pub on_mount: OptionVideoMount,
+    /// What the decode worker runs on, as the `on_mount` hook last returned it.
+    /// Written on mount, never by a rebuild (see [`merge_video_state`]).
+    pub setup: VideoSetup,
+}
+
+/// The runtime-installed streaming decode worker every video picks up when it
+/// mounts. Registered once by the dll, where the worker and its decoder
+/// dependencies live.
+static VIDEO_DECODER: std::sync::OnceLock<ThreadCallback> = std::sync::OnceLock::new();
+
+/// Install the framework-owned streaming decode worker. The first registration
+/// wins; returns `false` when one was already installed.
+pub fn register_video_decoder(cb: ThreadCallback) -> bool {
+    VIDEO_DECODER.set(cb).is_ok()
+}
+
+/// Whether a streaming decode worker has been installed.
+#[must_use]
+pub fn has_video_decoder() -> bool {
+    VIDEO_DECODER.get().is_some()
+}
+
+/// The decode worker's thread-init: what to play, and the connection pool to
+/// download it through.
+#[derive(Debug, Clone)]
+pub struct VideoDecodeInit {
+    pub config: VideoConfig,
+    /// From the widget's [`VideoSetup`]. `None` opens a connection of its own.
+    pub client: OptionHttpClient,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -90,6 +126,9 @@ pub struct VideoWidget {
     /// `Vec<VideoFrame>`); set via [`with_frames`](Self::with_frames). When
     /// present the widget cycles these instead of the test pattern.
     pub frames: OptionRefAny,
+    /// Optional hook fired when the widget is mounted, returning the
+    /// [`VideoSetup`] its decode worker runs on.
+    pub on_mount: OptionVideoMount,
 }
 
 impl VideoWidget {
@@ -100,7 +139,30 @@ impl VideoWidget {
             config,
             on_frame: OptionOnVideoFrame::None,
             frames: OptionRefAny::None,
+            on_mount: OptionVideoMount::None,
         }
+    }
+
+    /// Set a hook fired when the widget is mounted. It receives the widget's
+    /// current [`VideoSetup`] and returns the one to use: this is where an app
+    /// hands the decoder a shared `HttpClient` or `ThreadPool`. Without a hook
+    /// the decoder downloads over its own connection on its own thread.
+    ///
+    /// The decoder runs for as long as the video plays, so a pool keeps one
+    /// worker busy per playing video.
+    pub fn set_on_mount<C: Into<VideoMountCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_mount = Some(VideoMount {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_mount`](Self::set_on_mount).
+    #[must_use]
+    pub fn with_on_mount<C: Into<VideoMountCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_mount(data, callback);
+        self
     }
 
     /// Set a hook invoked with every decoded frame - for live effects, saving
@@ -138,17 +200,28 @@ impl VideoWidget {
         self
     }
 
-    fn build_dom(self, decode_cb: Option<ThreadCallback>) -> Dom {
+    /// Build the widget's DOM: an `<img>` a background thread keeps fed.
+    ///
+    /// Replays pre-decoded [`with_frames`](Self::with_frames) if given. Otherwise
+    /// the widget streams `config.source` through the decode worker the runtime
+    /// registered ([`register_video_decoder`]), installed when the widget mounts;
+    /// without one it shows the built-in test pattern. Pools for the decoder come
+    /// from the `on_mount` hook, never from here: building the `Dom` only
+    /// describes the UI.
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
             frames: self.frames,
-            decode_callback: decode_cb,
+            decode_callback: None,
             current_frame: None,
             thread_id: None,
             seek_sender: None,
+            on_mount: self.on_mount,
+            setup: VideoSetup::new(),
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -182,27 +255,6 @@ impl VideoWidget {
                 )
                 .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )
-    }
-
-    /// Build the widget's DOM: a single `<img>` node a background thread keeps
-    /// fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else
-    /// shows the built-in test pattern.
-    #[must_use]
-    pub fn dom(self) -> Dom {
-        self.build_dom(None)
-    }
-
-    /// Build the widget's DOM and wire a background **streaming** decode worker -
-    /// like the map's tile fetch worker. `cb` runs on a framework `Thread` OFF
-    /// the main thread: it reads the `VideoConfig` (its typed `VideoSource` -
-    /// URL / file / bytes), runs the VK decode incrementally (no up-front decode),
-    /// and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late
-    /// frames). The standard worker is
-    /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
-    /// it in a `ThreadCallback` to pass it here.
-    #[must_use]
-    pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
-        self.build_dom(Some(cb))
     }
 }
 
@@ -260,11 +312,107 @@ extern "C" fn video_widget_render(
     }
 }
 
+// --- User hook: on_mount (backreference DI, FFI-exposed) ---
+
+/// What a video's decode worker runs on. Handed to the `on_mount` hook, which
+/// returns the setup the widget uses from then on.
+///
+/// The default shares nothing: the worker downloads over its own connection on
+/// its own thread, which is also what a widget without an `on_mount` hook does.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct VideoSetup {
+    /// Connection pool for the download. `None`: a connection of its own.
+    pub http_client: OptionHttpClient,
+    /// Workers to run the decoder on. `None`: a thread of its own.
+    pub thread_pool: OptionThreadPool,
+}
+
+impl Default for VideoSetup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VideoSetup {
+    /// A setup that shares nothing
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            http_client: OptionHttpClient::None,
+            thread_pool: OptionThreadPool::None,
+        }
+    }
+
+    /// Download the video through a shared connection pool
+    #[must_use]
+    pub fn with_http_client(mut self, client: HttpClient) -> Self {
+        self.http_client = OptionHttpClient::Some(client);
+        self
+    }
+
+    /// Run the decoder on a shared thread pool
+    #[must_use]
+    pub fn with_thread_pool(mut self, pool: ThreadPool) -> Self {
+        self.thread_pool = OptionThreadPool::Some(pool);
+        self
+    }
+}
+
+/// User hook fired when the video widget is mounted: receives the widget's
+/// current [`VideoSetup`] and returns the one its decode worker should use.
+pub type VideoMountCallbackType = extern "C" fn(RefAny, CallbackInfo, VideoSetup) -> VideoSetup;
+impl_widget_callback!(
+    VideoMount,
+    OptionVideoMount,
+    VideoMountCallback,
+    VideoMountCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        VideoMountCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      VideoSetup,
+    default_ret:    VideoSetup::new(),
+    invoker_static: VIDEO_MOUNT_INVOKER,
+    invoker_ty:     AzVideoMountCallbackInvoker,
+    thunk_fn:       az_video_mount_callback_thunk,
+    setter_fn:      AzApp_setVideoMountCallbackInvoker,
+    from_handle_fn: AzVideoMountCallback_createFromHostHandle,
+    extra_args:     [ setup: VideoSetup ],
+}
+
+/// Everything a video needs before its worker starts, done once it is in the
+/// tree rather than while `layout()` describes it: the registered decode worker
+/// (unless the widget replays frames it was given), then whatever the app's
+/// `on_mount` hook wants the worker to run on.
+fn mount_video(data: &mut RefAny, info: &CallbackInfo) {
+    let (hook, setup) = {
+        let Some(mut s) = data.downcast_mut::<VideoWidgetState>() else {
+            return;
+        };
+        let replays = matches!(s.frames, OptionRefAny::Some(_));
+        if !s.started && !replays && s.decode_callback.is_none() {
+            s.decode_callback = VIDEO_DECODER.get().cloned();
+        }
+        (s.on_mount.clone(), s.setup.clone())
+    };
+    let OptionVideoMount::Some(hook) = hook else {
+        return;
+    };
+    // The state is released while the hook runs: it is app code and may reach
+    // back into this widget.
+    let setup = (hook.callback.cb)(hook.refany, *info, setup);
+    if let Some(mut s) = data.downcast_mut::<VideoWidgetState>() {
+        s.setup = setup;
+    }
+}
+
 /// `AfterMount`: start the background decode thread exactly once.
 extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    mount_video(&mut data, &info);
     // Mark started exactly once; pull out the streaming decode worker (if any),
-    // its source, and any pre-decoded replay frames.
-    let (decode_cb, config, frames) = {
+    // its source, any pre-decoded replay frames, and what to run on.
+    let (decode_cb, config, frames, setup) = {
         let Some(mut s) = data.downcast_mut::<VideoWidgetState>() else {
             return Update::DoNothing;
         };
@@ -276,16 +424,28 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
             OptionRefAny::Some(f) => Some(f.clone()),
             OptionRefAny::None => None,
         };
-        (s.decode_callback.clone(), s.config.clone(), frames)
+        (
+            s.decode_callback.clone(),
+            s.config.clone(),
+            frames,
+            s.setup.clone(),
+        )
+    };
+    let spawn = |init: RefAny, writeback: RefAny, cb: ThreadCallback| match &setup.thread_pool {
+        OptionThreadPool::Some(pool) => pool.create_thread(init, writeback, cb),
+        OptionThreadPool::None => Thread::create(init, writeback, cb),
     };
     // Priority: off-main streaming decode worker > replay pre-decoded frames >
     // built-in test pattern. All feed the same WriteBack -> video_writeback path.
     if let Some(cb) = decode_cb {
-        // The worker's thread-init is the `VideoConfig` itself: it matches on
-        // `config.source` (typed — no RefAny downcast) and reads `config.timestamp`.
-        let init = RefAny::new(config);
+        // The worker matches on `config.source` (typed — no RefAny downcast),
+        // reads `config.timestamp`, and downloads through `client`.
+        let init = RefAny::new(VideoDecodeInit {
+            config,
+            client: setup.http_client.clone(),
+        });
         let tid = ThreadId::unique();
-        let thread = Thread::create(init, data.clone(), cb);
+        let thread = spawn(init, data.clone(), cb);
         // Grab the main→worker sender BEFORE add_thread moves the Thread, so the
         // merge callback can push seeks to the worker (scrubbing).
         let seek_sender = thread.clone_sender();
@@ -298,7 +458,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     } else if let Some(frames) = frames {
         info.add_thread(
             ThreadId::unique(),
-            Thread::create(
+            spawn(
                 frames,
                 data.clone(),
                 ThreadCallback::new(video_replay_worker),
@@ -307,7 +467,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     } else {
         info.add_thread(
             ThreadId::unique(),
-            Thread::create(
+            spawn(
                 RefAny::new(()),
                 data.clone(),
                 ThreadCallback::new(video_test_worker),
@@ -508,6 +668,9 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             // allocation the worker actually writes to.
             old_g.config = new_g.config.clone();
             old_g.on_frame = new_g.on_frame.clone();
+            // The hook is adopted; `setup` and the decode worker were installed on
+            // mount and belong to the running widget, so they stay.
+            old_g.on_mount = new_g.on_mount.clone();
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's
@@ -667,7 +830,7 @@ mod autotest_generated {
     // State fixtures
     // ==================================================================
 
-    /// A freshly-built widget state (exactly what `build_dom` stores).
+    /// A freshly-built widget state (exactly what `dom` stores).
     fn base_state(config: VideoConfig) -> VideoWidgetState {
         VideoWidgetState {
             config,
@@ -679,6 +842,8 @@ mod autotest_generated {
             current_frame: None,
             thread_id: None,
             seek_sender: None,
+            on_mount: OptionVideoMount::None,
+            setup: VideoSetup::new(),
         }
     }
 
@@ -1306,7 +1471,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // VideoWidget::dom / dom_with_decoder / build_dom
+    // VideoWidget::dom / mount
     // ==================================================================
 
     #[test]
@@ -1397,50 +1562,81 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_with_decoder_records_exactly_the_worker_it_was_given() {
-        let dom = VideoWidget::create(VideoConfig::default())
-            .dom_with_decoder(ThreadCallback::new(noop_decode_worker));
+    fn mounting_installs_the_registered_decoder_and_building_the_dom_never_does() {
+        // The decoder is a process-wide registration (first one wins), so the
+        // test accepts whichever worker is installed.
+        let _ = register_video_decoder(ThreadCallback::new(noop_decode_worker));
+        let registered = VIDEO_DECODER.get().expect("registered").cb as usize;
 
+        let dom = VideoWidget::create(VideoConfig::default()).dom();
         let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
         assert_eq!(
             read_state(&mut dataset).decode_cb,
-            Some(noop_decode_worker as ThreadCallbackType as usize)
+            None,
+            "building the Dom only describes the UI"
         );
 
-        // A different worker must be distinguishable (no fn-pointer folding).
-        let other = VideoWidget::create(VideoConfig::default())
-            .dom_with_decoder(ThreadCallback::new(other_noop_worker));
-        let mut other_dataset = other.root.get_dataset().cloned().expect("dataset");
-        assert_ne!(
-            read_state(&mut other_dataset).decode_cb,
-            read_state(&mut dataset).decode_cb
+        with_callback_info(|info| mount_video(&mut dataset, &info));
+        assert_eq!(read_state(&mut dataset).decode_cb, Some(registered));
+        let setup = dataset
+            .downcast_ref::<VideoWidgetState>()
+            .map(|s| s.setup.clone());
+        assert_eq!(
+            setup,
+            Some(VideoSetup::new()),
+            "without a hook nothing is shared"
         );
     }
 
     #[test]
-    fn dom_and_dom_with_decoder_agree_on_everything_but_the_worker() {
-        let plain = VideoWidget::create(config(bytes_source(vec![1, 2, 3]), -0.5)).dom();
-        let with_cb = VideoWidget::create(config(bytes_source(vec![1, 2, 3]), -0.5))
-            .dom_with_decoder(ThreadCallback::new(noop_decode_worker));
+    fn a_widget_that_replays_frames_is_not_given_the_decoder() {
+        let _ = register_video_decoder(ThreadCallback::new(noop_decode_worker));
+        let dom = VideoWidget::create(VideoConfig::default())
+            .with_frames(RefAny::new(vec![frame(2, 2)]))
+            .dom();
+        let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
 
+        with_callback_info(|info| mount_video(&mut dataset, &info));
         assert_eq!(
-            plain.children.as_slice().len(),
-            with_cb.children.as_slice().len()
+            read_state(&mut dataset).decode_cb,
+            None,
+            "with_frames asked for a replay, so the replay worker must run"
         );
-        let mut a = plain.root.get_dataset().cloned().expect("dataset");
-        let mut b = with_cb.root.get_dataset().cloned().expect("dataset");
-        assert_same_config(&read_config(&mut a), &read_config(&mut b));
+    }
 
-        let (sa, sb) = (read_state(&mut a), read_state(&mut b));
-        assert_eq!(sa.decode_cb, None);
-        assert!(sb.decode_cb.is_some());
+    extern "C" fn pooled_video_setup(_: RefAny, _: CallbackInfo, setup: VideoSetup) -> VideoSetup {
+        setup.with_thread_pool(ThreadPool::create(1))
+    }
+
+    #[test]
+    fn the_video_mount_hook_decides_the_setup_and_a_rebuild_keeps_it() {
+        let build = || {
+            VideoWidget::create(VideoConfig::default())
+                .with_on_mount(
+                    RefAny::new(()),
+                    pooled_video_setup as VideoMountCallbackType,
+                )
+                .dom()
+        };
+        let mut mounted = build().root.get_dataset().cloned().expect("dataset");
+        with_callback_info(|info| mount_video(&mut mounted, &info));
+        let pool = match mounted
+            .downcast_ref::<VideoWidgetState>()
+            .map(|s| s.setup.thread_pool.clone())
+        {
+            Some(OptionThreadPool::Some(pool)) => pool,
+            _ => panic!("the hook's pool must be installed"),
+        };
+
+        let rebuilt = build().root.get_dataset().cloned().expect("dataset");
+        let mut kept = merge_video_state(rebuilt, mounted);
+        let kept_pool = kept
+            .downcast_ref::<VideoWidgetState>()
+            .map(|s| s.setup.thread_pool.clone());
         assert_eq!(
-            StateSummary {
-                decode_cb: None,
-                ..sb
-            },
-            sa,
-            "only the decode callback may differ"
+            kept_pool,
+            Some(OptionThreadPool::Some(pool)),
+            "the same pool, not a new one"
         );
     }
 

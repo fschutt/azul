@@ -22015,6 +22015,30 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "VideoMountCallbackType": {
+                        "doc": [
+                            "User hook fired when the video widget is mounted: receives the widget's",
+                            "current `VideoSetup` and returns the one its decode worker should use."
+                        ],
+                        "external": "azul_layout::widgets::video::VideoMountCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "VideoSetup"
+                                }
+                            ],
+                            "returns": {
+                                "type": "VideoSetup"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -32448,6 +32472,38 @@
                             {
                                 "cb": {
                                     "type": "MapMountCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VideoMountCallback": {
+                        "external": "azul_layout::widgets::video::VideoMountCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "VideoMountCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -58957,6 +59013,9 @@
                                 },
                                 "frames": {
                                     "type": "OptionRefAny"
+                                },
+                                "on_mount": {
+                                    "type": "OptionVideoMount"
                                 }
                             }
                         ],
@@ -58976,9 +59035,13 @@
                         "functions": {
                             "dom": {
                                 "doc": [
-                                    "Build the widget's DOM: a single `<img>` node a background thread keeps",
-                                    "fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else",
-                                    "shows the built-in test pattern."
+                                    "Build the widget's DOM: an `<img>` a background thread keeps fed.",
+                                    "",
+                                    "Replays pre-decoded `with_frames` if given. Otherwise the widget streams",
+                                    "`config.source` through the runtime's decode worker, installed when the widget",
+                                    "mounts; without one it shows the built-in test pattern. Pools for the decoder",
+                                    "come from the `on_mount` hook, never from here: building the `Dom` only",
+                                    "describes the UI."
                                 ],
                                 "fn_args": [
                                     {
@@ -59052,29 +59115,48 @@
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
                             },
-                            "dom_with_decoder": {
+                            "with_on_mount": {
                                 "doc": [
-                                    "Build the widget's DOM and wire a background **streaming** decode worker -",
-                                    "like the map's tile fetch worker. `cb` runs on a framework `Thread` OFF",
-                                    "the main thread: it reads the `VideoConfig` (its typed `VideoSource` -",
-                                    "URL / file / bytes), runs the VK decode incrementally (no up-front decode),",
-                                    "and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late",
-                                    "frames). The standard worker is",
-                                    "`azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap",
-                                    "it in a `ThreadCallback` to pass it here."
+                                    "Builder form of [`set_on_mount`](Self::set_on_mount)."
                                 ],
                                 "fn_args": [
                                     {
                                         "self": "value"
                                     },
                                     {
-                                        "cb": "ThreadCallback"
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "VideoMountCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "Dom"
+                                    "type": "VideoWidget"
                                 },
-                                "fn_body": "object.dom_with_decoder(cb)"
+                                "fn_body": "object.with_on_mount(data, callback)"
+                            },
+                            "set_on_mount": {
+                                "doc": [
+                                    "Set a hook fired when the widget is mounted. It receives the widget's",
+                                    "current [`VideoSetup`] and returns the one to use: this is where an app",
+                                    "hands the decoder a shared `HttpClient` or `ThreadPool`. Without a hook",
+                                    "the decoder downloads over its own connection on its own thread.",
+                                    "",
+                                    "The decoder runs for as long as the video plays, so a pool keeps one",
+                                    "worker busy per playing video."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "VideoMountCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_mount(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -68226,6 +68308,112 @@
                                 },
                                 "callback": {
                                     "type": "MapMountCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VideoSetup": {
+                        "doc": [
+                            "What a video's decode worker runs on. Handed to the `on_mount` hook, which",
+                            "returns the setup the widget uses from then on.",
+                            "",
+                            "The default shares nothing: the worker downloads over its own connection on",
+                            "its own thread, which is also what a widget without an `on_mount` hook does."
+                        ],
+                        "external": "azul_layout::widgets::video::VideoSetup",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "http_client": {
+                                    "type": "OptionHttpClient"
+                                },
+                                "thread_pool": {
+                                    "type": "OptionThreadPool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A setup that shares nothing"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::video::VideoSetup::new()"
+                            }
+                        },
+                        "functions": {
+                            "with_http_client": {
+                                "doc": [
+                                    "Download the video through a shared connection pool"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "client": "HttpClient"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "VideoSetup"
+                                },
+                                "fn_body": "object.with_http_client(client)"
+                            },
+                            "with_thread_pool": {
+                                "doc": [
+                                    "Run the decoder on a shared thread pool"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pool": "ThreadPool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "VideoSetup"
+                                },
+                                "fn_body": "object.with_thread_pool(pool)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "VideoMount": {
+                        "external": "azul_layout::widgets::video::VideoMount",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "VideoMountCallback"
                                 }
                             }
                         ],
@@ -119981,6 +120169,36 @@
                                 "None": {},
                                 "Some": {
                                     "type": "MapMount"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionVideoMount": {
+                        "external": "azul_layout::widgets::video::OptionVideoMount",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "VideoMount"
                                 }
                             }
                         ],

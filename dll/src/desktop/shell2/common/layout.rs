@@ -284,6 +284,8 @@ pub fn regenerate_layout(
     // Same seam for the map tile fetcher: a map installs whatever fetcher is
     // registered here when it mounts, and the worker lives in this crate.
     crate::desktop::extra::map::ensure_map_tile_fetcher();
+    // And for the video widget's streaming decode worker.
+    crate::desktop::extra::video_codec::ensure_video_decoder();
 
     // E2E observability: count DOM regenerations (sticky until
     // `reset_frame_counters`) so that a test can assert an interaction did not

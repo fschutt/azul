@@ -593,7 +593,7 @@ fn emit_instance_method(
     // ThreadCallback guard (same rationale as emit_static_method):
     // LuaJIT has no runtime lock, so a Lua fn invoked from a libazul
     // worker thread corrupts the VM. Applies to instance methods like
-    // VideoWidget:dom_with_decoder.
+    // ThreadPool:create_thread.
     let takes_thread_callback = func.args.iter().any(|a| {
         a.callback_info
             .as_ref()

@@ -35,7 +35,7 @@ pub mod stream;
 // `video_widget_dom` is the FFI `VideoWidget::dom()` entry point (wires the
 // streaming worker), surfaced at the module level so `unified::video_codec`'s
 // glob re-export exposes `azul_dll::unified::video_codec::video_widget_dom`.
-pub use stream::video_widget_dom;
+pub use stream::{ensure_video_decoder, video_widget_dom};
 
 // File -> frames pipeline (demux + feed through VideoDecoder). Behind
 // `video-native`; the decode step is the only hardware-gated part.
