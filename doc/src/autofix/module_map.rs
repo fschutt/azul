@@ -45,6 +45,7 @@ pub const MODULES: &[&str] = &[
     "gesture",
     "tray",
     "webtransport",
+    "iroh",
     "db",
     "file",
     "fmt",
@@ -612,6 +613,7 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     ("ValidityReason", "callbacks"),
     // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
     ("Wt", "webtransport"),
+    ("Iroh", "iroh"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -948,6 +950,9 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_dll::unified::webtransport::") {
         return Some("webtransport".to_string());
+    }
+    if path.starts_with("azul_dll::unified::iroh::") {
+        return Some("iroh".to_string());
     }
 
     None
@@ -1377,10 +1382,28 @@ mod tests {
 
     #[test]
     fn transport_events_stay_with_their_transport() {
-        for name in ["WtEvent", "WtEventKind"] {
-            assert_eq!(determine_module(name).0, "webtransport", "{name}");
-            assert_eq!(get_correct_module(name, "webtransport"), None, "{name}");
+        for (name, module) in [
+            ("WtEvent", "webtransport"),
+            ("WtEventKind", "webtransport"),
+            ("IrohEvent", "iroh"),
+            ("IrohEventKind", "iroh"),
+            ("IrohEndpoint", "iroh"),
+            ("IrohLoadBalancer", "iroh"),
+            ("IrohPeerCapacity", "iroh"),
+            ("IrohTileRole", "iroh"),
+        ] {
+            assert_eq!(determine_module(name).0, module, "{name}");
+            assert_eq!(get_correct_module(name, module), None, "{name}");
         }
+        assert_eq!(determine_module("OptionIrohEvent").0, "option");
+        assert_eq!(
+            get_correct_module_with_path(
+                "IrohPeerStats",
+                "misc",
+                Some("azul_dll::unified::iroh::IrohPeerStats")
+            ),
+            Some("iroh".to_string())
+        );
     }
 
     /// Structural types are resolved BEFORE the override table, so an entry

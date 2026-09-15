@@ -32,6 +32,8 @@ pub mod gamepad;
 pub mod geolocation;
 pub mod haptics;
 pub mod hid;
+/// Peer-to-peer QUIC connections (`IrohEndpoint`) and forwarder selection; the engine needs the `iroh` feature.
+pub mod iroh;
 pub mod keyring;
 /// MVT tile decode + projection math for the `MapWidget` content
 /// pipeline. Opt-in via the `map-tiles` Cargo feature; with the

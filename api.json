@@ -9230,6 +9230,13 @@
                                 "fn_args": [],
                                 "fn_body": "azul_dll::unified::capability::PlatformCapability::webtransport()"
                             },
+                            "iroh": {
+                                "doc": [
+                                    "Probe peer-to-peer QUIC (`IrohEndpoint`). Native: the in-process iroh engine when the `iroh` feature is compiled in. Web: not yet, until iroh runs over WebTransport."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::capability::PlatformCapability::iroh()"
+                            },
                             "thread": {
                                 "doc": [
                                     "Probe user background threads (`Thread::create`). `false` on web until a worker mode exists."
@@ -120120,6 +120127,30 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionIrohEvent": {
+                        "external": "azul_dll::unified::iroh::OptionIrohEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "IrohEvent",
+                                    "doc": [
+                                        "Some value of type IrohEvent"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -125826,6 +125857,963 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "iroh": {
+                "classes": {
+                    "IrohRelayMode": {
+                        "doc": [
+                            "Where an endpoint may relay traffic when no direct UDP path to a peer exists."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohRelayMode",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Disabled": {
+                                    "doc": [
+                                        "Direct paths only: peers must reach each other over the local network or public addresses."
+                                    ]
+                                },
+                                "Default": {
+                                    "doc": [
+                                        "The public relay servers operated by n0."
+                                    ]
+                                },
+                                "Custom": {
+                                    "doc": [
+                                        "The relay server named in `IrohConfig::relay_url`."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IrohConfig": {
+                        "doc": [
+                            "Settings for `IrohEndpoint::bind`."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohConfig",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "alpn": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Application protocol name. Only peers that bind the same name can connect."
+                                    ]
+                                },
+                                "relay_mode": {
+                                    "type": "IrohRelayMode",
+                                    "doc": [
+                                        "Relay fallback for peers without a direct path."
+                                    ]
+                                },
+                                "relay_url": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Relay server URL, used when `relay_mode` is `Custom`."
+                                    ]
+                                },
+                                "secret_key": {
+                                    "type": "U8Vec",
+                                    "doc": [
+                                        "32-byte secret key that fixes the endpoint id. Empty generates a new identity."
+                                    ]
+                                },
+                                "port": {
+                                    "type": "u16",
+                                    "doc": [
+                                        "Local UDP port, 0 for any free port."
+                                    ]
+                                },
+                                "max_frame_bytes": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Largest inbound frame or message in bytes. Larger ones are dropped."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "alpn": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::unified::iroh::IrohConfig::create(alpn)"
+                            }
+                        },
+                        "functions": {
+                            "with_relay_mode": {
+                                "doc": [
+                                    "Returns the config with `relay_mode` replaced."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "relay_mode": "IrohRelayMode"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_relay_mode(relay_mode)"
+                            },
+                            "with_relay_url": {
+                                "doc": [
+                                    "Returns the config relaying through the server at `url`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "url": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_relay_url(url)"
+                            },
+                            "with_secret_key": {
+                                "doc": [
+                                    "Returns the config with a persisted 32-byte identity, as read from `IrohEndpoint::secret_key`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "secret_key": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_secret_key(secret_key)"
+                            },
+                            "with_port": {
+                                "doc": [
+                                    "Returns the config bound to the local UDP `port`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "port": "u16"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_port(port)"
+                            },
+                            "with_max_frame_bytes": {
+                                "doc": [
+                                    "Returns the config accepting inbound frames and messages up to `max_frame_bytes`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max_frame_bytes": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_max_frame_bytes(max_frame_bytes)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IrohEventKind": {
+                        "doc": [
+                            "What an `IrohEvent` reports."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohEventKind",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ready": {
+                                    "doc": [
+                                        "The endpoint knows its addresses. `text` is its ticket."
+                                    ]
+                                },
+                                "PeerConnected": {
+                                    "doc": [
+                                        "A connection was dialed or accepted. `text` is the remote endpoint id."
+                                    ]
+                                },
+                                "PeerDisconnected": {
+                                    "doc": [
+                                        "A connection closed. `text` is the reason."
+                                    ]
+                                },
+                                "Frame": {
+                                    "doc": [
+                                        "The newest frame of a track. Frames that arrived while it was pending were skipped."
+                                    ]
+                                },
+                                "Message": {
+                                    "doc": [
+                                        "A reliable message, delivered in the order the peer sent it."
+                                    ]
+                                },
+                                "Error": {
+                                    "doc": [
+                                        "A bind, dial or transport failure. `text` describes it."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IrohEvent": {
+                        "doc": [
+                            "One event from `IrohEndpoint::recv`. Fields that do not apply to `kind` are zero or empty."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "peer": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Connection handle, 0 when the event concerns no peer."
+                                    ]
+                                },
+                                "sequence": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Send counter of a `Frame` or `Message`. Gaps between frames are skipped frames."
+                                    ]
+                                },
+                                "text": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Ticket, remote endpoint id or error text, depending on `kind`."
+                                    ]
+                                },
+                                "data": {
+                                    "type": "U8Vec",
+                                    "doc": [
+                                        "Payload of a `Frame` or `Message`."
+                                    ]
+                                },
+                                "kind": {
+                                    "type": "IrohEventKind"
+                                },
+                                "track": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Track of a `Frame`."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IrohPeerStats": {
+                        "doc": [
+                            "Path and throughput statistics of one connection."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohPeerStats",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "connected": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the connection is still open."
+                                    ]
+                                },
+                                "direct": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether traffic flows over a direct UDP path rather than a relay."
+                                    ]
+                                },
+                                "rtt_us": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Smoothed round-trip time of the selected path, in microseconds."
+                                    ]
+                                },
+                                "cwnd_bytes": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Congestion window of the selected path, in bytes."
+                                    ]
+                                },
+                                "bytes_sent": {
+                                    "type": "u64"
+                                },
+                                "bytes_received": {
+                                    "type": "u64"
+                                },
+                                "lost_packets": {
+                                    "type": "u64"
+                                },
+                                "frames_sent": {
+                                    "type": "u64"
+                                },
+                                "frames_received": {
+                                    "type": "u64"
+                                },
+                                "frames_skipped": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Outbound frames replaced by a newer frame of the same track before they left."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IrohEndpoint": {
+                        "doc": [
+                            "A QUIC endpoint that dials and accepts peers by ticket and exchanges frames and messages with them.",
+                            "",
+                            "Copies share one endpoint; it closes when the last copy is dropped or `close` is called."
+                        ],
+                        "external": "azul_dll::unified::iroh::IrohEndpoint",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "bind": {
+                                "doc": [
+                                    "Binds an endpoint. On failure `is_bound` is false and the first `recv` returns the `Error` event."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "IrohConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::unified::iroh::IrohEndpoint::bind(config)"
+                            }
+                        },
+                        "functions": {
+                            "is_bound": {
+                                "doc": [
+                                    "Whether the endpoint is bound and not closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_bound()"
+                            },
+                            "endpoint_id": {
+                                "doc": [
+                                    "Public key identifying this endpoint, as lowercase hex. Empty when not bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.endpoint_id()"
+                            },
+                            "secret_key": {
+                                "doc": [
+                                    "The 32-byte identity key, for `IrohConfig::with_secret_key` on the next start. Empty when not bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.secret_key()"
+                            },
+                            "ticket": {
+                                "doc": [
+                                    "Dialing string with this endpoint's id and current addresses. Empty when not bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.ticket()"
+                            },
+                            "connect": {
+                                "doc": [
+                                    "Dials the endpoint in `ticket`, or a bare endpoint id. The outcome arrives as `PeerConnected` or `Error`.",
+                                    "",
+                                    "Returns false, and queues the `Error` event, when the ticket cannot be dialed at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "ticket": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.connect(ticket)"
+                            },
+                            "send_frame": {
+                                "doc": [
+                                    "Queues a frame for one peer. A newer frame of the same track replaces one that has not left yet."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    },
+                                    {
+                                        "track": "u32"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.send_frame(peer, track, data)"
+                            },
+                            "broadcast_frame": {
+                                "doc": [
+                                    "Queues a frame for every connected peer, replacing unsent frames of the track. False without peers."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "track": "u32"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.broadcast_frame(track, data)"
+                            },
+                            "send_message": {
+                                "doc": [
+                                    "Sends a reliable message. The peer receives messages in the order they were sent."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.send_message(peer, data)"
+                            },
+                            "disconnect": {
+                                "doc": [
+                                    "Closes the connection to `peer`. Returns false when no such connection is open."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.disconnect(peer)"
+                            },
+                            "peer_count": {
+                                "doc": [
+                                    "Number of open connections."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.peer_count()"
+                            },
+                            "peer_endpoint_id": {
+                                "doc": [
+                                    "Endpoint id of the peer behind a connection handle. Empty when the connection is gone."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.peer_endpoint_id(peer)"
+                            },
+                            "peer_stats": {
+                                "doc": [
+                                    "Path and throughput statistics of a connection. All zero when the connection is gone."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohPeerStats"
+                                },
+                                "fn_body": "object.peer_stats(peer)"
+                            },
+                            "recv": {
+                                "doc": [
+                                    "Takes the next event. Connection events and messages come first, then the newest frame of each track in turn."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIrohEvent"
+                                },
+                                "fn_body": "object.recv()"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Closes the endpoint and its connections for every copy of this handle, then releases this copy."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IrohPeerCapacity": {
+                        "doc": [
+                            "What a peer can contribute to forwarding, as measured or reported by that peer."
+                        ],
+                        "external": "azul_dll::unified::iroh::loadbalancer::IrohPeerCapacity",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "peer": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Connection handle or roster index identifying the peer."
+                                    ]
+                                },
+                                "uplink_kbps": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Estimated upload capacity in kbit/s."
+                                    ]
+                                },
+                                "stability": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Share of recent intervals without loss spikes or RTT jumps, 0.0 to 1.0."
+                                    ]
+                                },
+                                "on_battery": {
+                                    "type": "bool"
+                                },
+                                "relay_only": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Reachable only through a relay, as browsers are."
+                                    ]
+                                },
+                                "opted_out": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The user declined to forward other people's media."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A stable, mains-powered, directly reachable peer with `uplink_kbps` of upload."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "peer": "u64"
+                                    },
+                                    {
+                                        "uplink_kbps": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::unified::iroh::loadbalancer::IrohPeerCapacity::create(peer, uplink_kbps)"
+                            }
+                        },
+                        "functions": {
+                            "score": {
+                                "doc": [
+                                    "Forwarding score: uplink times stability, cut to 30 percent on battery, 0 when relay-only or opted out."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.score()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IrohTileRole": {
+                        "doc": [
+                            "How a video tile is shown, which caps the resolution it requests."
+                        ],
+                        "external": "azul_dll::unified::iroh::loadbalancer::IrohTileRole",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Stage": {
+                                    "doc": [
+                                        "The presentation or main speaker."
+                                    ]
+                                },
+                                "Side": {
+                                    "doc": [
+                                        "Active speakers next to the stage."
+                                    ]
+                                },
+                                "Filmstrip": {
+                                    "doc": [
+                                        "Recent speakers in the strip."
+                                    ]
+                                },
+                                "Gallery": {
+                                    "doc": [
+                                        "A tile of the paged gallery."
+                                    ]
+                                },
+                                "Pinned": {
+                                    "doc": [
+                                        "A tile the viewer pinned."
+                                    ]
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "max_height": {
+                                "doc": [
+                                    "Largest rendition height this role may request in a room of `room_size` people."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "room_size": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.max_height(room_size)"
+                            },
+                            "rendition_height": {
+                                "doc": [
+                                    "Rendition height (90, 180, 360 or 720) to request for a tile `tile_height` logical pixels tall; 0 for a hidden tile."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "tile_height": "f32"
+                                    },
+                                    {
+                                        "scale_factor": "f32"
+                                    },
+                                    {
+                                        "room_size": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.rendition_height(tile_height, scale_factor, room_size)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IrohLoadBalancer": {
+                        "doc": [
+                            "Chooses which peers of a room forward media for everyone else."
+                        ],
+                        "external": "azul_dll::unified::iroh::loadbalancer::IrohLoadBalancer",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "An empty room."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::iroh::loadbalancer::IrohLoadBalancer::create()"
+                            }
+                        },
+                        "functions": {
+                            "set_peer": {
+                                "doc": [
+                                    "Adds `capacity`, replacing the earlier record of the same peer."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "capacity": "IrohPeerCapacity"
+                                    }
+                                ],
+                                "fn_body": "object.set_peer(capacity)"
+                            },
+                            "remove_peer": {
+                                "doc": [
+                                    "Removes a peer and drops it from the backbone. Returns whether it was present."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.remove_peer(peer)"
+                            },
+                            "peer_count": {
+                                "doc": [
+                                    "Number of peers in the room."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.peer_count()"
+                            },
+                            "select_backbone": {
+                                "doc": [
+                                    "Chooses forwarders able to carry `fanout_kbps` of culled demand. Returns how many were chosen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "fanout_kbps": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.select_backbone(fanout_kbps)"
+                            },
+                            "backbone_peer": {
+                                "doc": [
+                                    "The forwarder at `index`, best score first, after `select_backbone`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU64"
+                                },
+                                "fn_body": "object.backbone_peer(index)"
+                            },
+                            "is_backbone": {
+                                "doc": [
+                                    "Whether `peer` was chosen as a forwarder by the last `select_backbone`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "peer": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_backbone(peer)"
+                            },
+                            "backbone_size": {
+                                "doc": [
+                                    "Minimum forwarder count for a room of `room_size`: everyone up to 8 people, then max(ceil(sqrt N), ceil(N / 8))."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "room_size": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "azul_dll::unified::iroh::loadbalancer::IrohLoadBalancer::backbone_size(room_size)"
+                            },
+                            "rendition_kbps": {
+                                "doc": [
+                                    "Bitrate in kbit/s the planner assumes for a rendition of `height` pixels."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "height": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "azul_dll::unified::iroh::loadbalancer::IrohLoadBalancer::rendition_kbps(height)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
