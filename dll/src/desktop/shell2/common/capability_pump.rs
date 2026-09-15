@@ -216,6 +216,8 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
         || azul_layout::managers::biometric::has_queued_requests()
         || azul_layout::managers::keyring::has_queued_requests()
         || lw.eyedropper_manager.has_pending_async()
+        // Resumable-API requests (file dialogs, device lists, ...) completed or still pending.
+        || azul_layout::request::has_work()
     {
         want(ASYNC_RESULT_INTERVAL_MS);
     }

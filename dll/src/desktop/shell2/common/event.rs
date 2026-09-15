@@ -3994,6 +3994,8 @@ pub trait PlatformWindow {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
                 self.arm_animation_drivers_if_needed();
+                // A layout callback may have started a request; its result must not wait for input.
+                self.sync_capability_pump_timer();
                 _span.note(format_args!(
                     "{passes} pass(es) in {:.2}ms",
                     started.elapsed().as_secs_f64() * 1000.0
@@ -4015,6 +4017,7 @@ pub trait PlatformWindow {
         self.refill_a11y_tree_after_regeneration();
         self.flush_a11y_tree_update();
         self.arm_animation_drivers_if_needed();
+        self.sync_capability_pump_timer();
         // Hitting the cap means the lifecycle loop never converged — every one
         // of these passes is a FULL relayout, so this is the difference between
         // a resize costing one layout and costing MAX_LIFECYCLE_REGEN_PASSES of
