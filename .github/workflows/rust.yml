@@ -5400,6 +5400,11 @@ jobs:
         shell: sh
         run: |
           set -eu
+          # The workspace is created by the runner's user and mounted into the
+          # container, where this step runs as root, so git refuses it as a
+          # repository with "dubious ownership" (exit 128) before cloning
+          # anything. Trust exactly this directory.
+          git config --global --add safe.directory "$PWD"
           git init -q .
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           git config core.sparseCheckout true
