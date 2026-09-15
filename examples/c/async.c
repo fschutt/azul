@@ -68,13 +68,14 @@ static AzDom label(const char* text, const char* css) {
     return d;
 }
 
-static AzDom zoom_button(const char* glyph, AzRefAny data, AzCallbackType cb) {
+static AzDom zoom_button(const char* glyph, const char* name, AzRefAny data, AzCallbackType cb) {
     AzDom b = label(glyph,
         "width: 30px; height: 30px; line-height: 30px; text-align: center; "
         "background: white; color: #333333; border: 1px solid #b0b0b0; "
         "border-radius: 6px; margin-right: 6px; font-size: 18px; cursor: pointer;");
     AzDom_addCallback(&b, AzEventFilter_hover(AzHoverEventFilter_mouseUp()), data, cb);
-    return b;
+    /* "+" and "-" say nothing to a screen reader: name the control and its role. */
+    return AzDom_withAccessibilityInfo(b, AzAccessibilityInfo_named(str(name), AzAccessibilityRole_PushButton));
 }
 
 static AzUpdate change_zoom(AzRefAny data, float delta) {
@@ -167,8 +168,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzDom controls = div(
         "position: absolute; left: 12px; top: 12px; display: flex; flex-direction: row;");
-    AzDom_addChild(&controls, zoom_button("+", AzRefAny_clone(&data), on_zoom_in));
-    AzDom_addChild(&controls, zoom_button("-", AzRefAny_clone(&data), on_zoom_out));
+    AzDom_addChild(&controls, zoom_button("+", "Zoom in", AzRefAny_clone(&data), on_zoom_in));
+    AzDom_addChild(&controls, zoom_button("-", "Zoom out", AzRefAny_clone(&data), on_zoom_out));
     AzDom_addChild(&frame, controls);
     AzDom_addChild(&body, frame);
 
