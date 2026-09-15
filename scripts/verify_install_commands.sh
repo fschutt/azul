@@ -392,10 +392,10 @@ verify_nuget() {
 
   local w; w="$(mktemp -d)"
   cd "$w" || fail "nuget: cannot enter $w"
-  # A project to add the package to; the package targets net10.0
-  # (<TargetFramework> in doc/src/codegen/v2/lang_csharp/csproj.rs), so an
-  # older SDK's default template would fail restore for a framework reason
-  # rather than a channel reason.
+  # A project to add the package to; the package targets net8.0
+  # (<TargetFramework> in doc/src/codegen/v2/lang_csharp/csproj.rs), the
+  # oldest SDK this channel runs in (mcr.microsoft.com/dotnet/sdk:8.0), so a
+  # framework mismatch (NU1202) fails here as the regression it is.
   run dotnet new console -o app --force >/dev/null \
     || fail "nuget: 'dotnet new console' failed — the .NET SDK in this environment is unusable"
   cd "$w/app" || fail "nuget: cannot enter $w/app"
