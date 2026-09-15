@@ -535,6 +535,112 @@ const CRYSTAL_PROFILE: &[(&str, Expect)] = &[
     ),
 ];
 
+/// D (`azul.d`, `module azul`).
+///
+/// `azul.d` declares the whole C ABI too (`extern (C) ... AzDom_partialEq(...)`),
+/// which is the raw-C escape hatch and does not count. What counts is the member
+/// on the type's own idiomatic declaration - `struct {C}` (or `struct Azul{C}`
+/// where `object.d` owns the name), handle or plain struct alike - matched inside
+/// its block, which ends at the struct's closing brace in column 0.
+///
+/// `PartialOrd` is `float opCmp` (NaN when incomparable) and `Ord` is `int opCmp`,
+/// both `opCmp(ref const {C} rhs)`. `Default` is `static {C} defaultValue()`.
+///
+/// A fieldless enum is a D `enum`, and a D enum's own `==`, `<`, hashing,
+/// value copy and `to!string` are the Debug / Clone / PartialEq / PartialOrd /
+/// Ord / Hash of the Rust derive - there is no member to add, so the declaration
+/// `enum {C} : ` is the evidence (Swift's `typealias = Swift.String` rule). Its
+/// `Default` is NOT native - `.init` is the first member, which need not be the
+/// Rust default - so it needs the `defaultValue!{C}()` specialization that calls
+/// `Az{C}_default`. Rust `String` is `alias String = string;`.
+const D_BLOCK: &[&str] = &["struct {C}\n{\n", "struct Azul{C}\n{\n"];
+const D_ENUM: Expect = Expect::Marker(&["enum {C} : ", "enum Azul{C} : "]);
+const D_NATIVE: Expect = Expect::Marker(&["alias {C} = string;"]);
+const D_PROFILE: &[(&str, Expect)] = &[
+    (
+        "Debug",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &["string toString() const"],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    (
+        "Clone",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &[" dup() const"],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    ("Copy", COPY_NA),
+    (
+        "PartialEq",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &["bool opEquals(ref const "],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    ("Eq", EQ_NA),
+    (
+        "PartialOrd",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &[" opCmp(ref const "],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    (
+        "Ord",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &[" opCmp(ref const "],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    (
+        "Hash",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &["size_t toHash() const"],
+            },
+            D_ENUM,
+            D_NATIVE,
+        ]),
+    ),
+    (
+        "Default",
+        Expect::Either(&[
+            Expect::Block {
+                start: D_BLOCK,
+                markers: &[" defaultValue()\n"],
+            },
+            Expect::Marker(&[
+                "{C} defaultValue(T : {C})()",
+                "Azul{C} defaultValue(T : Azul{C})()",
+            ]),
+            D_NATIVE,
+        ]),
+    ),
+];
+
 /// Swift (`azul.swift`, the `Azul` module).
 ///
 /// Swift reads the C ABI through a Clang module map (`import CAzul`), which is
@@ -956,10 +1062,10 @@ pub const BINDINGS: &[Binding] = &[
     Binding {
         name: "d",
         files: &["azul.d"],
-        prefix: "Az",
-        block_end: "",
-        expects: ABI_PROFILE,
-        note: "extern(C)",
+        prefix: "",
+        block_end: "\n}\n",
+        expects: D_PROFILE,
+        note: "structs/enums over extern(C)",
     },
     Binding {
         name: "julia",
