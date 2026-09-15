@@ -10738,7 +10738,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Returns a zero-initialised handle. The struct only exists so the FFI layer can hang static methods off it."
                                 ],
@@ -10853,7 +10853,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Returns a zero-initialised handle. The struct only exists so the FFI layer can hang static methods off it."
                                 ],
@@ -11034,7 +11034,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Returns a zero-initialised handle. The struct only exists so the FFI layer can hang static methods off it."
                                 ],
@@ -21761,7 +21761,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Create a changeset with a fresh monotonic id."
                                 ],
@@ -30621,7 +30621,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Create empty drag data with `effect_allowed = DragEffect::Uninitialized`."
                                 ],
@@ -36035,27 +36035,7 @@
                                 ],
                                 "fn_body": "azul_css::props::basic::color::ColorU::rgba(r, g, b, a)"
                             },
-                            "new": {
-                                "doc": [
-                                    "Alias for `rgba` - kept for internal compatibility, not exposed in FFI."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "r": "u8"
-                                    },
-                                    {
-                                        "g": "u8"
-                                    },
-                                    {
-                                        "b": "u8"
-                                    },
-                                    {
-                                        "a": "u8"
-                                    }
-                                ],
-                                "fn_body": "azul_css::props::basic::color::ColorU::new(r, g, b, a)"
-                            },
-                            "new_rgb": {
+                            "create_rgb": {
                                 "doc": [
                                     "Alias for `rgb` - kept for internal compatibility, not exposed in FFI."
                                 ],
@@ -57834,7 +57814,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new tab with the given label and no groups."
                                 ],
@@ -57942,7 +57922,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new ribbon with the given tabs, the first tab active and the",
                                     "Word 2013 default style."
@@ -58225,7 +58205,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "root": "TreeViewNode"
@@ -58307,7 +58287,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "label": "String"
@@ -58535,7 +58515,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Create a titlebar with compile-time platform defaults.",
                                     "",
@@ -60818,7 +60798,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a tooltip wrapping `anchor` that shows `text` on hover."
                                 ],
@@ -61643,7 +61623,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new collapsed section with the given title and content."
                                 ],
@@ -61701,7 +61681,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create_with_sections": {
                                 "doc": [
                                     "Creates a new accordion from the given sections, with no toggle callback."
                                 ],
@@ -62546,7 +62526,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a popover whose `anchor`, when clicked, toggles a panel holding",
                                     "`content`. The panel starts closed."
@@ -62779,7 +62759,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create_with_items": {
                                 "doc": [
                                     "Creates a new combobox with the given options (no callback, nothing typed)."
                                 ],
@@ -65210,7 +65190,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a gallery from its cells; cell 0 is selected."
                                 ],
@@ -65297,7 +65277,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates an empty row."
                                 ],
@@ -65357,7 +65337,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a cell from a preview subtree and a name label."
                                 ],
@@ -65391,7 +65371,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates an empty column."
                                 ],
@@ -65497,7 +65477,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a new group with the given caption and no items."
                                 ],
@@ -65624,7 +65604,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a plain button with an icon and a label (both may be empty)."
                                 ],
@@ -65979,7 +65959,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates an application button with the given label and no callback."
                                 ],
@@ -66383,7 +66363,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Pair a cut frame with the consumer it was cut for."
                                 ],
@@ -66459,7 +66439,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "A consumer `id` that wants `width` x `height` frames."
                                 ],
@@ -66632,7 +66612,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a band with the given title, no actions and all three",
                                     "window buttons, in the the Office-2013-era look style."
@@ -66778,7 +66758,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates an inert action with the given icon name."
                                 ],
@@ -66939,7 +66919,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a view switcher with the given views; view 0 is active."
                                 ],
@@ -67059,7 +67039,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a status bar with the given left segments, no view switcher",
                                     "and no zoom cluster, in the the Office-2013-era look style."
@@ -67477,7 +67457,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a text-only, inert segment."
                                 ],
@@ -67780,7 +67760,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a backstage with the given nav items, item 0 active, no",
                                     "callbacks and no content, in the the Office-2013-era look style."
@@ -68039,7 +68019,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Creates a nav item without a gap."
                                 ],
@@ -81877,7 +81857,7 @@
                                 ],
                                 "fn_body": "azul_core::resources::ImageRef::callback(callback, data)"
                             },
-                            "new_rawimage": {
+                            "create_rawimage": {
                                 "priority": 92.0,
                                 "fn_args": [
                                     {
@@ -81889,7 +81869,7 @@
                                 },
                                 "fn_body": "azul_core::resources::ImageRef::new_rawimage(image_data).into()"
                             },
-                            "new_gltexture": {
+                            "create_gltexture": {
                                 "fn_args": [
                                     {
                                         "texture": "Texture"
@@ -82926,7 +82906,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "A sensible default brush: medium-soft, full flow, dense spacing."
                                 ],
@@ -83136,7 +83116,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "address": "String"
@@ -83946,7 +83926,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "font_hash": "u64"
@@ -124917,7 +124897,7 @@
                                 ],
                                 "fn_body": "azul_core::xml::ComponentId::builtin(name.as_str())"
                             },
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "collection": "String"
@@ -126491,7 +126471,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "An empty archive."
                                 ],
@@ -126778,7 +126758,7 @@
                             }
                         ],
                         "functions": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "`rgba` must be exactly `width * height * 4` bytes; returns `None`",
                                     "otherwise.",
@@ -126883,7 +126863,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "fn_args": [
                                     {
                                         "id": "String"
@@ -127807,7 +127787,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Construct the PDF API handle."
                                 ],
@@ -131003,7 +130983,7 @@
                             }
                         ],
                         "constructors": {
-                            "new": {
+                            "create": {
                                 "doc": [
                                     "Returns a zero-initialised handle. The struct only exists so the FFI layer can hang static methods off it."
                                 ],

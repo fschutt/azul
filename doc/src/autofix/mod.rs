@@ -4819,6 +4819,45 @@ pub mod reserved_keywords {
 }
 
 /// Check all names in api.json for reserved keyword conflicts
+/// Public constructors are named `create*`; `new` is a keyword in C++, Java, C# and JS.
+fn new_style_name_suggestion(class_name: &str, name: &str) -> Option<String> {
+    // The low-level C ABI entry the reflection macros and bindings are built on.
+    if class_name == "RefAny" && name == "new_c" {
+        return None;
+    }
+    let rest = if name == "new" {
+        ""
+    } else {
+        name.strip_prefix("new_")?
+    };
+    let create = if rest.is_empty() {
+        "create".to_string()
+    } else {
+        format!("create_{rest}")
+    };
+    Some(format!(
+        "Rename to `{create}`: public constructors are named create*; `new` is reserved in          C++, Java, C# and JavaScript. The fn_body can keep calling the Rust `new`."
+    ))
+}
+
+#[cfg(test)]
+mod new_style_name_tests {
+    use super::new_style_name_suggestion;
+
+    #[test]
+    fn new_and_new_prefixed_names_are_rejected() {
+        assert!(new_style_name_suggestion("RibbonButton", "new").unwrap().contains("`create`"));
+        assert!(new_style_name_suggestion("ColorU", "new_rgb").unwrap().contains("`create_rgb`"));
+    }
+
+    #[test]
+    fn create_names_and_the_refany_entry_point_pass() {
+        assert!(new_style_name_suggestion("RibbonButton", "create").is_none());
+        assert!(new_style_name_suggestion("Dom", "newline").is_none());
+        assert!(new_style_name_suggestion("RefAny", "new_c").is_none());
+    }
+}
+
 pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
     use reserved_keywords::check_reserved;
 
@@ -4894,6 +4933,21 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                             continue;
                         }
 
+                        if let Some(suggestion) = new_style_name_suggestion(class_name, ctor_name) {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!(
+                                    "api.json - {}.{}::{}",
+                                    module_name, class_name, ctor_name
+                                ),
+                                kind: FfiSafetyWarningKind::BadConstructorName {
+                                    name: ctor_name.clone(),
+                                    suggestion,
+                                },
+                            });
+                            continue;
+                        }
+
                         let conflicts = check_reserved(ctor_name);
                         if !conflicts.is_empty() {
                             warnings.push(FfiSafetyWarning {
@@ -4918,6 +4972,20 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                 // Check function names
                 if let Some(functions) = &class_data.functions {
                     for (fn_name, _fn_data) in functions {
+                        if let Some(suggestion) = new_style_name_suggestion(class_name, fn_name) {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!(
+                                    "api.json - {}.{}::{}",
+                                    module_name, class_name, fn_name
+                                ),
+                                kind: FfiSafetyWarningKind::BadConstructorName {
+                                    name: fn_name.clone(),
+                                    suggestion,
+                                },
+                            });
+                            continue;
+                        }
                         let conflicts = check_reserved(fn_name);
                         if !conflicts.is_empty() {
                             warnings.push(FfiSafetyWarning {
