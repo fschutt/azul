@@ -1191,8 +1191,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                      nothing where a sighted user sees a picture. Give it \
                      .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
                      Some(\"what it shows\".into()).into(), role: AccessibilityRole::Graphic, \
-                     ..Default::default() }}), or mark it decorative by naming it explicitly as \
-                     such. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                     ..Default::default() }}), or, when it only decorates something named \
+                     elsewhere, mark it decorative with `role: AccessibilityRole::Nothing` and no \
+                     name. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
                 ));
             } else if focusable {
                 reported += 1;
@@ -1265,6 +1266,15 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 ));
                 continue;
             }
+        }
+
+        // An explicit `role: Nothing` with no name on something nobody can click
+        // or tab to is the DECORATIVE mark (ARIA's role="presentation"): the
+        // picture is part of a whole that is named elsewhere, like one tile of a
+        // map whose container carries the name. Demanding a name here would make
+        // a screen reader read out every tile.
+        if matches!(role, AccessibilityRole::Nothing) && !has_name && !interactive && !focusable {
+            continue;
         }
 
         // A control whose visible label is a text node DOES announce itself —

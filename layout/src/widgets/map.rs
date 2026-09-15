@@ -655,6 +655,12 @@ impl MapWidget {
             // container MUST be a positioned box (the demo's `position: relative`);
             // a non-empty `container_style` (via `with_container_style`) overrides.
             .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
+            // The widget as a whole; the tile grid inside it is the part a
+            // screen reader describes (see map_widget_render).
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo::named(
+                "Map",
+                azul_core::a11y::AccessibilityRole::Grouping,
+            ))
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_map_tile_cache))
             // AfterMount fires once when the widget first appears (and
@@ -1946,7 +1952,13 @@ pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
             .ok()?;
     Some(
         Dom::create_image(img)
-            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;"),
+            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+            // One piece of the map graphic, which the tile grid names: decorative,
+            // so a screen reader does not read out every tile.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Nothing,
+                ..Default::default()
+            }),
     )
 }
 
@@ -2540,6 +2552,21 @@ impl WantedTiles {
     }
 }
 
+/// What the map shows, for the accessibility value of the tile grid:
+/// "48.21 N, 16.37 E, zoom 6.0".
+fn map_viewport_description(viewport: &MapViewport) -> String {
+    let lat = viewport.centre_lat_deg;
+    let lon = viewport.centre_lon_deg;
+    alloc::format!(
+        "{:.2} {}, {:.2} {}, zoom {:.1}",
+        lat.abs(),
+        if lat < 0.0 { "S" } else { "N" },
+        lon.abs(),
+        if lon < 0.0 { "W" } else { "E" },
+        viewport.zoom
+    )
+}
+
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -2727,7 +2754,18 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;"
             .to_string(),
     };
-    let mut grid = Dom::create_div().with_css(grid_css.as_str());
+    // The grid is what the user pans and zooms, so it is the node that is named:
+    // one graphic, "Map", whose value says where it is looking. The tiles inside
+    // are decorative parts of that graphic (see svg_string_to_dom).
+    let mut grid = Dom::create_div()
+        .with_css(grid_css.as_str())
+        .with_accessibility_info(
+            azul_core::a11y::AccessibilityInfo::named(
+                "Map",
+                azul_core::a11y::AccessibilityRole::Graphic,
+            )
+            .with_value(map_viewport_description(&viewport)),
+        );
 
     // Pan / zoom handlers live HERE, on the VirtualView content — NOT on the
     // outer widget div. The VirtualView renders as a separate DomId painted on
