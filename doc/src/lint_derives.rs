@@ -535,6 +535,112 @@ const CRYSTAL_PROFILE: &[(&str, Expect)] = &[
     ),
 ];
 
+/// Swift (`azul.swift`, the `Azul` module).
+///
+/// Swift reads the C ABI through a Clang module map (`import CAzul`), which is
+/// the raw-C escape hatch and does not count; `azul.swift` never names an
+/// `Az{T}_partialEq` except inside the Swift member that implements it. What
+/// counts is the protocol requirement on the type's own declaration - a
+/// `final class`, `struct` or `enum` named `{C}` (or `Azul{C}` where the Swift
+/// standard library owns the name) - matched inside its block, which ends at
+/// the declaration's closing brace in column 0.
+///
+/// `PartialOrd` and `Ord` are both `static func <` (with `Comparable`); the
+/// partial one answers false when the two are not comparable. `Default` is
+/// `init()`, or `static func default()` when a zero-argument constructor
+/// already is `init()`. A type that crosses as a standard Swift type is
+/// declared `public typealias {C} = Swift.{C}` (only `String`), whose own
+/// conformances provide every derive it declares.
+const SWIFT_BLOCK: &[&str] = &[
+    "public final class {C}: ",
+    "public struct {C}: ",
+    "public struct {C} {",
+    "public enum {C}: ",
+    "public enum {C} {",
+    "public final class Azul{C}: ",
+    "public struct Azul{C}: ",
+    "public enum Azul{C}: ",
+];
+const SWIFT_NATIVE: Expect = Expect::Marker(&["public typealias {C} = Swift.{C}"]);
+const SWIFT_PROFILE: &[(&str, Expect)] = &[
+    (
+        "Debug",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public var description: String {"],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    (
+        "Clone",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public func copy() -> "],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    ("Copy", COPY_NA),
+    (
+        "PartialEq",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public static func == ("],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    ("Eq", EQ_NA),
+    (
+        "PartialOrd",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public static func < ("],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    (
+        "Ord",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public static func < ("],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    (
+        "Hash",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &["public func hash(into hasher: inout Hasher)"],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+    (
+        "Default",
+        Expect::Either(&[
+            Expect::Block {
+                start: SWIFT_BLOCK,
+                markers: &[
+                    "public convenience init() {",
+                    "public init() {",
+                    "public static func `default`() -> ",
+                ],
+            },
+            SWIFT_NATIVE,
+        ]),
+    ),
+];
+
 /// A binding: what it is called, which generated files are ITS text, how it
 /// spells a class name, and what each derive must look like in it.
 pub struct Binding {
@@ -898,10 +1004,10 @@ pub const BINDINGS: &[Binding] = &[
     Binding {
         name: "swift",
         files: &["azul.swift"],
-        prefix: "Az",
-        block_end: "",
-        expects: ABI_PROFILE,
-        note: "module map",
+        prefix: "",
+        block_end: "\n}\n",
+        expects: SWIFT_PROFILE,
+        note: "Azul classes/structs/enums over CAzul",
     },
     Binding {
         name: "v",
