@@ -998,8 +998,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/v/$(basename "$LIB_PATH")"
       ;;
     crystal)
-      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e"
-      rm -f "$REPO_ROOT/examples/crystal/azul.cr"
+      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe"
+      rm -rf "$REPO_ROOT/examples/crystal/lib"
       rm -f "$REPO_ROOT/examples/crystal/$(basename "$LIB_PATH")"
       ;;
     julia)
@@ -1128,18 +1128,31 @@ lang_cpp() {
     # is enough: the flag/header/driver pairing is what is under test).
     # Compilers older than the standard's publication only know its draft
     # name: ubuntu-22.04's clang 14 rejects -std=c++23 but takes -std=c++2b.
-    std_flag() {
-      if echo 'int main(){}' | "$CXX" -x c++ -fsyntax-only -std=c++$1 - 2>/dev/null; then
-        echo "-std=c++$1"
+    std_flag() { # <compiler> <dialect>
+      if echo 'int main(){}' | "$1" -x c++ -fsyntax-only -std=c++$2 - 2>/dev/null; then
+        echo "-std=c++$2"
       else
-        case "$1" in 20) echo "-std=c++2a" ;; 23) echo "-std=c++2b" ;; *) echo "-std=c++$1" ;; esac
+        case "$2" in 20) echo "-std=c++2a" ;; 23) echo "-std=c++2b" ;; *) echo "-std=c++$2" ;; esac
       fi
     }
+    # On Windows the clang found above is the MSVC-flavoured one, and MSVC's
+    # standard library has no mode below C++14 (<type_traits>, <utility> use
+    # deduced return types), so a C++03 / C++11 translation unit that includes
+    # the STL cannot compile there at all. Windows users of those dialects build
+    # with MinGW, so check them with MinGW g++ and its libstdc++.
+    dialect_cxx() { # <dialect>
+      if [ "$IS_WINDOWS" = 1 ] && [ "$1" -lt 14 ]; then command -v g++ || true; else echo "$CXX"; fi
+    }
     for d in 03 11 14 17 20 23; do
-      local flag; flag="$(std_flag "$d")"
+      local cxx; cxx="$(dialect_cxx "$d")"
+      if [ -z "$cxx" ]; then
+        echo "cpp: skipping the C++$d syntax check: no MinGW g++ on PATH (MSVC's STL has no C++$d mode)"
+        continue
+      fi
+      local flag; flag="$(std_flag "$cxx" "$d")"
       ( cd "$REPO_ROOT/examples/cpp/cpp$d" && \
-        "$CXX" -fsyntax-only "$flag" ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
-        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with $flag" >&2; exit 1; }
+        "$cxx" -fsyntax-only "$flag" ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
+        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with $cxx $flag" >&2; exit 1; }
     done
     cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
     if [ "$IS_MACOS" = 1 ]; then
@@ -1645,7 +1658,11 @@ lang_crystal() {
   local f; f="$(log_path crystal)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.cr" "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
+    # The example does `require "azul"`, so lay the generated shard out the
+    # way `shards install` does: lib/azul/{shard.yml,src/azul.cr,...}.
+    rm -rf "$REPO_ROOT/examples/crystal/lib"
+    mkdir -p "$REPO_ROOT/examples/crystal/lib"
+    cp -R "$CODEGEN_DIR/crystal" "$REPO_ROOT/examples/crystal/lib/azul" || exit 1
     cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/crystal" || exit 1
     local BIN=./hello-world-e2e
