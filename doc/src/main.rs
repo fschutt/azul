@@ -468,27 +468,33 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            let stale = lint_examples::run(&project_root, &api_data);
-            if stale.is_empty() {
-                println!("[ok] examples reference no removed/renamed API symbols");
-            } else {
-                eprintln!(
-                    "[FAIL] {} example call site(s) invoke a function api.json does not define:",
-                    stale.len()
-                );
-                for f in &stale {
-                    match &f.suggestion {
-                        Some(s) => eprintln!(
-                            "    {}:{}: {} — no such function `{}` (did you mean `{}`?)",
-                            f.file, f.line, f.token, f.function, s
-                        ),
-                        None => eprintln!(
-                            "    {}:{}: {} — no such function `{}`",
-                            f.file, f.line, f.token, f.function
-                        ),
-                    }
+            match lint_examples::run(&project_root, &api_data) {
+                Err(why) => {
+                    eprintln!("[FAIL] the examples lint could not run: {why}");
+                    problems += 1;
                 }
-                problems += stale.len();
+                Ok(stale) if stale.is_empty() => {
+                    println!("[ok] examples reference no removed/renamed API symbols");
+                }
+                Ok(stale) => {
+                    eprintln!(
+                        "[FAIL] {} example call site(s) invoke a function api.json does not define:",
+                        stale.len()
+                    );
+                    for f in &stale {
+                        match &f.suggestion {
+                            Some(s) => eprintln!(
+                                "    {}:{}: {} — no such function `{}` (did you mean `{}`?)",
+                                f.file, f.line, f.token, f.function, s
+                            ),
+                            None => eprintln!(
+                                "    {}:{}: {} — no such function `{}`",
+                                f.file, f.line, f.token, f.function
+                            ),
+                        }
+                    }
+                    problems += stale.len();
+                }
             }
 
             // Lint 3: guide pointers. A `[text](../dom.md)` whose page moved,

@@ -35545,6 +35545,23 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::css::Css::from_string(s)"
+                            },
+                            "parse_inline": {
+                                "doc": [
+                                    "Parse inline-style CSS (bare properties, pseudo blocks, @-rule blocks)",
+                                    "and return a `Css` whose rules carry `rule_priority::INLINE`.",
+                                    "",
+                                    "Wraps the input in `* { ... }` so the main CSS parser can handle bare",
+                                    "properties at the top level. Pseudo and at-rule blocks like",
+                                    "`:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work",
+                                    "directly via CSS nesting."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_css::css::Css::parse_inline(style.as_str())"
                             }
                         },
                         "functions": {
