@@ -883,3 +883,56 @@ fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
         assert_eq!(edge_splits(&truth).0, 0, "{name}: without a glide every glyph is painted once");
     }
 }
+
+/// A glyph belongs to the band of ITS OWN line. While a selection extends onto
+/// a new line, that line's band slides in vertically and overlaps the line
+/// above. Assigning glyphs by the union of the final and the rendered band
+/// matched the upper line's glyphs to the sliding band and split them at ITS
+/// edges, painting them unselected on top of their own (static) highlight:
+/// black text flickering over blue.
+#[test]
+fn a_band_sliding_in_from_another_line_does_not_split_this_lines_glyphs() {
+    use azul_core::{geom::LogicalPosition, ui_solver::GlyphInstance};
+    use azul_css::props::basic::ColorU;
+    use azul_layout::solver3::display_list::{split_text_for_glides, DisplayList};
+
+    let rect = |x: f32, y: f32, w: f32, h: f32| LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h));
+    let glyph = |x: f32, y: f32| GlyphInstance {
+        index: 1,
+        point: LogicalPosition::new(x, y),
+        size: LogicalSize::zero(),
+    };
+    let white = ColorU { r: 255, g: 255, b: 255, a: 255 };
+    let black = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
+    // Line 0 (y 0..20, baseline 15) fully selected and not moving; its glyphs
+    // are painted white. Line 1 (y 20..40) newly selected over [0, 50).
+    let mut dl = DisplayList::default();
+    dl.items.push(DisplayListItem::Text {
+        glyphs: vec![glyph(10.0, 15.0), glyph(40.0, 15.0), glyph(70.0, 15.0)],
+        font_hash: azul_layout::text3::cache::FontHash::from_hash(1),
+        font_size_px: 16.0,
+        color: white,
+        clip_rect: rect(0.0, 0.0, 600.0, 40.0).into(),
+        source_node_index: Some(1),
+    });
+    dl.node_mapping.push(None);
+    dl.uniform_text_bgs.push(None);
+    dl.layout_node_mapping.push(None);
+    dl.text_selection_colors.push(Some((black, white)));
+
+    let current = [rect(0.0, 0.0, 100.0, 20.0), rect(0.0, 20.0, 50.0, 20.0)];
+    // Mid-glide: line 1's band is still sliding in from above, over line 0.
+    let rendered = [rect(0.0, 0.0, 100.0, 20.0), rect(0.0, 8.0, 30.0, 20.0)];
+    split_text_for_glides(&mut dl, None, Some((&current, &rendered)));
+
+    for item in &dl.items {
+        if let DisplayListItem::Text { glyphs, color, .. } = item {
+            assert!(
+                !(glyphs.iter().any(|g| g.point.y == 15.0) && *color == black),
+                "a glyph of the fully selected, static line 0 is painted unselected: {:?}",
+                dl.items
+            );
+        }
+    }
+}

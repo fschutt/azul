@@ -769,9 +769,12 @@ pub fn split_text_for_glides(
                         if c == r {
                             return false;
                         }
-                        let top = c.origin.y.min(r.origin.y);
-                        let bottom = (c.origin.y + c.size.height).max(r.origin.y + r.size.height);
-                        if !on_line(&g, top, bottom) {
+                        // The glyph's OWN line: the final band's line box. A
+                        // band sliding in from another line overlaps this one
+                        // mid-glide, and matching glyphs to it split them at
+                        // that band's edges, painting a selected line's glyphs
+                        // unselected over their own highlight.
+                        if !on_line(&g, c.origin.y, c.origin.y + c.size.height) {
                             return false;
                         }
                         // The x ranges where the rendered band disagrees
