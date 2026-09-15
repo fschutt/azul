@@ -206,6 +206,35 @@ if [ ! -f "$HEADER_DIR/azul.h" ]; then
     exit 1
 fi
 
+# ── The C compiler actually runs ────────────────────────────────────────────
+# `int main(void){return 0;}`, before anything expensive. A compiler that is
+# BROKEN rather than absent fails here instead of seven times over as a bare
+# "<example>: failed to compile", which is what it looked like for a whole run:
+# gcc exited 1 having printed NOTHING, because `cc1.exe` could not start.
+#
+# On this machine the cause was the PATH. MSYS2's `/mingw64/bin` did not hold
+# the toolchain at all — an unrelated Windows app had taken the name — and it
+# sat ahead of `/ucrt64/bin`, so Windows resolved cc1's DLLs (libgmp, libmpfr,
+# libisl, ...) out of that directory and the process died before it could
+# report anything. `which gcc` pointed at the right binary throughout; nothing
+# short of running it shows this.
+CC_BIN="gcc"; is_macos && CC_BIN="clang"
+cc_probe="$TEMP_ROOT/.cc-probe"
+mkdir -p "$cc_probe"
+echo 'int main(void){return 0;}' > "$cc_probe/probe.c"
+if ! "$CC_BIN" -o "$cc_probe/probe" "$cc_probe/probe.c" 2>"$cc_probe/probe.log"; then
+    log_error "$CC_BIN cannot compile a trivial program - the toolchain is broken, not the examples"
+    if [ -s "$cc_probe/probe.log" ]; then
+        cat "$cc_probe/probe.log"
+    else
+        log_error "...and it printed no diagnostic at all, which on Windows means"
+        log_error "the compiler's own DLLs did not load. Check PATH: $(command -v "$CC_BIN")"
+        is_windows && log_info "e.g. PATH=/c/msys64/ucrt64/bin:\$PATH ./scripts/screenshot_single.sh $*"
+    fi
+    exit 1
+fi
+rm -rf "$cc_probe"
+
 # MinGW links an import library, not the DLL, and looks for `libazul.dll`.
 # Made next to the real one in the build directory, so it is made once per
 # build rather than copied per example.
@@ -276,7 +305,7 @@ write_scenario() {
     { "op": "wait", "ms": $(settle_ms "$name"), "real": true },
     { "op": "wait_frame" },
     { "op": "wait", "ms": 750, "real": true },
-    { "op": "take_native_screenshot" }
+    { "op": "take_native_screenshot", "render_shadow": true }
   ]
 }
 EOF
@@ -558,8 +587,17 @@ compile_example() {
             -lpthread -lm -ldl \
             -Wl,-rpath,"$LIB_DIR"
     else
+        # The DLL BY PATH, not `-L... -lazul`. `dll/Cargo.toml` asks for
+        # ["cdylib", "staticlib", "rlib"], so the same directory holds
+        # `azul.dll` + `azul.dll.lib` AND a 472 MB `azul.lib` — the MSVC
+        # STATICLIB. MinGW ld tries `azul.lib` before `libazul.dll` when it
+        # resolves `-lazul`, picks the staticlib, and then cannot link the
+        # MSVC-only symbols inside it: hundreds of "undefined reference to
+        # `__security_check_cookie' / `?_Throw_Cpp_error@std@@YAXH@Z'" out of
+        # the bundled vk-mem objects. Naming the DLL leaves ld nothing to
+        # guess at.
         gcc -o "$bin" -I"$HEADER_DIR" "$src" \
-            -L"$LIB_DIR" -lazul \
+            "$LIB_DIR/libazul.dll" \
             -lopengl32 -lgdi32 -luser32 -lkernel32 -lm
     fi
 
