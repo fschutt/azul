@@ -352,18 +352,19 @@ pub fn default_renderer_options(
         // which is near-instant (<1ms per shader).
         precache_flags: ShaderPrecacheFlags::EMPTY,
         cached_programs,
-        // Enable partial present so WebRender computes per-frame dirty rects
-        // from tile invalidation. These rects are returned in RenderResults and
-        // forwarded to the OS compositor for per-region invalidation.
-        //
-        // With a `partial_present` cell (EGL backends with buffer-age),
+        // Partial present composites only the dirty rect into the back buffer,
+        // so it needs to know what that buffer still holds. With a
+        // `partial_present` cell (EGL backends with buffer-age),
         // `draw_previous_partial_present_regions: true` makes WR union the
         // current dirty rect with the tracked damage of the previous
-        // `buffer_age - 1` frames — required for correctness when rendering
-        // partially into an aged (multi-buffered) back buffer. Unknown age
-        // (0) or age beyond WR's 4-frame history degrades to Full.
+        // `buffer_age - 1` frames. Unknown age (0) or age beyond WR's 4-frame
+        // history degrades to Full.
+        //
+        // Without one (WGL, CGL) the back buffer is undefined after a swap, and
+        // drawing only the dirty rect presents stale or black pixels everywhere
+        // else: the GPU backends flickered. Those compose every frame in full.
         compositor_config: webrender::CompositorConfig::Draw {
-            max_partial_present_rects: 1,
+            max_partial_present_rects: if partial_present.is_some() { 1 } else { 0 },
             draw_previous_partial_present_regions: partial_present.is_some(),
             partial_present: partial_present
                 .map(|p| Box::new(p) as Box<dyn webrender::PartialPresentCompositor>),
