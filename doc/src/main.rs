@@ -2033,10 +2033,15 @@ fn main() -> anyhow::Result<()> {
 
             // Generate documentation (API docs, guide, etc.)
             let inline_css = !is_debug;
+            // `image_path` is `<output>/images`, and the output is the docs site
+            // served under /ui, so production URLs hang off HTML_ROOT. This was
+            // hardcoded to `https://azul.rs/images` from before the site moved
+            // under /ui: the deploy wrote every example screenshot to
+            // ui/images/ while the index linked /images/, and all of them 404ed.
             let image_url = if is_debug {
-                "./images"
+                "./images".to_string()
             } else {
-                "https://azul.rs/images"
+                format!("{}/images", docgen::HTML_ROOT)
             };
             // In debug mode the install commands need a fully qualified host
             // so `curl` resolves to the local dev server, not a relative URL
@@ -2048,7 +2053,7 @@ fn main() -> anyhow::Result<()> {
             };
             println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
-                docgen::generate_docs(&api_data, &image_path, image_url, inline_css, hostname)?
+                docgen::generate_docs(&api_data, &image_path, &image_url, inline_css, hostname)?
             {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {
