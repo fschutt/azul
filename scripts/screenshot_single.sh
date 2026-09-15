@@ -223,13 +223,6 @@ if ! "$CC_BIN" -o "$cc_probe/probe" "$cc_probe/probe.c" 2>"$cc_probe/probe.log";
 fi
 rm -rf "$cc_probe"
 
-# MinGW links an import library, not the DLL, and looks for `libazul.dll`.
-# Made next to the real one in the build directory, so it is made once per
-# build rather than copied per example.
-if is_windows && [ ! -f "$LIB_DIR/libazul.dll" ]; then
-    cp "$DLL_PATH" "$LIB_DIR/libazul.dll"
-fi
-
 # ── Step 2: the shared asset tree ───────────────────────────────────────────
 # The examples resolve assets relative to the binary as "../assets/...", and
 # each binary runs in target/examples-temp/<example>/, so "../assets" means
@@ -590,8 +583,8 @@ compile_example() {
     else
         # The DLL by path: -lazul would pick the static azul.lib in the same directory.
         gcc -o "$bin" -I"$HEADER_DIR" "$src" \
-            "$LIB_DIR/libazul.dll" \
-            -lopengl32 -lgdi32 -luser32 -lkernel32 -lm
+            "$DLL_PATH" \
+            -lm
     fi
 
     [ -f "$bin" ] || return 1
