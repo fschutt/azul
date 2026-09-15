@@ -662,51 +662,95 @@ fn apply_seat_focus_restyle(
 ) -> ProcessEventResult {
     use azul_core::diff::ChangeAccumulator;
 
-    let lost = old_focus
-        .filter(|n| {
-            layout_window
-                .focus_manager
-                .seats_focusing(n)
-                .iter()
-                .all(|s| *s == 0)
-        })
-        .and_then(|n| n.node.into_crate_internal());
-    let gained = new_focus.and_then(|n| n.node.into_crate_internal());
-    if lost.is_none() && gained.is_none() {
+    let old_focus = old_focus.filter(|n| {
+        layout_window
+            .focus_manager
+            .seats_focusing(n)
+            .iter()
+            .all(|s| *s == 0)
+    });
+    let per_dom = focus_change_per_dom(old_focus, new_focus);
+    if per_dom.is_empty() {
         return ProcessEventResult::DoNothing;
     }
-    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
-    };
-    let restyle_result = layout_result
-        .styled_dom
-        .restyle_on_seat_focus_change(lost, gained);
-    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, (lost, gained)) in per_dom {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            continue;
+        };
+        let restyle_result = layout_result
+            .styled_dom
+            .restyle_on_seat_focus_change(lost, gained);
+        let r = if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+        result = result.max(r);
     }
-    let mut accumulator = ChangeAccumulator::new();
-    accumulator.merge_restyle_result(&restyle_result);
-    if accumulator.needs_layout() {
-        ProcessEventResult::ShouldIncrementalRelayout
-    } else if accumulator.needs_paint_only() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-    } else {
-        ProcessEventResult::ShouldReRenderCurrentWindow
+    result
+}
+
+/// A focus change split by DOM: `(lost, gained)` node per DOM it touches.
+///
+/// Node indices mean something only inside their own DOM, and a focus move
+/// can cross DOMs (a ribbon button to the page of a VirtualView). The focus
+/// restyles used to strip the DOM and restyle the FIRST layout result, the
+/// root. Focusing page node N therefore gave `:focus` to the root's node N,
+/// a chrome element that repainted focused until the next full rebuild.
+fn focus_change_per_dom(
+    old_focus: Option<azul_core::dom::DomNodeId>,
+    new_focus: Option<azul_core::dom::DomNodeId>,
+) -> BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> {
+    let mut per_dom: BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> = BTreeMap::new();
+    if let Some((dom, node)) = old_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+        per_dom.entry(dom).or_default().0 = Some(node);
     }
+    if let Some((dom, node)) = new_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+        per_dom.entry(dom).or_default().1 = Some(node);
+    }
+    per_dom
 }
 
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
+    old_focus: Option<azul_core::dom::DomNodeId>,
+    new_focus: Option<azul_core::dom::DomNodeId>,
+) -> ProcessEventResult {
+    let per_dom = focus_change_per_dom(old_focus, new_focus);
+    if per_dom.is_empty() {
+        // Nothing to restyle, but the caret and `:focus`-conditional paint are
+        // built from focus state: rebuild the list (see the empty-delta case).
+        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+    }
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, (lost, gained)) in per_dom {
+        result = result.max(apply_focus_restyle_in_dom(layout_window, dom_id, lost, gained));
+    }
+    result
+}
+
+/// `:focus` / `:focus-within` restyle of ONE DOM for nodes of THAT DOM.
+fn apply_focus_restyle_in_dom(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
     old_focus: Option<NodeId>,
     new_focus: Option<NodeId>,
 ) -> ProcessEventResult {
-    use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
+    use azul_core::styled_dom::FocusChange;
 
-    // Get the first (primary) layout result
-    let Some((dom_id_ref, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+    let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
-    let dom_id = *dom_id_ref;
 
     // Apply restyle for focus change
     let restyle_result = layout_result.styled_dom.restyle_on_state_change(
@@ -7853,9 +7897,6 @@ pub trait PlatformWindow {
                 old_focus,
                 visible,
             } => {
-                let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-                let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
-
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
 
                 let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
@@ -7902,12 +7943,10 @@ pub trait PlatformWindow {
 
                     // Bug A fix: Use apply_focus_restyle return value so :focus
                     // styling is applied immediately (not just on next resize)
-                    if old_focus_node_id != new_focus_node_id {
-                        let restyle_result = apply_focus_restyle(
-                            layout_window,
-                            old_focus_node_id,
-                            new_focus_node_id,
-                        );
+                    // Compared as DOM + node: node N of the root and node N of a
+                    // VirtualView's DOM are different nodes.
+                    if old_focus != new_focus {
+                        let restyle_result = apply_focus_restyle(layout_window, *old_focus, *new_focus);
                         result = result.max(restyle_result);
                     } else if visibility_changed {
                         result =
@@ -11351,9 +11390,9 @@ pub trait PlatformWindow {
                         result = result.max(r);
                     }
                 } else if let Some(new_focus_target) = clicked_focusable_node {
-                    let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-                    let new_focus_node_id = new_focus_target.node.into_crate_internal();
-                    if old_focus_node_id != new_focus_node_id {
+                    // DOM + node: the same index in another DOM (a page in a
+                    // VirtualView) is a different node and a real focus move.
+                    if old_focus != Some(new_focus_target) {
                         let r = self.apply_system_change(&SystemChange::SetFocus {
                             new_focus: Some(new_focus_target),
                             old_focus,
@@ -13096,6 +13135,66 @@ pub trait PlatformWindow {
 
 #[cfg(test)]
 mod tests {
+    /// Focus in a NESTED dom (AzWriter's page lives in a VirtualView's DOM)
+    /// must restyle that DOM's node. The restyle used to strip the DomId and
+    /// restyle the FIRST layout result, the root, so the root node with the
+    /// same index took `:focus` and repainted focused until the next full
+    /// rebuild.
+    #[test]
+    fn focusing_a_node_in_a_nested_dom_restyles_that_dom_not_the_root() {
+        use azul_core::{
+            dom::{Dom, DomId, DomNodeId, NodeId, NodeType},
+            resources::RendererResources,
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+        use azul_layout::{
+            callbacks::ExternalSystemCallbacks, window::LayoutWindow,
+            window_state::FullWindowState,
+        };
+
+        fn two_level(text: &str) -> StyledDom {
+            let mut dom = Dom::create_node(NodeType::Div).with_child(
+                Dom::create_node(NodeType::Div)
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+            );
+            StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        }
+
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        let rr = RendererResources::default();
+        let cb = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.layout_and_generate_display_list(two_level("chrome"), &ws, &rr, &cb, &mut dbg)
+            .unwrap();
+        let child = DomId { inner: 1 };
+        let mut page = two_level("page");
+        page.dom_id = child;
+        lw.layout_dom_recursive_with_viewport(page, &ws, &rr, &cb, &mut dbg, None)
+            .unwrap();
+
+        let node = NodeId::new(1);
+        let focused = |lw: &LayoutWindow, dom: DomId| {
+            lw.layout_results[&dom].styled_dom.styled_nodes.as_container()[node]
+                .styled_node_state
+                .focused
+        };
+        assert!(!focused(&lw, DomId::ROOT_ID) && !focused(&lw, child), "harness: nothing focused");
+
+        let target = DomNodeId {
+            dom: child,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+        };
+        let _ = apply_focus_restyle(&mut lw, None, Some(target));
+
+        assert!(focused(&lw, child), "the nested DOM's node must take :focus");
+        assert!(
+            !focused(&lw, DomId::ROOT_ID),
+            "the root node with the same index took :focus"
+        );
+    }
+
     use azul_core::{
         geom::{LogicalSize, PhysicalPositionI32},
         icon::{IconProviderHandle, SharedIconProvider},

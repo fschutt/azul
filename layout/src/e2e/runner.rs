@@ -1436,9 +1436,6 @@ impl Runner {
     ) -> ProcessEventResult {
         use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
 
-        let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-        let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
-
         let now = self.now();
         let window_state = self.window_state.clone();
         let lw = &mut self.layout_window;
@@ -1452,12 +1449,10 @@ impl Runner {
         arm_caret_for_focus(lw, new_focus, &window_state);
 
         let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
-        if old_focus_node_id != new_focus_node_id {
-            result = result.max(apply_focus_restyle(
-                lw,
-                old_focus_node_id,
-                new_focus_node_id,
-            ));
+        // DOM + node, as in the dll: the same index in another DOM is a
+        // different node.
+        if old_focus != new_focus {
+            result = result.max(apply_focus_restyle(lw, old_focus, new_focus));
         }
         result
     }
@@ -3947,37 +3942,59 @@ fn apply_seat_focus_restyle(
 ) -> ProcessEventResult {
     use azul_core::diff::ChangeAccumulator;
 
-    let lost = old_focus
-        .filter(|n| {
-            layout_window
-                .focus_manager
-                .seats_focusing(n)
-                .iter()
-                .all(|s| *s == 0)
-        })
-        .and_then(|n| n.node.into_crate_internal());
-    let gained = new_focus.and_then(|n| n.node.into_crate_internal());
-    if lost.is_none() && gained.is_none() {
+    let old_focus = old_focus.filter(|n| {
+        layout_window
+            .focus_manager
+            .seats_focusing(n)
+            .iter()
+            .all(|s| *s == 0)
+    });
+    let per_dom = focus_change_per_dom(old_focus, new_focus);
+    if per_dom.is_empty() {
         return ProcessEventResult::DoNothing;
     }
-    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
-    };
-    let restyle_result = layout_result
-        .styled_dom
-        .restyle_on_seat_focus_change(lost, gained);
-    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, (lost, gained)) in per_dom {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            continue;
+        };
+        let restyle_result = layout_result
+            .styled_dom
+            .restyle_on_seat_focus_change(lost, gained);
+        let r = if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+        result = result.max(r);
     }
-    let mut accumulator = ChangeAccumulator::new();
-    accumulator.merge_restyle_result(&restyle_result);
-    if accumulator.needs_layout() {
-        ProcessEventResult::ShouldIncrementalRelayout
-    } else if accumulator.needs_paint_only() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-    } else {
-        ProcessEventResult::ShouldReRenderCurrentWindow
+    result
+}
+
+/// A focus change split by DOM, the port of the dll's `focus_change_per_dom`:
+/// node indices mean something only inside their own DOM, so each DOM the
+/// change touches is restyled with its own `(lost, gained)` pair.
+fn focus_change_per_dom(
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> {
+    let mut per_dom: BTreeMap<DomId, (Option<NodeId>, Option<NodeId>)> = BTreeMap::new();
+    if let Some((dom, node)) = old_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+        per_dom.entry(dom).or_default().0 = Some(node);
     }
+    if let Some((dom, node)) = new_focus.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))) {
+        per_dom.entry(dom).or_default().1 = Some(node);
+    }
+    per_dom
 }
 
 /// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
@@ -3988,12 +4005,26 @@ fn apply_seat_focus_restyle(
 /// unfocused until the next full DOM regeneration.
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> ProcessEventResult {
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, (lost, gained)) in focus_change_per_dom(old_focus, new_focus) {
+        result = result.max(apply_focus_restyle_in_dom(layout_window, dom_id, lost, gained));
+    }
+    result
+}
+
+/// `:focus` / `:focus-within` restyle of ONE DOM for nodes of THAT DOM.
+fn apply_focus_restyle_in_dom(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
     old_focus: Option<NodeId>,
     new_focus: Option<NodeId>,
 ) -> ProcessEventResult {
     use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
 
-    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+    let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
 
