@@ -1083,17 +1083,9 @@ lang_rust() {
     # per-lang timeout kills it. link-dynamic instead links the prebuilt DLL
     # (built with build-dll,debug-server) that build.rs finds in target/release,
     # whose run() honors AZ_E2E — and it skips the multi-minute azul recompile.
-    # On Windows the link-dynamic build links the prebuilt MSVC import lib
-    # `azul.lib`; rustc/build.rs doesn't reliably put target/release on the
-    # linker search path, so add it explicitly. `-L` is ADDITIVE (emits an extra
-    # `/LIBPATH:`), so the system LIB paths (kernel32 etc.) are preserved —
-    # unlike overwriting the `LIB` env var.
-    if [ "$IS_WINDOWS" = 1 ]; then
-      export RUSTFLAGS="${RUSTFLAGS:-} -L native=$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
-    fi
-    cargo build --release -p azul-examples --example hello-world \
-      --no-default-features --features link-dynamic || exit 1
-    run_bt ./target/release/examples/hello-world
+    # Own target dir: a link-dynamic build would overwrite $RELEASE_DIR's library with a stub.
+    CARGO_TARGET_DIR="$REPO_ROOT/target/consumer"       cargo build --release -p azul-examples --example hello-world       --no-default-features --features link-dynamic || exit 1
+    run_bt ./target/consumer/release/examples/hello-world
   ) >"$f" 2>&1
   finish rust
 }
