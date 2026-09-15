@@ -209,7 +209,7 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 }
 
 /// Union member (field) names must be lowercase-initial in Crystal.
-fn union_field_name(name: &str) -> String {
+pub fn union_field_name(name: &str) -> String {
     let mut chars = name.chars();
     match chars.next() {
         Some(first) => {
@@ -404,7 +404,7 @@ fn enum_backing(repr: Option<&str>) -> &'static str {
 /// Discriminant field width for a tagged union. Rust `#[repr(C, u8)]`
 /// tagged unions use a 1-byte tag; a plain `#[repr(C)]` data enum uses a
 /// C-`int` tag.
-fn tag_type(repr: Option<&str>) -> &'static str {
+pub fn tag_type(repr: Option<&str>) -> &'static str {
     match repr {
         Some(r) if r.contains("u8") => "UInt8",
         Some(r) if r.contains("u16") => "UInt16",

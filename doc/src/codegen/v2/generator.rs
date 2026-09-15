@@ -329,11 +329,12 @@ impl GenerationTargets {
             super::lang_d::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.d"),
         )?;
-        println!("[20g/35] Generating Crystal bindings...");
-        Self::write_string(
-            super::lang_crystal::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.cr"),
-        )?;
+        println!("[20g/35] Generating Crystal bindings (azul.cr + crystal/ shard)...");
+        for (rel, content) in
+            super::lang_crystal::generate_files(ir, &CodegenConfig::c_header())?
+        {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
         println!("[20h/35] Generating V bindings...");
         Self::write_string(
             super::lang_v::generate(ir, &CodegenConfig::c_header())?,
