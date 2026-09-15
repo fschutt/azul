@@ -2841,8 +2841,8 @@
                         }
                     ],
                     "bundle": {
-                        "lib/azul.cr": "lib/azul.cr",
-                        "hello-world.cr": "hello-world.cr"
+                        "hello-world.cr": "hello-world.cr",
+                        "lib/azul.cr": "lib/azul.cr"
                     }
                 },
                 "csharp": {
@@ -6777,9 +6777,9 @@
                     "mac": "hello-world.mac.png"
                 },
                 "description": [
-                  "Your UI is a function of your data. Callbacks can be attached",
-                  "as simple function pointers with callback context, handing you",
-                  "small, unit-testable callback functions with a simple mental model"
+                    "Your UI is a function of your data. Callbacks can be attached",
+                    "as simple function pointers with callback context, handing you",
+                    "small, unit-testable callback functions with a simple mental model"
                 ]
             },
             {
