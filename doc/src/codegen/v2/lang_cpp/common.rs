@@ -14,7 +14,7 @@ pub const CPP_RESERVED_KEYWORDS: &[&str] = &[
     // a field named `linux` doesn't expand to `1` (kept in sync with lang_c).
     "linux",
     "unix",
-    // windows.h (pulled in via azul.h on MSVC/MinGW) #defines these object-like
+    // windows.h (which Windows apps include next to azul.h) #defines these object-like
     // macros, so an arg named e.g. `near` expands to nothing -> "expected
     // expression" (hit by GlContextPtr::depth_range(double near, double far)).
     // Escape them so the generated C++ params don't collide.

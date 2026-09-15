@@ -336,12 +336,26 @@ impl CGenerator {
         builder.line("#endif");
         builder.blank();
 
-        // Cross-platform ssize_t definition
+        // Cross-platform ssize_t definition.
+        //
+        // MSVC has no ssize_t. This used to include all of <windows.h> for its
+        // SSIZE_T, which the header needs for nothing else - and the Windows
+        // SDK's windows.h (10.0.26100) only parses as C++11 or later, so a C++03
+        // translation unit could not include azul.h on Windows at all. Spell out
+        // SSIZE_T's definition from basetsd.h instead (LONG_PTR: __int64 on
+        // 64-bit, long on 32-bit). MinGW ships ssize_t in <sys/types.h>.
         builder.line("/* cross-platform define for ssize_t (signed size_t) */");
-        builder.line("#ifdef _WIN32");
-        builder.line("    #include <windows.h>");
-        builder.line("    #ifdef _MSC_VER");
-        builder.line("        typedef SSIZE_T ssize_t;");
+        // `_SSIZE_T_` / `_SSIZE_T_DEFINED` is the guard other headers (libuv, MinGW)
+        // use for the same typedef, so whichever comes first wins cleanly.
+        builder.line("#if defined(_MSC_VER)");
+        builder.line("    #if !defined(_SSIZE_T_) && !defined(_SSIZE_T_DEFINED)");
+        builder.line("        #define _SSIZE_T_");
+        builder.line("        #define _SSIZE_T_DEFINED");
+        builder.line("        #ifdef _WIN64");
+        builder.line("            typedef __int64 ssize_t;");
+        builder.line("        #else");
+        builder.line("            typedef long ssize_t;");
+        builder.line("        #endif");
         builder.line("    #endif");
         builder.line("#else");
         builder.line("    #include <sys/types.h>");
