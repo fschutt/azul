@@ -150,8 +150,8 @@ jobs:
           - { channel: pacman,   image: "archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a",                 prep: "pacman -Sy --noconfirm curl" }
           - { channel: apk,      image: "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",                    prep: "apk add -q bash curl coreutils" }
           - { channel: bindings, image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970",           prep: "" }
-          - { channel: rust,     image: "rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f",             prep: "" }
-          - { channel: cargo,    image: "rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f",             prep: "" }
+          - { channel: rust,     image: "rust:1.91-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33",             prep: "" }
+          - { channel: cargo,    image: "rust:1.91-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33",             prep: "" }
           - { channel: doclinks, image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970",           prep: "" }
     container:
       image: ${{ matrix.image }}
@@ -307,7 +307,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         if: matrix.lang == 'rust'
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.lang == 'python'
         with:
