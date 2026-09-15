@@ -1209,8 +1209,13 @@ lang_go() {
     if [ "$IS_MACOS" = 1 ]; then
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # cgo links the MSVC import lib directly; the dll resolves from PATH.
-      export CGO_LDFLAGS="$RELEASE_DIR/azul.dll.lib"
+      # The binding itself asks for `-lazul` (`#cgo LDFLAGS` in azul.go), so the
+      # MinGW linker needs the directory to search: without `-L` it failed with
+      # "cannot find -lazul" even though the import lib was named in full. ld
+      # resolves `-lazul` to azul.dll there; the dll resolves from PATH at run
+      # time. Windows-style path, because gcc is a native Windows program.
+      local win_release_dir; win_release_dir="$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
+      export CGO_LDFLAGS="-L$win_release_dir $win_release_dir/azul.dll.lib"
       OUT="hello-world-go-e2e.exe"
     else
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
