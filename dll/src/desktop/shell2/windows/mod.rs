@@ -2705,9 +2705,42 @@ impl Win32Window {
     /// it again, so WM_PAINT is never synthesized and `render_and_present` is
     /// never called a second time. One `InvalidateRect` here puts the update
     /// region back now that `window_proc` can see it.
+    ///
+    /// The SIZE is lost the same way. The show gate applies the initial frame
+    /// with `ShowWindow(SW_MAXIMIZE)` for a window created `Maximized`, and the
+    /// `WM_SIZE` that maximize produces also reaches `DefWindowProc`. The app
+    /// never hears about it, so the layout stays at the creation size inside a
+    /// maximized window — the `opengl` example laid out its 100%-sized body at
+    /// the 640x480 default in the top-left corner of the screen. If the client
+    /// area no longer matches the size the layout was done at, replay the
+    /// `WM_SIZE` through `window_proc` so it takes the normal resize path.
     pub fn finish_first_frame(&mut self) {
         unsafe {
+            let mut cr: dlopen::RECT = std::mem::zeroed();
+            let replay = if (self.win32.user32.GetClientRect)(self.hwnd, &mut cr) != 0 {
+                let (w, h) = (cr.right - cr.left, cr.bottom - cr.top);
+                let ws = self.common.current_window_state();
+                let hf = ws.size.get_hidpi_factor().inner.get();
+                let laid_w = libm::roundf(ws.size.dimensions.width * hf) as i32;
+                let laid_h = libm::roundf(ws.size.dimensions.height * hf) as i32;
+                (w > 0 && h > 0 && (w != laid_w || h != laid_h)).then_some((w, h))
+            } else {
+                None
+            };
             (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+            if let Some((w, h)) = replay {
+                const WM_SIZE: u32 = 0x0005;
+                const SIZE_RESTORED: usize = 0;
+                const SIZE_MAXIMIZED: usize = 2;
+                let kind = if (self.win32.user32.IsZoomed)(self.hwnd) != 0 {
+                    SIZE_MAXIMIZED
+                } else {
+                    SIZE_RESTORED
+                };
+                let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
+                // Last statement: window_proc re-borrows this window.
+                (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+            }
         }
     }
 
