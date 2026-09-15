@@ -48,6 +48,7 @@ impl CppDialect for Cpp03Generator {
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
+        code.push_str(&generate_moved_from_helper());
 
         // Synthesize struct entries for Option/Result tagged-union enums.
         let synthesized = synthesize_option_result_structs(ir);
@@ -403,7 +404,7 @@ impl CppDialect for Cpp03Generator {
     ) {
         if needs_destructor {
             code.push_str(&format!(
-                "    ~{}() {{ {}_delete(&inner_); }}\r\n",
+                "    ~{}() {{ if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_); }}\r\n",
                 class_name, c_type_name
             ));
         } else {
@@ -441,7 +442,10 @@ impl CppDialect for Cpp03Generator {
                 class_name, class_name
             ));
             if needs_destructor {
-                code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+                code.push_str(&format!(
+                    "        if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_);\r\n",
+                    c_type_name
+                ));
             }
             code.push_str("        inner_ = other.inner_;\r\n");
             code.push_str(&format!(
@@ -463,7 +467,10 @@ impl CppDialect for Cpp03Generator {
             code.push_str("    }\r\n");
             code.push_str(&format!("    {}& operator=(Proxy p) {{\r\n", class_name));
             if needs_destructor {
-                code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+                code.push_str(&format!(
+                    "        if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_);\r\n",
+                    c_type_name
+                ));
             }
             code.push_str("        inner_ = p.inner;\r\n");
             code.push_str("        return *this;\r\n");
@@ -701,4 +708,19 @@ impl Cpp03Generator {
             }
         }
     }
+}
+
+/// C++03 wrappers transfer on copy by zeroing the source; a zeroed value owns nothing.
+fn generate_moved_from_helper() -> String {
+    let mut code = String::new();
+    code.push_str("namespace detail {\r\n");
+    code.push_str("inline bool is_moved_from(const void* value, size_t size) {\r\n");
+    code.push_str("    const unsigned char* bytes = static_cast<const unsigned char*>(value);\r\n");
+    code.push_str("    for (size_t i = 0; i < size; ++i) {\r\n");
+    code.push_str("        if (bytes[i] != 0) return false;\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("    return true;\r\n");
+    code.push_str("}\r\n");
+    code.push_str("} // namespace detail\r\n\r\n");
+    code
 }
