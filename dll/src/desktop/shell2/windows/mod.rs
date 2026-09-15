@@ -131,6 +131,15 @@ struct NativeDib {
     ptr: *mut u8,
     w: i32,
     h: i32,
+    /// Whether the renderer has drawn a frame into this DIB yet.
+    ///
+    /// The native backbuffer IS the retained frame: in native mode the
+    /// renderer draws straight into the DIB and never fills
+    /// `CpuBackend::last_frame`, which stays `None`. The legacy re-present
+    /// fallback ("an unchanged frame still re-presents in full from the
+    /// retained pixmap") is written against that pixmap, so it could not fire
+    /// here at all. This flag is what makes the same fallback expressible.
+    has_frame: bool,
 }
 
 /// Set to `false` the first time the RGBA-mask probe fails — GDI stacks that
@@ -1292,6 +1301,11 @@ impl Win32Window {
                                                             ptr: bits as *mut u8,
                                                             w: native_pw,
                                                             h: native_ph,
+                                                            // Freshly created (also on every
+                                                            // resize): nothing has been drawn
+                                                            // into it, so it must not be
+                                                            // presented as if it held a frame.
+                                                            has_frame: false,
                                                         });
                                                     } else {
                                                         log_warn!(
@@ -1349,19 +1363,51 @@ impl Win32Window {
                             // leave a pointer into the DIB armed across frames.
                             self.cpu_backend.native_target = None;
 
-                            if self.cpu_backend.rendered_native {
-                                // #27: pixels are already in the DIB section —
-                                // present = BitBlt the damage rects. WM_PAINT
-                                // full-rect fallback mirrors the legacy path
-                                // (FrameDamage::None → one full rect).
+                            // #27: the pixels are already in the DIB section —
+                            // presenting is a BitBlt from its memory DC.
+                            //
+                            // The condition is "the DIB HOLDS a frame", not
+                            // "this call rendered one". `render_frame` returns
+                            // early with `rendered_native == false` whenever
+                            // nothing changed, and the old code then fell
+                            // through to the `last_frame` branch — which in
+                            // native mode is permanently `None`, because the
+                            // renderer draws into the DIB instead of a pixmap.
+                            // So every WM_PAINT that found no new damage
+                            // presented nothing at all.
+                            //
+                            // That is what left the window BLANK on Windows.
+                            // The first frame is rendered from inside
+                            // `create()` and blitted while the window is still
+                            // HIDDEN (it is shown only once a frame has
+                            // content, to avoid a white flash), so those pixels
+                            // go nowhere; every later WM_PAINT then declined to
+                            // re-present, and the window stayed white until a
+                            // resize forced fresh damage. The GPU path escaped
+                            // it — `SwapBuffers` is retained by the DWM — which
+                            // is why only the `opengl` example looked right.
+                            //
+                            // No new damage means present the FULL window:
+                            // WM_PAINT can mean "uncovered, repaint
+                            // everything", the same reason the legacy path maps
+                            // `FrameDamage::None` to one full-window rect.
+                            let dib_has_frame =
+                                self.native_dib.as_ref().map_or(false, |d| d.has_frame);
+                            let rendered_now = self.cpu_backend.rendered_native;
+                            if rendered_now || dib_has_frame {
                                 if let Some(ref d) = self.native_dib {
-                                    let rects = self
-                                        .cpu_backend
-                                        .last_present_damage
-                                        .to_present_rects_physical(
-                                            dpi, d.w as u32, d.h as u32, false,
-                                        )
-                                        .unwrap_or_else(|| vec![(0, 0, d.w as u32, d.h as u32)]);
+                                    let rects = if rendered_now {
+                                        self.cpu_backend
+                                            .last_present_damage
+                                            .to_present_rects_physical(
+                                                dpi, d.w as u32, d.h as u32, false,
+                                            )
+                                            .unwrap_or_else(|| {
+                                                vec![(0, 0, d.w as u32, d.h as u32)]
+                                            })
+                                    } else {
+                                        vec![(0, 0, d.w as u32, d.h as u32)]
+                                    };
                                     unsafe {
                                         let hdc = (self.win32.user32.GetDC)(self.hwnd);
                                         if !hdc.is_null() {
@@ -1380,6 +1426,11 @@ impl Win32Window {
                                             }
                                             (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
                                         }
+                                    }
+                                }
+                                if rendered_now {
+                                    if let Some(d) = self.native_dib.as_mut() {
+                                        d.has_frame = true;
                                     }
                                 }
                                 rendered = true;
@@ -2629,6 +2680,34 @@ impl Win32Window {
         }
     }
 
+    /// Re-present the first frame to a window that was PAINTED WHILE HIDDEN.
+    /// Call once, right after `GWLP_USERDATA` is set — like
+    /// [`Self::finish_frameless_frame`], and for the same underlying reason.
+    ///
+    /// The first frame is rendered from inside `create()`, before the
+    /// `Win32Window` is boxed, so `create_hwnd` is handed a NULL user pointer
+    /// ("User data will be set later") and `window_proc` early-returns to
+    /// `DefWindowProc` for every message until registration. Two things land on
+    /// that first frame:
+    ///
+    ///  * The CPU path presents by blitting to `GetDC(hwnd)`, and at that moment the window is
+    ///    still HIDDEN — it is shown only once a frame has content, to avoid a white flash. Pixels
+    ///    blitted to a hidden window go nowhere.
+    ///  * The `ShowWindow` + `UpdateWindow` that follows does raise the WM_PAINT that would fix
+    ///    that — but it arrives while `GWLP_USERDATA` is still NULL, so `DefWindowProc` answers it,
+    ///    and `DefWindowProc` VALIDATES the update region. The class has no background brush
+    ///    (`hbrBackground = NULL`), so it paints nothing on the way past.
+    ///
+    /// The window is then visible, empty, and fully valid: nothing invalidates
+    /// it again, so WM_PAINT is never synthesized and `render_and_present` is
+    /// never called a second time. One `InvalidateRect` here puts the update
+    /// region back now that `window_proc` can see it.
+    pub fn finish_first_frame(&mut self) {
+        unsafe {
+            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+        }
+    }
+
     /// Synchronize window state with Windows OS
     ///
     /// Applies changes from current_window_state to the OS window.
@@ -3826,6 +3905,7 @@ fn pump_modal_loop_work() {
                     registry::register_window(new_hwnd, new_window_ptr);
                     (*new_window_ptr).register_drag_drop();
                     (*new_window_ptr).finish_frameless_frame();
+                    (*new_window_ptr).finish_first_frame();
                 },
                 Err(e) => {
                     log_error!(

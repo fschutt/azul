@@ -1568,6 +1568,12 @@ pub fn run(
         // GWLP_USERDATA reached window_proc — i.e. now.
         (*window_ptr).finish_frameless_frame();
 
+        // Same deadline, same reason: the first frame was presented to a
+        // still-hidden window and the WM_PAINT that would have fixed it was
+        // answered (and validated away) by DefWindowProc. Put the update
+        // region back now that window_proc can see it.
+        (*window_ptr).finish_first_frame();
+
         // Register the OLE drop target now that the window pointer is in the
         // registry (the COM callbacks resolve the Win32Window from the HWND).
         (*window_ptr).register_drag_drop();
@@ -1782,6 +1788,7 @@ pub fn run(
                                 // Register the OLE drop target (after registry).
                                 (*new_window_ptr).register_drag_drop();
                                 (*new_window_ptr).finish_frameless_frame();
+                                (*new_window_ptr).finish_first_frame();
 
                                 log_debug!(
                                     debug_server::LogCategory::Window,
