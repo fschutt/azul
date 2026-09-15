@@ -2,7 +2,7 @@ use azul::{
     audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame},
     callbacks::CallbackInfo,
     camera::CameraConfig,
-    css::{CssProperty, LayoutWidth, LogicalSize, PixelValue},
+    css::LogicalSize,
     dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback},
     option::OptionRefAny,
     prelude::*,
@@ -333,21 +333,7 @@ extern "C" fn mic_on_frame(mut data: RefAny, mut info: CallbackInfo, frame: Audi
         };
         bar
     };
-    let Some(fill) = info.get_first_child(bar).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(remaining) = info.get_next_sibling(fill).into_option() else {
-        return Update::DoNothing;
-    };
-
-    info.set_css_property(
-        fill,
-        CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(level))),
-    );
-    info.set_css_property(
-        remaining,
-        CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(100.0 - level))),
-    );
+    ProgressBar::update_progress(info, bar, level);
     info.set_accessibility_value(bar, format!("{level:.0}%"));
     Update::DoNothing
 }
