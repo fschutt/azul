@@ -59,9 +59,9 @@ impl LinuxAccessibilityAdapter {
 
         // Create the accesskit adapter - wrap in catch_unwind for safety
         // DBus connection can fail in various ways
-        let adapter_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let adapter_result = crate::desktop::recoverable_panic::catch(|| {
             Adapter::new(activation_handler, action_handler, deactivation_handler)
-        }));
+        });
 
         match adapter_result {
             Ok(adapter) => {
@@ -99,9 +99,9 @@ impl LinuxAccessibilityAdapter {
             // accesskit's unix adapter raises AT-SPI events internally and
             // returns `()` (unlike the macOS adapter which hands back a
             // `QueuedEvents`), so there's nothing to dispatch on our side.
-            let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let applied = crate::desktop::recoverable_panic::catch(|| {
                 adapter.update_if_active(|| tree_update);
-            }));
+            });
             if applied.is_ok() {
                 self.feed.delivered(had_tree);
             }
@@ -122,9 +122,9 @@ impl LinuxAccessibilityAdapter {
             return;
         };
         if let Some(adapter) = guard.as_mut() {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = crate::desktop::recoverable_panic::catch(|| {
                 adapter.update_window_focus_state(has_focus);
-            }));
+            });
         }
     }
 
@@ -147,9 +147,9 @@ impl LinuxAccessibilityAdapter {
             return;
         };
         if let Some(adapter) = guard.as_mut() {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = crate::desktop::recoverable_panic::catch(|| {
                 adapter.set_root_window_bounds(rect, rect);
-            }));
+            });
         }
     }
 

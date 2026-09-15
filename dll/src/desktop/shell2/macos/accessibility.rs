@@ -123,9 +123,9 @@ impl MacOSAccessibilityAdapter {
         // QueuedEvents::raise() posts NSAccessibility notifications
         // (e.g. AXFocusedUIElementChanged) that VoiceOver listens for.
         // Without raising, VoiceOver never learns about tree changes.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = crate::desktop::recoverable_panic::catch(|| {
             self.adapter.update_if_active(|| tree_update)
-        }));
+        });
         match result {
             Ok(Some(events)) => {
                 self.feed.delivered(had_tree);

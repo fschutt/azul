@@ -127,6 +127,8 @@ pub mod gl_texture_cache;
 pub mod gl_texture_integration;
 #[cfg(feature = "logging")]
 mod logging;
+/// Panics a caller catches itself - the panic hook logs them without the fatal dialog.
+pub mod recoverable_panic;
 /// Embedded Material Icons font (the codegen-generated brotli asset lives
 /// here, not in azul-layout — see the module docs).
 pub mod material_icons;

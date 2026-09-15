@@ -67,13 +67,13 @@ impl WindowsAccessibilityAdapter {
         };
 
         // Create the accesskit adapter - wrap in catch_unwind for safety
-        let adapter_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let adapter_result = crate::desktop::recoverable_panic::catch(|| {
             SubclassingAdapter::new(
                 accesskit_windows::HWND(hwnd as _),
                 activation_handler,
                 action_handler,
             )
-        }));
+        });
 
         match adapter_result {
             Ok(adapter) => {
@@ -105,7 +105,7 @@ impl WindowsAccessibilityAdapter {
 
         if let Some(adapter) = guard.as_mut() {
             // Wrap in catch_unwind to prevent panics from crashing the app
-            let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let applied = crate::desktop::recoverable_panic::catch(|| {
                 // MWA-A3a: update_if_active returns the QueuedEvents this
                 // update implies (focus changes, property changes, live-
                 // region announcements) — they MUST be raised. Discarding
@@ -115,7 +115,7 @@ impl WindowsAccessibilityAdapter {
                 if let Some(queued_events) = adapter.update_if_active(|| tree_update) {
                     queued_events.raise();
                 }
-            }));
+            });
             if applied.is_ok() {
                 self.feed.delivered(had_tree);
             }

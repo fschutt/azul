@@ -7,6 +7,18 @@ use log::LevelFilter;
 /// Whether to show a message box to the user when a panic occurs.
 pub(super) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
+/// Set while [`set_up_panic_hooks`]'s hook runs, so a panic raised inside it (the modal pumps
+/// messages, which re-enters application code) only logs.
+static HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct ResetOnDrop;
+
+impl Drop for ResetOnDrop {
+    fn drop(&mut self) {
+        HOOK_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Escape `<` and `>` so the panic dialog text renders as literal characters
 /// in `tinyfiledialogs` on Linux, which interprets the body as Pango markup.
 /// `&` is intentionally not escaped: doing so would double-escape any entity
@@ -134,11 +146,33 @@ pub(super) fn set_up_panic_hooks() {
              and attach the log file found in the directory of the executable.\r\n\r\nThe error \
              occurred in: {} in thread {}\r\n\r\nError \
              information:\r\n{}\r\n\r\nBacktrace:\r\n\r\n{}\r\n",
-            location_str.unwrap_or("<unknown location>".to_string()),
+            location_str.clone().unwrap_or("<unknown location>".to_string()),
             thread_name,
             panic_str,
             backtrace_str
         );
+
+        // A panic the caller catches (`recoverable_panic::catch`) is not fatal, and a panic raised
+        // while this hook already runs must not reach the modal below a second time: that modal
+        // pumps the message queue, so it re-enters the callback the panic came from, and a second
+        // panic inside the first aborts the process.
+        let recovered = crate::desktop::recoverable_panic::in_progress();
+        let nested = HOOK_RUNNING.swap(true, Ordering::SeqCst);
+        let _reset = ResetOnDrop;
+        if recovered || nested {
+            log::error!(
+                "A panic in {} in thread {} was {}: {}",
+                location_str.unwrap_or("<unknown location>".to_string()),
+                thread_name,
+                if recovered {
+                    "caught by the caller, which carries on"
+                } else {
+                    "raised while reporting another panic and is only logged"
+                },
+                panic_str
+            );
+            return;
+        }
 
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
