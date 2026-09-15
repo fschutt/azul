@@ -160,14 +160,8 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
 
-    // User-facing arguments — strip the implicit self placeholder used by
-    // the C# wrapper (its name matches the lowercased class name).
-    let class_lower = s.name.to_lowercase();
-    let user_args: Vec<&FunctionArg> = func
-        .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+    // User-facing arguments — strip the implicit receiver.
+    let user_args: Vec<&FunctionArg> = func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect();
 
     // Doc comment block (PowerShell comment-based help).
     builder.line(&format!("function {} {{", func_name));

@@ -234,11 +234,7 @@ fn emit_forwarder(
 // Argument helpers
 // ============================================================================
 
-/// The index of the implicit `self` argument (named `self` or the
-/// lower-cased class name), if any.
+/// The index of the implicit receiver argument, if any.
 fn self_arg_index(func: &FunctionDef) -> Option<usize> {
-    let class_lower = func.class_name.to_lowercase();
-    func.args
-        .iter()
-        .position(|a| a.name == "self" || a.name.to_lowercase() == class_lower)
+    func.args.iter().position(|a| func.is_receiver_arg(a))
 }

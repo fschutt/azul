@@ -403,6 +403,29 @@ pub struct FunctionDef {
     pub is_unsafe: bool,
 }
 
+impl FunctionDef {
+    /// Whether `arg` is the receiver `ir_builder` synthesises for `{"self": ...}`.
+    pub fn is_receiver_arg(&self, arg: &FunctionArg) -> bool {
+        arg.name == "self" || arg.name == receiver_arg_name(&self.class_name)
+    }
+}
+
+/// The receiver's argument name: the class name in snake_case (`SvgPathElement` -> `svg_path_element`).
+pub fn receiver_arg_name(class_name: &str) -> String {
+    let mut name = String::new();
+    for (i, c) in class_name.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                name.push('_');
+            }
+            name.push(c.to_ascii_lowercase());
+        } else {
+            name.push(c);
+        }
+    }
+    name
+}
+
 /// Kind of function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionKind {

@@ -220,12 +220,7 @@ fn emit_wrapper_method(builder: &mut CodeBuilder, class: &str, func: &FunctionDe
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
-    let class_lower = func.class_name.to_lowercase();
-    let user_args: Vec<_> = func
-        .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+    let user_args: Vec<_> = func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect();
 
     let is_static = matches!(
         func.kind,
@@ -302,7 +297,7 @@ fn emit_wrapper_method(builder: &mut CodeBuilder, class: &str, func: &FunctionDe
         let id = sanitize_identifier(&a.name);
         if takes_self
             && first_arg_name.as_deref() == Some(a.name.as_str())
-            && (a.name == "self" || a.name == class_lower)
+            && func.is_receiver_arg(a)
         {
             prim_args.push((a.name.clone(), "handle".to_string()));
         } else {

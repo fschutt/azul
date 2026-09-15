@@ -585,15 +585,11 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
 // Argument helpers
 // ============================================================================
 
-/// Filter the implicit `self` / lower-class-name receiver out of a
-/// function's arguments — the receiver is supplied by `$this` for
-/// instance methods, and is absent entirely for static factories.
+/// Filter the implicit receiver out of a function's arguments — the
+/// receiver is supplied by `$this` for instance methods, and is absent
+/// entirely for static factories.
 fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
-    let class_lower = f.class_name.to_lowercase();
-    f.args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect()
+    f.args.iter().filter(|a| !f.is_receiver_arg(a)).collect()
 }
 
 /// Render `$name1, $name2, ...` for PHP method parameter lists. We do

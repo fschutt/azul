@@ -984,8 +984,8 @@ fn build_method_signature(
     class_name: &str,
 ) -> String {
     let method_name = method_emission_name(func, ir);
-    let class_lower = class_name.to_lowercase();
-    let is_self_arg = |name: &str| name == "self" || name == class_lower;
+    let receiver = super::super::ir::receiver_arg_name(class_name);
+    let is_self_arg = |name: &str| name == "self" || name == receiver;
 
     let mut atoms: Vec<String> = Vec::new();
     let takes_self = matches!(
@@ -1074,8 +1074,8 @@ fn emit_method_impl(
     class_name: &str,
 ) {
     let method_name = method_emission_name(func, ir);
-    let class_lower = class_name.to_lowercase();
-    let is_self_arg = |name: &str| name == "self" || name == class_lower;
+    let receiver = super::super::ir::receiver_arg_name(class_name);
+    let is_self_arg = |name: &str| name == "self" || name == receiver;
 
     if !func.doc.is_empty() {
         for d in &func.doc {

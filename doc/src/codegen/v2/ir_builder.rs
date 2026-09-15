@@ -1567,7 +1567,7 @@ impl<'a> IRBuilder<'a> {
                         return FunctionArg {
                             // Use snake_case class name as parameter name
                             // This matches what fn_body expects (e.g., "dom_vec.len()")
-                            name: to_snake_case(class_name),
+                            name: receiver_arg_name(class_name),
                             type_name: actual_type,
                             ref_kind,
                             doc: None,

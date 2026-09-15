@@ -1303,11 +1303,7 @@ fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::
 // ============================================================================
 
 fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
-    let class_lower = f.class_name.to_lowercase();
-    f.args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect()
+    f.args.iter().filter(|a| !f.is_receiver_arg(a)).collect()
 }
 
 fn render_params(args: &[&super::super::ir::FunctionArg]) -> String {

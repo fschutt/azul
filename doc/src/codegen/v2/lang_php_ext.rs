@@ -776,10 +776,6 @@ fn render_method(
     // Emitting them needs `render_method` taught the static shape first.
     let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
 
-    // Filter args: drop the self receiver (Python codegen detects it via
-    // name == class_name.lowercase()), same convention here.
-    let class_lower = struct_def.name.to_lowercase();
-
     // Detect "consuming self" methods: a Method-kind whose args[0] is the
     // receiver passed by value (`dom: AzDom` rather than `&AzDom` /
     // `&mut AzDom`). libazul's `withX` family does this. ext-php-rs can't
@@ -790,13 +786,13 @@ fn render_method(
         && func
             .args
             .first()
-            .map(|a| a.name == class_lower && a.ref_kind == ArgRefKind::Owned)
+            .map(|a| func.is_receiver_arg(a) && a.ref_kind == ArgRefKind::Owned)
             .unwrap_or(false);
 
     let extra_args: Vec<&FunctionArg> = func
         .args
         .iter()
-        .filter(|a| !(takes_self && a.name == class_lower))
+        .filter(|a| !(takes_self && func.is_receiver_arg(a)))
         .collect();
 
     let mut php_params = Vec::<String>::new();

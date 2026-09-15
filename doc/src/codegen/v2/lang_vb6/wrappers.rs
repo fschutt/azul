@@ -388,11 +388,7 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
 // ============================================================================
 
 fn visible_user_args(func: &FunctionDef) -> Vec<&FunctionArg> {
-    let class_lower = func.class_name.to_lowercase();
-    func.args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect()
+    func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect()
 }
 
 fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {
