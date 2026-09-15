@@ -117,7 +117,17 @@ fn echo_to_stderr() -> bool {
 /// In the `debug-server` build `azul_layout::e2e::log` only fills the debugger
 /// queue and the `AZ_RECORD` file — it never touches the `log` facade — so the
 /// gate keeps ownership of stderr there.
-#[cfg(all(feature = "std", feature = "logging", not(feature = "debug-server")))]
+///
+/// `e2e-scripting` selects that SAME `azul_layout::e2e::log` (see
+/// `debug_server/mod.rs`), and `build-dll` enables it, so the shipped library is
+/// in this case too. Keying the stub assumption on `debug-server` alone made
+/// the gate stand down for a facade copy that was never written: with `AZ_LOG`
+/// set, every `log_*!` record in the shipped DLL printed nowhere.
+#[cfg(all(
+    feature = "std",
+    feature = "logging",
+    not(any(feature = "debug-server", feature = "e2e-scripting"))
+))]
 fn facade_writes_stderr(level: LogLevel) -> bool {
     super::debug_server::log_active()
         && crate::desktop::logging::builtin_stderr_logger_prints(match level {
@@ -131,7 +141,11 @@ fn facade_writes_stderr(level: LogLevel) -> bool {
 
 /// No second stderr writer: either the debug-server build (whose `log` does not
 /// reach the `log` facade) or a build with no `log` facade at all.
-#[cfg(not(all(feature = "std", feature = "logging", not(feature = "debug-server"))))]
+#[cfg(not(all(
+    feature = "std",
+    feature = "logging",
+    not(any(feature = "debug-server", feature = "e2e-scripting"))
+)))]
 const fn facade_writes_stderr(_level: LogLevel) -> bool {
     false
 }
