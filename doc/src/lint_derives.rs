@@ -220,7 +220,7 @@ const PYO3_PROFILE: &[(&str, Expect)] = &[
 
 const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
 
-/// OCaml (`azul.mli`).
+/// OCaml (`ocaml/*.mli`, one interface per api.json module).
 ///
 /// The interface spells nothing the way the C ABI does: the FFI type is
 /// `az_accessibility_action`, the module is `AccessibilityAction`, and the C
@@ -539,7 +539,8 @@ const CRYSTAL_PROFILE: &[(&str, Expect)] = &[
 /// spells a class name, and what each derive must look like in it.
 pub struct Binding {
     pub name: &'static str,
-    /// Paths relative to `target/codegen`. A directory is walked recursively.
+    /// Paths relative to `target/codegen`. A directory is walked recursively;
+    /// `dir/*.ext` walks `dir` and keeps only the files ending in `.ext`.
     pub files: &'static [&'static str],
     /// How this binding spells `StyleCursor` (`"Az"` for the prefixed ones).
     pub prefix: &'static str,
@@ -744,7 +745,7 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         name: "ocaml",
-        files: &["azul.mli"],
+        files: &["ocaml/*.mli"],
         prefix: "",
         block_end: "\nend\n",
         expects: OCAML_PROFILE,
@@ -776,7 +777,7 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         name: "fortran",
-        files: &["azul.f90"],
+        files: &["fortran/*.f90"],
         prefix: "Az",
         block_end: "",
         expects: ABI_PROFILE,
@@ -943,7 +944,8 @@ pub struct BindingReport {
     pub examples: Vec<Gap>,
 }
 
-/// Read every file of a binding into one blob. A directory is walked.
+/// Read every file of a binding into one blob. A directory is walked, and a
+/// `dir/*.ext` entry walks `dir` keeping only `*.ext` files.
 fn read_binding_text(codegen_dir: &Path, files: &[&str]) -> std::io::Result<String> {
     fn push_file(out: &mut String, p: &Path) {
         if let Ok(s) = fs::read_to_string(p) {
@@ -951,7 +953,7 @@ fn read_binding_text(codegen_dir: &Path, files: &[&str]) -> std::io::Result<Stri
             out.push('\n');
         }
     }
-    fn walk(out: &mut String, p: &Path) {
+    fn walk(out: &mut String, p: &Path, suffix: Option<&str>) {
         if p.is_dir() {
             let mut entries: Vec<_> = match fs::read_dir(p) {
                 Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).collect(),
@@ -959,15 +961,18 @@ fn read_binding_text(codegen_dir: &Path, files: &[&str]) -> std::io::Result<Stri
             };
             entries.sort();
             for e in entries {
-                walk(out, &e);
+                walk(out, &e, suffix);
             }
-        } else {
+        } else if suffix.is_none_or(|x| p.to_string_lossy().ends_with(x)) {
             push_file(out, p);
         }
     }
     let mut out = String::new();
     for f in files {
-        walk(&mut out, &codegen_dir.join(f));
+        match f.rsplit_once("/*") {
+            Some((dir, suffix)) => walk(&mut out, &codegen_dir.join(dir), Some(suffix)),
+            None => walk(&mut out, &codegen_dir.join(f), None),
+        }
     }
     Ok(out)
 }
@@ -1308,6 +1313,12 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
+///   * `ocaml` (1, measured 2026-09-15) and `fortran` - both generators split into one unit per
+///     api.json module (`ocaml/*.mli`, `fortran/*.f90`), and the entries still read the old
+///     monolithic `azul.mli` / `azul.f90`, so `check derives` stopped at "no generated text".
+///     Measured on the split files, ocaml's one gap is `CompileTarget`: a unit enum that derives
+///     `Clone` without `Copy`, whose module lists `equal`/`hash`/`compare`/`to_string` and no
+///     `clone`. `go` measured 0 in the same run and left the table.
 ///   * `python` (36) - the `*VecDestructor`s are now excluded by the owner's 2026-09-05 ruling
 ///     (opaque function pointer, treated as `*const c_void`, never generated), which cleared 114 of
 ///     the original 150. What is left is NOT type aliases and NOT plumbing: `PhysicalSizeU32`,
@@ -1411,13 +1422,8 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
     DERIVES.iter().filter(|d| derives.contains(**d)).count()
 }
 
-pub const BASELINE: &[(&str, usize)] = &[
-    ("python", 36),
-    ("zig", 13),
-    ("php-ext", 134),
-    ("ocaml", 11),
-    ("go", 13),
-];
+pub const BASELINE: &[(&str, usize)] =
+    &[("python", 36), ("zig", 13), ("php-ext", 134), ("ocaml", 1)];
 
 /// Compare against [`BASELINE`] and render the verdict.
 pub fn verdict(reports: &[BindingReport]) -> (bool, String) {
