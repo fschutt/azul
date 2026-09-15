@@ -16,6 +16,47 @@ fn escape_dialog_html(s: &str) -> String {
     s.replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Most lines the fatal-error dialog shows before it summarises the rest.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+const DIALOG_MAX_LINES: usize = 30;
+/// Longest line the fatal-error dialog shows; longer ones are cut.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+const DIALOG_MAX_LINE_CHARS: usize = 160;
+
+/// Bound the fatal-error report to a dialog that fits on the screen.
+///
+/// The message box has no scrolling and grows with its text. A long panic
+/// message (an `AZ_PATCH_VERIFY` mismatch dump: a dozen lines of several
+/// hundred characters each, wrapped) plus a full backtrace pushed the
+/// dialog's button below the bottom of a 1080p screen, so it could not be
+/// dismissed. The complete report still goes to the log; the dialog keeps
+/// the head of it, cuts each line, and says how much it left out.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+fn bounded_dialog_text(report: &str) -> String {
+    let lines: Vec<&str> = report.lines().collect();
+    let mut out: Vec<String> = lines
+        .iter()
+        .take(DIALOG_MAX_LINES)
+        .map(|line| {
+            if line.chars().count() > DIALOG_MAX_LINE_CHARS {
+                let cut: String = line.chars().take(DIALOG_MAX_LINE_CHARS).collect();
+                format!("{cut}…")
+            } else {
+                (*line).to_string()
+            }
+        })
+        .collect();
+    if lines.len() > DIALOG_MAX_LINES {
+        out.push(String::new());
+        out.push(format!(
+            "… {} more line(s). The complete report was written to the log (stderr, or the \
+             file named by AZ_LOG_FILE).",
+            lines.len() - DIALOG_MAX_LINES
+        ));
+    }
+    out.join("\r\n")
+}
+
 /// Configures the global logger using `fern` to write to stdout at the given level.
 #[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
 pub fn set_up_logging(log_level: LevelFilter) {
@@ -121,11 +162,13 @@ pub(super) fn set_up_panic_hooks() {
             // logcat/console will pick it up.
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
+                let bounded = bounded_dialog_text(&error_str);
+
                 #[cfg(not(target_os = "linux"))]
-                let dialog_str = &error_str;
+                let dialog_str = &bounded;
 
                 #[cfg(target_os = "linux")]
-                let dialog_str = escape_dialog_html(&error_str);
+                let dialog_str = escape_dialog_html(&bounded);
 
                 tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
                     .with_icon(tfd::MessageBoxIcon::Info)
@@ -383,7 +426,32 @@ pub(super) fn builtin_stderr_logger_prints(level: log::Level) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::escape_dialog_html;
+    use super::{
+        bounded_dialog_text, escape_dialog_html, DIALOG_MAX_LINES, DIALOG_MAX_LINE_CHARS,
+    };
+
+    #[test]
+    fn a_short_report_reaches_the_dialog_unchanged() {
+        let report = "An unexpected panic occurred\r\n\r\nat file.rs line 42";
+        assert_eq!(bounded_dialog_text(report), report);
+    }
+
+    /// A patch-verify dump plus a backtrace ran the dialog off a 1080p screen.
+    #[test]
+    fn a_long_report_is_cut_to_a_dialog_that_fits_on_screen() {
+        let long_line = "x".repeat(600);
+        let report = (0..90)
+            .map(|i| if i % 3 == 0 { long_line.clone() } else { format!("frame {i}") })
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        let text = bounded_dialog_text(&report);
+        let lines: Vec<&str> = text.split("\r\n").collect();
+        assert!(lines.len() <= DIALOG_MAX_LINES + 2, "{} lines", lines.len());
+        assert!(lines
+            .iter()
+            .all(|l| l.chars().count() <= DIALOG_MAX_LINE_CHARS + 1));
+        assert!(text.contains("60 more line(s)"), "{text}");
+    }
 
     #[test]
     fn escapes_lt() {
