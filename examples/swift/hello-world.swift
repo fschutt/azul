@@ -1,98 +1,36 @@
-import CAzul
+// Hello World: a counter and a button that increments it.
+//
+// Build (azul.swift, azul.h, module.modulemap and libazul next to this file):
+//   swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so
+//   swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world
+import Azul
 
-struct MyDataModel {
-    var counter: UInt32
+// The application state is an ordinary Swift class. libazul keeps it alive
+// and hands it back to every callback with its own type.
+final class Counter {
+    var count = 5
 }
 
-private let myDataToken = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
-private let myDataTypeId = UInt64(UInt(bitPattern: myDataToken))
+func layout(_ counter: Counter, _ info: LayoutCallbackInfo) -> Dom {
+    let label = Dom.pWithText(String(counter.count))
+        .withCss("font-size: 32px; margin: 0;")
 
-func myDataDestructor(_ ptr: UnsafeMutableRawPointer?) {}
+    let button = Button("Increase counter")
+        .withButtonType(.primary)
+        .withOnClick(counter) { counter, _ in
+            counter.count += 1
+            return .refreshDom
+        }
 
-func azString(_ s: String) -> AzString {
-    let bytes = Array(s.utf8)
-    return bytes.withUnsafeBufferPointer { AzString_fromUtf8($0.baseAddress, $0.count) }
+    return Dom.body()
+        .withChild(label)
+        .withChild(button.dom())
 }
 
-func myDataUpcast(_ model: MyDataModel) -> AzRefAny {
-    // AzRefAny_newC copies the bytes into its own heap allocation, so a
-    // stack pointer is fine; run_destructor=false ⇒ libazul won't free ours.
-    var local = model
-    let typeName = azString("MyDataModel")
-    return withUnsafePointer(to: &local) { p in
-        let wrapper = AzGlVoidPtrConst(ptr: UnsafeRawPointer(p), run_destructor: false)
-        return AzRefAny_newC(
-            wrapper,
-            MemoryLayout<MyDataModel>.size,
-            MemoryLayout<MyDataModel>.alignment,
-            myDataTypeId,
-            typeName,
-            myDataDestructor,
-            0, // no serialize_fn
-            0  // no deserialize_fn
-        )
-    }
-}
+let window = WindowCreateOptions(layout)
+window.windowState.title = "Hello World"
+window.windowState.size.dimensions.width = 400
+window.windowState.size.dimensions.height = 300
 
-func myDataDowncast(_ refany: inout AzRefAny) -> UnsafeMutablePointer<MyDataModel>? {
-    if !AzRefAny_isType(&refany, myDataTypeId) {
-        return nil
-    }
-    guard let ptr = AzRefAny_getDataPtr(&refany) else {
-        return nil
-    }
-    return UnsafeMutableRawPointer(mutating: ptr).assumingMemoryBound(to: MyDataModel.self)
-}
-
-// A plain (non-capturing) top-level func converts to a `@convention(c)` pointer.
-
-func onClick(_ data: AzRefAny, _ info: AzCallbackInfo) -> AzUpdate {
-    var d = data
-    guard let m = myDataDowncast(&d) else {
-        return AzUpdate_DoNothing
-    }
-    m.pointee.counter += 1
-    return AzUpdate_RefreshDom
-}
-
-func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
-    var d = data
-    guard let m = myDataDowncast(&d) else {
-        return AzDom_createBody()
-    }
-
-    let counterStr = azString(String(m.pointee.counter))
-    var label = AzDom_createPWithText(counterStr)
-
-    AzDom_setCss(&label, az_str("font-size: 32px; margin: 0;"))
-
-    var button = AzButton_create(azString("Increase counter"))
-    AzButton_setButtonType(&button, AzButtonType_Primary)
-    let dataClone = AzRefAny_clone(&d)
-    AzButton_setOnClick(&button, dataClone, onClick)
-    let buttonDom = AzButton_dom(button)
-
-    var body = AzDom_createBody()
-    AzDom_addChild(&body, label)
-    AzDom_addChild(&body, buttonDom)
-    return body
-}
-
-// `@main`: top-level statements are only allowed in a file named `main.swift`.
-
-@main
-struct HelloWorld {
-    static func main() {
-        let model = MyDataModel(counter: 5)
-        let data = myDataUpcast(model)
-
-        var window = AzWindowCreateOptions_create(layout)
-        window.window_state.title = azString("Hello World")
-        window.window_state.size.dimensions.width = 400.0
-        window.window_state.size.dimensions.height = 300.0
-
-
-        var app = AzApp_create(data, AzAppConfig_create())
-        AzApp_run(&app, window)
-    }
-}
+let app = App(Counter(), AppConfig())
+app.run(window)

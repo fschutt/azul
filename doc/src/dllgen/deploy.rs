@@ -1170,7 +1170,10 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "v/hello-world.v",
         source: BindingSource::Examples,
     },
-    // swift: thin layer over azul.h via a Clang module map (needs azul.h + modulemap).
+    // swift: the example does `import Azul`; azul.swift is that module in one
+    // file, built next to azul.h and the module map that exposes it as CAzul
+    // (the build commands head hello-world.swift). The SwiftPM package is
+    // target/codegen/swift/.
     BindingFile {
         dst: "azul.swift",
         src: "azul.swift",
