@@ -497,18 +497,21 @@ pub fn create_bindings_bundles(
             if src.ends_with('/') && dst.ends_with('/') {
                 // "<dir>/": "<dir>/" — a whole directory of the release tree
                 // (`azul-go/`), every file under it, so a generator that adds
-                // a file cannot ship an incomplete package.
+                // a file cannot ship an incomplete package. "<dir>/": "./"
+                // unpacks the directory's files at the archive root (the
+                // per-module Fortran/OCaml bindings sit next to the example).
                 if !src_path.is_dir() {
                     missing_here += 1;
                     report.missing.push(format!("{name}: {src}"));
                     continue;
                 }
+                let prefix = if dst == "./" { "" } else { dst.as_str() };
                 for file in walk_files(&src_path)? {
                     let rel = file
                         .strip_prefix(&src_path)
                         .map(|r| r.to_string_lossy().replace('\\', "/"))
                         .unwrap_or_default();
-                    tar.add_path(&format!("{dst}{rel}"), &file)?;
+                    tar.add_path(&format!("{prefix}{rel}"), &file)?;
                 }
                 continue;
             }
@@ -776,6 +779,50 @@ mod tests {
                 "go.mod",
                 "main.go",
             ]
+        );
+    }
+
+    /// `"azul-fortran/": "./"` unpacks the directory's files at the archive
+    /// root, where the documented `tar xzf` + `make` expect them next to the
+    /// hello-world — no `./` prefix on the entry names.
+    #[test]
+    fn a_directory_entry_mapped_to_dot_slash_is_flattened_into_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(version_dir.join("azul-fortran")).unwrap();
+        fs::write(version_dir.join("hello_world.f90"), b"program hello").unwrap();
+        for f in ["azul.f90", "azul_types_css.f90", "Makefile"] {
+            fs::write(version_dir.join("azul-fortran").join(f), b"x").unwrap();
+        }
+        let mut languages = BTreeMap::new();
+        languages.insert(
+            "fortran".to_string(),
+            crate::api::LanguageInstallConfig {
+                display_name: "Fortran".into(),
+                dialect_of: None,
+                install: vec![],
+                bundle: Some(BTreeMap::from([
+                    ("azul-fortran/".to_string(), "./".to_string()),
+                    ("hello_world.f90".to_string(), "hello_world.f90".to_string()),
+                ])),
+            },
+        );
+        let installation = Installation {
+            tab_order: vec![],
+            dialects: BTreeMap::new(),
+            languages,
+        };
+        create_bindings_bundles(
+            "0.0.0",
+            &version_dir,
+            &tmp.path().join("no-codegen"),
+            &installation,
+        )
+        .unwrap();
+        let names = tar_names(&version_dir.join(language_bundle_name("fortran", "0.0.0")));
+        assert_eq!(
+            names,
+            vec!["Makefile", "azul.f90", "azul_types_css.f90", "hello_world.f90"]
         );
     }
 

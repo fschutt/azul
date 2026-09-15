@@ -3032,7 +3032,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library, the generated azul.f90 module, the Makefile, and the hello-world source, then build with gfortran via make",
+                            "description": "Download the prebuilt library, the Fortran bundle (the generated modules, their Makefile, and the hello-world source), then build with gfortran via make",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3096,7 +3096,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the prebuilt library, the generated azul.f90 module, the Makefile, and the hello-world source, then build with gfortran via make",
+                            "description": "Download the prebuilt library, the Fortran bundle (the generated modules, their Makefile, and the hello-world source), then build with gfortran via make",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3126,7 +3126,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the prebuilt library, the generated azul.f90 module, the Makefile, and the hello-world source, then build with gfortran via make",
+                            "description": "Download the prebuilt library, the Fortran bundle (the generated modules, their Makefile, and the hello-world source), then build with gfortran via make",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3152,8 +3152,7 @@
                         }
                     ],
                     "bundle": {
-                        "Makefile": "Makefile",
-                        "azul.f90": "azul.f90",
+                        "azul-fortran/": "./",
                         "hello_world.f90": "hello_world.f90"
                     }
                 },
@@ -4945,8 +4944,7 @@
                         }
                     ],
                     "bundle": {
-                        "azul.ml": "azul.ml",
-                        "azul.mli": "azul.mli",
+                        "azul-ocaml/": "./",
                         "dune": "dune",
                         "dune-project": "dune-project",
                         "hello_world.ml": "hello_world.ml"

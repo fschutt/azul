@@ -610,6 +610,10 @@ PY
     missing=""
     for p in $(printf '%s' "${line#*	}" | tr '\t' ' '); do
       case "$p" in
+        # "<dir>/": "./" flattens a generated directory into the root: its
+        # names are the generator's, so require files beyond the mapped ones.
+        ./) [ "$(printf '%s\n' "$listing" | wc -l)" -gt "$(printf '%s' "${line#*	}" | tr '\t' '\n' | wc -l)" ] \
+              || missing="$missing ./(generated files)" ;;
         */) printf '%s\n' "$listing" | grep -q "^$p" || missing="$missing $p" ;;
         *)  printf '%s\n' "$listing" | grep -qx "$p" || missing="$missing $p" ;;
       esac

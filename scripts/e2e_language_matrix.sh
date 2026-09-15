@@ -917,8 +917,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod "$REPO_ROOT/examples/fortran/"*.smod
       # The binding is azul.f90 + one azul_*.f90 module per api.json module.
       rm -f "$REPO_ROOT/examples/fortran/"azul*.f90 "$REPO_ROOT/examples/fortran/sources.txt"
-      # examples/fortran/Makefile is TRACKED (the release ships it as the
-      # documented `Makefile`); the recipe overwrote it with the codegen copy
+      # examples/fortran/Makefile is TRACKED (the release ships the codegen
+      # copy from azul-fortran/, not this one); the recipe overwrote it with the codegen copy
       # and this line then deleted it, so every local e2e run left a deleted
       # tracked file behind (it was committed by accident once). Restore it.
       ( cd "$REPO_ROOT" && git checkout -- examples/fortran/Makefile 2>/dev/null ) \

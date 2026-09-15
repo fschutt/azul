@@ -891,17 +891,11 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "cobol/hello-world.cob",
         source: BindingSource::Examples,
     },
-    // --- fortran (codegen emits Makefile.fortran; curl asks for `Makefile`) ---
-    BindingFile {
-        dst: "azul.f90",
-        src: "azul.f90",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Makefile",
-        src: "Makefile.fortran",
-        source: BindingSource::Codegen,
-    },
+    // --- fortran: the generated binding is one module per api.json module,
+    //     so it ships as a DIRECTORY (`azul-fortran/`: every `*.f90` + the
+    //     generated `Makefile` + `sources.txt`) copied by
+    //     `copy_generated_package` below; the tarball flattens it next to
+    //     `hello_world.f90`. ---
     // --- freebasic ---
     BindingFile {
         dst: "azul.bi",
@@ -1250,20 +1244,12 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "node/package.json",
         source: BindingSource::Codegen,
     },
-    // --- ocaml ---
-    BindingFile {
-        dst: "azul.ml",
-        src: "azul.ml",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "azul.mli",
-        src: "azul.mli",
-        source: BindingSource::Codegen,
-    },
-    // The example's dune, not the codegen's: the generated one is the
-    // library manifest with the `(executable ...)` stanza commented out, so
-    // the documented `dune exec ./hello_world.exe` had nothing to build.
+    // --- ocaml: the generated units (`azul.ml` facade + one `azul_*.ml` per
+    //     api.json module) ship as the DIRECTORY `azul-ocaml/`, copied by
+    //     `copy_generated_package` below. The dune files are the example's,
+    //     not the codegen's: the generated dune is the library manifest with
+    //     the `(executable ...)` stanza commented out, so the documented
+    //     `dune exec ./hello_world.exe` had nothing to build. ---
     BindingFile {
         dst: "dune",
         src: "ocaml/dune",
@@ -1271,8 +1257,8 @@ const BINDING_FILES: &[BindingFile] = &[
     },
     BindingFile {
         dst: "dune-project",
-        src: "dune-project",
-        source: BindingSource::Codegen,
+        src: "ocaml/dune-project",
+        source: BindingSource::Examples,
     },
     // --- kotlin ---
     BindingFile {
@@ -1484,6 +1470,17 @@ pub fn copy_language_bindings(
         Err(e) => missing.push(format!("azul-go/ ({e})")),
     }
 
+    for (package, sub, keep) in GENERATED_PACKAGES {
+        match copy_generated_package(version_dir, codegen_dir, package, sub, *keep) {
+            Ok(n) if n > 0 => copied += n,
+            Ok(_) => missing.push(format!(
+                "{package}/ (from {})",
+                codegen_dir.join(sub).display()
+            )),
+            Err(e) => missing.push(format!("{package}/ ({e})")),
+        }
+    }
+
     // LuaRocks rockspec: filename embeds the release version
     // (`azul-<version>-1.rockspec`, must match the `version = "..."` inside),
     // so it can't live in the const BINDING_FILES list.
@@ -1532,6 +1529,48 @@ pub fn go_example_mod() -> String {
      \n\
      replace github.com/azul/azul-go => ./azul-go\n"
         .to_string()
+}
+
+/// Bindings the generator splits into one file per api.json module, shipped
+/// as `release/<v>/<package>/` (every matching file of `codegen_dir/<sub>/`)
+/// and flattened into their tarball by a `"<package>/": "./"` bundle entry.
+/// A glob, not a file list: the lists these replaced still named the old
+/// single-file `azul.f90` / `azul.ml` after the split, so both downloads
+/// shipped without a binding.
+const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
+    ("azul-fortran", "fortran", |name| {
+        name.ends_with(".f90") || name == "Makefile" || name == "sources.txt"
+    }),
+    ("azul-ocaml", "ocaml", |name| {
+        name.ends_with(".ml") || name.ends_with(".mli")
+    }),
+];
+
+/// Copy every file of `codegen_dir/<sub>/` that `keep` accepts into
+/// `version_dir/<package>/`. Returns the number of files written; 0 when the
+/// codegen output is absent (a warning for the caller, never an abort).
+pub fn copy_generated_package(
+    version_dir: &Path,
+    codegen_dir: &Path,
+    package: &str,
+    sub: &str,
+    keep: fn(&str) -> bool,
+) -> Result<usize> {
+    let src_dir = codegen_dir.join(sub);
+    if !src_dir.is_dir() {
+        return Ok(0);
+    }
+    let dst_dir = version_dir.join(package);
+    fs::create_dir_all(&dst_dir)?;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&src_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.file_name().and_then(|f| f.to_str()).is_some_and(keep))
+        .collect();
+    entries.sort();
+    for src in &entries {
+        fs::copy(src, dst_dir.join(src.file_name().unwrap()))?;
+    }
+    Ok(entries.len())
 }
 
 /// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
@@ -3056,6 +3095,44 @@ mod tests {
         assert_eq!(copy_go_package(&version_dir, &tmp.path().join("nope")).unwrap(), 0);
         assert!(!version_dir.join("azul-go").exists());
         assert!(!version_dir.join("go.mod").exists());
+    }
+
+    /// Fortran and OCaml ship every per-module file the generator wrote, by
+    /// glob: the hand-kept lists still named the pre-split `azul.f90` and
+    /// `azul.ml`, so both tarballs came out without a binding.
+    #[test]
+    fn generated_packages_ship_every_per_module_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codegen = tmp.path().join("codegen");
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(codegen.join("fortran")).unwrap();
+        fs::create_dir_all(codegen.join("ocaml")).unwrap();
+        fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.f90", "azul_types_css.f90", "azul_ffi_dom.f90", "Makefile", "sources.txt"] {
+            fs::write(codegen.join("fortran").join(f), b"x").unwrap();
+        }
+        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project"] {
+            fs::write(codegen.join("ocaml").join(f), b"x").unwrap();
+        }
+
+        let copied: Vec<usize> = GENERATED_PACKAGES
+            .iter()
+            .map(|(package, sub, keep)| {
+                copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
+            })
+            .collect();
+        assert_eq!(copied, [5, 3]);
+        assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
+        assert!(version_dir.join("azul-fortran/Makefile").is_file());
+        assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
+        // The example's dune files go into the tarball, never the library-only ones.
+        assert!(!version_dir.join("azul-ocaml/dune").exists());
+        assert!(!version_dir.join("azul-ocaml/dune-project").exists());
+        assert_eq!(
+            copy_generated_package(&version_dir, &tmp.path().join("nope"), "x", "fortran", |_| true)
+                .unwrap(),
+            0
+        );
     }
 
     /// One C++ driver per dialect, named after it, next to the unnamed
