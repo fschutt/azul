@@ -4169,6 +4169,22 @@ pub trait PlatformWindow {
     /// Mark that the display list was updated internally and needs sending to WebRender
     fn mark_display_list_dirty(&mut self);
 
+    /// The event result of a content change. A patched or rebuilt display list is also
+    /// marked dirty: the GPU backends resend only a dirty one.
+    fn content_change_result(
+        &mut self,
+        tier: Option<azul_layout::overlay::ContentDirtyTier>,
+    ) -> ProcessEventResult {
+        use azul_layout::overlay::ContentDirtyTier;
+        let Some(tier) = tier else {
+            return ProcessEventResult::DoNothing;
+        };
+        if matches!(tier, ContentDirtyTier::Paint | ContentDirtyTier::RebuildDisplayList) {
+            self.mark_display_list_dirty();
+        }
+        tier.to_process_event_result()
+    }
+
     /// Check and clear the display_list_dirty flag
     fn take_display_list_dirty(&mut self) -> bool;
 
@@ -5448,17 +5464,15 @@ pub trait PlatformWindow {
                 // identity change) or incremental-cache reset (relayout tier,
                 // when the intrinsic size changed). The StyledDom is NEVER
                 // mutated and the DL is NEVER rebuilt for a same-size swap.
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::Image {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         image: image.clone(),
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::UpdateImageCallback {
@@ -5515,17 +5529,15 @@ pub trait PlatformWindow {
                 node_id,
                 mask,
             } => {
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::ImageMask {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         mask: mask.clone(),
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::ChangeNodeCssProperties {
@@ -5536,7 +5548,7 @@ pub trait PlatformWindow {
                 // The content chokepoint (one impl for this host AND the e2e
                 // runner): inline-vec sync + retained-cascade restyle + DL
                 // rebuild + the shared paint-vs-relayout tier.
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
                         dom_id: *dom_id,
                         node_id: *node_id,
@@ -5544,10 +5556,8 @@ pub trait PlatformWindow {
                         override_only: false,
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::OverrideNodeCssProperties {
@@ -5557,7 +5567,7 @@ pub trait PlatformWindow {
             } => {
                 // Fast-path override channel (animation frames): cascade-only
                 // write, no inline-vec sync — same chokepoint, override_only.
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
                         dom_id: *dom_id,
                         node_id: *node_id,
@@ -5565,10 +5575,8 @@ pub trait PlatformWindow {
                         override_only: true,
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::ScrollTo {
@@ -5729,29 +5737,25 @@ pub trait PlatformWindow {
                 // the DL-rebuild tier — the old handler returned `DoNothing`,
                 // so a css-id registration only became visible on the next
                 // UNRELATED relayout.
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::ImageById {
                         id: id.clone(),
                         image: Some(image.clone()),
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::RemoveImageFromCache { id } => {
-                if let Some(lw) = self.get_layout_window_mut() {
+                let tier = self.get_layout_window_mut().map(|lw| {
                     lw.apply_content_change(azul_layout::overlay::ContentChange::ImageById {
                         id: id.clone(),
                         image: None,
                     })
                     .tier
-                    .to_process_event_result()
-                } else {
-                    ProcessEventResult::DoNothing
-                }
+                });
+                self.content_change_result(tier)
             }
 
             CallbackChange::ReloadSystemFonts => {
