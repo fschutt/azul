@@ -459,6 +459,13 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
+    # Camera capture through a Media Foundation source reader (extra/camera/windows.rs).
+    "Win32_Media_MediaFoundation",
+    # Screen capture through DXGI desktop duplication (extra/screencap/windows.rs).
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54

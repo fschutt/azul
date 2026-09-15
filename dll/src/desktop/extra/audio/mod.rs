@@ -334,8 +334,9 @@ impl AudioDeviceList {
     /// [`AudioDeviceListResult`]. Linux: PipeWire/PulseAudio via
     /// `pactl list short sinks/sources`; macOS: the CoreAudio HAL
     /// (`AudioObjectGetPropertyData` on the system object, dlopen'd at runtime —
-    /// no link-time dep); empty on platforms without an enumeration backend yet
-    /// (and if `pactl` isn't installed / CoreAudio can't be loaded).
+    /// no link-time dep); Windows: WASAPI endpoints through cpal; empty on
+    /// platforms without an enumeration backend yet (and if `pactl` isn't
+    /// installed / CoreAudio can't be loaded).
     pub fn enumerate(
         data: azul_core::refany::RefAny,
         on_result: azul_layout::callbacks::ResumeCallback,
@@ -377,7 +378,24 @@ impl AudioDeviceList {
             let (outputs, inputs) = coreaudio_device_names();
             AudioDeviceList { outputs, inputs }
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(target_os = "windows")]
+        {
+            use cpal::traits::{DeviceTrait, HostTrait};
+            let host = cpal::default_host();
+            let outputs: Vec<AzString> = host
+                .output_devices()
+                .map(|list| list.filter_map(|d| d.name().ok()).map(AzString::from).collect())
+                .unwrap_or_default();
+            let inputs: Vec<AzString> = host
+                .input_devices()
+                .map(|list| list.filter_map(|d| d.name().ok()).map(AzString::from).collect())
+                .unwrap_or_default();
+            AudioDeviceList {
+                outputs: StringVec::from_vec(outputs),
+                inputs: StringVec::from_vec(inputs),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             AudioDeviceList {
                 outputs: StringVec::from_vec(Vec::new()),
