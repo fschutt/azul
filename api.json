@@ -6770,7 +6770,7 @@
                     "zig": "zig/hello-world.zig"
                 },
                 "screenshot": {
-                    "windows": "hello-world.mac.png",
+                    "windows": "hello-world.windows.png",
                     "linux": "hello-world.linux.png",
                     "mac": "hello-world.mac.png"
                 },
@@ -6800,7 +6800,7 @@
                     "cpp23": "cpp/cpp23/widgets.cpp"
                 },
                 "screenshot": {
-                    "windows": "widgets.mac.png",
+                    "windows": "widgets.windows.png",
                     "linux": "widgets.linux.png",
                     "mac": "widgets.mac.png"
                 },
@@ -6830,7 +6830,7 @@
                     "cpp23": "cpp/cpp23/opengl.cpp"
                 },
                 "screenshot": {
-                    "windows": "opengl.mac.png",
+                    "windows": "opengl.windows.png",
                     "linux": "opengl.linux.png",
                     "mac": "opengl.mac.png"
                 },
@@ -6860,7 +6860,7 @@
                     "cpp23": "cpp/cpp23/infinity.cpp"
                 },
                 "screenshot": {
-                    "windows": "infinity.mac.png",
+                    "windows": "infinity.windows.png",
                     "linux": "infinity.linux.png",
                     "mac": "infinity.mac.png"
                 },
@@ -6889,7 +6889,7 @@
                     "cpp23": "cpp/cpp23/async.cpp"
                 },
                 "screenshot": {
-                    "windows": "async.mac.png",
+                    "windows": "async.windows.png",
                     "linux": "async.linux.png",
                     "mac": "async.mac.png"
                 },
@@ -6918,7 +6918,7 @@
                     "cpp23": "cpp/cpp23/xhtml.cpp"
                 },
                 "screenshot": {
-                    "windows": "xhtml.mac.png",
+                    "windows": "xhtml.windows.png",
                     "linux": "xhtml.linux.png",
                     "mac": "xhtml.mac.png"
                 },
@@ -6947,7 +6947,7 @@
                     "cpp23": "cpp/cpp23/calc.cpp"
                 },
                 "screenshot": {
-                    "windows": "calc.mac.png",
+                    "windows": "calc.windows.png",
                     "linux": "calc.linux.png",
                     "mac": "calc.mac.png"
                 },
