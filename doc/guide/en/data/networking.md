@@ -15,6 +15,8 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
 default-search-keys:
   - HttpRequestConfig
+  - HttpClient
+  - ThreadPool
   - HttpResponse
   - Thread
   - ThreadSendMsg
@@ -87,6 +89,33 @@ A request may be issued from a worker thread as well; its resume still runs
 on the main thread. CORS applies in the browser and cannot be escaped: a
 target that does not send `Access-Control-Allow-Origin` fails with
 `HttpError::Other` naming CORS.
+
+## Reusing connections
+
+A request opens a connection, uses it once and closes it. Many requests to the
+same server each pay for a new connection and TLS handshake. To keep
+connections open between requests, create an `HttpClient` once (in your app
+state, not per request) and attach a clone to each config:
+
+```rust,ignore
+// once, e.g. when building the app state
+let client = HttpClient::create(
+    HttpClientConfig::create().with_max_idle_connections_per_host(8),
+);
+
+// per request
+let cfg = HttpRequestConfig::create().with_client(client.clone());
+```
+
+All clones share one pool, which closes its connections when the last clone is
+dropped. With a client, TLS verification follows the client's
+`HttpClientConfig`; the request's own timeout, headers and size limit still
+apply. In the browser the client changes nothing: the browser pools
+connections itself.
+
+The same idea applies to threads. `ThreadPool::create(n)` starts `n` workers,
+and `pool.create_thread(...)` returns an ordinary `Thread` whose body runs on
+one of them, so many short jobs don't each start an OS thread.
 
 ## Modelling connection state
 

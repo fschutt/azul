@@ -23,6 +23,8 @@ use azul_core::{
     },
 };
 
+use azul_css::{impl_option, impl_option_inner};
+
 use crate::callbacks::CallbackInfo;
 
 macro_rules! impl_callback_traits {
@@ -693,9 +695,13 @@ const THREAD_TERMINATE_GRACE_STEPS: u32 = 200;
 extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
     let thread = unsafe { &mut *thread };
 
-    if let Some(thread_handle) = thread.thread_handle.take() {
-        drop(thread.sender.send(ThreadSendMsg::TerminateThread));
+    // Sent to every worker, including a job on a `ThreadPool` worker that has
+    // not started yet: it can then skip its work entirely.
+    drop(thread.sender.send(ThreadSendMsg::TerminateThread));
 
+    // A job on a `ThreadPool` worker has no handle: the OS thread is shared, so
+    // there is nothing to join.
+    if let Some(thread_handle) = thread.thread_handle.take() {
         // BOUNDED wait, then DETACH. This was an unconditional
         // `thread_handle.join()`, which hangs forever whenever the worker does
         // not observe `TerminateThread` — and a worker blocked in a device read
@@ -858,6 +864,30 @@ pub extern "C" fn create_thread_libstd(
     writeback_data: RefAny,
     callback: ThreadCallback,
 ) -> Thread {
+    build_thread(
+        thread_initialize_data,
+        writeback_data,
+        callback,
+        |job| Some(thread::spawn(job)),
+    )
+}
+
+/// A job handed to [`build_thread`]'s spawner: the worker body, ready to run on
+/// whichever OS thread the spawner picks.
+#[cfg(feature = "std")]
+type ThreadJob = Box<dyn FnOnce() + Send + 'static>;
+
+/// The channels, finish check and destructor every `Thread` needs, around a
+/// body that `spawn` starts. `spawn` returns the `JoinHandle` when the body got
+/// an OS thread of its own, `None` when it runs on a thread it does not own (a
+/// [`ThreadPool`] worker).
+#[cfg(feature = "std")]
+fn build_thread(
+    thread_initialize_data: RefAny,
+    writeback_data: RefAny,
+    callback: ThreadCallback,
+    spawn: impl FnOnce(ThreadJob) -> Option<JoinHandle<()>>,
+) -> Thread {
     let (sender_receiver, receiver_receiver) = channel::<ThreadReceiveMsg>();
     let mut sender_receiver = ThreadSender::new(ThreadSenderInner {
         ptr: Box::new(sender_receiver),
@@ -887,7 +917,7 @@ pub extern "C" fn create_thread_libstd(
     let thread_check = Arc::new(());
     let dropcheck = Arc::downgrade(&thread_check);
 
-    let thread_handle = Some(thread::spawn(move || {
+    let thread_handle = spawn(Box::new(move || {
         // `thread_check` is captured BY MOVE, so it stays alive for the whole
         // body; dropping it here is what makes `dropcheck.upgrade()` start
         // returning `None`, i.e. signals that the thread has finished.
@@ -987,6 +1017,168 @@ impl OptionThread {
         }
     }
 }
+
+/// A fixed set of worker threads that runs `Thread` bodies, created by the
+/// application and shared by whoever it hands a clone to.
+///
+/// [`Thread::create`] starts one OS thread per call. A widget that starts many
+/// short jobs (a map fetching tiles) can instead be given a pool: at most
+/// `threads` jobs then run at once and the rest wait in the pool's queue.
+/// Cloning is cheap and shares the same workers; the workers exit once the last
+/// handle is dropped and the queue is empty.
+#[derive(Debug)]
+#[repr(C)]
+pub struct ThreadPool {
+    #[cfg(feature = "std")]
+    pub ptr: Box<Arc<ThreadPoolInner>>,
+    #[cfg(not(feature = "std"))]
+    pub ptr: *const core::ffi::c_void,
+    pub run_destructor: bool,
+}
+
+/// The shared state behind a [`ThreadPool`] handle.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct ThreadPoolInner {
+    /// Queue into the workers. `None` where no worker could be started (a
+    /// target without threads): jobs then get a thread of their own.
+    queue: Option<Mutex<Sender<ThreadJob>>>,
+    threads: usize,
+}
+
+impl Clone for ThreadPool {
+    fn clone(&self) -> Self {
+        Self {
+            #[cfg(feature = "std")]
+            ptr: self.ptr.clone(),
+            #[cfg(not(feature = "std"))]
+            ptr: self.ptr,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
+}
+
+/// Two handles are equal when they share the same workers.
+impl PartialEq for ThreadPool {
+    fn eq(&self, other: &Self) -> bool {
+        #[cfg(feature = "std")]
+        {
+            Arc::ptr_eq(&self.ptr, &other.ptr)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            core::ptr::eq(self.ptr, other.ptr)
+        }
+    }
+}
+
+impl ThreadPool {
+    /// Start a pool of `threads` workers (at least one).
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn create(threads: usize) -> Self {
+        let threads = threads.max(1);
+        let (sender, receiver) = channel::<ThreadJob>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let mut started = 0;
+        for i in 0..threads {
+            let receiver = Arc::clone(&receiver);
+            let worker = thread::Builder::new()
+                .name(alloc::format!("azul-pool-{i}"))
+                .spawn(move || loop {
+                    // Hold the lock only while waiting, never while running a job.
+                    let job = match receiver.lock() {
+                        Ok(queue) => queue.recv(),
+                        Err(_) => return,
+                    };
+                    let Ok(job) = job else {
+                        return; // every handle dropped and the queue drained
+                    };
+                    // A panicking job must not take the worker down with it.
+                    drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)));
+                });
+            if worker.is_ok() {
+                started += 1;
+            }
+        }
+        Self {
+            ptr: Box::new(Arc::new(ThreadPoolInner {
+                queue: (started > 0).then(|| Mutex::new(sender)),
+                threads: started,
+            })),
+            run_destructor: true,
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub fn create(_threads: usize) -> Self {
+        Self {
+            ptr: core::ptr::null(),
+            run_destructor: false,
+        }
+    }
+
+    /// How many workers are running (0 where the target cannot start threads).
+    #[must_use]
+    pub fn thread_count(&self) -> usize {
+        #[cfg(feature = "std")]
+        {
+            self.ptr.threads
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            0
+        }
+    }
+
+    /// Like [`Thread::create`], but the body runs on one of this pool's workers
+    /// instead of a new OS thread. Hand the result to `CallbackInfo::add_thread`
+    /// exactly like any other `Thread`.
+    #[must_use]
+    pub fn create_thread<C: Into<ThreadCallback>>(
+        &self,
+        thread_initialize_data: RefAny,
+        writeback_data: RefAny,
+        callback: C,
+    ) -> Thread {
+        #[cfg(feature = "std")]
+        {
+            let Some(queue) = self.ptr.queue.as_ref() else {
+                return Thread::create(thread_initialize_data, writeback_data, callback);
+            };
+            build_thread(
+                thread_initialize_data,
+                writeback_data,
+                callback.into(),
+                |job| {
+                    if let Ok(queue) = queue.lock() {
+                        // The workers only stop once every handle is gone, and
+                        // `self` is one, so the queue is still open here.
+                        drop(queue.send(job));
+                    }
+                    None
+                },
+            )
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            create_thread_libstd(thread_initialize_data, writeback_data, callback.into())
+        }
+    }
+}
+
+impl_option!(
+    ThreadPool,
+    OptionThreadPool,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 // ============================================================================
 // Generated adversarial tests
@@ -1871,5 +2063,53 @@ mod autotest_generated {
         let recovered = opt.into_option().expect("Some must round-trip to Some");
         join_worker(&recovered);
         assert!(recovered.ptr.lock().expect("not poisoned").is_finished());
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod thread_pool_tests {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static RUNNING: AtomicUsize = AtomicUsize::new(0);
+    static PEAK: AtomicUsize = AtomicUsize::new(0);
+    static DONE: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn busy(_: RefAny, _: ThreadSender, _: ThreadReceiver) {
+        let now = RUNNING.fetch_add(1, Ordering::SeqCst) + 1;
+        PEAK.fetch_max(now, Ordering::SeqCst);
+        thread::sleep(core::time::Duration::from_millis(20));
+        RUNNING.fetch_sub(1, Ordering::SeqCst);
+        DONE.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn a_pool_runs_every_job_but_never_more_than_its_workers_at_once() {
+        let pool = ThreadPool::create(2);
+        assert_eq!(pool.thread_count(), 2);
+        let threads: Vec<Thread> = (0..6)
+            .map(|_| pool.create_thread(RefAny::new(()), RefAny::new(()), ThreadCallback::new(busy)))
+            .collect();
+
+        let finished = |t: &Thread| t.ptr.lock().is_ok_and(|inner| inner.is_finished());
+        let mut waited = 0;
+        while !threads.iter().all(finished) && waited < 500 {
+            thread::sleep(core::time::Duration::from_millis(10));
+            waited += 1;
+        }
+
+        assert!(threads.iter().all(finished), "every queued job must run");
+        assert_eq!(DONE.load(Ordering::SeqCst), 6);
+        let peak = PEAK.load(Ordering::SeqCst);
+        assert!((1..=2).contains(&peak), "ran {peak} jobs at once on 2 workers");
+    }
+
+    #[test]
+    fn clones_share_the_workers() {
+        let pool = ThreadPool::create(3);
+        assert_eq!(pool.clone(), pool);
+        assert_ne!(ThreadPool::create(3), pool);
+        assert_eq!(ThreadPool::create(0).thread_count(), 1, "at least one worker");
     }
 }

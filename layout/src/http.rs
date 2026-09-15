@@ -190,6 +190,12 @@ pub struct HttpRequestConfig {
     /// Use only for testing or when connecting to servers with self-signed
     /// or cross-signed certificates not in the Mozilla root store.
     pub disable_tls_cert_verification: bool,
+    /// Connection pool to send the request through (default: none).
+    ///
+    /// `None` opens a fresh connection for this request and closes it after.
+    /// `Some` reuses the client's idle connections, and TLS verification then
+    /// follows the client's `HttpClientConfig`, not the field above.
+    pub client: OptionHttpClient,
 }
 
 impl Default for HttpRequestConfig {
@@ -200,9 +206,138 @@ impl Default for HttpRequestConfig {
             user_agent: AzString::from("azul-http/1.0".to_string()),
             headers: HttpHeaderVec::from_const_slice(&[]),
             disable_tls_cert_verification: false,
+            client: OptionHttpClient::None,
         }
     }
 }
+
+/// Settings for an [`HttpClient`]'s connection pool (C-compatible).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct HttpClientConfig {
+    /// Idle connections kept open across all hosts (default: 32).
+    pub max_idle_connections: u32,
+    /// Idle connections kept open to any one host (default: 8).
+    pub max_idle_connections_per_host: u32,
+    /// Disable TLS certificate verification for every request of this client
+    /// (default: false). Same warning as on `HttpRequestConfig`.
+    pub disable_tls_cert_verification: bool,
+}
+
+impl Default for HttpClientConfig {
+    fn default() -> Self {
+        Self {
+            max_idle_connections: 32,
+            max_idle_connections_per_host: 8,
+            disable_tls_cert_verification: false,
+        }
+    }
+}
+
+impl HttpClientConfig {
+    /// Create a new config with default values
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set how many idle connections the pool keeps across all hosts
+    #[must_use]
+    pub const fn with_max_idle_connections(mut self, n: u32) -> Self {
+        self.max_idle_connections = n;
+        self
+    }
+
+    /// Set how many idle connections the pool keeps to any one host
+    #[must_use]
+    pub const fn with_max_idle_connections_per_host(mut self, n: u32) -> Self {
+        self.max_idle_connections_per_host = n;
+        self
+    }
+}
+
+/// A connection pool that requests can share (C-compatible handle).
+///
+/// Created by the application, never by the framework: a request without a
+/// client opens its own connection. Hand clones to
+/// [`HttpRequestConfig::with_client`] or to a widget; all clones share one pool,
+/// which closes its connections when the last clone is dropped.
+#[repr(C)]
+pub struct HttpClient {
+    pub ptr: Box<alloc::sync::Arc<HttpClientInner>>,
+    pub run_destructor: bool,
+}
+
+/// The shared state behind an [`HttpClient`] handle.
+#[derive(Debug)]
+#[allow(missing_copy_implementations)] // only Copy in builds without the `http` feature
+pub struct HttpClientInner {
+    pub config: HttpClientConfig,
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    agent: ureq::Agent,
+}
+
+impl HttpClient {
+    /// Create a connection pool with the given settings
+    #[must_use]
+    pub fn create(config: HttpClientConfig) -> Self {
+        Self {
+            ptr: Box::new(alloc::sync::Arc::new(HttpClientInner {
+                config,
+                #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+                agent: agent_config(config.disable_tls_cert_verification)
+                    .max_idle_connections(config.max_idle_connections as usize)
+                    .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
+                    .build()
+                    .new_agent(),
+            })),
+            run_destructor: true,
+        }
+    }
+
+    /// The settings this client was created with
+    #[must_use]
+    pub fn get_config(&self) -> HttpClientConfig {
+        self.ptr.config
+    }
+}
+
+impl Clone for HttpClient {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for HttpClient {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
+}
+
+impl fmt::Debug for HttpClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpClient")
+            .field("config", &self.ptr.config)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Two handles are equal when they share the same pool.
+impl PartialEq for HttpClient {
+    fn eq(&self, other: &Self) -> bool {
+        alloc::sync::Arc::ptr_eq(&self.ptr, &other.ptr)
+    }
+}
+
+impl_option!(
+    HttpClient,
+    OptionHttpClient,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// The e2e mock store's answer for `url`, if the store is armed. `None` =
 /// not an e2e run, perform the real transfer.
@@ -265,6 +400,14 @@ impl HttpRequestConfig {
     #[must_use]
     pub const fn with_max_size(mut self, max_bytes: u64) -> Self {
         self.max_response_size = max_bytes;
+        self
+    }
+
+    /// Send requests through a shared connection pool instead of opening a
+    /// connection per request
+    #[must_use]
+    pub fn with_client(mut self, client: HttpClient) -> Self {
+        self.client = OptionHttpClient::Some(client);
         self
     }
 
@@ -732,6 +875,18 @@ pub fn http_get(_url: &str) -> HttpResult<HttpResponse> {
 fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::Agent {
     use std::time::Duration;
 
+    agent_config(disable_tls_cert_verification)
+        .timeout_global(Some(Duration::from_secs(timeout_secs)))
+        .build()
+        .new_agent()
+}
+
+/// The agent settings every request shares, whether its agent is built for one
+/// request ([`make_agent`]) or kept in an [`HttpClient`].
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn agent_config(
+    disable_tls_cert_verification: bool,
+) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     let mut tls_builder = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()));
@@ -746,10 +901,7 @@ fn make_agent(timeout_secs: u64, disable_tls_cert_verification: bool) -> ureq::A
 
     ureq::Agent::config_builder()
         .tls_config(tls_config)
-        .timeout_global(Some(Duration::from_secs(timeout_secs)))
         .http_status_as_error(false)
-        .build()
-        .new_agent()
 }
 
 /// HTTP verb for [`http_request_with_config`].
@@ -914,7 +1066,15 @@ pub fn http_request_with_config(
     content_type: &str,
     config: &HttpRequestConfig,
 ) -> HttpResult<HttpResponse> {
-    let agent = make_agent(config.timeout_secs, config.disable_tls_cert_verification);
+    // A pooled agent was built without this request's timeout, so every request
+    // below sets it on itself; for a one-off agent that restates the same value.
+    let agent = match &config.client {
+        OptionHttpClient::Some(client) => client.ptr.agent.clone(),
+        OptionHttpClient::None => {
+            make_agent(config.timeout_secs, config.disable_tls_cert_verification)
+        }
+    };
+    let timeout = Some(std::time::Duration::from_secs(config.timeout_secs));
 
     // ureq 3.x splits the request builder by typestate: `WithoutBody` for
     // GET/HEAD/DELETE (terminated by `.call()`) and `WithBody` for
@@ -937,6 +1097,9 @@ pub fn http_request_with_config(
             request = request.header(header.name.as_str(), header.value.as_str());
         }
         request
+            .config()
+            .timeout_global(timeout)
+            .build()
             .send(body.unwrap_or(&[]))
             .map_err(|e| map_ureq_error(url, &e))?
     } else {
@@ -952,7 +1115,12 @@ pub fn http_request_with_config(
         for header in config.headers.as_slice() {
             request = request.header(header.name.as_str(), header.value.as_str());
         }
-        request.call().map_err(|e| map_ureq_error(url, &e))?
+        request
+            .config()
+            .timeout_global(timeout)
+            .build()
+            .call()
+            .map_err(|e| map_ureq_error(url, &e))?
     };
 
     decode_response(response, config)
@@ -1837,5 +2005,78 @@ mod autotest_generated {
             .into_option()
             .expect("an HttpGetResult");
         assert!(answer.result.is_err());
+    }
+}
+
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+mod client_pool_tests {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
+
+    use super::*;
+
+    /// A keep-alive HTTP/1.1 server on localhost that counts the connections it
+    /// accepts. It serves one connection at a time until the client closes it.
+    fn serve() -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/", listener.local_addr().expect("addr"));
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepted);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                while read_request_head(&mut reader) {
+                    let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok";
+                    if stream.write_all(reply).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        (url, accepted)
+    }
+
+    /// Consume one request head; false once the client has closed the connection.
+    fn read_request_head(reader: &mut impl BufRead) -> bool {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => return false,
+                Ok(_) if line == "\r\n" => return true,
+                Ok(_) => {}
+            }
+        }
+    }
+
+    fn get_three_times(url: &str, config: &HttpRequestConfig) {
+        for _ in 0..3 {
+            let response = http_get_with_config(url, config).expect("GET");
+            assert_eq!(response.status_code, 200);
+            assert_eq!(response.body.as_ref(), b"ok");
+        }
+    }
+
+    #[test]
+    fn requests_through_a_client_reuse_one_connection() {
+        let (url, accepted) = serve();
+        let client = HttpClient::create(HttpClientConfig::default());
+        get_three_times(&url, &HttpRequestConfig::default().with_timeout(5).with_client(client));
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn requests_without_a_client_each_open_a_connection() {
+        let (url, accepted) = serve();
+        get_three_times(&url, &HttpRequestConfig::default().with_timeout(5));
+        assert_eq!(accepted.load(Ordering::SeqCst), 3);
     }
 }
