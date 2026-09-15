@@ -120,6 +120,51 @@ pub(super) fn errno_name(e: i32) -> &'static str {
     }
 }
 
+/// The compositor's `wl_display.error` event, if it is still unread in `bytes`.
+///
+/// A compositor that rejects a request queues `wl_display.error` (sender
+/// object 1, opcode 0: offending object id, error code, message) and closes
+/// the socket. When our next WRITE hits the closed socket first, libwayland
+/// latches EPIPE and never reads again, so the event that names the rejected
+/// request stays in the kernel's receive buffer. `bytes` is a `MSG_PEEK` of
+/// that buffer; it may begin mid-message (libwayland reads in chunks), so every
+/// offset is tried and a match must be self-consistent: the header's size
+/// equals the padded string length plus 20, and the string ends in its NUL.
+pub(super) fn find_display_error_event(bytes: &[u8]) -> Option<(u32, u32, String)> {
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+    };
+    (0..bytes.len()).find_map(|at| {
+        if word(at)? != 1 {
+            return None;
+        }
+        let size_opcode = word(at + 4)?;
+        let (size, opcode) = ((size_opcode >> 16) as usize, size_opcode & 0xffff);
+        let (object, code, len) = (word(at + 8)?, word(at + 12)?, word(at + 16)? as usize);
+        if opcode != 0 || len == 0 || size != 20 + ((len + 3) & !3) {
+            return None;
+        }
+        let text = bytes.get(at + 20..at + 20 + len)?;
+        let (nul, message) = text.split_last()?;
+        (*nul == 0).then(|| (object, code, String::from_utf8_lossy(message).into_owned()))
+    })
+}
+
+/// Wall-clock milliseconds of the previous `poll_event`, so a lost
+/// connection can say how long the event loop was away before it. A client
+/// that stops reading lets the compositor's per-client event buffer fill, and
+/// libwayland-server drops such a client WITHOUT a protocol error — the same
+/// EPIPE, told apart only by this gap.
+static LAST_POLL_MS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn wall_clock_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 /// Trim IME surrounding text to the protocol's size budget, keeping the
 /// cursor (and, when it fits, the anchor) inside the returned window.
 ///
@@ -1142,6 +1187,9 @@ fn axis_frame_delta(is_trackpad: bool, raw: (f32, f32), discrete: (f32, f32)) ->
 
 impl WaylandWindow {
     pub fn poll_event(&mut self) -> Option<WaylandEvent> {
+        let now_ms = wall_clock_ms();
+        let previous_poll_ms = LAST_POLL_MS.swap(now_ms, core::sync::atomic::Ordering::Relaxed);
+
         // First pump after the run loop boxed us: re-point all listeners to this stable
         // address (they were registered against the now-moved `new()` stack frame).
         self.ensure_listeners_rebound();
@@ -1211,9 +1259,11 @@ impl WaylandWindow {
             // window, so it prints no matter how logging is configured.
             let fatal = format!(
                 "[WL] CONNECTION LOST — closing the window. hup={hung_up} errno={display_error} \
-                 ({}) dispatched={dispatched}{} — configures={} {}",
+                 ({}) dispatched={dispatched}{} — previous poll {}ms before this one, \
+                 configures={} {}",
                 errno_name(display_error),
                 self.describe_protocol_error(display_error),
+                now_ms.saturating_sub(previous_poll_ms),
                 CONFIGURES_SEEN.load(core::sync::atomic::Ordering::Relaxed),
                 pool_census(),
             );
@@ -1270,6 +1320,32 @@ impl WaylandWindow {
     /// Empty string for anything that is not a protocol error (a hangup, a
     /// dead socket), so the caller can append it unconditionally.
     fn describe_protocol_error(&self, display_error: i32) -> String {
+        if display_error == libc::EPIPE {
+            // The compositor's verdict is usually still on the socket: it
+            // queued `wl_display.error` and closed, our write failed first,
+            // and libwayland stopped reading. Peek (never consume) for it.
+            let fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
+            let mut unread = vec![0u8; 1 << 16];
+            let n = unsafe {
+                libc::recv(
+                    fd,
+                    unread.as_mut_ptr().cast(),
+                    unread.len(),
+                    libc::MSG_PEEK | libc::MSG_DONTWAIT,
+                )
+            };
+            let unread = usize::try_from(n).map_or(&[][..], |n| &unread[..n]);
+            return match find_display_error_event(unread) {
+                Some((object, code, message)) => format!(
+                    " [compositor protocol error on object {object}, code {code}: {message}]"
+                ),
+                None => format!(
+                    " [no wl_display.error among the {} unread bytes: the compositor \
+                     dropped the client without naming a request]",
+                    unread.len()
+                ),
+            };
+        }
         if display_error != libc::EPROTO {
             return String::new();
         }
@@ -11072,6 +11148,64 @@ extern "C" fn popup_done(data: *mut c_void, _xdg_popup: *mut defines::xdg_popup)
 /// and libwayland's hard per-message size cap. An oversized string here is a
 /// CONNECTION-FATAL protocol failure, not a cosmetic truncation, so these pin
 /// the budget, the UTF-8 boundary safety, and the offset rebasing.
+#[cfg(test)]
+mod display_error_event_tests {
+    use super::find_display_error_event;
+
+    fn message(object: u32, opcode: u32, args: &[u8]) -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(&object.to_ne_bytes());
+        m.extend_from_slice(&(((8 + args.len() as u32) << 16) | opcode).to_ne_bytes());
+        m.extend_from_slice(args);
+        m
+    }
+
+    fn error_event(object: u32, code: u32, text: &str) -> Vec<u8> {
+        let mut args = Vec::new();
+        args.extend_from_slice(&object.to_ne_bytes());
+        args.extend_from_slice(&code.to_ne_bytes());
+        args.extend_from_slice(&(text.len() as u32 + 1).to_ne_bytes());
+        args.extend_from_slice(text.as_bytes());
+        args.push(0);
+        while args.len() % 4 != 0 {
+            args.push(0);
+        }
+        message(1, 0, &args)
+    }
+
+    #[test]
+    fn finds_the_error_behind_other_events() {
+        let mut stream = message(25, 2, &[0; 12]); // a wl_pointer.motion
+        stream.extend(message(1, 1, &7u32.to_ne_bytes())); // wl_display.delete_id
+        stream.extend(error_event(32, 1, "invalid destination size"));
+        assert_eq!(
+            find_display_error_event(&stream),
+            Some((32, 1, "invalid destination size".to_string()))
+        );
+    }
+
+    #[test]
+    fn finds_the_error_when_the_peek_starts_mid_message() {
+        let mut stream = message(25, 2, &[0; 12]);
+        stream.extend(error_event(4278190082, 0, "x"));
+        assert_eq!(
+            find_display_error_event(&stream[6..]),
+            Some((4278190082, 0, "x".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_truncated_or_inconsistent_error_is_not_reported() {
+        let full = error_event(32, 1, "invalid destination size");
+        assert_eq!(find_display_error_event(&full[..full.len() - 4]), None);
+        let mut bad_size = full.clone();
+        bad_size[6] = bad_size[6].wrapping_add(4); // header size no longer matches
+        assert_eq!(find_display_error_event(&bad_size), None);
+        assert_eq!(find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())), None);
+        assert_eq!(find_display_error_event(&[]), None);
+    }
+}
+
 #[cfg(test)]
 mod primary_selection_tests {
     use azul_core::events::MouseButton;
