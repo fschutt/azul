@@ -1,51 +1,18 @@
-//! Which LCD stripe order the panel under a window has.
-//!
-//! Subpixel text is blended for one physical stripe order, and it is wrong on
-//! a panel with the other: the colour fringes trade sides. The order is a
-//! property of the MONITOR, not of the system, so a window has to re-check it
-//! whenever it may have moved to a different one.
-//!
-//! Windows keeps it in two places:
-//!
-//!  * `HKCU\Software\Microsoft\Avalon.Graphics\<DISPLAYn>\PixelStructure` — written per monitor by
-//!    the ClearType Text Tuner (`cttune.exe`): 0 flat, 1 RGB, 2 BGR. This is the per-monitor answer.
-//!  * `SPI_GETFONTSMOOTHINGORIENTATION` — the one system-wide value GDI uses (0 BGR, 1 RGB), and
-//!    the fallback for a monitor the tuner never ran on.
+//! LCD stripe order of the monitor a window is on (ClearType per-monitor setting, then the system one).
 
 use core::ffi::c_void;
 
 use azul_layout::glyph_cache::LcdSubpixelOrder;
 
-type Hwnd = *mut c_void;
-type Hmonitor = *mut c_void;
+use super::dlopen::{User32Functions, HWND, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST, RECT};
 
-const MONITOR_DEFAULTTONEAREST: u32 = 2;
 const SPI_GETFONTSMOOTHINGORIENTATION: u32 = 0x2012;
 const FE_FONTSMOOTHINGORIENTATIONBGR: u32 = 0;
 const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
 const RRF_RT_REG_DWORD: u32 = 0x0000_0010;
 
-#[repr(C)]
-struct Rect {
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-}
-
-#[repr(C)]
-struct MonitorInfoExW {
-    cb_size: u32,
-    rc_monitor: Rect,
-    rc_work: Rect,
-    dw_flags: u32,
-    sz_device: [u16; 32],
-}
-
 #[link(name = "user32")]
 extern "system" {
-    fn MonitorFromWindow(hwnd: Hwnd, flags: u32) -> Hmonitor;
-    fn GetMonitorInfoW(monitor: Hmonitor, info: *mut MonitorInfoExW) -> i32;
     fn SystemParametersInfoW(action: u32, param: u32, pv: *mut c_void, winini: u32) -> i32;
 }
 
@@ -64,40 +31,36 @@ extern "system" {
 
 /// The monitor `hwnd` is (mostly) on, as an opaque identity for change
 /// detection. Cheap enough to call on every move.
-pub(super) fn monitor_of(hwnd: Hwnd) -> isize {
-    unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) as isize }
+pub(super) fn monitor_of(user32: &User32Functions, hwnd: HWND) -> isize {
+    unsafe { (user32.MonitorFromWindow)(hwnd, MONITOR_DEFAULTTONEAREST) as isize }
 }
 
-/// The stripe order of the panel `monitor` (from [`monitor_of`]).
-///
-/// A flat or unreported panel maps to RGB, the order every LCD blend used
-/// before the order was selectable: it is also what GDI assumes.
-pub(super) fn subpixel_order_of(monitor: isize) -> LcdSubpixelOrder {
-    per_monitor_pixel_structure(monitor)
+/// Flat or unreported panels count as RGB.
+pub(super) fn subpixel_order_of(user32: &User32Functions, monitor: isize) -> LcdSubpixelOrder {
+    per_monitor_pixel_structure(user32, monitor)
         .or_else(system_orientation)
         .unwrap_or(LcdSubpixelOrder::Rgb)
 }
 
 /// `Avalon.Graphics\<DISPLAYn>\PixelStructure` for this monitor, if the tuner
 /// ever recorded one.
-fn per_monitor_pixel_structure(monitor: isize) -> Option<LcdSubpixelOrder> {
+fn per_monitor_pixel_structure(user32: &User32Functions, monitor: isize) -> Option<LcdSubpixelOrder> {
     if monitor == 0 {
         return None;
     }
-    // "\\.\DISPLAY1" -> "DISPLAY1": the registry key is the device name
-    // without the Win32 device namespace prefix.
-    let mut info = MonitorInfoExW {
-        cb_size: core::mem::size_of::<MonitorInfoExW>() as u32,
-        rc_monitor: Rect { left: 0, top: 0, right: 0, bottom: 0 },
-        rc_work: Rect { left: 0, top: 0, right: 0, bottom: 0 },
-        dw_flags: 0,
-        sz_device: [0; 32],
+    // The registry key is the device name without the `\\.\` prefix.
+    let mut info = MONITORINFOEXW {
+        cbSize: core::mem::size_of::<MONITORINFOEXW>() as u32,
+        rcMonitor: RECT::default(),
+        rcWork: RECT::default(),
+        dwFlags: 0,
+        szDevice: [0; 32],
     };
-    if unsafe { GetMonitorInfoW(monitor as Hmonitor, &mut info) } == 0 {
+    if unsafe { (user32.GetMonitorInfoW)(monitor as _, &mut info) } == 0 {
         return None;
     }
-    let len = info.sz_device.iter().position(|&c| c == 0).unwrap_or(32);
-    let device = String::from_utf16_lossy(&info.sz_device[..len]);
+    let len = info.szDevice.iter().position(|&c| c == 0).unwrap_or(32);
+    let device = String::from_utf16_lossy(&info.szDevice[..len]);
     let name = device.trim_start_matches(r"\\.\");
     if name.is_empty() {
         return None;
