@@ -880,10 +880,53 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             ));
         }
 
-        let call_args = if info_type_for_python.is_none() {
-            "py_data.clone_ref(py),".to_string() // Single-element tuple needs trailing comma
+        // Pass every argument, not just (data, info).
+        let mut call_args: Vec<String> = vec!["py_data.clone_ref(py)".to_string()];
+        if info_type_for_python.is_some() {
+            call_args.push("info_py".to_string());
+        }
+        for (i, arg) in callback.args.iter().enumerate() {
+            if i == 0 || info_type_for_python.as_deref() == Some(arg.type_name.as_str()) {
+                continue; // `data` and the info object are already in the tuple
+            }
+            let arg_name = if i == 1 {
+                "info".to_string()
+            } else {
+                format!("arg{}", i)
+            };
+            let py_name = format!("extra_arg{}_py", i);
+            if arg.type_name == "RefAny" {
+                // A write-back's incoming data: the Python object inside, if any.
+                builder.line(&format!(
+                    "let {}: Option<Py<PyAny>> = {{ let mut refany = {}; \
+                     refany.downcast_ref::<PyDataWrapper>().and_then(|w| \
+                     w._py_data.as_ref().map(|o| o.clone_ref(py))) }};",
+                    py_name, arg_name
+                ));
+            } else if is_primitive_type(&arg.type_name) {
+                builder.line(&format!("let {} = {};", py_name, arg_name));
+            } else if arg.type_name == "String" {
+                builder.line(&format!(
+                    "let {}: String = {{ let s: azul_css::corety::AzString = unsafe {{ \
+                     mem::transmute({}) }}; s.as_str().to_string() }};",
+                    py_name, arg_name
+                ));
+            } else if self.is_python_compatible_type(&arg.type_name, ir)
+                && !is_direct_ffi_type(&arg.type_name)
+            {
+                builder.line(&format!(
+                    "let {} = {}{} {{ inner: unsafe {{ mem::transmute({}) }} }};",
+                    py_name, prefix, arg.type_name, arg_name
+                ));
+            } else {
+                continue;
+            }
+            call_args.push(py_name);
+        }
+        let call_args = if call_args.len() == 1 {
+            format!("{},", call_args[0]) // single-element tuple needs a trailing comma
         } else {
-            "py_data.clone_ref(py), info_py".to_string()
+            call_args.join(", ")
         };
 
         builder.line(&format!("match py_callable.call1(py, ({})) {{", call_args));
@@ -1355,6 +1398,98 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         }
     }
 
+    /// `#[getter]`/`#[setter]` for public fields Python can represent.
+    fn generate_field_accessors(
+        &self,
+        builder: &mut CodeBuilder,
+        struct_def: &StructDef,
+        ir: &CodegenIR,
+        prefix: &str,
+        taken: &BTreeSet<String>,
+    ) {
+        const RUST_KEYWORDS: &[&str] = &[
+            "as", "async", "await", "box", "break", "const", "continue", "crate", "dyn",
+            "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let",
+            "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "static",
+            "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while",
+        ];
+        // Python keywords cannot be attribute names written as `obj.name`.
+        const PYTHON_KEYWORDS: &[&str] = &[
+            "and", "as", "assert", "async", "await", "break", "class", "continue", "def",
+            "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
+            "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
+            "return", "try", "while", "with", "yield", "None", "True", "False",
+        ];
+        let is_clone = |type_name: &str| {
+            ir.structs
+                .iter()
+                .find(|s| s.name == type_name)
+                .map(|s| s.traits.is_clone)
+                .or_else(|| {
+                    ir.enums
+                        .iter()
+                        .find(|e| e.name == type_name)
+                        .map(|e| e.traits.is_clone)
+                })
+                .unwrap_or(false)
+        };
+
+        for field in &struct_def.fields {
+            let n = field.name.as_str();
+            if !field.is_public
+                || field.ref_kind != crate::codegen::v2::ir::FieldRefKind::Owned
+                || RUST_KEYWORDS.contains(&n)
+                || PYTHON_KEYWORDS.contains(&n)
+                || taken.contains(n)
+            {
+                continue;
+            }
+            let t = field.type_name.as_str();
+            if is_primitive_type(t) {
+                builder.line(&format!("#[getter({})]", n));
+                builder.line(&format!("fn __get_{}(&self) -> {} {{ self.inner.{} }}", n, t, n));
+                builder.blank();
+                builder.line(&format!("#[setter({})]", n));
+                builder.line(&format!(
+                    "fn __set_{}(&mut self, value: {}) {{ self.inner.{} = value; }}",
+                    n, t, n
+                ));
+                builder.blank();
+            } else if t == "String" {
+                builder.line(&format!("#[getter({})]", n));
+                builder.line(&format!(
+                    "fn __get_{}(&self) -> String {{ let s: &azul_css::corety::AzString = \
+                     unsafe {{ mem::transmute(&self.inner.{}) }}; s.as_str().to_string() }}",
+                    n, n
+                ));
+                builder.blank();
+                builder.line(&format!("#[setter({})]", n));
+                builder.line(&format!(
+                    "fn __set_{}(&mut self, value: String) {{ self.inner.{} = unsafe {{ \
+                     mem::transmute(azul_css::corety::AzString::from(value)) }}; }}",
+                    n, n
+                ));
+                builder.blank();
+            } else if self.is_python_compatible_type(t, ir)
+                && !is_direct_ffi_type(t)
+                && is_clone(t)
+            {
+                builder.line(&format!("#[getter({})]", n));
+                builder.line(&format!(
+                    "fn __get_{}(&self) -> {}{} {{ {}{} {{ inner: self.inner.{}.clone() }} }}",
+                    n, prefix, t, prefix, t, n
+                ));
+                builder.blank();
+                builder.line(&format!("#[setter({})]", n));
+                builder.line(&format!(
+                    "fn __set_{}(&mut self, value: {}{}) {{ self.inner.{} = value.inner; }}",
+                    n, prefix, t, n
+                ));
+                builder.blank();
+            }
+        }
+    }
+
     fn generate_struct_pymethods(
         &self,
         builder: &mut CodeBuilder,
@@ -1392,12 +1527,14 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if is_callback_type && func.kind == FunctionKind::Constructor {
                 continue;
             }
-            // The RAW name: `generate_pymethod` emits `fn {method_name}` verbatim,
-            // so that is both the Rust identifier and the Python name.
-            taken.insert(func.method_name.clone());
+            // Only an emitted method (one with an fn_body) reserves its name.
+            if func.fn_body.is_some() {
+                taken.insert(func.method_name.clone());
+            }
             self.generate_pymethod(builder, func, ir, prefix);
         }
 
+        self.generate_field_accessors(builder, struct_def, ir, prefix, &taken);
         self.generate_derive_dunders(builder, &struct_def.traits, &taken);
 
         builder.line("fn __str__(&self) -> String {");
