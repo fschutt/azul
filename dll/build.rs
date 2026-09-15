@@ -72,6 +72,20 @@ fn main() {
         }
     }
 
+    // `az_iroh_engine`: the iroh transport is compiled in. Same target set as the
+    // `[target.'cfg(...)'.dependencies]` entry for `iroh` in Cargo.toml — stating it twice is how
+    // the gpu-video gate drifted, so both halves read from this one condition.
+    println!("cargo:rustc-check-cfg=cfg(az_iroh_engine)");
+    {
+        let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+        let family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+        let dep_present = matches!(arch.as_str(), "x86_64" | "x86" | "aarch64" | "arm")
+            && !family.split(',').any(|f| f == "wasm");
+        if env::var("CARGO_FEATURE_IROH").is_ok() && dep_present {
+            println!("cargo:rustc-cfg=az_iroh_engine");
+        }
+    }
+
     println!("cargo:rustc-check-cfg=cfg(az_db_engine)");
     {
         let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();

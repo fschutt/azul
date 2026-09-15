@@ -55,10 +55,14 @@ impl PlatformCapability {
     /// Probe peer-to-peer QUIC (`IrohEndpoint`). Native: the in-process iroh engine when the
     /// `iroh` feature is compiled in. Web: not yet, until iroh runs over WebTransport.
     pub fn iroh() -> PlatformCapability {
-        if cfg!(feature = "iroh") {
+        if cfg!(az_iroh_engine) {
             cap(true, "iroh (QUIC, ring)", "")
         } else {
-            cap(false, "none", "built without the `iroh` feature: IrohEndpoint::bind reports an Error event")
+            cap(
+                false,
+                "none",
+                "no iroh engine in this build: IrohEndpoint::bind reports an Error event",
+            )
         }
     }
 
