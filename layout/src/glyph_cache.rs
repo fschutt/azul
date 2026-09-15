@@ -135,7 +135,7 @@ pub struct GlyphCache {
     /// Stripe order of the panel this cache's window is on. Set by the
     /// platform shell per monitor (see [`Self::set_lcd_subpixel_order`]);
     /// every LCD blend reads it.
-    lcd_subpixel_order: agg_rust::pixfmt_lcd::LcdSubpixelOrder,
+    lcd_subpixel_order: LcdSubpixelOrder,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -199,13 +199,13 @@ impl GlyphCache {
             cells: HashMap::new(),
             cells_prev: HashMap::new(),
             lcd_tiles: HashMap::new(),
-            lcd_subpixel_order: agg_rust::pixfmt_lcd::LcdSubpixelOrder::Rgb,
+            lcd_subpixel_order: LcdSubpixelOrder::Rgb,
         }
     }
 
     /// The panel stripe order LCD text is blended for.
     #[must_use]
-    pub fn lcd_subpixel_order(&self) -> agg_rust::pixfmt_lcd::LcdSubpixelOrder {
+    pub const fn lcd_subpixel_order(&self) -> LcdSubpixelOrder {
         self.lcd_subpixel_order
     }
 
@@ -215,7 +215,7 @@ impl GlyphCache {
     /// for the old order. The glyph cells are stripe COVERAGE, which does not
     /// depend on the order, and are kept. Pixels already on screen are the
     /// caller's to repaint.
-    pub fn set_lcd_subpixel_order(&mut self, order: agg_rust::pixfmt_lcd::LcdSubpixelOrder) -> bool {
+    pub fn set_lcd_subpixel_order(&mut self, order: LcdSubpixelOrder) -> bool {
         if self.lcd_subpixel_order == order {
             return false;
         }
