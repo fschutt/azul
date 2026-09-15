@@ -17546,10 +17546,35 @@ impl LayoutWindow {
             // meant a single-line text input never registered horizontal
             // overflow while typing, so the caret-reveal had nothing to scroll.
             let unclipped = new_layout.overflow.unclipped_bounds;
-            let content_extent = LogicalSize {
+            let mut content_extent = LogicalSize {
                 width: new_bounds.width.max(unclipped.width),
                 height: new_bounds.height.max(unclipped.height),
             };
+            // An edit that ENDS in a hard break leaves `[.., LineBreak,
+            // Text("")]`: the caret stands on a line that holds no glyph, so no
+            // line box materializes and `bounds()` stops at the line above.
+            // The caret rect for that line is synthesized
+            // (`UnifiedLayout::get_cursor_rect`); the content size must reach
+            // just as far, or Enter moves the caret below the box without the
+            // box becoming a scroller until a letter lands on that line.
+            if let [.., InlineContent::LineBreak(_), InlineContent::Text(tail)] =
+                new_inline_content.as_slice()
+            {
+                if tail.text.is_empty() {
+                    let probe = TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: u32::try_from(new_inline_content.len() - 1)
+                                .unwrap_or(u32::MAX),
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    };
+                    if let Some(line) = new_layout.get_cursor_rect(&probe) {
+                        content_extent.height =
+                            content_extent.height.max(line.origin.y + line.size.height);
+                    }
+                }
+            }
             reshape_extent = Some(content_extent);
 
             // Update the inline layout result with the new layout but preserve constraints (warm

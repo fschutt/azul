@@ -660,3 +660,53 @@ fn typing_into_an_empty_text_area_until_overflow_makes_the_container_a_scroller(
         "the overflow-started transition must emit a scrollbar on this very frame"
     );
 }
+
+/// Enter past the bottom of the box must make the container a scroller on that
+/// very keystroke. A line holding only the caret after a hard break had a
+/// synthesized caret rect but no height in the measured content size, so the
+/// scroll size lagged the caret by about a line: Enter x4 moved the caret out
+/// of the box with no scrollbar, and only the next letter (a glyph on that
+/// line) grew the content and brought the scrollbar.
+#[test]
+fn enter_past_the_bottom_makes_the_container_a_scroller_without_another_key() {
+    use azul_core::selection::GraphemeClusterId;
+
+    let mut h = Harness::new_with_text_area_on_macos(300.0, 90.0, "");
+    h.register_scroll_nodes();
+    h.start_editing(TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 0,
+        },
+        affinity: CursorAffinity::Leading,
+    });
+    let _ = h.type_str("hello");
+
+    let container = h.container_border_box();
+    let mut enters = 0;
+    loop {
+        let _ = h.type_str("\n");
+        enters += 1;
+        let caret = h
+            .lw
+            .get_focused_cursor_rect()
+            .expect("the caret has a rect on the new empty line");
+        if caret.origin.y + caret.size.height > container.origin.y + container.size.height {
+            break;
+        }
+        assert!(enters < 50, "harness: the caret never left a 90px box");
+    }
+
+    let keys = h.lw.scroll_manager.state_keys();
+    assert!(
+        keys.contains(&(DomId::ROOT_ID, NodeId::new(CONTAINER))),
+        "after {enters} Enters the caret is below the box, so the container must be a scroller \
+         already, got {keys:?}"
+    );
+    let info = h
+        .lw
+        .scroll_manager
+        .get_scroll_node_info(DomId::ROOT_ID, NodeId::new(CONTAINER))
+        .expect("scroll node info");
+    assert!(info.max_scroll_y > 0.0, "a usable vertical range, got {}", info.max_scroll_y);
+}
