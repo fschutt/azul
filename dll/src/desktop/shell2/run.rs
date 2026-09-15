@@ -1568,10 +1568,7 @@ pub fn run(
         // GWLP_USERDATA reached window_proc — i.e. now.
         (*window_ptr).finish_frameless_frame();
 
-        // Same deadline, same reason: the first frame was presented to a
-        // still-hidden window and the WM_PAINT that would have fixed it was
-        // answered (and validated away) by DefWindowProc. Put the update
-        // region back now that window_proc can see it.
+        // The first frame's repaint and size also needed window_proc.
         (*window_ptr).finish_first_frame();
 
         // Register the OLE drop target now that the window pointer is in the

@@ -974,7 +974,6 @@ impl CompositorState {
             ];
             // ...then placed at bounds.origin, then through the parent chain
             // (column-vector matrices: the rightmost factor applies first).
-            // On the device-pixel GRID — see `layout_offset_device_px`.
             let place = mat3_translation(
                 layout_offset_device_px(layer.bounds.origin.x, dpi),
                 layout_offset_device_px(layer.bounds.origin.y, dpi),
@@ -1088,8 +1087,7 @@ impl CompositorState {
             return;
         }
         let dpi = f64::from(dpi_factor);
-        // The exact inverse of `place` above plus the scroll offset, snapped
-        // the same way, so a nested layer's placement stays integral too.
+        // Inverse of `place`, snapped the same way.
         let child_base = mat3_mul(
             &this_h,
             &mat3_translation(
@@ -3577,25 +3575,7 @@ pub fn compare_region(
     diff_count
 }
 
-/// A LAYOUT-driven layer offset (its `bounds.origin`, its scroll offset),
-/// logical px, as a whole number of device pixels.
-///
-/// A layer's pixels are rasterised on its OWN device grid, starting at its
-/// origin. Placing it at the exact product `origin * dpi` put it at a
-/// fractional device position whenever that product was not integral — at
-/// 125 % that is nearly every layer — and a fractional translation cannot take
-/// the integer blit: it went through `blit_pixmap_affine_clipped`, which
-/// RESAMPLES the whole layer. Every scroll frame's crisp, grid-fitted text came
-/// out interpolated on both axes (the widgets demo's tree and list views, next
-/// to its sharp ribbon, which is drawn in the root layer). At 100 % and 200 %
-/// the products are integral, which is why it only ever showed at fractional
-/// scale factors.
-///
-/// Rounding moves a layer by at most half a device pixel against its parent's
-/// content, the same bound the CPU renderer already accepts for every other
-/// placement (glyph origins, clip rects, and `scroll_layer`'s pixel shift,
-/// which rounds its delta the same way). A layer's own `transform` is NOT
-/// snapped: an animated translation keeps its sub-pixel motion.
+/// Layout-driven layer offsets snap to whole device pixels so layers take the integer blit instead of being resampled.
 #[inline]
 fn layout_offset_device_px(logical: f32, dpi: f64) -> f64 {
     (f64::from(logical) * dpi).round()

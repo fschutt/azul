@@ -61,13 +61,7 @@ pub trait NativeScreenshotExt {
     /// Returns the screenshot as a "data:image/png;base64,..." string.
     fn take_native_screenshot_base64(&self) -> Result<AzString, AzString>;
 
-    /// [`Self::take_native_screenshot_bytes`], with the drop shadow decided per
-    /// call instead of by the environment.
-    ///
-    /// `None` keeps the [`screenshot_includes_shadow`] default. This is a
-    /// separate method rather than a parameter on the original because the
-    /// three methods above are part of the published FFI surface (`api.json`),
-    /// and the scenario runner is the only caller that needs to choose.
+    /// Like `take_native_screenshot_bytes`, with the shadow chosen per call (`None` = env default).
     fn take_native_screenshot_bytes_with(
         &self,
         render_shadow: Option<bool>,
@@ -411,13 +405,7 @@ fn take_native_screenshot_windows_bytes(
         fn PrintWindow(hWnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
     }
 
-    // DWMWA_EXTENDED_FRAME_BOUNDS. `GetWindowRect` on Windows 10/11 reports the
-    // window's INPUT bounds, which include the invisible resize border the DWM
-    // draws nothing into — about 8 px each side and below on a standard frame.
-    // Capturing that rect put black bands down the left, right and bottom of
-    // every screenshot: `PrintWindow` renders only the visible frame, leaving
-    // the rest of the bitmap at its initial (black) contents. This attribute is
-    // the rect the window actually OCCUPIES on screen.
+    // GetWindowRect includes the invisible resize border; this is the visible frame.
     const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
 
     #[link(name = "dwmapi")]
@@ -466,11 +454,7 @@ fn take_native_screenshot_windows_bytes(
             return Err(AzString::from("Invalid window dimensions"));
         }
 
-        // The visible frame, as an offset + size INSIDE the window rect.
-        // PrintWindow always renders the window at the origin of the target
-        // DC, so the bitmap stays window-rect sized and the crop happens when
-        // the pixels are read back. Falls back to the whole rect if the DWM
-        // declines the attribute (it is composition-dependent).
+        // Visible frame within the window rect; whole rect if the DWM declines.
         let (crop_x, crop_y, crop_w, crop_h) = {
             let mut efb = RECT {
                 left: 0,
@@ -564,12 +548,7 @@ fn take_native_screenshot_windows_bytes(
             for chunk in out.chunks_exact_mut(4) {
                 chunk.swap(0, 2);
             }
-            // `PrintWindow` renders the window and nothing else, and the DWM's
-            // own drop shadow is not readable through any public API — a screen
-            // grab of the margin would bring the desktop with it instead of
-            // transparency, which is exactly why the X11 path refuses to
-            // include one. So the shadow is DRAWN here, onto a transparent
-            // margin, when the caller asks for it.
+            // The DWM shadow cannot be captured with alpha, so it is drawn.
             let (out, crop_w, crop_h) = if render_shadow {
                 add_synthetic_shadow(out, crop_w as u32, crop_h as u32)
             } else {
@@ -838,10 +817,7 @@ pub(crate) fn screenshot_includes_shadow() -> bool {
     )
 }
 
-/// Resolve a per-capture `render_shadow` request against the environment
-/// default. `Some(_)` is the caller's explicit choice (the `render_shadow`
-/// field on the `take_native_screenshot` scenario op); `None` falls back to
-/// [`screenshot_includes_shadow`].
+/// An explicit `render_shadow` wins over `AZ_SCREENSHOT_SHADOW`.
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) fn wants_shadow(render_shadow: Option<bool>) -> bool {
     render_shadow.unwrap_or_else(screenshot_includes_shadow)
@@ -1223,24 +1199,7 @@ fn take_native_screenshot_xcb_bytes(
     ))
 }
 
-/// Wrap an RGBA window capture in a transparent margin carrying a drawn drop
-/// shadow, and return the enlarged buffer.
-///
-/// The DWM's real shadow cannot be captured. `PrintWindow` renders the window
-/// alone, the shadow lives OUTSIDE the window's bounds, and no public Windows
-/// API hands it back with an alpha channel — a screen grab of the margin gets
-/// the desktop wallpaper behind it instead of transparency, which is the same
-/// reason `take_native_screenshot_xlib_bytes` never includes one. What the
-/// website wants from a shadow is the LOOK, so this draws one.
-///
-/// It is an approximation on purpose, shaped to match the Windows 11 frame
-/// shadow: a rounded-rectangle silhouette the size of the window, pushed down
-/// by `OFFSET_Y`, blurred, and laid down in black at `PEAK_ALPHA`. The blur is
-/// three box passes, which converges on a Gaussian closely enough that no
-/// banding is visible at these radii and costs two linear scans per axis.
-///
-/// The window itself is composited on top at full opacity, so the frame is the
-/// real capture — only the margin is synthetic.
+/// Pads an RGBA capture with a transparent margin carrying a drawn Windows 11-style shadow.
 #[cfg(target_os = "windows")]
 fn add_synthetic_shadow(rgba: Vec<u8>, w: u32, h: u32) -> (Vec<u8>, u32, u32) {
     /// Transparent margin on every side, in px. Must exceed

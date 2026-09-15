@@ -2495,13 +2495,7 @@ pub enum DebugEvent {
 
     // Screenshots
     TakeScreenshot,
-    /// `{ "op": "take_native_screenshot", "render_shadow": true }` - grab the
-    /// real OS window, decorations included.
-    ///
-    /// `render_shadow` chooses whether the capture carries a drop shadow on a
-    /// transparent margin; omitted, it follows `AZ_SCREENSHOT_SHADOW` (on
-    /// unless explicitly turned off). Only the platforms that can deliver both
-    /// honour it.
+    /// `render_shadow` omitted follows AZ_SCREENSHOT_SHADOW.
     TakeNativeScreenshot {
         #[serde(default)]
         render_shadow: Option<bool>,

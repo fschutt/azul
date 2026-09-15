@@ -47,14 +47,7 @@ gleam = "0.15.1"
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-# agg-rust-azul is deliberately NOT patched here. It is azul's own fork
-# (github.com/fschutt/agg-rust), consumed from crates.io at the version
-# layout/Cargo.toml pins. A [patch] cannot stand in for a release: `cargo
-# publish` strips it, so a published azul-layout would silently build against
-# whatever the registry has — without the fork's changes — and the "no [patch]
-# on published deps" release gate rejects it, correctly. Land changes in the
-# fork, publish, then bump the pin. A local `path` patch is fine for iterating
-# on an unreleased fork change; it must never be committed.
+# agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
 # printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
 # azul-layout 0.0.13, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single

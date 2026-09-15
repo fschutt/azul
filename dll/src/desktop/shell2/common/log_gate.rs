@@ -118,11 +118,7 @@ fn echo_to_stderr() -> bool {
 /// queue and the `AZ_RECORD` file — it never touches the `log` facade — so the
 /// gate keeps ownership of stderr there.
 ///
-/// `e2e-scripting` selects that SAME `azul_layout::e2e::log` (see
-/// `debug_server/mod.rs`), and `build-dll` enables it, so the shipped library is
-/// in this case too. Keying the stub assumption on `debug-server` alone made
-/// the gate stand down for a facade copy that was never written: with `AZ_LOG`
-/// set, every `log_*!` record in the shipped DLL printed nowhere.
+/// `e2e-scripting` (enabled by build-dll) selects that same logger.
 #[cfg(all(
     feature = "std",
     feature = "logging",

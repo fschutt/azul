@@ -127,18 +127,7 @@ pub fn apply_env_theme_pin(
     adopt_theme_palette(style, wanted, light, dark);
 }
 
-/// Give `style` the palette of `wanted` — theme, colours, focus visuals and
-/// scrollbar — keeping everything that has no light/dark polarity, and the
-/// user's accent.
-///
-/// For discovery code whose THEME source and COLOUR source disagree. Windows
-/// is the case that needs it: the dark-mode switch lives in the registry
-/// (`AppsUseLightTheme`), but `GetSysColor` still reports the classic light
-/// system colours in dark mode, so a discovered dark theme came with a white
-/// window background — dark-theme text on white. Unlike
-/// [`apply_env_theme_pin`] this does not short-circuit when `style.theme`
-/// already equals `wanted`, because that equality is exactly what cannot be
-/// trusted here.
+/// Gives `style` the palette of `wanted`, keeping non-polar fields and the accent, even if `style.theme` already matches.
 pub fn adopt_theme_palette(
     style: &mut SystemStyle,
     wanted: Theme,

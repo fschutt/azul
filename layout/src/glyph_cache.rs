@@ -132,9 +132,7 @@ pub struct GlyphCache {
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
     /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
     lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
-    /// Stripe order of the panel this cache's window is on. Set by the
-    /// platform shell per monitor (see [`Self::set_lcd_subpixel_order`]);
-    /// every LCD blend reads it.
+    /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
 }
 
@@ -148,8 +146,7 @@ impl core::fmt::Debug for GlyphCache {
     }
 }
 
-/// Panel stripe order for LCD text, re-exported so platform shells can pass
-/// it to [`GlyphCache::set_lcd_subpixel_order`] without depending on agg.
+/// Re-exported for platform shells.
 pub use agg_rust::pixfmt_lcd::LcdSubpixelOrder;
 
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
@@ -209,12 +206,7 @@ impl GlyphCache {
         self.lcd_subpixel_order
     }
 
-    /// Blend LCD text for a panel with `order`. Returns whether it changed.
-    ///
-    /// A change drops the pre-blended LCD tiles: they hold finished pixels
-    /// for the old order. The glyph cells are stripe COVERAGE, which does not
-    /// depend on the order, and are kept. Pixels already on screen are the
-    /// caller's to repaint.
+    /// Drops the pre-blended tiles on a change; the caller repaints what is on screen.
     pub fn set_lcd_subpixel_order(&mut self, order: LcdSubpixelOrder) -> bool {
         if self.lcd_subpixel_order == order {
             return false;
@@ -368,10 +360,7 @@ impl GlyphCache {
         } else {
             quantize_subpx(glyph_x)
         };
-        // Every HINTED glyph keeps a grid-snapped baseline, rescaled or not:
-        // the rescale is horizontal only (`hinted_outline_scale`), so the
-        // outline's vertical grid fit survives and must not be undone by a
-        // fractional Y drop.
+        // Hinted glyphs keep a grid-snapped baseline (the rescale is horizontal only).
         let subpx_y = if is_hinted {
             0
         } else {
@@ -737,22 +726,7 @@ fn build_hinted_path(
     build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
 }
 
-/// Axis scales for a hinted outline built at the integer `ppem` and drawn at
-/// the fractional effective size `ppem * hint_correction`.
-///
-/// HORIZONTAL only. A hinted outline is grid-fitted at the integer ppem: its
-/// baseline, x-height, cap height and horizontal stems sit on whole pixels.
-/// Scaling it uniformly by `hint_correction` pushed all of that back off the
-/// grid — a 1.56 % stretch at 16.25 px (13 px text at 125 %) moved the bottom
-/// of every glyph into a half-covered row, and text rendered visibly soft
-/// wherever `font_size * dpi` was not a whole number, while text whose size
-/// happened to land on one stayed crisp right next to it. The widgets ribbon
-/// (sharp) above its tree and list views (blurry) was exactly that.
-///
-/// X still needs the correction: the shaper measured the advances at the true
-/// size, and a glyph left at the integer ppem would not fill them. Y does not —
-/// line boxes come from the font size, not from the outline, and leaving the
-/// outline at the integer ppem changes its height by at most half a pixel.
+/// Scaling Y would move the grid-fitted baseline and stems off the pixel grid.
 fn hinted_outline_scale(hint_correction: f32) -> (f64, f64) {
     (f64::from(hint_correction), 1.0)
 }

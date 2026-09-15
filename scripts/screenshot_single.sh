@@ -205,18 +205,7 @@ if [ ! -f "$HEADER_DIR/azul.h" ]; then
     exit 1
 fi
 
-# ── The C compiler actually runs ────────────────────────────────────────────
-# `int main(void){return 0;}`, before anything expensive. A compiler that is
-# BROKEN rather than absent fails here instead of seven times over as a bare
-# "<example>: failed to compile", which is what it looked like for a whole run:
-# gcc exited 1 having printed NOTHING, because `cc1.exe` could not start.
-#
-# On this machine the cause was the PATH. MSYS2's `/mingw64/bin` did not hold
-# the toolchain at all — an unrelated Windows app had taken the name — and it
-# sat ahead of `/ucrt64/bin`, so Windows resolved cc1's DLLs (libgmp, libmpfr,
-# libisl, ...) out of that directory and the process died before it could
-# report anything. `which gcc` pointed at the right binary throughout; nothing
-# short of running it shows this.
+# Probe the compiler first: a broken toolchain can exit 1 with no output (e.g. foreign DLLs on PATH shadowing cc1's).
 CC_BIN="gcc"; is_macos && CC_BIN="clang"
 cc_probe="$TEMP_ROOT/.cc-probe"
 mkdir -p "$cc_probe"
@@ -322,11 +311,7 @@ EOF
 #    the desktop makes the app DISCOVER it, through `discover()` and the
 #    portal, the same way it would for a user.
 #
-# So `AZ_THEME` is NOT set when the desktop can be switched: a pin would answer
-# the question this run exists to ask, and a light/dark pair produced under one
-# proves nothing about whether the app follows the system. It is set only as a
-# backstop where there is no desktop to switch — Xvfb, a bare WM — where it at
-# least themes the client area.
+# AZ_THEME only where there is no desktop to switch; otherwise the app must discover the theme itself.
 #
 # The desktop is put back the way it was found on ANY exit path (see the trap):
 # a script that leaves the machine in dark mode because that happened to be the
@@ -334,16 +319,7 @@ EOF
 DESKTOP_THEME_TOOL=""
 SAVED_DESKTOP_THEME=""
 
-# Switch Windows between light (1) and dark (0) the way the Settings app does.
-#
-# The two `Personalize` registry values are only the STORED setting. Writing
-# them changes nothing on screen: Explorer, the taskbar and every running app
-# keep their current appearance until someone broadcasts WM_SETTINGCHANGE with
-# "ImmersiveColorSet", which is what Settings sends after writing the same two
-# values. Without it only a freshly started process that re-reads the registry
-# noticed — the desktop around the capture never went dark, and the live
-# theme-change path in the app (its WM_SETTINGCHANGE handler) was never
-# exercised at all.
+# Light (1) / dark (0), written and broadcast like the Settings app does.
 windows_set_light_theme() {
     local v=$1
     powershell -NoProfile -Command "
@@ -612,15 +588,7 @@ compile_example() {
             -lpthread -lm -ldl \
             -Wl,-rpath,"$LIB_DIR"
     else
-        # The DLL BY PATH, not `-L... -lazul`. `dll/Cargo.toml` asks for
-        # ["cdylib", "staticlib", "rlib"], so the same directory holds
-        # `azul.dll` + `azul.dll.lib` AND a 472 MB `azul.lib` — the MSVC
-        # STATICLIB. MinGW ld tries `azul.lib` before `libazul.dll` when it
-        # resolves `-lazul`, picks the staticlib, and then cannot link the
-        # MSVC-only symbols inside it: hundreds of "undefined reference to
-        # `__security_check_cookie' / `?_Throw_Cpp_error@std@@YAXH@Z'" out of
-        # the bundled vk-mem objects. Naming the DLL leaves ld nothing to
-        # guess at.
+        # The DLL by path: -lazul would pick the static azul.lib in the same directory.
         gcc -o "$bin" -I"$HEADER_DIR" "$src" \
             "$LIB_DIR/libazul.dll" \
             -lopengl32 -lgdi32 -luser32 -lkernel32 -lm

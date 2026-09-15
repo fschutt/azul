@@ -133,14 +133,7 @@ struct NativeDib {
     ptr: *mut u8,
     w: i32,
     h: i32,
-    /// Whether the renderer has drawn a frame into this DIB yet.
-    ///
-    /// The native backbuffer IS the retained frame: in native mode the
-    /// renderer draws straight into the DIB and never fills
-    /// `CpuBackend::last_frame`, which stays `None`. The legacy re-present
-    /// fallback ("an unchanged frame still re-presents in full from the
-    /// retained pixmap") is written against that pixmap, so it could not fire
-    /// here at all. This flag is what makes the same fallback expressible.
+    /// Whether a frame has been rendered into this DIB (it is the retained frame).
     has_frame: bool,
 }
 
@@ -176,9 +169,7 @@ pub struct Win32Window {
     /// former per-backend glyph_cache / retained_pixmap / previous_display_list.
     #[cfg(feature = "cpurender")]
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
-    /// The monitor whose panel stripe order LCD text is currently blended
-    /// for (`MonitorFromWindow` identity, 0 before the first check). See
-    /// [`Win32Window::sync_panel_subpixel_order`].
+    /// Monitor the LCD stripe order was last read for.
     #[cfg(feature = "cpurender")]
     panel_monitor: isize,
     /// Cached BGRA conversion buffer reused across CPU frames
@@ -956,11 +947,8 @@ impl Win32Window {
                         .windows_options,
                 );
             }
-            // Same deadline for the caption colour: set before the first show,
-            // or a dark window flashes a light title bar.
+            // Before the first show, so a dark window never flashes a light caption.
             result.apply_titlebar_theme();
-            // And for the panel's stripe order: the first frame's text is
-            // blended for whichever monitor the window was created on.
             #[cfg(feature = "cpurender")]
             result.sync_panel_subpixel_order(true);
 
@@ -1317,10 +1305,7 @@ impl Win32Window {
                                                             ptr: bits as *mut u8,
                                                             w: native_pw,
                                                             h: native_ph,
-                                                            // Freshly created (also on every
-                                                            // resize): nothing has been drawn
-                                                            // into it, so it must not be
-                                                            // presented as if it held a frame.
+                                                            // Nothing rendered into a new DIB yet.
                                                             has_frame: false,
                                                         });
                                                     } else {
@@ -1379,34 +1364,7 @@ impl Win32Window {
                             // leave a pointer into the DIB armed across frames.
                             self.cpu_backend.native_target = None;
 
-                            // #27: the pixels are already in the DIB section —
-                            // presenting is a BitBlt from its memory DC.
-                            //
-                            // The condition is "the DIB HOLDS a frame", not
-                            // "this call rendered one". `render_frame` returns
-                            // early with `rendered_native == false` whenever
-                            // nothing changed, and the old code then fell
-                            // through to the `last_frame` branch — which in
-                            // native mode is permanently `None`, because the
-                            // renderer draws into the DIB instead of a pixmap.
-                            // So every WM_PAINT that found no new damage
-                            // presented nothing at all.
-                            //
-                            // That is what left the window BLANK on Windows.
-                            // The first frame is rendered from inside
-                            // `create()` and blitted while the window is still
-                            // HIDDEN (it is shown only once a frame has
-                            // content, to avoid a white flash), so those pixels
-                            // go nowhere; every later WM_PAINT then declined to
-                            // re-present, and the window stayed white until a
-                            // resize forced fresh damage. The GPU path escaped
-                            // it — `SwapBuffers` is retained by the DWM — which
-                            // is why only the `opengl` example looked right.
-                            //
-                            // No new damage means present the FULL window:
-                            // WM_PAINT can mean "uncovered, repaint
-                            // everything", the same reason the legacy path maps
-                            // `FrameDamage::None` to one full-window rect.
+                            // Present whenever the DIB holds a frame: an unchanged frame re-presents in full.
                             let dib_has_frame =
                                 self.native_dib.as_ref().map_or(false, |d| d.has_frame);
                             let rendered_now = self.cpu_backend.rendered_native;
@@ -2696,37 +2654,7 @@ impl Win32Window {
         }
     }
 
-    /// Re-present the first frame to a window that was PAINTED WHILE HIDDEN.
-    /// Call once, right after `GWLP_USERDATA` is set — like
-    /// [`Self::finish_frameless_frame`], and for the same underlying reason.
-    ///
-    /// The first frame is rendered from inside `create()`, before the
-    /// `Win32Window` is boxed, so `create_hwnd` is handed a NULL user pointer
-    /// ("User data will be set later") and `window_proc` early-returns to
-    /// `DefWindowProc` for every message until registration. Two things land on
-    /// that first frame:
-    ///
-    ///  * The CPU path presents by blitting to `GetDC(hwnd)`, and at that moment the window is
-    ///    still HIDDEN — it is shown only once a frame has content, to avoid a white flash. Pixels
-    ///    blitted to a hidden window go nowhere.
-    ///  * The `ShowWindow` + `UpdateWindow` that follows does raise the WM_PAINT that would fix
-    ///    that — but it arrives while `GWLP_USERDATA` is still NULL, so `DefWindowProc` answers it,
-    ///    and `DefWindowProc` VALIDATES the update region. The class has no background brush
-    ///    (`hbrBackground = NULL`), so it paints nothing on the way past.
-    ///
-    /// The window is then visible, empty, and fully valid: nothing invalidates
-    /// it again, so WM_PAINT is never synthesized and `render_and_present` is
-    /// never called a second time. One `InvalidateRect` here puts the update
-    /// region back now that `window_proc` can see it.
-    ///
-    /// The SIZE is lost the same way. The show gate applies the initial frame
-    /// with `ShowWindow(SW_MAXIMIZE)` for a window created `Maximized`, and the
-    /// `WM_SIZE` that maximize produces also reaches `DefWindowProc`. The app
-    /// never hears about it, so the layout stays at the creation size inside a
-    /// maximized window — the `opengl` example laid out its 100%-sized body at
-    /// the 640x480 default in the top-left corner of the screen. If the client
-    /// area no longer matches the size the layout was done at, replay the
-    /// `WM_SIZE` through `window_proc` so it takes the normal resize path.
+    /// The first frame was presented while hidden and before window_proc was reachable: repaint and resync the size.
     pub fn finish_first_frame(&mut self) {
         unsafe {
             let mut cr: dlopen::RECT = std::mem::zeroed();
@@ -2757,27 +2685,15 @@ impl Win32Window {
         }
     }
 
-    /// Blend LCD text for the stripe order of the monitor this window is on.
-    ///
-    /// The order belongs to the PANEL, so it is checked before the first
-    /// frame, whenever the window may have landed on a different monitor
-    /// (WM_MOVE, which a DPI change and a monitor hand-off both produce), and
-    /// with `force` when the answer itself may have changed without the
-    /// window moving (the ClearType tuner, a display reconfiguration).
-    ///
-    /// `MonitorFromWindow` is cheap, so an unforced call that finds the same
-    /// monitor returns at once and a drag costs nothing extra. When the order
-    /// does change, every glyph already on screen was blended for the old one
-    /// and the display-list diff cannot know that, so the next frame is a full
-    /// repaint.
+    /// Re-reads the panel's LCD stripe order when the window may have changed monitors.
     #[cfg(feature = "cpurender")]
     pub fn sync_panel_subpixel_order(&mut self, force: bool) {
-        let monitor = subpixel::monitor_of(self.hwnd);
+        let monitor = subpixel::monitor_of(&self.win32.user32, self.hwnd);
         if monitor == self.panel_monitor && !force {
             return;
         }
         self.panel_monitor = monitor;
-        let order = subpixel::subpixel_order_of(monitor);
+        let order = subpixel::subpixel_order_of(&self.win32.user32, monitor);
         if self.cpu_backend.glyph_cache.set_lcd_subpixel_order(order) {
             log_debug!(
                 LogCategory::Rendering,
@@ -2792,17 +2708,7 @@ impl Win32Window {
         }
     }
 
-    /// Make the DWM-drawn title bar and frame follow the window's theme.
-    ///
-    /// A Win32 caption is light unless the window opts in with
-    /// `DWMWA_USE_IMMERSIVE_DARK_MODE`; the system's dark-mode setting alone
-    /// does not reach it. Without this a dark-themed window kept a light title
-    /// bar above a dark client area. Called before the first show and again
-    /// whenever the theme changes, from the system or from the app.
-    ///
-    /// Attribute 20 is the documented value from Windows 10 20H1 on; builds
-    /// before that shipped the same switch undocumented as 19, so a rejected 20
-    /// retries with 19. Anything older has no dark caption and ignores both.
+    /// Dark caption for a dark theme (attribute 20, or 19 before Windows 10 20H1).
     pub fn apply_titlebar_theme(&self) {
         let Some(ref dwmapi) = self.win32.dwmapi_funcs else {
             return;
@@ -2844,8 +2750,7 @@ impl Win32Window {
             None => return, // First frame, nothing to sync
         };
 
-        // Theme changed by the app (a system change arrives through
-        // WM_SETTINGCHANGE, which re-applies it there).
+        // App-driven theme change (system changes arrive via WM_SETTINGCHANGE).
         if previous.theme != current.theme {
             self.apply_titlebar_theme();
         }
@@ -4707,8 +4612,7 @@ unsafe extern "system" fn window_proc(
                 |ws| ws.position = pos,
             );
 
-            // A move is how a window reaches another monitor; its panel may have
-            // the other LCD stripe order. Free when the monitor is unchanged.
+            // A move can land on a monitor with a different stripe order.
             #[cfg(feature = "cpurender")]
             window.sync_panel_subpixel_order(false);
 
@@ -6603,8 +6507,7 @@ unsafe extern "system" fn window_proc(
             // nothing, which is what keeps dragging a window between displays
             // from looking like an unplug.
             //
-            // A reconfiguration can also swap which panel sits behind the same
-            // monitor handle, so re-read its stripe order regardless.
+            // A display change can swap the panel behind the same monitor handle.
             #[cfg(feature = "cpurender")]
             window.sync_panel_subpixel_order(true);
             if let Some(ref mut lw) = window.common.layout_window {
@@ -6933,9 +6836,7 @@ unsafe extern "system" fn window_proc(
             // `adopt_system_style` makes an unnecessary re-discovery free of
             // RELAYOUT, but not free of the discovery itself, which is the
             // expensive half.
-            // The ClearType tuner announces a new stripe order as a
-            // SPI_SETFONTSMOOTHING* change, which is not "appearance" for the
-            // filter below — check it first. Both reads are cheap syscalls.
+            // The ClearType tuner changes the stripe order without the window moving.
             #[cfg(feature = "cpurender")]
             if msg == WM_SETTINGCHANGE {
                 const SPI_SETFONTSMOOTHING: usize = 0x004B;
@@ -6964,8 +6865,6 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.theme = new_theme,
             );
-            // OS-sourced, so the sync diff above never sees it: follow the
-            // system with the caption here.
             window.apply_titlebar_theme();
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);

@@ -282,12 +282,7 @@ pub struct CpuBackend {
     /// backdrop standing everywhere the diff found nothing, so the window ends
     /// up half light and half dark until something else forces a full repaint.
     pub last_clear_color: Option<[u8; 4]>,
-    /// Repaint the next frame in full, whatever the display-list diff says.
-    ///
-    /// For changes the diff cannot see because they are not in the display
-    /// list at all — the window moving to a monitor whose panel has a
-    /// different LCD stripe order leaves every glyph on screen blended for
-    /// the old one. Consumed by the next `render_frame`.
+    /// Repaint the next frame in full (for changes outside the display list); consumed by `render_frame`.
     pub force_full_repaint: bool,
     /// Implied by `transparent`: after every frame the window's shape (the
     /// rectangles of opaque-enough pixels, physical px) is computed into
