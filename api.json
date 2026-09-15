@@ -2747,7 +2747,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+                            "description": "Download the native library, the generated binding into lib/ (where `require \"azul\"` looks, as after `shards install`) and the hello-world, then build with crystal",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2755,7 +2755,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                                    "content": "mkdir -p lib && curl -o lib/azul.cr $HOSTNAME/ui/release/$VERSION/lib/azul.cr"
                                 },
                                 {
                                     "type": "command",
@@ -2777,7 +2777,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+                            "description": "Download the native library, the generated binding into lib/ (where `require \"azul\"` looks, as after `shards install`) and the hello-world, then build with crystal",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2785,7 +2785,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                                    "content": "mkdir -p lib && curl -o lib/azul.cr $HOSTNAME/ui/release/$VERSION/lib/azul.cr"
                                 },
                                 {
                                     "type": "command",
@@ -2807,7 +2807,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+                            "description": "Download the native library, the generated binding into lib/ (where `require \"azul\"` looks, as after `shards install`) and the hello-world, then build with crystal",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2819,7 +2819,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                                    "content": "mkdir lib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o lib/azul.cr $HOSTNAME/ui/release/$VERSION/lib/azul.cr"
                                 },
                                 {
                                     "type": "command",
@@ -2827,7 +2831,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "crystal build hello-world.cr --link-flags \"/LIBPATH:. azul.dll.lib\""
+                                    "content": "crystal build hello-world.cr --link-flags azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -2837,7 +2841,7 @@
                         }
                     ],
                     "bundle": {
-                        "azul.cr": "azul.cr",
+                        "lib/azul.cr": "lib/azul.cr",
                         "hello-world.cr": "hello-world.cr"
                     }
                 },
@@ -6153,7 +6157,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6169,7 +6173,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -6183,7 +6191,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6199,7 +6207,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -6213,11 +6225,15 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -6229,7 +6245,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world.exe"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift azul.dll.lib -o AzulSwift.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "swiftc -I. hello-world.swift AzulSwift.lib azul.dll.lib -o hello-world.exe"
                                 },
                                 {
                                     "type": "command",
