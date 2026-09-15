@@ -769,6 +769,9 @@ jobs:
       - name: Check azul-dll with svg and xml
         run: cargo check -p azul-dll --no-default-features --features "link-static,svg,xml"
 
+      - name: Check azul-dll with the iroh transport
+        run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y,iroh"
+
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
 
@@ -821,6 +824,13 @@ jobs:
           ./scripts/zero_test_guard.sh --strict dll-lib.txt
           if ! grep -qE '^test desktop::shell2::windows::' dll-lib.txt; then
             echo "::error::no desktop::shell2::windows::* test ran - the Win32 backend is still untested."
+            exit 1
+          fi
+          # The iroh engine is `cfg(az_iroh_engine)`: a target or feature slip compiles it out
+          # silently, and its loopback test (a real QUIC connection between two endpoints) is the
+          # only thing that exercises the transport at all.
+          if ! grep -qE '^test desktop::extra::iroh::engine::' dll-lib.txt; then
+            echo "::error::no desktop::extra::iroh::engine::* test ran - the iroh transport is compiled out."
             exit 1
           fi
 
