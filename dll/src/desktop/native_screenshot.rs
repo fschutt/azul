@@ -369,81 +369,17 @@ fn take_native_screenshot_windows_bytes(
         return Err(AzString::from("Invalid window handle"));
     }
 
-    type HWND = *mut core::ffi::c_void;
-    type HDC = *mut core::ffi::c_void;
-    type HBITMAP = *mut core::ffi::c_void;
-    type BOOL = i32;
-
-    #[repr(C)]
-    struct RECT {
-        left: i32,
-        top: i32,
-        right: i32,
-        bottom: i32,
-    }
-
-    #[repr(C)]
-    struct BITMAPINFOHEADER {
-        biSize: u32,
-        biWidth: i32,
-        biHeight: i32,
-        biPlanes: u16,
-        biBitCount: u16,
-        biCompression: u32,
-        biSizeImage: u32,
-        biXPelsPerMeter: i32,
-        biYPelsPerMeter: i32,
-        biClrUsed: u32,
-        biClrImportant: u32,
-    }
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn GetWindowRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
-        fn GetWindowDC(hWnd: HWND) -> HDC;
-        fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
-        fn PrintWindow(hWnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
-    }
+    use crate::desktop::shell2::windows::dlopen::{BitmapInfoHeader, Win32Libraries, DIB_RGB_COLORS, RECT};
 
     // GetWindowRect includes the invisible resize border; this is the visible frame.
     const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
 
-    #[link(name = "dwmapi")]
-    extern "system" {
-        fn DwmGetWindowAttribute(
-            hwnd: HWND,
-            dwAttribute: u32,
-            pvAttribute: *mut core::ffi::c_void,
-            cbAttribute: u32,
-        ) -> i32;
-    }
-
-    #[link(name = "gdi32")]
-    extern "system" {
-        fn CreateCompatibleDC(hdc: HDC) -> HDC;
-        fn CreateCompatibleBitmap(hdc: HDC, cx: i32, cy: i32) -> HBITMAP;
-        fn SelectObject(hdc: HDC, h: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
-        fn DeleteDC(hdc: HDC) -> BOOL;
-        fn DeleteObject(ho: *mut core::ffi::c_void) -> BOOL;
-        fn GetDIBits(
-            hdc: HDC,
-            hbm: HBITMAP,
-            start: u32,
-            cLines: u32,
-            lpvBits: *mut u8,
-            lpbmi: *mut BITMAPINFOHEADER,
-            usage: u32,
-        ) -> i32;
-    }
+    let win32 = Win32Libraries::shared().ok_or_else(|| AzString::from("user32/gdi32 unavailable"))?;
+    let (user32, gdi32) = (&win32.user32, &win32.gdi32);
 
     unsafe {
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
-        if GetWindowRect(hwnd, &mut rect) == 0 {
+        let mut rect = RECT::default();
+        if (user32.GetWindowRect)(hwnd, &mut rect) == 0 {
             return Err(AzString::from("Failed to get window rect"));
         }
 
@@ -456,18 +392,15 @@ fn take_native_screenshot_windows_bytes(
 
         // Visible frame within the window rect; whole rect if the DWM declines.
         let (crop_x, crop_y, crop_w, crop_h) = {
-            let mut efb = RECT {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            };
-            let ok = DwmGetWindowAttribute(
-                hwnd,
-                DWMWA_EXTENDED_FRAME_BOUNDS,
-                (&mut efb as *mut RECT).cast(),
-                core::mem::size_of::<RECT>() as u32,
-            ) == 0;
+            let mut efb = RECT::default();
+            let ok = win32.dwmapi_funcs.is_some_and(|dwm| {
+                (dwm.DwmGetWindowAttribute)(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    (&mut efb as *mut RECT).cast(),
+                    core::mem::size_of::<RECT>() as u32,
+                ) == 0
+            });
             let (x, y, w, h) = (
                 efb.left - rect.left,
                 efb.top - rect.top,
@@ -482,34 +415,34 @@ fn take_native_screenshot_windows_bytes(
             }
         };
 
-        let window_dc = GetWindowDC(hwnd);
+        let window_dc = (user32.GetWindowDC)(hwnd);
         if window_dc.is_null() {
             return Err(AzString::from("Failed to get window DC"));
         }
 
-        let mem_dc = CreateCompatibleDC(window_dc);
+        let mem_dc = (gdi32.CreateCompatibleDC)(window_dc);
         if mem_dc.is_null() {
-            ReleaseDC(hwnd, window_dc);
+            (user32.ReleaseDC)(hwnd, window_dc);
             return Err(AzString::from("Failed to create compatible DC"));
         }
 
-        let bitmap = CreateCompatibleBitmap(window_dc, width, height);
+        let bitmap = (gdi32.CreateCompatibleBitmap)(window_dc, width, height);
         if bitmap.is_null() {
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, window_dc);
+            (gdi32.DeleteDC)(mem_dc);
+            (user32.ReleaseDC)(hwnd, window_dc);
             return Err(AzString::from("Failed to create bitmap"));
         }
 
-        let old_bitmap = SelectObject(mem_dc, bitmap);
+        let old_bitmap = (gdi32.SelectObject)(mem_dc, bitmap);
 
         let result = (|| -> Result<Vec<u8>, AzString> {
             const PW_RENDERFULLCONTENT: u32 = 2;
-            if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
+            if (user32.PrintWindow)(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
                 return Err(AzString::from("PrintWindow failed"));
             }
 
-            let mut bmi = BITMAPINFOHEADER {
-                biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            let mut bmi = BitmapInfoHeader {
+                biSize: core::mem::size_of::<BitmapInfoHeader>() as u32,
                 biWidth: width,
                 biHeight: -height, // Top-down DIB
                 biPlanes: 1,
@@ -525,14 +458,14 @@ fn take_native_screenshot_windows_bytes(
             let row_bytes = (width * 4) as usize;
             let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
 
-            if GetDIBits(
+            if (gdi32.GetDIBits)(
                 mem_dc,
                 bitmap,
                 0,
                 height as u32,
-                pixels.as_mut_ptr(),
-                &mut bmi,
-                0,
+                pixels.as_mut_ptr().cast(),
+                (&mut bmi as *mut BitmapInfoHeader).cast(),
+                DIB_RGB_COLORS,
             ) == 0
             {
                 return Err(AzString::from("GetDIBits failed"));
@@ -558,10 +491,10 @@ fn take_native_screenshot_windows_bytes(
             encode_rgba_png(out, crop_w, crop_h).map_err(AzString::from)
         })();
 
-        SelectObject(mem_dc, old_bitmap);
-        DeleteObject(bitmap);
-        DeleteDC(mem_dc);
-        ReleaseDC(hwnd, window_dc);
+        (gdi32.SelectObject)(mem_dc, old_bitmap);
+        (gdi32.DeleteObject)(bitmap);
+        (gdi32.DeleteDC)(mem_dc);
+        (user32.ReleaseDC)(hwnd, window_dc);
 
         result
     }

@@ -2693,7 +2693,7 @@ impl Win32Window {
             return;
         }
         self.panel_monitor = monitor;
-        let order = subpixel::subpixel_order_of(&self.win32.user32, monitor);
+        let order = subpixel::subpixel_order_of(&self.win32, monitor);
         if self.cpu_backend.glyph_cache.set_lcd_subpixel_order(order) {
             log_debug!(
                 LogCategory::Rendering,

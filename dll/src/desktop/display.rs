@@ -217,35 +217,11 @@ mod windows {
     use std::ptr;
 
     use super::*;
-
-    // Windows API structures and functions
-    #[repr(C)]
-    struct RECT {
-        left: i32,
-        top: i32,
-        right: i32,
-        bottom: i32,
-    }
-
-    #[repr(C)]
-    struct MONITORINFOEXW {
-        monitor_info: MONITORINFO,
-        sz_device: [u16; 32], // CCHDEVICENAME = 32
-    }
-
-    #[repr(C)]
-    struct MONITORINFO {
-        cb_size: u32,
-        rc_monitor: RECT,
-        rc_work: RECT,
-        dw_flags: u32,
-    }
+    use crate::desktop::shell2::windows::dlopen::{
+        Win32Libraries, BOOL, HDC, HMONITOR, LPARAM, MONITORINFOEXW, RECT,
+    };
 
     const MONITORINFOF_PRIMARY: u32 = 0x00000001;
-
-    type HMONITOR = *mut std::ffi::c_void;
-    type HDC = *mut std::ffi::c_void;
-    type HWND = *mut std::ffi::c_void;
 
     // NOTE: DEVMODEW contains a union at offset 44 (position/orientation for displays
     // vs. printer fields). We flatten it to display-only fields since we only query
@@ -290,59 +266,33 @@ mod windows {
     const DM_DISPLAYFREQUENCY: u32 = 0x00400000;
     const ENUM_CURRENT_SETTINGS: u32 = 0xFFFFFFFF;
 
-    #[link(name = "user32")]
-    extern "system" {
-        fn EnumDisplayMonitors(
-            hdc: HDC,
-            lprc_clip: *const RECT,
-            lpfn_enum: extern "system" fn(HMONITOR, HDC, *mut RECT, isize) -> i32,
-            dw_data: isize,
-        ) -> i32;
-
-        fn GetMonitorInfoW(hmonitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
-
-        fn EnumDisplaySettingsW(
-            lpsz_device_name: *const u16,
-            i_mode_num: u32,
-            lp_dev_mode: *mut DEVMODEW,
-        ) -> i32;
-    }
-
-    #[link(name = "shcore")]
-    extern "system" {
-        fn GetDpiForMonitor(
-            hmonitor: HMONITOR,
-            dpi_type: u32,
-            dpi_x: *mut u32,
-            dpi_y: *mut u32,
-        ) -> i32;
-    }
-
     // Callback context for EnumDisplayMonitors
     struct EnumContext {
         displays: Vec<DisplayInfo>,
         monitor_id: usize,
+        win32: &'static Win32Libraries,
     }
 
-    extern "system" fn monitor_enum_proc(
+    unsafe extern "system" fn monitor_enum_proc(
         hmonitor: HMONITOR,
         _hdc: HDC,
         _lprc_monitor: *mut RECT,
-        dw_data: isize,
-    ) -> i32 {
+        dw_data: LPARAM,
+    ) -> BOOL {
         unsafe {
             let context = &mut *(dw_data as *mut EnumContext);
+            let win32 = context.win32;
 
             // Get monitor info
             let mut monitor_info: MONITORINFOEXW = std::mem::zeroed();
-            monitor_info.monitor_info.cb_size = std::mem::size_of::<MONITORINFOEXW>() as u32;
+            monitor_info.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
 
-            if GetMonitorInfoW(hmonitor, &mut monitor_info.monitor_info as *mut MONITORINFO) == 0 {
+            if (win32.user32.GetMonitorInfoW)(hmonitor, &mut monitor_info) == 0 {
                 return 1; // Continue enumeration
             }
 
             // Extract monitor bounds
-            let rc_monitor = &monitor_info.monitor_info.rc_monitor;
+            let rc_monitor = &monitor_info.rcMonitor;
             let bounds = LogicalRect::new(
                 LogicalPosition::new(rc_monitor.left as f32, rc_monitor.top as f32),
                 LogicalSize::new(
@@ -352,7 +302,7 @@ mod windows {
             );
 
             // Extract work area (bounds minus taskbar)
-            let rc_work = &monitor_info.monitor_info.rc_work;
+            let rc_work = &monitor_info.rcWork;
             let work_area = LogicalRect::new(
                 LogicalPosition::new(rc_work.left as f32, rc_work.top as f32),
                 LogicalSize::new(
@@ -364,15 +314,17 @@ mod windows {
             // Get DPI (Windows 8.1+)
             let mut dpi_x: u32 = 96;
             let mut dpi_y: u32 = 96;
-            let _ = GetDpiForMonitor(hmonitor, 0, &mut dpi_x, &mut dpi_y); // MDT_EFFECTIVE_DPI = 0
+            if let Some(shcore) = win32.shcore {
+                let _ = (shcore.GetDpiForMonitor)(hmonitor, 0, &mut dpi_x, &mut dpi_y); // MDT_EFFECTIVE_DPI = 0
+            }
 
             let scale_factor = (dpi_x as f32) / 96.0;
 
             // Check if primary monitor
-            let is_primary = (monitor_info.monitor_info.dw_flags & MONITORINFOF_PRIMARY) != 0;
+            let is_primary = (monitor_info.dwFlags & MONITORINFOF_PRIMARY) != 0;
 
             // Convert device name from UTF-16
-            let name = String::from_utf16_lossy(&monitor_info.sz_device)
+            let name = String::from_utf16_lossy(&monitor_info.szDevice)
                 .trim_end_matches('\0')
                 .to_string();
 
@@ -380,11 +332,11 @@ mod windows {
             let mut dev_mode: DEVMODEW = std::mem::zeroed();
             dev_mode.dm_size = std::mem::size_of::<DEVMODEW>() as u16;
 
-            let video_modes = if !monitor_info.sz_device.is_empty()
-                && EnumDisplaySettingsW(
-                    monitor_info.sz_device.as_ptr(),
+            let video_modes = if !monitor_info.szDevice.is_empty()
+                && (win32.user32.EnumDisplaySettingsW)(
+                    monitor_info.szDevice.as_ptr(),
                     ENUM_CURRENT_SETTINGS,
-                    &mut dev_mode,
+                    (&mut dev_mode as *mut DEVMODEW).cast(),
                 ) != 0
             {
                 // Check which fields are valid
@@ -453,42 +405,51 @@ mod windows {
 
     pub fn get_displays() -> Vec<DisplayInfo> {
         unsafe {
+            let win32 = Win32Libraries::shared();
             let mut context = EnumContext {
                 displays: Vec::new(),
                 monitor_id: 0,
+                win32: match win32 {
+                    Some(w) => w,
+                    None => return fallback_displays(),
+                },
             };
 
-            EnumDisplayMonitors(
+            (context.win32.user32.EnumDisplayMonitors)(
                 ptr::null_mut(),
                 ptr::null(),
-                monitor_enum_proc,
-                &mut context as *mut EnumContext as isize,
+                Some(monitor_enum_proc),
+                &mut context as *mut EnumContext as LPARAM,
             );
 
             // If enumeration failed or found no monitors, return fallback
             if context.displays.is_empty() {
-                vec![DisplayInfo {
-                    name: "Primary Monitor".to_string(),
-                    bounds: LogicalRect::new(
-                        LogicalPosition::zero(),
-                        LogicalSize::new(1920.0, 1080.0),
-                    ),
-                    work_area: LogicalRect::new(
-                        LogicalPosition::zero(),
-                        LogicalSize::new(1920.0, 1040.0),
-                    ),
-                    scale_factor: 1.0,
-                    is_primary: true,
-                    video_modes: vec![VideoMode {
-                        size: LayoutSize::new(1920, 1080),
-                        bit_depth: 32,
-                        refresh_rate: 60,
-                    }],
-                }]
+                fallback_displays()
             } else {
                 context.displays
             }
         }
+    }
+
+    fn fallback_displays() -> Vec<DisplayInfo> {
+        vec![DisplayInfo {
+            name: "Primary Monitor".to_string(),
+            bounds: LogicalRect::new(
+                LogicalPosition::zero(),
+                LogicalSize::new(1920.0, 1080.0),
+            ),
+            work_area: LogicalRect::new(
+                LogicalPosition::zero(),
+                LogicalSize::new(1920.0, 1040.0),
+            ),
+            scale_factor: 1.0,
+            is_primary: true,
+            video_modes: vec![VideoMode {
+                size: LayoutSize::new(1920, 1080),
+                bit_depth: 32,
+                refresh_rate: 60,
+            }],
+        }]
     }
 }
 
