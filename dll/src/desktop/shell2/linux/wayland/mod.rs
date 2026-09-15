@@ -2164,13 +2164,6 @@ impl WaylandWindow {
                 })?;
         }
 
-        // Initialize monitor cache once at window creation
-        if let Some(ref lw) = window.common.layout_window {
-            if let Ok(mut guard) = lw.monitors.lock() {
-                *guard = crate::desktop::display::get_monitors();
-            }
-        }
-
         // 'static: the proxy keeps the pointer (a stack-local would be a
         // use-after-free once globals arrive after this frame, e.g. hotplug).
         static REGISTRY_LISTENER: defines::wl_registry_listener = defines::wl_registry_listener {
@@ -2191,6 +2184,25 @@ impl WaylandWindow {
         // leaving wl_compositor/xdg_wm_base unbound (null) → segfault below in
         // create_surface. Use the queue-aware roundtrip.
         unsafe { (window.wayland.wl_display_roundtrip_queue)(display, window.event_queue) };
+        // A SECOND roundtrip before the monitor cache is seeded. Each
+        // wl_output bound above describes itself (geometry, mode, scale,
+        // done) only in reply to that bind, so those events are still queued
+        // here. Seeding first meant `get_monitors()` found no compositor
+        // answer and fell through to the CLI chain on EVERY launch, spawning
+        // swaymsg / hyprctl / kscreen-doctor / wlr-randr from the UI thread.
+        // On KDE Plasma with the NVIDIA driver `kscreen-doctor -o --json`
+        // aborts inside libnvidia-eglcore, so each Azul app start put a crash
+        // notification on the desktop. Once this roundtrip has run,
+        // `wl_output_done_handler` has published the outputs and the seed
+        // below reads them.
+        unsafe { (window.wayland.wl_display_roundtrip_queue)(display, window.event_queue) };
+
+        // Initialize monitor cache once at window creation
+        if let Some(ref lw) = window.common.layout_window {
+            if let Ok(mut guard) = lw.monitors.lock() {
+                *guard = crate::desktop::display::get_monitors();
+            }
+        }
 
         if window.compositor.is_null() || window.xdg_wm_base.is_null() {
             return Err(WindowError::PlatformError(
