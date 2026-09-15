@@ -1146,9 +1146,11 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "d/hello-world.d",
         source: BindingSource::Examples,
     },
-    // crystal: single `lib LibAzul`, required as a sibling `./azul`.
+    // crystal: the example does `require "azul"`, which Crystal resolves
+    // through `lib/` (where `shards install` puts dependencies), so the
+    // single-file binding ships as `lib/azul.cr` next to the example.
     BindingFile {
-        dst: "azul.cr",
+        dst: "lib/azul.cr",
         src: "azul.cr",
         source: BindingSource::Codegen,
     },

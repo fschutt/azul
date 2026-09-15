@@ -1,96 +1,38 @@
-require "./azul"
+# Hello World: a counter and a button that increments it.
+#
+# Build (with libazul next to this file):
+#   crystal build hello-world.cr --link-flags "-L."
+require "azul"
 
-module MyData
-  struct Model
-    property counter : UInt32
+# The application state is an ordinary Crystal object. libazul keeps it alive
+# and hands it back to every callback with its own type.
+class Counter
+  property count : Int32
 
-    def initialize(@counter : UInt32)
-    end
-  end
-
-  TOKEN = Pointer(UInt8).malloc(1)
-
-  def self.type_id : UInt64
-    TOKEN.address.to_u64
-  end
-
-  DESTRUCTOR = ->(_ptr : Void*) { }
-
-  def self.upcast(model : Model) : LibAzul::AzRefAny
-    # AzRefAny_newC copies the bytes into its own allocation, so a stack
-    # local is fine; run_destructor=false = don't free the caller's ptr.
-    local = model
-    type_name = "Model"
-    name = LibAzul.azString_fromUtf8(type_name.to_unsafe, LibC::SizeT.new(type_name.bytesize))
-
-    wrapper = LibAzul::AzGlVoidPtrConst.new
-    wrapper.ptr = pointerof(local).as(Void*)
-    wrapper.run_destructor = false
-
-    LibAzul.azRefAny_newC(
-      wrapper,
-      LibC::SizeT.new(sizeof(Model)),
-      LibC::SizeT.new(alignof(Model)),
-      type_id,
-      name,
-      DESTRUCTOR,
-      LibC::SizeT.new(0), # no serialize_fn
-      LibC::SizeT.new(0)  # no deserialize_fn
-    )
-  end
-
-  def self.downcast(refany : LibAzul::AzRefAny*) : Model*
-    return Pointer(Model).null unless LibAzul.azRefAny_isType(refany, type_id)
-    ptr = LibAzul.azRefAny_getDataPtr(refany)
-    return Pointer(Model).null if ptr.null?
-    ptr.as(Model*)
+  def initialize(@count = 5)
   end
 end
 
-# Non-capturing proc → bare C function pointer.
-ON_CLICK = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzCallbackInfo) : LibAzul::AzUpdate {
-  d = data
-  m = MyData.downcast(pointerof(d))
-  next LibAzul::AzUpdate::DoNothing if m.null?
-  m.value.counter += 1
-  LibAzul::AzUpdate::RefreshDom
-}
+def layout(counter : Counter, info : Azul::LayoutCallbackInfo) : Azul::Dom
+  label = Azul::Dom.p_with_text(counter.count.to_s)
+    .with_css("font-size: 32px; margin: 0;")
 
-LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : LibAzul::AzDom {
-  d = data
-  m = MyData.downcast(pointerof(d))
-  next LibAzul.azDom_createBody if m.null?
+  button = Azul::Button.new("Increase counter")
+    .with_button_type(:primary)
+    .with_on_click(counter) do |counter, _info|
+      counter.count += 1
+      Azul::Update::RefreshDom
+    end
 
-  text = m.value.counter.to_s
-  counter_str = LibAzul.azString_fromUtf8(text.to_unsafe, LibC::SizeT.new(text.bytesize))
-  label = LibAzul.azDom_createPWithText(counter_str)
+  Azul::Dom.body
+    .with_child(label)
+    .with_child(button.dom)
+end
 
-  LibAzul.azDom_setCss(pointerof(label), LibAzul.azString_fromUtf8("font-size: 32px; margin: 0;".to_unsafe, LibC::SizeT.new(27)))
+window = Azul::WindowCreateOptions.new(->layout(Counter, Azul::LayoutCallbackInfo))
+window.window_state.title = "Hello World"
+window.window_state.size.dimensions.width = 400
+window.window_state.size.dimensions.height = 300
 
-  btn_label = "Increase counter"
-  button = LibAzul.azButton_create(
-    LibAzul.azString_fromUtf8(btn_label.to_unsafe, LibC::SizeT.new(btn_label.bytesize))
-  )
-  LibAzul.azButton_setButtonType(pointerof(button), LibAzul::AzButtonType::Primary)
-  data_clone = LibAzul.azRefAny_clone(pointerof(d))
-  LibAzul.azButton_setOnClick(pointerof(button), data_clone, ON_CLICK)
-  button_dom = LibAzul.azButton_dom(button)
-
-  body = LibAzul.azDom_createBody
-  LibAzul.azDom_addChild(pointerof(body), label)
-  LibAzul.azDom_addChild(pointerof(body), button_dom)
-  body
-}
-
-model = MyData::Model.new(5_u32)
-data = MyData.upcast(model)
-
-window = LibAzul.azWindowCreateOptions_create(LAYOUT)
-title = "Hello World"
-window.window_state.title = LibAzul.azString_fromUtf8(title.to_unsafe, LibC::SizeT.new(title.bytesize))
-window.window_state.size.dimensions.width = 400.0_f32
-window.window_state.size.dimensions.height = 300.0_f32
-
-
-app = LibAzul.azApp_create(data, LibAzul.azAppConfig_create)
-LibAzul.azApp_run(pointerof(app), window)
+app = Azul::App.new(Counter.new, Azul::AppConfig.new)
+app.run(window)
