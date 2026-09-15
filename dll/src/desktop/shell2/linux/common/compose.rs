@@ -22,7 +22,11 @@
 //! the swallow/commit policy is precisely the part that was wrong by being
 //! absent.
 
-use std::ffi::{c_char, CString};
+use std::{
+    any::Any,
+    ffi::{c_char, CString},
+    rc::Rc,
+};
 
 use super::super::{super::common::debug_server::LogCategory, x11::defines::xkb_context};
 use crate::{log_debug, log_warn};
@@ -109,6 +113,18 @@ pub struct ComposeSequencer {
     context: *mut xkb_context,
     table: *mut xkb_compose_table,
     state: *mut xkb_compose_state,
+    /// The dlopen'd libxkbcommon that `fns` point into, kept loaded for as
+    /// long as this sequencer can still call them, which includes its own
+    /// Drop. The windows used to rely on field order for this: both declare
+    /// their `xkb: Rc<Xkb>` BEFORE the keyboard state holding the sequencer,
+    /// so the last reference to the library dropped (dlclose, unmapped)
+    /// first, and `xkb_compose_state_unref` then jumped into unmapped memory.
+    /// That SIGSEGV hit every Wayland window torn down with a compose table
+    /// loaded, e.g. after the compositor dropped the connection. A field
+    /// drops after `Drop::drop` has run, so owning the library here makes the
+    /// order irrelevant. `None` only for [`Self::from_parts`], which has no
+    /// library.
+    library: Option<Rc<dyn Any>>,
 }
 
 impl ComposeSequencer {
@@ -118,7 +134,7 @@ impl ComposeSequencer {
     /// old to export the compose API, or when the compile fails — all of which
     /// leave the backends on their previous (compose-less) behaviour rather
     /// than breaking key input.
-    pub fn new(fns: ComposeFns) -> Option<Self> {
+    pub fn new(fns: ComposeFns, library: Rc<dyn Any>) -> Option<Self> {
         let context = unsafe { (fns.context_new)(0) };
         if context.is_null() {
             return None;
@@ -159,6 +175,7 @@ impl ComposeSequencer {
             context,
             table,
             state,
+            library: Some(library),
         })
     }
 
@@ -175,6 +192,7 @@ impl ComposeSequencer {
             context: std::ptr::null_mut(),
             table,
             state,
+            library: None,
         }
     }
 
@@ -572,5 +590,50 @@ mod tests {
             let _compose = ComposeSequencer::from_parts(fns(), 1 as *mut xkb_compose_table, ptr);
         }
         assert_eq!(*UNREFS.lock().unwrap(), (1, 1));
+    }
+
+    static ORDER: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+
+    unsafe extern "C" fn ordered_state_unref(_s: *mut xkb_compose_state) {
+        ORDER.lock().unwrap().push("state_unref");
+    }
+    unsafe extern "C" fn ordered_table_unref(_t: *mut xkb_compose_table) {
+        ORDER.lock().unwrap().push("table_unref");
+    }
+
+    /// Stands in for the dlopen'd libxkbcommon: dropping the last reference
+    /// is the dlclose that unmaps the code the unref pointers jump into.
+    struct FakeLibrary;
+    impl Drop for FakeLibrary {
+        fn drop(&mut self) {
+            ORDER.lock().unwrap().push("dlclose");
+        }
+    }
+
+    /// The window's own `Rc<Xkb>` drops BEFORE the sequencer (field order),
+    /// which made the sequencer's unrefs jump into an unloaded library: a
+    /// SIGSEGV at an unmapped address on Wayland teardown. The sequencer's
+    /// reference must keep the library loaded until its own unrefs have run.
+    #[test]
+    fn the_library_outlives_the_unrefs_that_call_into_it() {
+        ORDER.lock().unwrap().clear();
+        let mut backing = FakeTable::new();
+        let ptr = (&mut *backing) as *mut FakeTable as *mut xkb_compose_state;
+        let window_ref: Rc<dyn Any> = Rc::new(FakeLibrary);
+        let mut compose = ComposeSequencer::from_parts(
+            ComposeFns {
+                state_unref: ordered_state_unref,
+                table_unref: ordered_table_unref,
+                ..fns()
+            },
+            1 as *mut xkb_compose_table,
+            ptr,
+        );
+        compose.library = Some(Rc::clone(&window_ref));
+        // The window's field goes first, as in WaylandWindow / X11Window.
+        drop(window_ref);
+        assert!(ORDER.lock().unwrap().is_empty(), "the library unloaded while the sequencer lived");
+        drop(compose);
+        assert_eq!(*ORDER.lock().unwrap(), ["state_unref", "table_unref", "dlclose"]);
     }
 }

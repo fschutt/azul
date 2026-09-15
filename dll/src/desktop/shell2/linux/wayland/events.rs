@@ -3250,7 +3250,11 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     // that replace the one above. Built once: a second keymap event must not
     // throw away a sequence in flight.
     if window.keyboard_state.compose.is_none() {
-        window.keyboard_state.compose = window.xkb.compose_fns().and_then(ComposeSequencer::new);
+        let library: std::rc::Rc<dyn std::any::Any> = window.xkb.clone();
+        window.keyboard_state.compose = window
+            .xkb
+            .compose_fns()
+            .and_then(|fns| ComposeSequencer::new(fns, library));
     }
 }
 

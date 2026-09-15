@@ -3953,9 +3953,12 @@ impl X11Window {
             compose: if ime_manager.is_some() {
                 None
             } else {
-                xkb_for_compose
-                    .compose_fns()
-                    .and_then(crate::desktop::shell2::linux::common::compose::ComposeSequencer::new)
+                xkb_for_compose.compose_fns().and_then(|fns| {
+                    crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
+                        fns,
+                        xkb_for_compose.clone(),
+                    )
+                })
             },
             ime_manager,
             ime_ic_focused: true,
