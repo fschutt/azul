@@ -10,12 +10,18 @@
  *   1. describe the tile source          -> AzMapTileLayer_default()
  *   2. build the widget from it          -> AzMapWidget_create(layer)
  *   3. pick a look and a camera          -> withTheme / withViewport
- *   4. hand back a Dom that self-fetches -> AzMapWidget_domWithFetch(w)
+ *   4. hand back its Dom                 -> AzMapWidget_dom(w)
+ *   5. (optional) share pools on mount   -> withOnMount(on_map_mount)
  *
- * Step 4 is what makes it asynchronous: the returned Dom registers the
- * built-in tile worker, so the first frame paints immediately with whatever
- * tiles are cached and later frames fill in as HTTP responses land. The UI
- * thread never blocks on the network.
+ * The map is asynchronous on its own: once mounted it fetches tiles on
+ * background threads, so the first frame paints immediately and later frames
+ * fill in as HTTP responses land. The UI thread never blocks on the network.
+ *
+ * Step 5 is configuration, so it stays out of `layout()`, which only
+ * describes the UI. The connection pool and thread pool are created once in
+ * `main()`, live in the app state, and are handed to the map by its mount
+ * hook. Without that hook every tile opens its own connection on its own
+ * thread.
  *
  * It also shows CLIP SHAPES: the map sits in a rounded container with
  * `overflow: hidden`, so the tiles are clipped to the rounded corners
@@ -28,13 +34,19 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The camera is the ONLY state an app this size needs: the widget owns the
- * tile cache, the worker threads and the decoded geometry. */
+/* The camera, plus the pools the tile downloads share. The widget owns the
+ * tile cache and the decoded geometry itself. */
 typedef struct {
     AzMapViewport viewport;
+    AzHttpClient tiles;     /* keeps connections to the tile server open */
+    AzThreadPool workers;   /* the threads tile downloads run on */
 } MapState;
 
-void MapState_destructor(void* s) { (void)s; }
+void MapState_destructor(void* p) {
+    MapState* s = (MapState*)p;
+    AzHttpClient_delete(&s->tiles);
+    AzThreadPool_delete(&s->workers);
+}
 AZ_REFLECT(MapState, MapState_destructor);
 
 AzUpdate on_zoom_in(AzRefAny data, AzCallbackInfo info);
@@ -83,6 +95,23 @@ static AzUpdate change_zoom(AzRefAny data, float delta) {
 AzUpdate on_zoom_in(AzRefAny data, AzCallbackInfo info)  { (void)info; return change_zoom(data,  1.0f); }
 AzUpdate on_zoom_out(AzRefAny data, AzCallbackInfo info) { (void)info; return change_zoom(data, -1.0f); }
 
+/* 5. Runs when the map is mounted, not on every layout. It gets the map's
+ *    current setup and returns the one to use: here, clones of the app's
+ *    pools and a limit of 8 downloads at once. The map drops its clones when
+ *    it leaves the tree; the app's own handles live until MapState does. */
+AzMapSetup on_map_mount(AzRefAny data, AzCallbackInfo info, AzMapSetup setup) {
+    (void)info;
+    MapStateRef m = MapStateRef_create(&data);
+    if (!MapState_downcastRef(&data, &m)) {
+        return setup;
+    }
+    setup = AzMapSetup_withHttpClient(setup, AzHttpClient_clone(&m.ptr->tiles));
+    setup = AzMapSetup_withThreadPool(setup, AzThreadPool_clone(&m.ptr->workers));
+    setup = AzMapSetup_withMaxInFlight(setup, 8);
+    MapStateRef_delete(&m);
+    return setup;
+}
+
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     (void)info;
     MapStateRef m = MapStateRef_create(&data);
@@ -106,10 +135,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzMapWidget widget = AzMapWidget_create(layer);
     widget = AzMapWidget_withTheme(widget, AzMapTheme_System);
     widget = AzMapWidget_withViewport(widget, viewport);
+    widget = AzMapWidget_withOnMount(widget, AzRefAny_clone(&data),
+        (AzMapMountCallback){ .cb = on_map_mount, .callable = AzOptionRefAny_none() });
 
-    /* 4. `domWithFetch` wires the built-in HTTP + MVT worker to this Dom.
-     *    Tiles arrive on background threads and land in later frames. */
-    AzDom map = AzMapWidget_domWithFetch(widget);
+    /* 4. The Dom. Tiles arrive on background threads and land in later frames. */
+    AzDom map = AzMapWidget_dom(widget);
     AzDom_setCss(&map, str("width: 100%; height: 100%;"));
 
     char text[128];
@@ -161,6 +191,11 @@ int main(void) {
     model.viewport.zoom = 6.0f;
     model.viewport.bearing_deg = 0.0f;
     model.viewport.pitch_deg = 0.0f;
+    /* Shared by every tile download: a few open connections to the tile
+     * server instead of a TLS handshake per tile, and 4 worker threads
+     * instead of one per tile. */
+    model.tiles = AzHttpClient_create(AzHttpClientConfig_create());
+    model.workers = AzThreadPool_create(4);
 
     AzRefAny data = MapState_upcast(model);
 

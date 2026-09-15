@@ -259,8 +259,8 @@ pub fn regenerate_layout(
     // they used to run at the very END of this function — after the app's
     // layout callback had already built the DOM, and not at all on the three
     // early-return paths in between. So the FIRST build of every such widget
-    // saw no backend. The map showed it: `AzMapWidget_domWithFetch` reads the
-    // registered tile fetcher when it builds its cache, got none, and the map
+    // saw no backend. The map showed it: it used to read the registered tile
+    // fetcher when it built its cache, got none, and the map
     // never fetched a tile ("spawn_pending: ABORT — no fetch_callback"). X11 hid
     // it by chance — it performs a second full rebuild shortly after the first,
     // and the dataset merge copies the now-registered fetcher into the cache.
@@ -281,8 +281,8 @@ pub fn regenerate_layout(
     // the resumable `FileDialog::open_file` dispatches to the dispatchers this
     // installs; the desktop answers the same call synchronously via tfd.
     crate::desktop::extra::file_picker::ensure_file_picker_backend();
-    // Same seam for the map tile fetcher: `MapWidget::dom_with_fetch()` wires
-    // whatever fetcher is registered here, and the worker lives in this crate.
+    // Same seam for the map tile fetcher: a map installs whatever fetcher is
+    // registered here when it mounts, and the worker lives in this crate.
     crate::desktop::extra::map::ensure_map_tile_fetcher();
 
     // E2E observability: count DOM regenerations (sticky until

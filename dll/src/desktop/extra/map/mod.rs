@@ -77,22 +77,23 @@ pub fn decode_mvt_tile(
     ))
 }
 
-/// The tile-fetch worker thread. Hand this to
-/// `MapWidget::dom_with_fetch(tile_fetch_worker)` and the widget will
-/// spawn one framework `Thread` running it per visible tile.
+/// The tile-fetch worker thread. [`ensure_map_tile_fetcher`] registers it, a
+/// map picks it up when it mounts and runs it once per visible tile, on a
+/// thread of its own or on the `ThreadPool` from the map's `MapSetup`.
 ///
 /// Flow (all on the background thread, blocking is fine):
-/// 1. Read `TileFetchInit { tile, url }` from the init `RefAny`.
-/// 2. `azul_layout::http::http_get(url)` → PBF bytes.
+/// 1. Read `TileFetchInit { tile, url, client, .. }` from the init `RefAny`.
+/// 2. GET `url` → PBF bytes, through `client` when the map has one.
 /// 3. `decode_mvt_tile(bytes, tile)` → GeoJSON features.
 /// 4. `features_to_svg(&features, tile)` → SVG string.
 /// 5. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg` pointed at
 ///    `azul_layout::widgets::map::map_tile_writeback`, which stamps the cache `Ready` and triggers
 ///    a relayout.
 ///
-/// Cancellation: between the fetch and the decode we poll
-/// `recv.recv()` for `ThreadSendMsg::TerminateThread` so a tile that
-/// scrolled off-screen mid-download doesn't waste a decode.
+/// Cancellation: before the fetch and between the fetch and the decode we
+/// poll `recv.recv()` for `ThreadSendMsg::TerminateThread`, so a job whose
+/// `Thread` was dropped while it waited in a pool's queue never downloads, and
+/// one dropped mid-download doesn't waste a decode.
 #[cfg(feature = "map-tiles")]
 pub extern "C" fn tile_fetch_worker(
     mut init: azul_core::refany::RefAny,
@@ -102,20 +103,32 @@ pub extern "C" fn tile_fetch_worker(
     use azul_core::refany::{OptionRefAny, RefAny};
     use azul_css::AzString;
     use azul_layout::{
+        http::{HttpRequestConfig, OptionHttpClient},
         thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback},
         widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg},
     };
 
-    let (tile, url, mapcss, look, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
+    let (tile, url, mapcss, look, cached_bytes, client) = match init.downcast_ref::<TileFetchInit>()
+    {
         Some(i) => (
             i.tile,
             i.url.as_str().to_string(),
             i.style_css.as_str().to_string(),
             i.look,
             i.bytes.as_ref().to_vec(),
+            i.client.clone(),
         ),
         None => return,
     };
+
+    // A job that waited in a thread pool's queue may belong to a map that has
+    // since gone away.
+    if matches!(
+        recv.recv().into_option(),
+        Some(azul_core::task::ThreadSendMsg::TerminateThread)
+    ) {
+        return;
+    }
 
     // `bytes` travels back to the main thread ONLY when we downloaded it, so a
     // restyle does not copy the payload back and forth for nothing.
@@ -159,7 +172,11 @@ pub extern "C" fn tile_fetch_worker(
         }
         cached_bytes
     } else {
-        match azul_layout::http::http_get(&url) {
+        let config = match client {
+            OptionHttpClient::Some(client) => HttpRequestConfig::default().with_client(client),
+            OptionHttpClient::None => HttpRequestConfig::default(),
+        };
+        match azul_layout::http::http_get_with_config(&url, &config) {
             Ok(resp) => {
                 let b = resp.body.as_ref().to_vec();
                 if dbg {
@@ -236,10 +253,10 @@ pub extern "C" fn tile_fetch_worker(
     }
 }
 
-/// Install the built-in tile-fetch worker as the framework-owned fetcher
-/// `MapWidget::dom_with_fetch` uses, once. Called from the shared per-frame
-/// layout pass (like the file-picker backend) so it is in place before any
-/// map is built, and again defensively from [`map_widget_dom`].
+/// Install the built-in tile-fetch worker as the framework-owned fetcher every
+/// map picks up when it mounts, once. Called from the shared per-frame layout
+/// pass (like the file-picker backend) so it is in place before any map mounts,
+/// and again defensively from [`map_widget_dom`].
 pub fn ensure_map_tile_fetcher() {
     #[cfg(feature = "map-tiles")]
     {
@@ -255,26 +272,25 @@ pub fn ensure_map_tile_fetcher() {
     }
 }
 
-/// Build the `MapWidget`'s rendered `Dom`, wiring the built-in tile-fetch worker.
+/// Build the `MapWidget`'s rendered `Dom`, making sure the built-in tile-fetch
+/// worker is registered for the map to pick up when it mounts.
 ///
 /// This is the single entry point the FFI `MapWidget::dom()` shims to (see
 /// api.json). The worker (`tile_fetch_worker`) lives here in `azul-dll` — NOT in
 /// `azul-layout::widgets::map` — because it pulls the MVT/Mercator dep tree
 /// (`mvt-reader`, `geo-types`, `proj4rs`, `geojson`) that we deliberately keep out
-/// of the layout crate's (mobile) build. So `MapWidget::dom()` (in layout) can only
-/// produce tile *placeholders*; the actual fetch is injected here, where the worker
-/// is in scope, via the layout-internal `dom_with_fetch` plumbing. The fetch
-/// callback travels with the tile-cache dataset `RefAny` (preserved across relayout
-/// by the cache's merge callback, started on `AfterMount`, freed when the cache
-/// `RefAny` drops), so there is no public `dom_with_fetch` API to misuse.
+/// of the layout crate's (mobile) build. The layout crate only knows the registered
+/// `ThreadCallback`: the map installs it into its tile cache on `AfterMount`, the
+/// cache's merge callback keeps it across relayout, and it is freed when the cache
+/// `RefAny` drops.
 ///
-/// When the `map-tiles` feature is off the worker doesn't exist, so we fall back to
-/// the placeholder `dom()` — keeping default/mobile builds free of the dep tree.
+/// When the `map-tiles` feature is off the worker doesn't exist, so the map renders
+/// placeholders — keeping default/mobile builds free of the dep tree.
 pub fn map_widget_dom(widget: azul_layout::widgets::map::MapWidget) -> azul_core::dom::Dom {
     #[cfg(feature = "map-tiles")]
     {
         ensure_map_tile_fetcher();
-        widget.dom_with_fetch()
+        widget.dom()
     }
     #[cfg(not(feature = "map-tiles"))]
     {

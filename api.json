@@ -10127,6 +10127,9 @@
                                 },
                                 "disable_tls_cert_verification": {
                                     "type": "bool"
+                                },
+                                "client": {
+                                    "type": "OptionHttpClient"
                                 }
                             }
                         ],
@@ -10358,6 +10361,24 @@
                                     "type": "RequestId"
                                 },
                                 "fn_body": "object.http_post(url, body, content_type, data, on_result)"
+                            },
+                            "with_client": {
+                                "doc": [
+                                    "Send requests through a shared connection pool instead of opening a",
+                                    "connection per request"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "client": "HttpClient"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpRequestConfig"
+                                },
+                                "fn_body": "object.with_client(client)"
                             }
                         },
                         "repr": "C"
@@ -10489,6 +10510,139 @@
                                     "type": "OptionHttpReachableResult"
                                 },
                                 "fn_body": "azul_layout::http::HttpReachableResult::downcast(result)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HttpClient": {
+                        "doc": [
+                            "A connection pool that requests can share (C-compatible handle).",
+                            "",
+                            "Created by the application, never by the framework: a request without a",
+                            "client opens its own connection. Hand clones to",
+                            "`HttpRequestConfig::with_client` or to a widget; all clones share one pool,",
+                            "which closes its connections when the last clone is dropped."
+                        ],
+                        "external": "azul_layout::http::HttpClient",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Drop",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a connection pool with the given settings"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "HttpClientConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::http::HttpClient::create(config)"
+                            }
+                        },
+                        "functions": {
+                            "get_config": {
+                                "doc": [
+                                    "The settings this client was created with"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpClientConfig"
+                                },
+                                "fn_body": "object.get_config()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HttpClientConfig": {
+                        "doc": [
+                            "Settings for an `HttpClient`'s connection pool (C-compatible)."
+                        ],
+                        "external": "azul_layout::http::HttpClientConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "max_idle_connections": {
+                                    "type": "u32"
+                                },
+                                "max_idle_connections_per_host": {
+                                    "type": "u32"
+                                },
+                                "disable_tls_cert_verification": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a new config with default values"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::http::HttpClientConfig::new()"
+                            }
+                        },
+                        "functions": {
+                            "with_max_idle_connections": {
+                                "doc": [
+                                    "Set how many idle connections the pool keeps across all hosts"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "n": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpClientConfig"
+                                },
+                                "fn_body": "object.with_max_idle_connections(n)"
+                            },
+                            "with_max_idle_connections_per_host": {
+                                "doc": [
+                                    "Set how many idle connections the pool keeps to any one host"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "n": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HttpClientConfig"
+                                },
+                                "fn_body": "object.with_max_idle_connections_per_host(n)"
                             }
                         },
                         "repr": "C"
@@ -21817,6 +21971,30 @@
                                 "type": "DbValue"
                             }
                         }
+                    },
+                    "MapMountCallbackType": {
+                        "doc": [
+                            "User hook fired when the map is mounted: receives the map's current",
+                            "`MapSetup` and returns the one its tile fetches should use."
+                        ],
+                        "external": "azul_layout::widgets::map::MapMountCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "MapSetup"
+                                }
+                            ],
+                            "returns": {
+                                "type": "MapSetup"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -32221,6 +32399,38 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapMountCallback": {
+                        "external": "azul_layout::widgets::map::MapMountCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "MapMountCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -54041,6 +54251,9 @@
                                 },
                                 "on_pin_tap": {
                                     "type": "OptionMapPinTap"
+                                },
+                                "on_mount": {
+                                    "type": "OptionMapMount"
                                 }
                             }
                         ],
@@ -54113,8 +54326,10 @@
                                     "  doesn't have to wire anything).",
                                     "- Pinch callbacks that zoom in / out.",
                                     "",
-                                    "No tile-fetch worker is wired - tiles render as placeholders.",
-                                    "Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one."
+                                    "Tiles are fetched by the framework's built-in worker, which the map",
+                                    "installs when it mounts. Without a registered worker the grid renders",
+                                    "placeholders. Pools and limits for those fetches come from the `on_mount`",
+                                    "hook, never from here: building the `Dom` only describes the UI."
                                 ],
                                 "priority": 94.0,
                                 "fn_args": [
@@ -54250,23 +54465,6 @@
                                 },
                                 "fn_body": "object.with_on_pin_tap(data, callback)"
                             },
-                            "dom_with_fetch": {
-                                "doc": [
-                                    "Like `dom`, but wires the framework-owned tile fetcher so tiles are actually",
-                                    "loaded (desktop: a background thread per visible tile; web: a `fetch()`-backed",
-                                    "tile cache). No user-supplied worker: the runtime installs the fetcher at",
-                                    "startup, so nothing here depends on a blocking `ThreadCallback`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "Dom"
-                                },
-                                "fn_body": "object.dom_with_fetch()"
-                            },
                             "with_theme": {
                                 "doc": [
                                     "Pick a look for the tile layer (see [`MapTheme`]); `System` follows",
@@ -54321,6 +54519,49 @@
                                     "type": "MapWidget"
                                 },
                                 "fn_body": "object.with_bearing(bearing_deg)"
+                            },
+                            "with_on_mount": {
+                                "doc": [
+                                    "Builder form of [`set_on_mount`](Self::set_on_mount)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapMountCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_on_mount(data, callback)"
+                            },
+                            "set_on_mount": {
+                                "doc": [
+                                    "Set a hook fired when the map is mounted. It receives the map's current",
+                                    "[`MapSetup`] and returns the one to use: this is where an app hands the",
+                                    "map a shared `HttpClient` or `ThreadPool`. Without a hook every tile",
+                                    "opens its own connection on its own thread.",
+                                    "",
+                                    "Runs again if the map is mounted again, e.g. after moving to another",
+                                    "parent, so return the setup unchanged when there is nothing to change."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapMountCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_mount(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -58777,7 +59018,7 @@
                             "dom_with_decoder": {
                                 "doc": [
                                     "Build the widget's DOM and wire a background **streaming** decode worker -",
-                                    "mirrors `MapWidget::dom_with_fetch`. `cb` runs on a framework `Thread` OFF",
+                                    "like the map's tile fetch worker. `cb` runs on a framework `Thread` OFF",
                                     "the main thread: it reads the `VideoConfig` (its typed `VideoSource` -",
                                     "URL / file / bytes), runs the VK decode incrementally (no up-front decode),",
                                     "and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late",
@@ -67822,6 +68063,132 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapSetup": {
+                        "doc": [
+                            "What a map's tile fetches run on. Handed to the `on_mount` hook, which",
+                            "returns the setup the map uses from then on.",
+                            "",
+                            "The default shares nothing: each tile opens its own connection on its own",
+                            "thread, which is also what a map without an `on_mount` hook does."
+                        ],
+                        "external": "azul_layout::widgets::map::MapSetup",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "http_client": {
+                                    "type": "OptionHttpClient"
+                                },
+                                "thread_pool": {
+                                    "type": "OptionThreadPool"
+                                },
+                                "max_in_flight": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A setup that shares nothing and limits nothing"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::map::MapSetup::new()"
+                            }
+                        },
+                        "functions": {
+                            "with_http_client": {
+                                "doc": [
+                                    "Download tiles through a shared connection pool"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "client": "HttpClient"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSetup"
+                                },
+                                "fn_body": "object.with_http_client(client)"
+                            },
+                            "with_thread_pool": {
+                                "doc": [
+                                    "Run tile downloads on a shared thread pool"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pool": "ThreadPool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSetup"
+                                },
+                                "fn_body": "object.with_thread_pool(pool)"
+                            },
+                            "with_max_in_flight": {
+                                "doc": [
+                                    "Limit how many tiles download at once (0 = no limit)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max_in_flight": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSetup"
+                                },
+                                "fn_body": "object.with_max_in_flight(max_in_flight)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapMount": {
+                        "external": "azul_layout::widgets::map::MapMount",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "MapMountCallback"
                                 }
                             }
                         ],
@@ -119517,6 +119884,70 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionHttpClient": {
+                        "external": "azul_layout::http::OptionHttpClient",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "HttpClient"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionThreadPool": {
+                        "external": "azul_layout::thread::OptionThreadPool",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ThreadPool"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapMount": {
+                        "external": "azul_layout::widgets::map::OptionMapMount",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "MapMount"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -123214,6 +123645,93 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "ThreadPool": {
+                        "doc": [
+                            "A fixed set of worker threads that runs `Thread` bodies, created by the",
+                            "application and shared by whoever it hands a clone to.",
+                            "",
+                            "`Thread::create` starts one OS thread per call. A widget that starts many",
+                            "short jobs (a map fetching tiles) can instead be given a pool: at most",
+                            "`threads` jobs then run at once and the rest wait in the pool's queue.",
+                            "Cloning is cheap and shares the same workers; the workers exit once the last",
+                            "handle is dropped and the queue is empty."
+                        ],
+                        "external": "azul_layout::thread::ThreadPool",
+                        "custom_impls": [
+                            "Clone",
+                            "Drop",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Start a pool of `threads` workers (at least one)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "threads": "usize"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::thread::ThreadPool::create(threads)"
+                            }
+                        },
+                        "functions": {
+                            "thread_count": {
+                                "doc": [
+                                    "How many workers are running (0 where the target cannot start threads)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.thread_count()"
+                            },
+                            "create_thread": {
+                                "doc": [
+                                    "Like [`Thread::create`], but the body runs on one of this pool's workers",
+                                    "instead of a new OS thread. Hand the result to `CallbackInfo::add_thread`",
+                                    "exactly like any other `Thread`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "thread_initialize_data": "RefAny"
+                                    },
+                                    {
+                                        "writeback_data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "ThreadCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Thread"
+                                },
+                                "fn_body": "object.create_thread(thread_initialize_data, writeback_data, callback)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }

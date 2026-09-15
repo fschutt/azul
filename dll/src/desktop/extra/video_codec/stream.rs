@@ -6,7 +6,7 @@
 //! late frames are dropped and the window opens immediately while playback speed
 //! stays independent of decode/render speed. Pass [`video_decode_worker`] to
 //! [`VideoWidget::dom_with_decoder`](azul_layout::widgets::video::VideoWidget::dom_with_decoder)
-//! wrapped in a `ThreadCallback`, exactly like `MapWidget::dom_with_fetch`.
+//! wrapped in a `ThreadCallback`.
 
 use azul_core::{refany::RefAny, task::ThreadReceiver};
 use azul_layout::{

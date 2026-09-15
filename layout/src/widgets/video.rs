@@ -193,7 +193,7 @@ impl VideoWidget {
     }
 
     /// Build the widget's DOM and wire a background **streaming** decode worker -
-    /// mirrors `MapWidget::dom_with_fetch`. `cb` runs on a framework `Thread` OFF
+    /// like the map's tile fetch worker. `cb` runs on a framework `Thread` OFF
     /// the main thread: it reads the `VideoConfig` (its typed `VideoSource` -
     /// URL / file / bytes), runs the VK decode incrementally (no up-front decode),
     /// and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late

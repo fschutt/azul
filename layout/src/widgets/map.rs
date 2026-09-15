@@ -417,7 +417,7 @@ pub struct MapLatLon {
 // codegen FFI transmute stays sound. Callback fields (e.g.
 // `on_viewport_changed`) ARE allowed: codegen keeps `AzMapWidget` in sync
 // (the Button / Camera pattern). The Rust-only tile-fetch worker stays in
-// the FFI-opaque `MapTileCache` dataset (supplied via `dom_with_fetch`).
+// the FFI-opaque `MapTileCache` dataset (installed when the map mounts).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct MapWidget {
@@ -430,11 +430,15 @@ pub struct MapWidget {
     /// Optional hook fired when the user taps the map, with the tapped
     /// lat/lon. FFI-exposed; re-set on each fresh build.
     pub on_pin_tap: OptionMapPinTap,
+    /// Optional hook fired when the map is mounted, returning the [`MapSetup`]
+    /// its tile fetches run on (a shared connection pool, a thread pool, an
+    /// in-flight limit). FFI-exposed; re-set on each fresh build.
+    pub on_mount: OptionMapMount,
 }
 
-/// The runtime-installed tile fetcher [`MapWidget::dom_with_fetch`] wires
-/// into every map it builds. Registered once at startup by the dll (the
-/// worker lives there, with the MVT / Mercator dependencies).
+/// The runtime-installed tile fetcher every map picks up when it mounts.
+/// Registered once at startup by the dll (the worker lives there, with the
+/// MVT / Mercator dependencies).
 static MAP_TILE_FETCHER: azul_core::sync::OnceLock<crate::thread::ThreadCallback> =
     azul_core::sync::OnceLock::new();
 
@@ -444,8 +448,8 @@ pub fn register_map_tile_fetcher(cb: crate::thread::ThreadCallback) -> bool {
     MAP_TILE_FETCHER.set(cb).is_ok()
 }
 
-/// Whether a tile fetcher has been installed (i.e. whether
-/// [`MapWidget::dom_with_fetch`] will load tiles or render placeholders).
+/// Whether a tile fetcher has been installed (i.e. whether a mounted map
+/// loads tiles or renders placeholders).
 #[must_use]
 pub fn has_map_tile_fetcher() -> bool {
     MAP_TILE_FETCHER.get().is_some()
@@ -460,6 +464,7 @@ impl MapWidget {
             container_style: OptionCssPropertyWithConditionsVec::None,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
+            on_mount: OptionMapMount::None,
         }
     }
 
@@ -547,6 +552,28 @@ impl MapWidget {
         self
     }
 
+    /// Set a hook fired when the map is mounted. It receives the map's current
+    /// [`MapSetup`] and returns the one to use: this is where an app hands the
+    /// map a shared `HttpClient` or `ThreadPool`. Without a hook every tile
+    /// opens its own connection on its own thread.
+    ///
+    /// Runs again if the map is mounted again, e.g. after moving to another
+    /// parent, so return the setup unchanged when there is nothing to change.
+    pub fn set_on_mount<C: Into<MapMountCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_mount = Some(MapMount {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_mount`](Self::set_on_mount).
+    #[must_use]
+    pub fn with_on_mount<C: Into<MapMountCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_mount(data, callback);
+        self
+    }
+
     /// Project a screen pixel `px` (relative to the map node's top-left, in a
     /// node of size `container`) to a lat/lon on the map at `viewport`. Small-
     /// angle Mercator (accurate at city zooms). Inverse of
@@ -600,40 +627,18 @@ impl MapWidget {
     ///   to wire anything).
     /// - Pinch callbacks that zoom in / out.
     ///
-    /// No tile-fetch worker is wired - tiles render as placeholders.
-    /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
-    ///
-    /// The FFI `MapWidget::dom()` does NOT land here: api.json routes it to
-    /// `azul_dll::unified::map::map_widget_dom`, which calls `dom_with_fetch`
-    /// with the built-in worker. It used to route here, which is why the map
-    /// panned but never painted a tile on every desktop platform.
+    /// Tiles are fetched by the framework's built-in worker, which the map
+    /// installs when it mounts (see [`register_map_tile_fetcher`]; the dll
+    /// registers it, with the MVT / Mercator dependencies this crate does not
+    /// carry). Without a registered worker the grid renders placeholders.
+    /// Pools and limits for those fetches come from the `on_mount` hook, never
+    /// from here: building the `Dom` only describes the UI.
     #[must_use]
     pub fn dom(self) -> Dom {
-        self.build_dom(None)
-    }
-
-    /// Like [`dom`](Self::dom), but wires the framework-owned tile fetcher
-    /// so tiles are actually loaded.
-    ///
-    /// The fetcher is installed by the runtime at startup
-    /// ([`register_map_tile_fetcher`]; the dll registers its
-    /// `tile_fetch_worker`, which pulls the MVT / Mercator dependency tree
-    /// this crate deliberately does not carry). On desktop it is a
-    /// background thread per visible tile that writes back through
-    /// `map_tile_writeback`; on web it is a `fetch()`-backed tile cache. An
-    /// app never supplies the worker itself, so no user code depends on a
-    /// blocking `ThreadCallback`. Without a registered fetcher this renders
-    /// placeholders, exactly like [`dom`](Self::dom).
-    #[must_use]
-    pub fn dom_with_fetch(self) -> Dom {
-        self.build_dom(MAP_TILE_FETCHER.get().cloned())
-    }
-
-    fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallback>) -> Dom {
         use azul_core::dom::{ComponentEventFilter, EventFilter, HoverEventFilter};
 
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
-        cache.fetch_callback = fetch_cb;
+        cache.on_mount = self.on_mount;
         cache.on_viewport_changed = self.on_viewport_changed;
         cache.on_pin_tap = self.on_pin_tap;
         let dataset = RefAny::new(cache);
@@ -796,12 +801,11 @@ pub struct MapTileCache {
     /// cascade's light/dark answer changes.
     pub tile_bytes: BTreeMap<MapTileId, azul_css::U8Vec>,
     /// Worker thread entry point that fetches + decodes one tile.
-    /// Supplied by `MapWidget::dom_with_fetch` (the caller, usually
-    /// `azul_dll`'s map-tiles glue, provides this because the MVT
+    /// Installed on mount from [`register_map_tile_fetcher`] (the MVT
     /// decoder lives in `azul-dll`, which `azul-layout` can't depend
     /// on). `None` means "no fetch wired": tiles stay `Pending` and
-    /// the placeholder grid renders. The merge callback carries this
-    /// across relayout. Held as the `ThreadCallback` wrapper (not the
+    /// the placeholder grid renders. Lives on the persistent cache the
+    /// merge callback keeps. Held as the `ThreadCallback` wrapper (not the
     /// raw fn pointer) so it round-trips through the FFI codegen.
     pub fetch_callback: Option<crate::thread::ThreadCallback>,
     /// Pixel coordinates of the cursor at the last mouse-down /
@@ -849,6 +853,15 @@ pub struct MapTileCache {
     /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
     /// fire it. Carried across relayout.
     pub on_pin_tap: OptionMapPinTap,
+    /// The user's `on_mount` hook, copied from the builder so mount can fire
+    /// it. Carried across relayout.
+    pub on_mount: OptionMapMount,
+    /// What tile fetches run on, as the `on_mount` hook last returned it.
+    ///
+    /// Written on mount, never by a rebuild: the merge callback keeps the old
+    /// cache, so a shared pool stays attached through every relayout and is
+    /// released when the map leaves the tree and this cache drops.
+    pub setup: MapSetup,
 }
 
 impl MapTileCache {
@@ -869,6 +882,8 @@ impl MapTileCache {
             cascade_scheme: None,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
+            on_mount: OptionMapMount::None,
+            setup: MapSetup::new(),
         }
     }
 
@@ -1131,6 +1146,9 @@ pub struct TileFetchInit {
     /// colour-scheme flip cost zero fetches — the geometry is already here, only
     /// the palette changed.
     pub bytes: azul_css::U8Vec,
+    /// The connection pool to download through, from the map's [`MapSetup`].
+    /// `None` opens a connection for this tile alone.
+    pub client: OptionHttpClient,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -1172,9 +1190,8 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
     // — workers, dataset and VirtualView all reference one underlying allocation.
     //
     // The freshly-built `new_data` carries the layout-callback-controlled
-    // CONFIG: the fetch worker the `.dom()` shim wired, and — critically — the
-    // viewport/layer the app passed to `with_viewport()` / `create()` for THIS
-    // build. Adopt those into the persistent cache: app callbacks (zoom
+    // CONFIG: the hooks and — critically — the viewport/layer the app passed
+    // to `with_viewport()` / `create()` for THIS build. Adopt those into the persistent cache: app callbacks (zoom
     // buttons, Recentre, Locate) mutate app state and return RefreshDom, and
     // the merge previously discarded that new viewport ("viewport intact"),
     // so external viewport changes never took effect — only the widget's
@@ -1186,9 +1203,6 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
         let new_g = new_data.downcast_ref::<MapTileCache>();
         let old_guard = old_data.downcast_mut::<MapTileCache>();
         if let (Some(new_g), Some(mut old_g)) = (new_g, old_guard) {
-            if old_g.fetch_callback.is_none() {
-                old_g.fetch_callback.clone_from(&new_g.fetch_callback);
-            }
             old_g.viewport = new_g.viewport;
             // Adopt the app's layer verbatim. There is nothing to invalidate: if
             // the app switched cartography, the next render simply looks up a
@@ -1200,6 +1214,10 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             // threw away and re-fetched the whole viewport.
             old_g.layer = new_g.layer.clone();
             old_g.on_viewport_changed = new_g.on_viewport_changed.clone();
+            // The hook is adopted like the others, but `setup` and the fetch
+            // worker are NOT: those were installed on mount and belong to the
+            // widget instance, which is exactly what surviving the rebuild means.
+            old_g.on_mount = new_g.on_mount.clone();
         }
     }
     old_data
@@ -1214,6 +1232,8 @@ use azul_core::{
 
 use crate::{
     callbacks::CallbackInfo,
+    http::{HttpClient, OptionHttpClient},
+    thread::{OptionThreadPool, ThreadPool},
     timer::{Timer, TimerCallback, TimerCallbackInfo},
 };
 
@@ -1299,6 +1319,110 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
     match hook {
         OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
+    }
+}
+
+// --- User hook: on_mount (backreference DI, FFI-exposed) ---
+
+/// What a map's tile fetches run on. Handed to the `on_mount` hook, which
+/// returns the setup the map uses from then on.
+///
+/// The default shares nothing: each tile opens its own connection on its own
+/// thread, which is also what a map without an `on_mount` hook does.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MapSetup {
+    /// Connection pool for tile downloads. `None`: one connection per tile.
+    pub http_client: OptionHttpClient,
+    /// Workers that run tile downloads. `None`: one thread per tile.
+    pub thread_pool: OptionThreadPool,
+    /// Most tiles downloading at once. 0 = no limit (at most 16 are started
+    /// per pass).
+    pub max_in_flight: u32,
+}
+
+impl Default for MapSetup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MapSetup {
+    /// A setup that shares nothing and limits nothing
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            http_client: OptionHttpClient::None,
+            thread_pool: OptionThreadPool::None,
+            max_in_flight: 0,
+        }
+    }
+
+    /// Download tiles through a shared connection pool
+    #[must_use]
+    pub fn with_http_client(mut self, client: HttpClient) -> Self {
+        self.http_client = OptionHttpClient::Some(client);
+        self
+    }
+
+    /// Run tile downloads on a shared thread pool
+    #[must_use]
+    pub fn with_thread_pool(mut self, pool: ThreadPool) -> Self {
+        self.thread_pool = OptionThreadPool::Some(pool);
+        self
+    }
+
+    /// Limit how many tiles download at once (0 = no limit)
+    #[must_use]
+    pub const fn with_max_in_flight(mut self, max_in_flight: u32) -> Self {
+        self.max_in_flight = max_in_flight;
+        self
+    }
+}
+
+/// User hook fired when the map is mounted: receives the map's current
+/// [`MapSetup`] and returns the one its tile fetches should use.
+pub type MapMountCallbackType = extern "C" fn(RefAny, CallbackInfo, MapSetup) -> MapSetup;
+impl_widget_callback!(
+    MapMount,
+    OptionMapMount,
+    MapMountCallback,
+    MapMountCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        MapMountCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      MapSetup,
+    default_ret:    MapSetup::new(),
+    invoker_static: MAP_MOUNT_INVOKER,
+    invoker_ty:     AzMapMountCallbackInvoker,
+    thunk_fn:       az_map_mount_callback_thunk,
+    setter_fn:      AzApp_setMapMountCallbackInvoker,
+    from_handle_fn: AzMapMountCallback_createFromHostHandle,
+    extra_args:     [ setup: MapSetup ],
+}
+
+/// Everything a map needs before its first fetch, done once it is in the tree
+/// rather than while `layout()` describes it: the built-in tile worker, then
+/// whatever the app's `on_mount` hook wants the fetches to run on.
+fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
+    let (hook, setup) = {
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return;
+        };
+        if cache.fetch_callback.is_none() {
+            cache.fetch_callback = MAP_TILE_FETCHER.get().cloned();
+        }
+        (cache.on_mount.clone(), cache.setup.clone())
+    };
+    let OptionMapMount::Some(hook) = hook else {
+        return;
+    };
+    // The cache is released while the hook runs: it is app code and may reach
+    // back into this map.
+    let setup = (hook.callback.cb)(hook.refany, *info, setup);
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.setup = setup;
     }
 }
 
@@ -1835,6 +1959,7 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         eprintln!("[map] after_mount fired");
     }
+    mount_map(&mut data, &info);
     spawn_pending_tile_fetches(&mut data, &mut info);
     // Install a low-frequency sweep timer. Pointer/scroll/after_mount spawn
     // fetches directly, but a viewport change that originates from a *rebuild*
@@ -1873,9 +1998,6 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     use azul_core::task::ThreadId;
 
     use crate::thread::Thread;
-
-    // Per-call spawn cap — bounds the burst on a big viewport jump.
-    const MAX_SPAWN_PER_CALL: usize = 16;
 
     // THE CASCADE'S ANSWER, taken here because this is the earliest point the
     // widget has a `CallbackInfo` (mount, the 250 ms sweep, every pointer
@@ -1965,12 +2087,13 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
 
         let template = cache.layer.url_template.as_str().to_string();
+        let budget = spawn_budget(&cache);
         // Centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
         let pending: Vec<TileStyleKey> = cache
             .pending_tiles_nearest_first()
             .into_iter()
-            .take(MAX_SPAWN_PER_CALL)
+            .take(budget)
             .collect();
         for key in pending {
             let url = build_tile_url(&template, key.tile);
@@ -1994,6 +2117,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 style_css,
                 look: key.look,
                 bytes,
+                client: cache.setup.http_client.clone(),
             });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -2002,7 +2126,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         cache.prune_distant_tiles();
     }
 
-    let cb = {
+    let (cb, pool) = {
         let Some(cache) = data.downcast_ref::<MapTileCache>() else {
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
@@ -2017,7 +2141,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             }
             return;
         };
-        cb.clone()
+        (cb.clone(), cache.setup.thread_pool.clone())
     };
 
     #[cfg(feature = "std")]
@@ -2031,7 +2155,12 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     for init in to_spawn {
         let init_data = RefAny::new(init);
         let writeback_data = data.clone(); // same cache dataset
-        let thread = Thread::create(init_data, writeback_data, cb.clone());
+        let thread = match &pool {
+            OptionThreadPool::Some(pool) => {
+                pool.create_thread(init_data, writeback_data, cb.clone())
+            }
+            OptionThreadPool::None => Thread::create(init_data, writeback_data, cb.clone()),
+        };
         info.add_thread(ThreadId::unique(), thread);
     }
     #[cfg(feature = "std")]
@@ -2039,6 +2168,26 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
     }
 }
+
+/// How many new fetches one pass may start: the room left under the setup's
+/// `max_in_flight`, or [`MAX_SPAWN_PER_CALL`] when there is no limit.
+fn spawn_budget(cache: &MapTileCache) -> usize {
+    match cache.setup.max_in_flight {
+        0 => MAX_SPAWN_PER_CALL,
+        cap => {
+            let in_flight = cache
+                .tiles
+                .values()
+                .filter(|e| matches!(e, TileEntry::Fetching))
+                .count();
+            (cap as usize).saturating_sub(in_flight)
+        }
+    }
+}
+
+/// Fetches one pass starts when the map has no `max_in_flight` — bounds the
+/// burst on a big viewport jump, but not how many are running.
+const MAX_SPAWN_PER_CALL: usize = 16;
 
 /// Low-frequency timer that spawns fetches for any `Pending` tiles the
 /// `VirtualView` marked since the last spawn - the path that the
@@ -4411,7 +4560,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // MapWidget::dom / dom_with_fetch / build_dom
+    // MapWidget::dom / mount
     // ==================================================================
 
     #[test]
@@ -4457,31 +4606,105 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_with_fetch_records_the_registered_worker_in_the_dataset() {
+    fn mounting_installs_the_registered_worker_and_building_the_dom_never_does() {
         // The fetcher is a process-wide registration (first one wins), so the
-        // test accepts whichever worker is installed and only checks that
-        // `dom_with_fetch` wires it - and that `dom` never does.
+        // test accepts whichever worker is installed.
         let _ = register_map_tile_fetcher(ThreadCallback::new(noop_worker));
         assert!(has_map_tile_fetcher());
-        let mut dom = MapWidget::create(MapTileLayer::default()).dom_with_fetch();
-        let dataset = dom.root.get_dataset_mut().expect("dataset");
+        let mut dom = MapWidget::create(MapTileLayer::default()).dom();
+        let mut dataset = dom.root.get_dataset_mut().expect("dataset").clone();
+        assert!(
+            dataset
+                .downcast_ref::<MapTileCache>()
+                .expect("cache")
+                .fetch_callback
+                .is_none(),
+            "building the Dom only describes the UI"
+        );
+
+        with_callback_info(|info| mount_map(&mut dataset, &info));
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         let cb = cache
             .fetch_callback
             .as_ref()
-            .expect("dom_with_fetch must record the registered worker");
+            .expect("mount must install the registered worker");
         assert_eq!(
             cb.cb as usize,
             MAP_TILE_FETCHER.get().expect("registered").cb as usize
         );
-
-        let mut plain = MapWidget::create(MapTileLayer::default()).dom();
-        let dataset = plain.root.get_dataset_mut().expect("dataset");
-        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-        assert!(
-            cache.fetch_callback.is_none(),
-            "dom() renders placeholders only"
+        assert_eq!(
+            cache.setup,
+            MapSetup::new(),
+            "without a hook nothing is shared"
         );
+    }
+
+    extern "C" fn pooled_setup(_: RefAny, _: CallbackInfo, setup: MapSetup) -> MapSetup {
+        setup
+            .with_thread_pool(ThreadPool::create(2))
+            .with_max_in_flight(8)
+    }
+
+    #[test]
+    fn the_mount_hook_decides_the_setup_and_a_rebuild_keeps_it() {
+        let build = || {
+            MapWidget::create(MapTileLayer::default())
+                .with_on_mount(RefAny::new(()), pooled_setup as MapMountCallbackType)
+                .dom()
+        };
+        let mut first = build();
+        let mut mounted = first.root.get_dataset_mut().expect("dataset").clone();
+        with_callback_info(|info| mount_map(&mut mounted, &info));
+        let pool = {
+            let cache = mounted.downcast_ref::<MapTileCache>().expect("cache");
+            assert_eq!(cache.setup.max_in_flight, 8);
+            match &cache.setup.thread_pool {
+                OptionThreadPool::Some(pool) => pool.clone(),
+                OptionThreadPool::None => panic!("the hook's pool must be installed"),
+            }
+        };
+
+        // A rebuild produces a fresh, never-mounted cache; the merge must keep
+        // the mounted one and everything mount put into it.
+        let mut second = build();
+        let rebuilt = second.root.get_dataset_mut().expect("dataset").clone();
+        let mut kept = merge_map_tile_cache(rebuilt, mounted);
+        let cache = kept.downcast_ref::<MapTileCache>().expect("cache");
+        assert_eq!(cache.setup.max_in_flight, 8);
+        assert_eq!(
+            cache.setup.thread_pool,
+            OptionThreadPool::Some(pool),
+            "the same pool, not a new one"
+        );
+    }
+
+    #[test]
+    fn max_in_flight_leaves_room_only_for_fetches_not_already_running() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        assert_eq!(
+            spawn_budget(&cache),
+            MAX_SPAWN_PER_CALL,
+            "no limit: the per-pass cap"
+        );
+
+        cache.setup.max_in_flight = 8;
+        for x in 0..5 {
+            cache.insert_tile(MapTileId { z: 4, x, y: 0 }, TileEntry::Fetching);
+        }
+        // Queued and finished tiles are not running.
+        cache.insert_tile(MapTileId { z: 4, x: 9, y: 0 }, TileEntry::Pending);
+        cache.insert_tile(
+            MapTileId { z: 4, x: 10, y: 0 },
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
+        assert_eq!(spawn_budget(&cache), 3);
+
+        for x in 0..7 {
+            cache.insert_tile(MapTileId { z: 4, x, y: 1 }, TileEntry::Fetching);
+        }
+        assert_eq!(spawn_budget(&cache), 0, "over the limit starts nothing");
     }
 
     #[test]
@@ -4752,27 +4975,28 @@ mod autotest_generated {
     }
 
     #[test]
-    fn merge_adopts_the_worker_only_when_the_old_cache_has_none() {
-        // Old has no worker → adopt the build's.
-        let old_cache = cache_at(0.0, 0.0, 5.0);
-        let mut new_cache = cache_at(0.0, 0.0, 6.0);
-        new_cache.fetch_callback = Some(ThreadCallback::new(noop_worker));
-        let mut merged = merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
-        {
-            let cache = merged.downcast_ref::<MapTileCache>().expect("cache");
-            let cb = cache.fetch_callback.as_ref().expect("adopted worker");
-            assert_eq!(cb.cb as usize, noop_worker as ThreadCallbackType as usize);
-        }
-
-        // Old already has one → keep it (the workers already hold its handle).
+    fn merge_keeps_what_mount_installed_and_takes_neither_worker_nor_setup_from_a_rebuild() {
+        // The mounted cache: worker and setup installed.
         let mut old_cache = cache_at(0.0, 0.0, 5.0);
         old_cache.fetch_callback = Some(ThreadCallback::new(noop_worker));
+        old_cache.setup = MapSetup::new().with_max_in_flight(4);
+        // A rebuild that (wrongly) carries different ones must not replace them.
         let mut new_cache = cache_at(0.0, 0.0, 6.0);
         new_cache.fetch_callback = Some(ThreadCallback::new(other_noop_worker));
+        new_cache.setup = MapSetup::new().with_max_in_flight(9);
         let mut merged = merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let cache = merged.downcast_ref::<MapTileCache>().expect("cache");
         let cb = cache.fetch_callback.as_ref().expect("kept worker");
         assert_eq!(cb.cb as usize, noop_worker as ThreadCallbackType as usize);
+        assert_eq!(cache.setup.max_in_flight, 4);
+
+        // An unmounted old cache stays unwired until mount runs.
+        let old_cache = cache_at(0.0, 0.0, 5.0);
+        let mut new_cache = cache_at(0.0, 0.0, 6.0);
+        new_cache.fetch_callback = Some(ThreadCallback::new(noop_worker));
+        let mut merged = merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
+        let cache = merged.downcast_ref::<MapTileCache>().expect("cache");
+        assert!(cache.fetch_callback.is_none());
     }
 
     #[test]
