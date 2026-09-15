@@ -298,10 +298,9 @@ impl GlyphCache {
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
     /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise). A hinted
     ///   outline is built at the *integer* ppem; when the requested effective size (`font_size *
-    ///   dpi`) is fractional this rescales it back to the true target size so hinted glyphs match
-    ///   their unhinted neighbours and animate smoothly instead of snapping between integer ppems.
-    ///   When the effective size is already integral this is 1.0 and the hinted glyph keeps its
-    ///   pixel-grid-snapped placement.
+    ///   dpi`) is fractional this rescales it HORIZONTALLY back to the true target size, so the
+    ///   glyph fills the advance the shaper measured at that size. The vertical axis is left at
+    ///   the integer ppem: see [`hinted_outline_scale`].
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
@@ -339,7 +338,11 @@ impl GlyphCache {
         } else {
             quantize_subpx(glyph_x)
         };
-        let subpx_y = if grid_snapped {
+        // Every HINTED glyph keeps a grid-snapped baseline, rescaled or not:
+        // the rescale is horizontal only (`hinted_outline_scale`), so the
+        // outline's vertical grid fit survives and must not be undone by a
+        // fractional Y drop.
+        let subpx_y = if is_hinted {
             0
         } else {
             quantize_subpx(glyph_y)
@@ -376,7 +379,8 @@ impl GlyphCache {
         } else {
             glyph_x.floor() as i32
         };
-        let int_y = if grid_snapped {
+        // Pairs with `subpx_y` above: every hinted glyph rounds its baseline.
+        let int_y = if is_hinted {
             glyph_y.round() as i32
         } else {
             glyph_y.floor() as i32
@@ -405,7 +409,8 @@ impl GlyphCache {
 
                 let transform = if is_hinted {
                     if rescale_hinted {
-                        let mut t = TransAffine::new_scaling_uniform(f64::from(hint_correction));
+                        let (sx, sy) = hinted_outline_scale(hint_correction);
+                        let mut t = TransAffine::new_scaling(sx, sy);
                         t.multiply(&TransAffine::new_translation(frac_x, frac_y));
                         t
                     } else {
@@ -536,21 +541,21 @@ impl GlyphCache {
                 // hinted outline at integer ppem is already pixel-space,
                 // a fractional effective size rescales by hint_correction,
                 // an unhinted outline is in font units.
-                let path_scale = if is_hinted {
+                let (path_scale_x, path_scale_y) = if is_hinted {
                     if rescale_hinted {
-                        f64::from(hint_correction)
+                        hinted_outline_scale(hint_correction)
                     } else {
-                        1.0
+                        (1.0, 1.0)
                     }
                 } else {
-                    f64::from(scale)
+                    (f64::from(scale), f64::from(scale))
                 };
 
                 // Triple the x axis, then shift by the sub-pixel bucket.
                 // The bucket is a fraction of a PIXEL, and the axis is in
                 // stripes, so it converts as `3 * k / BUCKETS`.
                 let frac_stripes = 3.0 * f64::from(subpx_x) / f64::from(LCD_SUBPX_BUCKETS);
-                let mut t = TransAffine::new_scaling(3.0 * path_scale, path_scale);
+                let mut t = TransAffine::new_scaling(3.0 * path_scale_x, path_scale_y);
                 t.multiply(&TransAffine::new_translation(frac_stripes, 0.0));
 
                 let mut ras = RasterizerScanlineAa::new();
@@ -700,6 +705,26 @@ fn build_hinted_path(
 
     // Build path from hinted points using TrueType quadratic contour conventions
     build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
+}
+
+/// Axis scales for a hinted outline built at the integer `ppem` and drawn at
+/// the fractional effective size `ppem * hint_correction`.
+///
+/// HORIZONTAL only. A hinted outline is grid-fitted at the integer ppem: its
+/// baseline, x-height, cap height and horizontal stems sit on whole pixels.
+/// Scaling it uniformly by `hint_correction` pushed all of that back off the
+/// grid — a 1.56 % stretch at 16.25 px (13 px text at 125 %) moved the bottom
+/// of every glyph into a half-covered row, and text rendered visibly soft
+/// wherever `font_size * dpi` was not a whole number, while text whose size
+/// happened to land on one stayed crisp right next to it. The widgets ribbon
+/// (sharp) above its tree and list views (blurry) was exactly that.
+///
+/// X still needs the correction: the shaper measured the advances at the true
+/// size, and a glyph left at the integer ppem would not fill them. Y does not —
+/// line boxes come from the font size, not from the outline, and leaving the
+/// outline at the integer ppem changes its height by at most half a pixel.
+fn hinted_outline_scale(hint_correction: f32) -> (f64, f64) {
+    (f64::from(hint_correction), 1.0)
 }
 
 /// Whether to run the font's TrueType hinting bytecode AT ALL.
