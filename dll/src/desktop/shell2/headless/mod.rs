@@ -407,6 +407,11 @@ pub struct CpuBackend {
 /// damage-sound laws: every pixel written this frame is converted exactly
 /// once, and retained pixels (converted at their own commit) are never
 /// re-swizzled.
+///
+/// The rects may OVERLAP (a shift clip and the repaint strip inside it both
+/// arrive here). The swap is its own inverse, so an overlap swapped once per
+/// rect would be converted twice, i.e. not at all. Each row therefore swaps
+/// the UNION of the rects crossing it.
 pub(crate) fn swizzle_rb_in_rects(
     buf: &mut [u8],
     stride_bytes: usize,
@@ -414,22 +419,45 @@ pub(crate) fn swizzle_rb_in_rects(
     rects: &[(i32, i32, i32, i32)],
 ) {
     let row_px = stride_bytes / 4;
-    for &(x, y, w, h) in rects {
-        if w <= 0 || h <= 0 {
-            continue;
-        }
-        let x0 = x.max(0) as usize;
-        let y0 = y.max(0) as usize;
-        let x1 = (x.saturating_add(w) as usize).min(row_px);
-        let y1 = (y.saturating_add(h) as usize).min(buf_height);
-        for row in y0..y1 {
-            let base = row * stride_bytes;
-            for px in x0..x1 {
+    // Clamped, non-empty (x0, y0, x1, y1).
+    let clamped: Vec<(usize, usize, usize, usize)> = rects
+        .iter()
+        .filter(|&&(_, _, w, h)| w > 0 && h > 0)
+        .map(|&(x, y, w, h)| {
+            (
+                x.max(0) as usize,
+                y.max(0) as usize,
+                (x.saturating_add(w).max(0) as usize).min(row_px),
+                (y.saturating_add(h).max(0) as usize).min(buf_height),
+            )
+        })
+        .filter(|&(x0, y0, x1, y1)| x1 > x0 && y1 > y0)
+        .collect();
+    let Some(top) = clamped.iter().map(|r| r.1).min() else {
+        return;
+    };
+    let bottom = clamped.iter().map(|r| r.3).max().unwrap_or(top);
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(clamped.len());
+    for row in top..bottom {
+        spans.clear();
+        spans.extend(
+            clamped
+                .iter()
+                .filter(|r| r.1 <= row && row < r.3)
+                .map(|r| (r.0, r.2)),
+        );
+        spans.sort_unstable();
+        let base = row * stride_bytes;
+        let mut cursor = 0usize;
+        for &(s0, s1) in &spans {
+            // Skip what an earlier span on this row already swapped.
+            for px in s0.max(cursor)..s1 {
                 let o = base + px * 4;
                 if o + 4 <= buf.len() {
                     buf.swap(o, o + 2);
                 }
             }
+            cursor = cursor.max(s1);
         }
     }
 }
@@ -3919,6 +3947,47 @@ mod tests {
                 check(&window, w);
                 prev_w = w;
                 w += step;
+            }
+        }
+    }
+
+    /// Overlapping rects must still convert each pixel exactly ONCE. A
+    /// shift clip and the repaint strip inside it both arrive in the swizzle
+    /// set, and a per-rect loop swapped the overlap twice. That is a no-op,
+    /// leaving those pixels in RGBA order on an ARGB8888 buffer, so blue
+    /// chrome showed brown for a frame.
+    #[test]
+    fn overlapping_swizzle_rects_convert_each_pixel_exactly_once() {
+        let (w, h) = (10usize, 6usize);
+        let stride = w * 4;
+        let mut buf = vec![0u8; stride * h];
+        for y in 0..h {
+            for x in 0..w {
+                let o = y * stride + x * 4;
+                buf[o] = (10 + x) as u8;
+                buf[o + 1] = (100 + y) as u8;
+                buf[o + 2] = (200 - x) as u8;
+                buf[o + 3] = 255;
+            }
+        }
+        let orig = buf.clone();
+        // A big clip, a strip fully inside it, and a rect that half-overlaps.
+        let rects = [(0, 0, 6, 4), (1, 1, 3, 1), (4, 2, 5, 3)];
+        swizzle_rb_in_rects(&mut buf, stride, h, &rects);
+        for y in 0..h {
+            for x in 0..w {
+                let o = y * stride + x * 4;
+                let inside = rects.iter().any(|&(rx, ry, rw, rh)| {
+                    (x as i32) >= rx
+                        && (x as i32) < rx + rw
+                        && (y as i32) >= ry
+                        && (y as i32) < ry + rh
+                });
+                if inside {
+                    assert_eq!(buf[o], orig[o + 2], "swapped exactly once at {x},{y}");
+                } else {
+                    assert_eq!(buf[o], orig[o], "untouched at {x},{y}");
+                }
             }
         }
     }

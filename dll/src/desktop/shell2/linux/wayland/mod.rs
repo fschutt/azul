@@ -7651,13 +7651,16 @@ impl WaylandWindow {
                                                     native_expected_h,
                                                 )])
                                             } else {
+                                                // EXACT rects: the present set's
+                                                // 16-rect cap would widen a busy
+                                                // frame to the whole buffer and
+                                                // toggle every retained pixel.
                                                 self.cpu_backend
                                                     .last_present_damage
-                                                    .to_present_rects_physical(
+                                                    .to_rects_physical(
                                                         dpi,
                                                         native_expected_w,
                                                         native_expected_h,
-                                                        false,
                                                     )
                                             };
                                             let int_rects: Vec<(i32, i32, i32, i32)> =

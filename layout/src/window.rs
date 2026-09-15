@@ -527,7 +527,6 @@ impl FrameDamage {
     /// "Present must never silently be empty when a present is required" —
     /// when in doubt, callers should treat errors/unknowns as `Full`.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn to_present_rects_physical(
         &self,
         dpi_factor: f32,
@@ -539,22 +538,47 @@ impl FrameDamage {
         if buf_w == 0 || buf_h == 0 {
             return None;
         }
-        let full = || Some(vec![(0u32, 0u32, buf_w, buf_h)]);
         if force_full {
             // OS-driven expose: the on-screen content may be stale/undefined
             // regardless of what we last painted — push the whole retained
             // frame.
-            return full();
+            return Some(vec![(0u32, 0u32, buf_w, buf_h)]);
+        }
+        if let Self::Rects(rects) = self {
+            if rects.len() > MAX_PRESENT_RECTS {
+                return Some(vec![(0u32, 0u32, buf_w, buf_h)]);
+            }
+        }
+        self.to_rects_physical(dpi_factor, buf_w, buf_h)
+    }
+
+    /// The EXACT physical rects of this damage, with no cap and no expose
+    /// override: `Full` is the whole buffer, `Rects` every rect rounded outward
+    /// and clamped, `None` nothing.
+    ///
+    /// For consumers that must touch exactly the written pixels rather than
+    /// a superset. The Wayland commit swizzle swaps R and B IN PLACE, and a
+    /// superset TOGGLES pixels this frame never wrote. It used
+    /// [`Self::to_present_rects_physical`], whose 16-rect cap turned a busy
+    /// frame into a full-buffer swap, so everything not repainted showed with
+    /// red and blue exchanged for a frame.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn to_rects_physical(
+        &self,
+        dpi_factor: f32,
+        buf_w: u32,
+        buf_h: u32,
+    ) -> Option<Vec<(u32, u32, u32, u32)>> {
+        if buf_w == 0 || buf_h == 0 {
+            return None;
         }
         match self {
             Self::None => None,
-            Self::Full => full(),
+            Self::Full => Some(vec![(0u32, 0u32, buf_w, buf_h)]),
             Self::Rects(rects) => {
                 if rects.is_empty() {
                     return None;
-                }
-                if rects.len() > MAX_PRESENT_RECTS {
-                    return full();
                 }
                 let mut out = Vec::with_capacity(rects.len());
                 for r in rects {
@@ -21475,6 +21499,36 @@ mod autotest_generated {
             FrameDamage::Rects(Vec::new()).to_present_rects_physical(1.0, 800, 600, false),
             None,
             "an empty rect list is nothing to present"
+        );
+    }
+
+    /// The in-place commit swizzle needs the EXACT written rects. The present
+    /// set's 16-rect cap widened a busy frame to the whole buffer, and
+    /// swapping R/B over pixels this frame never wrote flashed the retained
+    /// chrome in swapped colours.
+    #[test]
+    fn exact_rects_are_never_capped_to_the_whole_buffer() {
+        let rects: Vec<LogicalRect> = (0..40)
+            .map(|i| {
+                LogicalRect::new(
+                    LogicalPosition::new((i * 10) as f32, 5.0),
+                    LogicalSize::new(4.0, 4.0),
+                )
+            })
+            .collect();
+        let damage = FrameDamage::Rects(rects);
+        assert_eq!(
+            damage.to_present_rects_physical(1.0, 800, 600, false),
+            Some(vec![(0, 0, 800, 600)]),
+            "the PRESENT set still collapses (bounded compositor cost)"
+        );
+        let exact = damage.to_rects_physical(1.0, 800, 600).unwrap();
+        assert_eq!(exact.len(), 40);
+        assert!(exact.iter().all(|&(_, _, w, h)| w == 4 && h == 4));
+        assert_eq!(FrameDamage::None.to_rects_physical(1.0, 800, 600), None);
+        assert_eq!(
+            FrameDamage::Full.to_rects_physical(1.0, 800, 600),
+            Some(vec![(0, 0, 800, 600)])
         );
     }
 
