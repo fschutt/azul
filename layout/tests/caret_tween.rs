@@ -593,3 +593,69 @@ fn tween_ticks_produce_caret_sized_damage_not_full_repaints() {
         "tween damage must be caret-sized, got {total_area}px² across {damage:?}"
     );
 }
+
+/// A caret placed AFTER trailing spaces must stand after them. An editing host
+/// shows what the user typed: a caret that stays at the end of the last word
+/// while the text grows by a space (or is moved past the host's clip, where it
+/// paints nothing) reads as "space does nothing" until the next letter.
+#[test]
+fn a_caret_after_trailing_spaces_stands_after_them() {
+    fn caret_at_end_of(text: &str) -> (LogicalRect, Option<LogicalRect>) {
+        let mut editor = Dom::create_div();
+        editor = editor
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("editor".into())].into());
+        editor.set_contenteditable(true);
+        editor.set_tab_index(TabIndex::Auto);
+        let mut dom = Dom::create_body().with_child(
+            editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations {
+            caret_tween_duration_ms: 0,
+            selection_tween_duration_ms: 0,
+            ..SystemAnimations::default()
+        });
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .unwrap();
+        lw.text_edit_manager.initialize_editing(
+            cursor(text.len() as u32),
+            DomId::ROOT_ID,
+            NodeId::new(TEXT),
+            0,
+        );
+        lw.text_edit_manager.blink.set_visibility(true);
+        lw.focus_manager.set_focused_node(Some(text_dom_node_id()));
+        move_caret(&mut lw, text.len() as u32);
+        rebuild(&mut lw);
+        let text_clip = lw
+            .get_layout_result(&DomId::ROOT_ID)
+            .unwrap()
+            .display_list
+            .items
+            .iter()
+            .find_map(|i| match i {
+                DisplayListItem::Text { clip_rect, .. } => Some(clip_rect.0),
+                _ => None,
+            });
+        (caret_rect(&lw), text_clip)
+    }
+
+    let (end, clip) = caret_at_end_of("hello");
+    let (one, clip1) = caret_at_end_of("hello ");
+    let (two, _) = caret_at_end_of("hello  ");
+    eprintln!("  [verify] caret x: 'hello'={} 'hello '={} 'hello  '={}", end.origin.x, one.origin.x, two.origin.x);
+    eprintln!("  [verify] text clip: 'hello'={clip:?} 'hello '={clip1:?}");
+    assert!(one.origin.x > end.origin.x + 1.0, "a trailing space did not move the caret");
+    assert!(two.origin.x > one.origin.x + 1.0, "a second trailing space did not move the caret");
+}

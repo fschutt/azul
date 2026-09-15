@@ -70,7 +70,23 @@ use azul_css::{
     },
 };
 
-use crate::dom::NodeType;
+use crate::dom::{NodeData, NodeType};
+
+/// `white-space: pre` — the `<pre>` default (HTML rendering §15.3.3).
+static WHITE_SPACE_PRE: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
+    azul_css::props::style::StyleWhiteSpace::Pre,
+));
+/// `white-space: pre-wrap` — `<textarea>` (HTML rendering §15.5.14) and every
+/// editing host (see [`get_ua_editing_host_property`]).
+static WHITE_SPACE_PRE_WRAP: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
+    azul_css::props::style::StyleWhiteSpace::PreWrap,
+));
+/// `overflow-wrap: break-word` — editable text wraps an overlong word instead
+/// of running it out of the box (the textarea / contenteditable default in
+/// every engine).
+static OVERFLOW_WRAP_BREAK_WORD: CssProperty = CssProperty::OverflowWrap(
+    CssPropertyValue::Exact(azul_css::props::style::StyleOverflowWrap::BreakWord),
+);
 
 /// 100% width
 static WIDTH_100_PERCENT: CssProperty = CssProperty::Width(CssPropertyValue::Exact(
@@ -736,6 +752,7 @@ pub fn get_ua_property(
 
         // Text Content
         (NT::Pre, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Pre, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE),
         (NT::BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -808,6 +825,8 @@ pub fn get_ua_property(
         (NT::Text(_), PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::TextArea, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE_WRAP),
+        (NT::TextArea, PT::OverflowWrap) => Some(&OVERFLOW_WRAP_BREAK_WORD),
         // TextArea gets I-beam cursor since it's an editable text field
         (NT::TextArea, PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Label, PT::Display) => Some(&DISPLAY_INLINE),
@@ -981,6 +1000,9 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::TextAlign,
     CssPropertyType::Visibility,
     CssPropertyType::WhiteSpace,
+    // Only the editing-host / textarea defaults set it; the compact tier has
+    // no slot for it, which the doc above covers (the slow path stores it).
+    CssPropertyType::OverflowWrap,
     CssPropertyType::Direction,
     CssPropertyType::VerticalAlign,
     CssPropertyType::BorderCollapse,
@@ -1068,20 +1090,60 @@ pub fn get_ua_root_property_themed(
 /// The one lookup all three readers share — `CssPropertyCache::apply_ua_css`,
 /// the compact-cache builder and `get_property_slow`'s last-resort fallback —
 /// so they cannot disagree about a default. `is_root` is "node index 0".
+///
+/// Order: the element's own row first (`<pre contenteditable>` keeps `pre`),
+/// then the editing-host defaults, then the document root's.
 #[must_use]
 pub fn get_ua_default(
-    node_type: &NodeType,
+    node: &NodeData,
     is_root: bool,
     property_type: CssPropertyType,
     ctx: Option<&DynamicSelectorContext>,
 ) -> Option<&'static CssProperty> {
-    get_ua_property_themed(node_type, property_type, ctx).or_else(|| {
-        if is_root {
-            get_ua_root_property_themed(property_type, ctx)
-        } else {
-            None
-        }
-    })
+    get_ua_property_themed(&node.node_type, property_type, ctx)
+        .or_else(|| {
+            if node.is_contenteditable() {
+                get_ua_editing_host_property(property_type)
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            if is_root {
+                get_ua_root_property_themed(property_type, ctx)
+            } else {
+                None
+            }
+        })
+}
+
+/// UA defaults of an EDITING HOST (a `contenteditable` node), inherited by
+/// everything inside it.
+///
+/// `white-space: pre-wrap`, because an editor must show exactly what the user
+/// typed. Under the initial `normal`, CSS Text 3 removes a space at the end of
+/// a line and collapses a run of spaces to one. The typed space then had no
+/// position, so the caret did not move and nothing repainted until the next
+/// letter. `pre-wrap` preserves every space and HANGS the trailing ones: they
+/// keep their advance for the caret but do not count toward fitting the line
+/// (CSS Text 3 §4.1.2). Browsers get there by rewriting typed spaces to NBSP
+/// under `normal` (Gecko, `WebKit`) or by forcing `pre-wrap` on
+/// `contenteditable=plaintext-only` (Chromium); whatwg/html#11350 proposes
+/// exactly this UA rule, `<textarea>` has always had it, and the editor
+/// frameworks (`ProseMirror`, Lexical) require it on their root. azul stores
+/// plain spaces, so it takes the UA rule. Author CSS overrides it.
+///
+/// `overflow-wrap: break-word`: an overlong word in an editor wraps instead of
+/// overflowing the box (Chromium's contenteditable default).
+#[must_use]
+pub fn get_ua_editing_host_property(
+    property_type: CssPropertyType,
+) -> Option<&'static CssProperty> {
+    match property_type {
+        CssPropertyType::WhiteSpace => Some(&WHITE_SPACE_PRE_WRAP),
+        CssPropertyType::OverflowWrap => Some(&OVERFLOW_WRAP_BREAK_WORD),
+        _ => None,
+    }
 }
 
 /// [`get_ua_property`], with the theme taken into account.

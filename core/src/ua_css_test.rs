@@ -1728,3 +1728,49 @@ mod one_themed_ua_table {
         );
     }
 }
+
+/// Editing hosts preserve what the user types: `white-space: pre-wrap` (a
+/// trailing space keeps its advance, a doubled space stays two) and
+/// `overflow-wrap: break-word`. The element's own row still wins
+/// (`<pre contenteditable>` stays `pre`), and a non-editable `<div>` gets
+/// neither.
+#[test]
+fn editing_hosts_default_to_pre_wrap_and_break_word() {
+    use azul_css::props::style::{StyleOverflowWrap, StyleWhiteSpace};
+
+    use crate::dom::NodeData;
+
+    let ws = |p: Option<&CssProperty>| match p {
+        Some(CssProperty::WhiteSpace(v)) => v.get_property().copied(),
+        _ => None,
+    };
+    let ow = |p: Option<&CssProperty>| match p {
+        Some(CssProperty::OverflowWrap(v)) => v.get_property().copied(),
+        _ => None,
+    };
+    let mut host = NodeData::create_node(NodeType::Div);
+    host.set_contenteditable(true);
+    assert_eq!(
+        ws(get_ua_default(&host, false, CssPropertyType::WhiteSpace, None)),
+        Some(StyleWhiteSpace::PreWrap)
+    );
+    assert_eq!(
+        ow(get_ua_default(&host, false, CssPropertyType::OverflowWrap, None)),
+        Some(StyleOverflowWrap::BreakWord)
+    );
+
+    let plain = NodeData::create_node(NodeType::Div);
+    assert_eq!(ws(get_ua_default(&plain, false, CssPropertyType::WhiteSpace, None)), None);
+
+    let mut pre_host = NodeData::create_node(NodeType::Pre);
+    pre_host.set_contenteditable(true);
+    assert_eq!(
+        ws(get_ua_default(&pre_host, false, CssPropertyType::WhiteSpace, None)),
+        Some(StyleWhiteSpace::Pre),
+        "the element's own UA row wins over the editing-host default"
+    );
+    assert_eq!(
+        ws(get_ua_default(&NodeData::create_node(NodeType::TextArea), false, CssPropertyType::WhiteSpace, None)),
+        Some(StyleWhiteSpace::PreWrap)
+    );
+}

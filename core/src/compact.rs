@@ -797,7 +797,7 @@ impl CssPropertyCache {
             // on the slow path, so the normal-state fast path and the slow
             // path agree (theme-chain analysis 2026-09-12, R1/I4).
             apply_ua_css_to_compact(
-                &nd.node_type,
+                nd,
                 i == 0,
                 self.dynamic_context.as_deref(),
                 &mut result.tier1_enums[i],
@@ -1124,7 +1124,7 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
     | (WRITING_MODE_MASK << WRITING_MODE_SHIFT);
 
 fn apply_ua_css_to_compact(
-    node_type: &crate::dom::NodeType,
+    node: &NodeData,
     is_root: bool,
     ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
     tier1: &mut u64,
@@ -1139,7 +1139,7 @@ fn apply_ua_css_to_compact(
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
     // per-pass copies this replaced had drifted apart (see its doc).
     for pt in crate::ua_css::UA_PROPERTY_TYPES {
-        if let Some(ua_prop) = crate::ua_css::get_ua_default(node_type, is_root, *pt, ctx) {
+        if let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
         }
     }

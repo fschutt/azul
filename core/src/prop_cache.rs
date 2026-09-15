@@ -3189,7 +3189,7 @@ impl CssPropertyCache {
         // for the properties the cascade prunes back out
         // (`prune_compact_normal_props`).
         crate::ua_css::get_ua_default(
-            &node_data.node_type,
+            node_data,
             node_id.index() == 0,
             *css_property_type,
             self.dynamic_context.as_deref(),
@@ -4946,7 +4946,7 @@ impl CssPropertyCache {
                     continue;
                 }
                 let Some(ua_prop) =
-                    crate::ua_css::get_ua_default(&node.node_type, is_root, *prop_type, ctx)
+                    crate::ua_css::get_ua_default(node, is_root, *prop_type, ctx)
                 else {
                     continue;
                 };

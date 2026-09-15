@@ -2937,28 +2937,47 @@ impl LayoutWindow {
         let node_id = focus.node.into_crate_internal()?;
         let host = self.find_contenteditable_host(focus.dom, node_id)?;
 
-        // Plain-text editing contexts are recognized by the HOST's computed
-        // `white-space`: when newlines are preserved, `"\n"` is the native
-        // line separator and Enter inserts one instead of splitting blocks.
+        // Plain-text editing contexts: a `<textarea>`, or a host whose AUTHOR
+        // chose a newline-preserving `white-space` for it. There `"\n"` is the
+        // native line separator and Enter inserts one instead of splitting
+        // blocks. It has to be the author's choice, not the computed value:
+        // every editing host now computes `pre-wrap` from the UA sheet
+        // (`ua_css::get_ua_editing_host_property`, so typed spaces are kept),
+        // and a rich host must still split on Enter, as rich contenteditable
+        // does in browsers whatever its `white-space`.
         let host_preserves_newlines = self.layout_results.get(&focus.dom).is_some_and(|lr| {
-            use azul_css::props::style::StyleWhiteSpace;
+            use azul_css::props::{property::CssPropertyType, style::StyleWhiteSpace};
 
             use crate::solver3::getters::{get_white_space_property, MultiValue};
-            lr.styled_dom
-                .styled_nodes
-                .as_container()
-                .get(host)
-                .is_some_and(|n| {
-                    matches!(
-                        get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
-                        MultiValue::Exact(
-                            StyleWhiteSpace::Pre
-                                | StyleWhiteSpace::PreWrap
-                                | StyleWhiteSpace::BreakSpaces
-                                | StyleWhiteSpace::PreLine
+            let node_data = lr.styled_dom.node_data.as_container();
+            let Some(host_data) = node_data.get(host) else {
+                return false;
+            };
+            if matches!(host_data.node_type, NodeType::TextArea) {
+                return true;
+            }
+            let author_declared = lr.styled_dom.get_css_property_cache().has_own_declaration(
+                host_data,
+                &host,
+                &CssPropertyType::WhiteSpace,
+            );
+            author_declared
+                && lr
+                    .styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(host)
+                    .is_some_and(|n| {
+                        matches!(
+                            get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
+                            MultiValue::Exact(
+                                StyleWhiteSpace::Pre
+                                    | StyleWhiteSpace::PreWrap
+                                    | StyleWhiteSpace::BreakSpaces
+                                    | StyleWhiteSpace::PreLine
+                            )
                         )
-                    )
-                })
+                    })
         });
 
         // Caret at block start / end, judged against the CURRENT effective
