@@ -60,6 +60,24 @@ pub trait NativeScreenshotExt {
     ///
     /// Returns the screenshot as a "data:image/png;base64,..." string.
     fn take_native_screenshot_base64(&self) -> Result<AzString, AzString>;
+
+    /// [`Self::take_native_screenshot_bytes`], with the drop shadow decided per
+    /// call instead of by the environment.
+    ///
+    /// `None` keeps the [`screenshot_includes_shadow`] default. This is a
+    /// separate method rather than a parameter on the original because the
+    /// three methods above are part of the published FFI surface (`api.json`),
+    /// and the scenario runner is the only caller that needs to choose.
+    fn take_native_screenshot_bytes_with(
+        &self,
+        render_shadow: Option<bool>,
+    ) -> Result<Vec<u8>, AzString>;
+
+    /// [`Self::take_native_screenshot_base64`] with the same per-call override.
+    fn take_native_screenshot_base64_with(
+        &self,
+        render_shadow: Option<bool>,
+    ) -> Result<AzString, AzString>;
 }
 
 impl NativeScreenshotExt for CallbackInfo {
@@ -71,15 +89,37 @@ impl NativeScreenshotExt for CallbackInfo {
     }
 
     fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
+        NativeScreenshotExt::take_native_screenshot_bytes_with(self, None)
+    }
+
+    fn take_native_screenshot_base64_with(
+        &self,
+        render_shadow: Option<bool>,
+    ) -> Result<AzString, AzString> {
+        let png_bytes = NativeScreenshotExt::take_native_screenshot_bytes_with(self, render_shadow)?;
+        let base64_str = azul_layout::callbacks::base64_encode(&png_bytes);
+        Ok(AzString::from(format!(
+            "data:image/png;base64,{}",
+            base64_str
+        )))
+    }
+
+    fn take_native_screenshot_bytes_with(
+        &self,
+        render_shadow: Option<bool>,
+    ) -> Result<Vec<u8>, AzString> {
         use azul_core::window::RawWindowHandle;
 
+        let _ = &render_shadow;
         let window_handle = self.get_current_window_handle();
 
         match window_handle {
             #[cfg(target_os = "macos")]
             RawWindowHandle::MacOS(handle) => take_native_screenshot_macos_bytes(handle.ns_window),
             #[cfg(target_os = "windows")]
-            RawWindowHandle::Windows(handle) => take_native_screenshot_windows_bytes(handle.hwnd),
+            RawWindowHandle::Windows(handle) => {
+                take_native_screenshot_windows_bytes(handle.hwnd, wants_shadow(render_shadow))
+            }
             #[cfg(target_os = "linux")]
             RawWindowHandle::Xlib(handle) => {
                 take_native_screenshot_xlib_bytes(handle.display, handle.window)
@@ -129,12 +169,7 @@ impl NativeScreenshotExt for CallbackInfo {
 
     fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
         // Explicitly call the trait method, not the inherent method on CallbackInfo
-        let png_bytes = NativeScreenshotExt::take_native_screenshot_bytes(self)?;
-        let base64_str = azul_layout::callbacks::base64_encode(&png_bytes);
-        Ok(AzString::from(format!(
-            "data:image/png;base64,{}",
-            base64_str
-        )))
+        NativeScreenshotExt::take_native_screenshot_base64_with(self, None)
     }
 }
 
@@ -332,7 +367,10 @@ fn take_native_screenshot_macos_bytes(
 
 /// Take a native screenshot on Windows using PrintWindow API
 #[cfg(target_os = "windows")]
-fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<Vec<u8>, AzString> {
+fn take_native_screenshot_windows_bytes(
+    hwnd: *mut core::ffi::c_void,
+    render_shadow: bool,
+) -> Result<Vec<u8>, AzString> {
     if hwnd.is_null() {
         return Err(AzString::from("Invalid window handle"));
     }
@@ -373,6 +411,25 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
         fn PrintWindow(hWnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
     }
 
+    // DWMWA_EXTENDED_FRAME_BOUNDS. `GetWindowRect` on Windows 10/11 reports the
+    // window's INPUT bounds, which include the invisible resize border the DWM
+    // draws nothing into — about 8 px each side and below on a standard frame.
+    // Capturing that rect put black bands down the left, right and bottom of
+    // every screenshot: `PrintWindow` renders only the visible frame, leaving
+    // the rest of the bitmap at its initial (black) contents. This attribute is
+    // the rect the window actually OCCUPIES on screen.
+    const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: HWND,
+            dwAttribute: u32,
+            pvAttribute: *mut core::ffi::c_void,
+            cbAttribute: u32,
+        ) -> i32;
+    }
+
     #[link(name = "gdi32")]
     extern "system" {
         fn CreateCompatibleDC(hdc: HDC) -> HDC;
@@ -408,6 +465,38 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
         if width <= 0 || height <= 0 {
             return Err(AzString::from("Invalid window dimensions"));
         }
+
+        // The visible frame, as an offset + size INSIDE the window rect.
+        // PrintWindow always renders the window at the origin of the target
+        // DC, so the bitmap stays window-rect sized and the crop happens when
+        // the pixels are read back. Falls back to the whole rect if the DWM
+        // declines the attribute (it is composition-dependent).
+        let (crop_x, crop_y, crop_w, crop_h) = {
+            let mut efb = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            let ok = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                (&mut efb as *mut RECT).cast(),
+                core::mem::size_of::<RECT>() as u32,
+            ) == 0;
+            let (x, y, w, h) = (
+                efb.left - rect.left,
+                efb.top - rect.top,
+                efb.right - efb.left,
+                efb.bottom - efb.top,
+            );
+            // Only trust it when it really is a sub-rect of what we captured.
+            if ok && x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= width && y + h <= height {
+                (x, y, w, h)
+            } else {
+                (0, 0, width, height)
+            }
+        };
 
         let window_dc = GetWindowDC(hwnd);
         if window_dc.is_null() {
@@ -465,12 +554,29 @@ fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<
                 return Err(AzString::from("GetDIBits failed"));
             }
 
-            // Convert BGRA to RGBA
-            for chunk in pixels.chunks_exact_mut(4) {
+            // Crop to the visible frame and convert BGRA to RGBA in one pass.
+            // The full-frame case (no usable DWM bounds) copies row-for-row.
+            let mut out = Vec::with_capacity((crop_w * crop_h * 4) as usize);
+            for row in 0..crop_h as usize {
+                let start = (row + crop_y as usize) * row_bytes + (crop_x as usize) * 4;
+                out.extend_from_slice(&pixels[start..start + (crop_w as usize) * 4]);
+            }
+            for chunk in out.chunks_exact_mut(4) {
                 chunk.swap(0, 2);
             }
+            // `PrintWindow` renders the window and nothing else, and the DWM's
+            // own drop shadow is not readable through any public API — a screen
+            // grab of the margin would bring the desktop with it instead of
+            // transparency, which is exactly why the X11 path refuses to
+            // include one. So the shadow is DRAWN here, onto a transparent
+            // margin, when the caller asks for it.
+            let (out, crop_w, crop_h) = if render_shadow {
+                add_synthetic_shadow(out, crop_w as u32, crop_h as u32)
+            } else {
+                (out, crop_w as u32, crop_h as u32)
+            };
 
-            encode_rgba_png(pixels, width as u32, height as u32).map_err(AzString::from)
+            encode_rgba_png(out, crop_w, crop_h).map_err(AzString::from)
         })();
 
         SelectObject(mem_dc, old_bitmap);
@@ -720,7 +826,7 @@ pub(crate) fn take_native_screenshot_kwin_bytes(title: &str) -> Result<Vec<u8>, 
 /// (`kCGWindowImageBoundsIgnoreFraming`). The X11 capture reads the composited
 /// ROOT, where a shadow would come with the desktop wallpaper behind it rather
 /// than transparency, so it never includes one.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) fn screenshot_includes_shadow() -> bool {
     !matches!(
         std::env::var("AZ_SCREENSHOT_SHADOW")
@@ -730,6 +836,15 @@ pub(crate) fn screenshot_includes_shadow() -> bool {
             .as_str(),
         "0" | "false" | "off" | "no"
     )
+}
+
+/// Resolve a per-capture `render_shadow` request against the environment
+/// default. `Some(_)` is the caller's explicit choice (the `render_shadow`
+/// field on the `take_native_screenshot` scenario op); `None` falls back to
+/// [`screenshot_includes_shadow`].
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+pub(crate) fn wants_shadow(render_shadow: Option<bool>) -> bool {
+    render_shadow.unwrap_or_else(screenshot_includes_shadow)
 }
 
 /// Set by the temporary X error handler installed around the decorated
@@ -1106,4 +1221,130 @@ fn take_native_screenshot_xcb_bytes(
     Err(AzString::from(
         "XCB screenshot not yet implemented - please use X11/Xlib backend",
     ))
+}
+
+/// Wrap an RGBA window capture in a transparent margin carrying a drawn drop
+/// shadow, and return the enlarged buffer.
+///
+/// The DWM's real shadow cannot be captured. `PrintWindow` renders the window
+/// alone, the shadow lives OUTSIDE the window's bounds, and no public Windows
+/// API hands it back with an alpha channel — a screen grab of the margin gets
+/// the desktop wallpaper behind it instead of transparency, which is the same
+/// reason `take_native_screenshot_xlib_bytes` never includes one. What the
+/// website wants from a shadow is the LOOK, so this draws one.
+///
+/// It is an approximation on purpose, shaped to match the Windows 11 frame
+/// shadow: a rounded-rectangle silhouette the size of the window, pushed down
+/// by `OFFSET_Y`, blurred, and laid down in black at `PEAK_ALPHA`. The blur is
+/// three box passes, which converges on a Gaussian closely enough that no
+/// banding is visible at these radii and costs two linear scans per axis.
+///
+/// The window itself is composited on top at full opacity, so the frame is the
+/// real capture — only the margin is synthetic.
+#[cfg(target_os = "windows")]
+fn add_synthetic_shadow(rgba: Vec<u8>, w: u32, h: u32) -> (Vec<u8>, u32, u32) {
+    /// Transparent margin on every side, in px. Must exceed
+    /// `BLUR_RADIUS + OFFSET_Y` or the shadow is clipped at the bottom.
+    const MARGIN: u32 = 40;
+    /// Box-blur radius per pass.
+    const BLUR_RADIUS: u32 = 9;
+    /// Downward offset — Windows 11 lights windows from above.
+    const OFFSET_Y: u32 = 6;
+    /// Darkest the shadow ever gets, as an alpha byte.
+    const PEAK_ALPHA: f32 = 64.0;
+    /// Corner radius of the silhouette, matching the Win11 frame.
+    const CORNER: i32 = 8;
+
+    if w == 0 || h == 0 {
+        return (rgba, w, h);
+    }
+
+    let ow = w + MARGIN * 2;
+    let oh = h + MARGIN * 2;
+    let (ow_us, oh_us) = (ow as usize, oh as usize);
+
+    // ── The silhouette ──────────────────────────────────────────────────
+    // One coverage byte per pixel: the window's rounded rect, already at its
+    // final offset so the blur below carries the offset with it.
+    let mut mask = vec![0u8; ow_us * oh_us];
+    let x0 = MARGIN as i32;
+    let y0 = (MARGIN + OFFSET_Y) as i32;
+    let x1 = x0 + w as i32;
+    let y1 = y0 + h as i32;
+    for y in y0.max(0)..y1.min(oh as i32) {
+        for x in x0.max(0)..x1.min(ow as i32) {
+            // Distance into the rect from each edge; a pixel is outside the
+            // rounded corner when it is within CORNER of TWO adjacent edges
+            // and beyond the quarter-circle joining them.
+            let dx = (x - x0).min(x1 - 1 - x);
+            let dy = (y - y0).min(y1 - 1 - y);
+            if dx < CORNER && dy < CORNER {
+                let ex = (CORNER - dx) as f32;
+                let ey = (CORNER - dy) as f32;
+                if ex * ex + ey * ey > (CORNER * CORNER) as f32 {
+                    continue;
+                }
+            }
+            mask[y as usize * ow_us + x as usize] = 255;
+        }
+    }
+
+    // ── Blur ────────────────────────────────────────────────────────────
+    // Separable box blur, three passes. Each pass is a sliding window sum, so
+    // the cost does not grow with the radius.
+    let r = BLUR_RADIUS as i32;
+    let mut scratch = vec![0u8; ow_us * oh_us];
+    for _ in 0..3 {
+        // Horizontal: mask -> scratch
+        for y in 0..oh_us {
+            let row = y * ow_us;
+            let mut sum: i32 = 0;
+            for x in -r..=r {
+                sum += i32::from(mask[row + x.clamp(0, ow as i32 - 1) as usize]);
+            }
+            let denom = 2 * r + 1;
+            for x in 0..ow as i32 {
+                scratch[row + x as usize] = (sum / denom) as u8;
+                let out_x = (x - r).clamp(0, ow as i32 - 1) as usize;
+                let in_x = (x + r + 1).clamp(0, ow as i32 - 1) as usize;
+                sum += i32::from(mask[row + in_x]) - i32::from(mask[row + out_x]);
+            }
+        }
+        // Vertical: scratch -> mask
+        for x in 0..ow_us {
+            let mut sum: i32 = 0;
+            for y in -r..=r {
+                sum += i32::from(scratch[y.clamp(0, oh as i32 - 1) as usize * ow_us + x]);
+            }
+            let denom = 2 * r + 1;
+            for y in 0..oh as i32 {
+                mask[y as usize * ow_us + x] = (sum / denom) as u8;
+                let out_y = (y - r).clamp(0, oh as i32 - 1) as usize;
+                let in_y = (y + r + 1).clamp(0, oh as i32 - 1) as usize;
+                sum += i32::from(scratch[in_y * ow_us + x]) - i32::from(scratch[out_y * ow_us + x]);
+            }
+        }
+    }
+
+    // ── Compose ─────────────────────────────────────────────────────────
+    // Shadow first (black, alpha from the blurred mask), then the capture on
+    // top at full opacity. Straight (non-premultiplied) RGBA, matching what
+    // `encode_rgba_png` expects.
+    let mut out = vec![0u8; ow_us * oh_us * 4];
+    for i in 0..ow_us * oh_us {
+        out[i * 4 + 3] = (f32::from(mask[i]) / 255.0 * PEAK_ALPHA) as u8;
+    }
+    let src_stride = w as usize * 4;
+    for row in 0..h as usize {
+        let src = row * src_stride;
+        let dst = ((row + MARGIN as usize) * ow_us + MARGIN as usize) * 4;
+        out[dst..dst + src_stride].copy_from_slice(&rgba[src..src + src_stride]);
+        // PrintWindow leaves the frame opaque; make that explicit so the
+        // shadow underneath cannot bleed through a zero alpha byte.
+        for px in 0..w as usize {
+            out[dst + px * 4 + 3] = 255;
+        }
+    }
+
+    (out, ow, oh)
 }

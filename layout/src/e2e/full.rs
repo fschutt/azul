@@ -2495,7 +2495,17 @@ pub enum DebugEvent {
 
     // Screenshots
     TakeScreenshot,
-    TakeNativeScreenshot,
+    /// `{ "op": "take_native_screenshot", "render_shadow": true }` - grab the
+    /// real OS window, decorations included.
+    ///
+    /// `render_shadow` chooses whether the capture carries a drop shadow on a
+    /// transparent margin; omitted, it follows `AZ_SCREENSHOT_SHADOW` (on
+    /// unless explicitly turned off). Only the platforms that can deliver both
+    /// honour it.
+    TakeNativeScreenshot {
+        #[serde(default)]
+        render_shadow: Option<bool>,
+    },
 
     // App State (JSON Serialization)
     /// Get the global app state as JSON (requires RefAny with serialize_fn)
@@ -14677,7 +14687,7 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::TakeNativeScreenshot => {
+        DebugEvent::TakeNativeScreenshot { render_shadow } => {
             log(
                 LogLevel::Info,
                 LogCategory::Rendering,
@@ -14685,7 +14695,7 @@ pub fn process_debug_event(
                 None,
             );
             // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method)
-            match crate::e2e::hooks::take_native_screenshot_base64(callback_info) {
+            match crate::e2e::hooks::take_native_screenshot_base64(callback_info, *render_shadow) {
                 Ok(data_uri) => {
                     let data = ScreenshotData {
                         data: data_uri.as_str().to_string(),

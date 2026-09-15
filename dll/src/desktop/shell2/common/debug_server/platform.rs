@@ -533,10 +533,13 @@ pub fn register_debug_timer(
 pub fn install_e2e_host_hooks() {
     use azul_layout::e2e::hooks::{set_host_hooks, E2eHostHooks};
 
-    fn screenshot(ci: &mut azul_layout::callbacks::CallbackInfo) -> Result<String, String> {
+    fn screenshot(
+        ci: &mut azul_layout::callbacks::CallbackInfo,
+        render_shadow: Option<bool>,
+    ) -> Result<String, String> {
         use crate::desktop::native_screenshot::NativeScreenshotExt;
         // Explicitly the trait method, not the stubbed inherent method on CallbackInfo.
-        NativeScreenshotExt::take_native_screenshot_base64(&*ci)
+        NativeScreenshotExt::take_native_screenshot_base64_with(&*ci, render_shadow)
             .map(|s| s.as_str().to_string())
             .map_err(|e| e.as_str().to_string())
     }
