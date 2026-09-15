@@ -4198,7 +4198,7 @@ impl Default for PostFilterCallback {
 /// Spelled out rather than left to prose, because this is read by machines:
 /// an agent choosing arguments and a UI validating a macro form both need the
 /// type, not a sentence describing it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]
 pub enum E2eOpArgType {
@@ -4208,6 +4208,7 @@ pub enum E2eOpArgType {
     Object,
     Array,
     /// Any JSON value is acceptable.
+    #[default]
     Any,
 }
 
@@ -4220,12 +4221,6 @@ pub struct E2eOpArg {
     pub arg_type: E2eOpArgType,
     pub required: bool,
     pub description: String,
-}
-
-impl Default for E2eOpArgType {
-    fn default() -> Self {
-        Self::Any
-    }
 }
 
 /// A worked example: what to send, and what comes back.

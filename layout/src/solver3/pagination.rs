@@ -153,9 +153,10 @@ impl std::fmt::Debug for MarginBoxContent {
 }
 
 /// Counter formatting styles (subset of CSS list-style-type).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)] // in the C API (9g-ii-f-i)
 pub enum CounterFormat {
+    #[default]
     Decimal,
     DecimalLeadingZero,
     LowerRoman,
@@ -163,12 +164,6 @@ pub enum CounterFormat {
     LowerAlpha,
     UpperAlpha,
     LowerGreek,
-}
-
-impl Default for CounterFormat {
-    fn default() -> Self {
-        Self::Decimal
-    }
 }
 
 impl CounterFormat {

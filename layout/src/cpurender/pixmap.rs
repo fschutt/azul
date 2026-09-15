@@ -1483,9 +1483,6 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
 // Gradient helpers
 // ============================================================================
 
-/// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
-///
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 /// [`blit_buffer`] restricted to a sub-rectangle of the SOURCE buffer.
 /// `(sx, sy, w, h)` select the source region; `(dx, dy)` is where that
@@ -1551,6 +1548,8 @@ pub fn blit_buffer_sub(
     }
 }
 
+/// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;

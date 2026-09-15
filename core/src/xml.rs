@@ -6960,7 +6960,7 @@ pub fn prepare_string(input: &str) -> String {
             if last_line_was_empty {
                 final_lines.push(format!("{RETURN}{line}"));
             } else {
-                final_lines.push(line.to_string());
+                final_lines.push(line);
             }
         }
 

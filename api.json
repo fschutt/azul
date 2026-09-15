@@ -8040,9 +8040,6 @@
                     "WindowType": {
                         "priority": 53.0,
                         "external": "azul_core::window::WindowType",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -8051,7 +8048,8 @@
                             "Eq",
                             "Ord",
                             "PartialOrd",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -9923,9 +9921,6 @@
                     },
                     "UiTheme": {
                         "external": "azul_layout::widgets::themes::UiTheme",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -9934,7 +9929,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32583,9 +32579,6 @@
                         ],
                         "priority": 28.0,
                         "external": "azul_core::menu::MenuPopupPosition",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Eq",
@@ -32594,7 +32587,8 @@
                             "Debug",
                             "PartialEq",
                             "PartialOrd",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -45513,9 +45507,6 @@
                     },
                     "WindowBackgroundMaterial": {
                         "external": "azul_core::window::WindowBackgroundMaterial",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -45524,7 +45515,8 @@
                             "Eq",
                             "Ord",
                             "PartialOrd",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -45798,9 +45790,6 @@
                     },
                     "WindowDecorations": {
                         "external": "azul_core::window::WindowDecorations",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -45809,7 +45798,8 @@
                             "Eq",
                             "Ord",
                             "PartialOrd",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -128115,15 +128105,13 @@
                     },
                     "CounterFormat": {
                         "external": "azul_layout::solver3::pagination::CounterFormat",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
                             "Copy",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -130602,9 +130590,6 @@
                     },
                     "MediaPlaybackState": {
                         "external": "azul_core::media_session::MediaPlaybackState",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -130613,7 +130598,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {

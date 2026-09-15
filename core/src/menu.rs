@@ -183,7 +183,7 @@ impl Menu {
 ///
 /// This positioning information is ignored for application-level menus (menu bars)
 /// and only applies to context menus and dropdowns.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord, Default)]
 #[repr(C)]
 pub enum MenuPopupPosition {
     /// Position menu below and to the left of the cursor
@@ -203,15 +203,10 @@ pub enum MenuPopupPosition {
     /// Position menu to the right of the rectangle that was clicked
     RightOfHitRect,
     /// Automatically calculate position based on available screen space near cursor
+    #[default]
     AutoCursor,
     /// Automatically calculate position based on available screen space near clicked rect
     AutoHitRect,
-}
-
-impl Default for MenuPopupPosition {
-    fn default() -> Self {
-        Self::AutoCursor
-    }
 }
 
 /// Describes the interactive state of a menu item.
