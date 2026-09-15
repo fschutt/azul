@@ -1135,7 +1135,9 @@ const BINDING_FILES: &[BindingFile] = &[
         source: BindingSource::Examples,
     },
     // --- more candidate archetype-A bindings (d/crystal/v/swift/julia) ---
-    // d: `module azul`, compiled alongside the driver (top-level, no subdir).
+    // d: the example does `import azul;`; azul.d is that module in one file,
+    // compiled with the driver (`dmd hello-world.d azul.d -L-L. -L-lazul`, the
+    // command heading hello-world.d). The dub package is target/codegen/d/.
     BindingFile {
         dst: "azul.d",
         src: "azul.d",
