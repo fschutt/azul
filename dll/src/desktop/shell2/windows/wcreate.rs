@@ -19,10 +19,6 @@ use crate::{
 /// Win32 window class name
 pub const CLASS_NAME: &str = "AzulWindowClass";
 
-/// Register the Win32 window class
-///
-/// This must be called before creating any windows.
-/// It's safe to call multiple times - duplicate registrations are ignored.
 /// Decode a Win32 `GetLastError()` code into its system message.
 ///
 /// The logs carried the bare number ("failed with error: 2000"), which needs
@@ -58,11 +54,13 @@ pub(crate) fn win32_error_string(code: u32) -> String {
         .to_string()
 }
 
+/// Register the Win32 window class before creating a window. Every window after the first finds it
+/// registered already, which is not an error.
 pub fn register_window_class(
     hinstance: HINSTANCE,
     window_proc: super::dlopen::WNDPROC,
     win32: &Win32Libraries,
-) -> Result<super::dlopen::ATOM, WindowError> {
+) -> Result<(), WindowError> {
     unsafe {
         let mut class_name = encode_wide(CLASS_NAME);
         // Use null background brush - we paint the entire window ourselves with OpenGL
@@ -82,15 +80,18 @@ pub fn register_window_class(
             lpszClassName: class_name.as_ptr(),
         };
 
-        let atom = (win32.user32.RegisterClassW)(&wc);
+        const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 
-        if atom == 0 {
-            return Err(WindowError::PlatformError(
-                "Failed to register window class".into(),
-            ));
+        if (win32.user32.RegisterClassW)(&wc) != 0 {
+            return Ok(());
         }
-
-        Ok(atom)
+        match winapi::um::errhandlingapi::GetLastError() {
+            ERROR_CLASS_ALREADY_EXISTS => Ok(()),
+            code => Err(WindowError::PlatformError(format!(
+                "Failed to register window class: {}",
+                win32_error_string(code)
+            ))),
+        }
     }
 }
 
