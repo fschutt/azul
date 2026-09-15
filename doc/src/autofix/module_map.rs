@@ -610,6 +610,8 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // where `PenState`, `PenTilt` and `InputSample` above already live.
     ("ValidityState", "callbacks"),
     ("ValidityReason", "callbacks"),
+    // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
+    ("Wt", "webtransport"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1371,6 +1373,14 @@ mod tests {
         assert_eq!(difficult_type_module("TabletPadState"), Some("gesture"));
         assert_eq!(difficult_type_module("TableLayout"), None);
         assert_eq!(difficult_type_module("StyleTableLayout"), None);
+    }
+
+    #[test]
+    fn transport_events_stay_with_their_transport() {
+        for name in ["WtEvent", "WtEventKind"] {
+            assert_eq!(determine_module(name).0, "webtransport", "{name}");
+            assert_eq!(get_correct_module(name, "webtransport"), None, "{name}");
+        }
     }
 
     /// Structural types are resolved BEFORE the override table, so an entry

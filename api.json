@@ -30979,73 +30979,6 @@
                         ],
                         "repr": "C"
                     },
-                    "WtEventKind": {
-                        "doc": [
-                            "Discriminant for `WtEvent`."
-                        ],
-                        "external": "azul_dll::unified::webtransport::WtEventKind",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Connected": {},
-                                "Disconnected": {},
-                                "PeerJoined": {},
-                                "PeerLeft": {},
-                                "Video": {},
-                                "Audio": {},
-                                "Chat": {},
-                                "System": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "WtEvent": {
-                        "doc": [
-                            "One inbound room event. Inspect `kind`; only the relevant fields are set.",
-                            "`audio` is ready for `AudioSink::play`; `data` (Video) is the encoded frame."
-                        ],
-                        "external": "azul_dll::unified::webtransport::WtEvent",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "kind": {
-                                    "type": "WtEventKind"
-                                },
-                                "peer_id": {
-                                    "type": "u64"
-                                },
-                                "track_id": {
-                                    "type": "u32"
-                                },
-                                "is_keyframe": {
-                                    "type": "bool"
-                                },
-                                "text": {
-                                    "type": "String"
-                                },
-                                "audio": {
-                                    "type": "AudioFrame"
-                                },
-                                "data": {
-                                    "type": "U8Vec"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "SwitchOnToggleCallback": {
                         "external": "azul_layout::widgets::switch::SwitchOnToggleCallback",
                         "custom_impls": [
@@ -125833,6 +125766,73 @@
                                 },
                                 "packet_loss_x1000": {
                                     "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WtEventKind": {
+                        "doc": [
+                            "Discriminant for `WtEvent`."
+                        ],
+                        "external": "azul_dll::unified::webtransport::WtEventKind",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Connected": {},
+                                "Disconnected": {},
+                                "PeerJoined": {},
+                                "PeerLeft": {},
+                                "Video": {},
+                                "Audio": {},
+                                "Chat": {},
+                                "System": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WtEvent": {
+                        "doc": [
+                            "One inbound room event. Inspect `kind`; only the relevant fields are set.",
+                            "`audio` is ready for `AudioSink::play`; `data` (Video) is the encoded frame."
+                        ],
+                        "external": "azul_dll::unified::webtransport::WtEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "WtEventKind"
+                                },
+                                "peer_id": {
+                                    "type": "u64"
+                                },
+                                "track_id": {
+                                    "type": "u32"
+                                },
+                                "is_keyframe": {
+                                    "type": "bool"
+                                },
+                                "text": {
+                                    "type": "String"
+                                },
+                                "audio": {
+                                    "type": "AudioFrame"
+                                },
+                                "data": {
+                                    "type": "U8Vec"
                                 }
                             }
                         ],
