@@ -30,13 +30,17 @@
 //! taking that bare proc typedef (matching the raw `_setOnClick` variant
 //! the DLL exports — the same one Zig sees through `azul.h`).
 //!
-//! # Order-independence
+//! # Layout is NOT order-independent
 //!
-//! Crystal resolves `lib`-scope declarations regardless of source order,
-//! so — unlike C / Pascal — no forward declarations or topological sort
-//! are needed. Types skipped for codegen (recursive / generic template)
-//! are emitted as opaque pointer aliases (`alias AzXmlNode = Void*`) so
-//! any by-pointer reference still resolves, mirroring the Odin backend.
+//! Crystal resolves `lib`-scope NAMES regardless of source order, but it
+//! lays structs out lazily, on first use, and gets the size wrong when that
+//! walk re-enters a type it is still building. Two rules keep every one of
+//! the 5642 structs/unions byte-identical to `azul.h` (checked by sizeof,
+//! alignof and every field offset, in several first-use orders):
+//! declarations are emitted in the IR's topological `sort_order`, and
+//! callback proc aliases spell pointer args to azul types as `Void*`
+//! (see `types::emit_callback_typedef`). Only generic templates stay opaque
+//! (`alias AzCssPropertyValue = Void*`); they have no single layout.
 //!
 //! # Build / link requirements
 //!
@@ -366,9 +370,15 @@ fn is_crystal_keyword(s: &str) -> bool {
 // ============================================================================
 
 /// A struct gets a real Crystal `struct`; skipped ones become opaque
-/// pointer aliases. Only Recursive / GenericTemplate are skipped — VecRef
-/// / DestructorOrClone are kept because Vec wrappers embed them as fields
-/// and eliding them would corrupt surrounding field offsets.
+/// pointer aliases. Only GenericTemplate is skipped (it has no single
+/// layout). VecRef / DestructorOrClone are kept because Vec wrappers embed
+/// them as fields and eliding them would corrupt surrounding field offsets.
+///
+/// `Recursive` is kept too. The category means "recursive in Rust through a
+/// Vec", and a Vec is a pointer: the C header lays `XmlNodeChild` out by value
+/// with no trouble, and so does Crystal. Emitting it as an opaque `Void*`
+/// alias made every type that embeds it by value too small
+/// (`AzOptionXmlNodeChild` 16 bytes vs 136 in C).
 pub fn include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
@@ -376,10 +386,7 @@ pub fn include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    s.category != TypeCategory::GenericTemplate
 }
 
 pub fn include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -389,10 +396,7 @@ pub fn include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    e.category != TypeCategory::GenericTemplate
 }
 
 /// Whether a function should get a `fun` binding. Mirrors the Odin /
