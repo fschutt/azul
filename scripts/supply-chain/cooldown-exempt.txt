@@ -38,3 +38,22 @@ gilrs-azul
 gilrs-core-azul
 libudev-sys-azul
 gpu-video-azul
+
+# The iroh stack behind azul.iroh, published by n0-computer. Third-party, exempt by maintainer
+# decision so the transport can follow iroh releases as they ship.
+iroh
+iroh-base
+iroh-dns
+iroh-relay
+iroh-tickets
+iroh-metrics
+iroh-metrics-derive
+noq
+noq-proto
+noq-udp
+n0-dns-resolver
+n0-error
+n0-error-macros
+n0-future
+n0-watcher
+netwatch
