@@ -177,6 +177,9 @@ pub fn is_shipped_language(lang: &str) -> bool {
 /// had already been removed for exactly that reason. A visitor cannot tell
 /// a gated tab from an ungated one, so an ungated tab is a claim.
 ///
+/// They come back one at a time through [`FRONTPAGE_BETA_LANGUAGES`], once the
+/// binding is idiomatic and its hello-world passes its matrix lane.
+///
 /// This is the single source of truth: both the server-rendered tab HTML
 /// (`generate_language_tabs_html`) and the client-side installation JSON
 /// (`generate_installation_json`) filter against it, so even if api.json's
@@ -185,9 +188,18 @@ pub fn is_shipped_language(lang: &str) -> bool {
 const FRONTPAGE_LANGUAGES: &[&str] = &[
     "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
     "pascal", "scala", "fortran", "haskell", "python",
+    // Beta tier, see FRONTPAGE_BETA_LANGUAGES.
+    "d", "crystal", "swift",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
+
+/// Beta-tier bindings on the frontpage: generated as an idiomatic native API
+/// (not raw C calls), their hello-world passes its lane in
+/// scripts/e2e_language_matrix.sh (BETA_LANGS, run in CI but not gating), and
+/// their install steps build that hello-world. They sit in the "More" grid with
+/// the other secondary languages, never in [`PRIMARY_LANGUAGES`].
+const FRONTPAGE_BETA_LANGUAGES: &[&str] = &["d", "crystal", "swift"];
 
 /// True if `lang` is allowed on the frontpage (see [`FRONTPAGE_LANGUAGES`]).
 fn is_frontpage_language(lang: &str) -> bool {
@@ -1656,10 +1668,31 @@ mod shipped_tier_tests {
             "docgen::SHIPPED_LANGUAGES (what the site shows) != SHIPPED_LANGS in \
              scripts/e2e_language_matrix.sh (what CI gates). Change both, or neither."
         );
+        let bstart = script.find("BETA_LANGS=(").expect("BETA_LANGS=( in the script");
+        let bend = script[bstart..].find(')').expect("closing paren") + bstart;
+        let beta: Vec<&str> = script[bstart + "BETA_LANGS=(".len()..bend]
+            .split_whitespace()
+            .collect();
         for l in FRONTPAGE_LANGUAGES {
             assert!(
-                is_shipped_language(l) || l.starts_with("cpp"),
-                "frontpage tab {l} is not in the shipped tier"
+                is_shipped_language(l)
+                    || l.starts_with("cpp")
+                    || FRONTPAGE_BETA_LANGUAGES.contains(l),
+                "frontpage tab {l} is neither shipped nor a frontpage beta language"
+            );
+        }
+        for l in FRONTPAGE_BETA_LANGUAGES {
+            assert!(
+                FRONTPAGE_LANGUAGES.contains(l),
+                "beta language {l} is not on the frontpage"
+            );
+            assert!(
+                beta.contains(l),
+                "frontpage beta language {l} is not in BETA_LANGS of the matrix script, so no lane runs its hello-world"
+            );
+            assert!(
+                !PRIMARY_LANGUAGES.contains(l),
+                "beta language {l} must stay in the More grid"
             );
         }
     }
