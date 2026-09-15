@@ -12,19 +12,15 @@
 
 (define (layout data-ptr info-ptr)
   (define counter (unbox model))
-  (define label
-    (dom-create-text-do-not-use-without-block-level-wrapper
-     (az-str (number->string counter))))
-  (define wrap (dom-create-div))
-  (dom-set-css wrap (az-str "font-size: 32px; margin: 0;"))
-  (dom-add-child wrap label)
+  (define label (dom-create-p-with-text (az-str (number->string counter))))
+  (dom-set-css label (az-str "font-size: 32px; margin: 0;"))
   (define btn (button-create (az-str "Increase counter")))
   (button-set-button-type btn AzButtonType_Primary)
   (define click-data (refany-create model))
   (button-set-on-click btn click-data on-click)
   (define btn-dom (button-dom btn))
   (define body (dom-create-body))
-  (dom-add-child body wrap)
+  (dom-add-child body label)
   (dom-add-child body btn-dom)
   body)
 
@@ -41,7 +37,6 @@
   (define dims (AzWindowSize-dimensions sz))
   (set-AzLogicalSize-width! dims 400.0)
   (set-AzLogicalSize-height! dims 300.0)
-  (define flags (AzFullWindowState-flags ws))
 
   (app-run app wco))
 

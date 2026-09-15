@@ -86,7 +86,8 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	counter_str := azul.AzString_fromUtf8(raw_data(buf[:]), uint(n))
 	label := azul.AzDom_createPWithText(counter_str)
 
-	azul.AzDom_setCss(&label, azul.AzString_fromUtf8(raw_data("font-size: 32px; margin: 0;"), 27))
+	css := "font-size: 32px; margin: 0;"
+	azul.AzDom_setCss(&label, azul.AzString_fromUtf8(raw_data(css), uint(len(css))))
 
 	btn_label_bytes := "Increase counter"
 	btn_label := azul.AzString_fromUtf8(raw_data(btn_label_bytes), uint(len(btn_label_bytes)))
@@ -111,7 +112,6 @@ main :: proc() {
 	window.window_state.title = azul.AzString_fromUtf8(raw_data(title_bytes), uint(len(title_bytes)))
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
-
 
 	app := azul.AzApp_create(data, azul.AzAppConfig_create())
 	azul.AzApp_run(&app, window)
