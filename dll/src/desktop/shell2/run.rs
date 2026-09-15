@@ -1464,6 +1464,15 @@ pub fn run(
     Ok(())
 }
 
+/// WM_PAINT and WM_TIMER are synthesized whenever a window is invalid or a timer is due, so a
+/// window that repaints from a timer never drains; after one of them the next window gets a turn.
+#[cfg(target_os = "windows")]
+fn is_synthesized_message(message: u32) -> bool {
+    const WM_PAINT: u32 = 0x000F;
+    const WM_TIMER: u32 = 0x0113;
+    matches!(message, WM_PAINT | WM_TIMER)
+}
+
 #[cfg(target_os = "windows")]
 pub fn run(
     app_data: RefAny,
@@ -1680,6 +1689,9 @@ pub fn run(
 
                     (translate_message)(&msg);
                     (dispatch_message)(&msg);
+                    if is_synthesized_message(msg.message) {
+                        break;
+                    }
                 }
             }
         }
@@ -1731,6 +1743,9 @@ pub fn run(
 
                     (translate_message)(&msg);
                     (dispatch_message)(&msg);
+                    if is_synthesized_message(msg.message) {
+                        break;
+                    }
                 }
             }
         }
