@@ -427,9 +427,6 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = [
     "Devices_Sensors",
-    # The precision touchpad's scroll-direction preference
-    # (extra/natural_scroll.rs, 9b-ii-b-i-a).
-    "Win32_System_Registry",
     # Proximity sensor discovery (extra/sensors/windows.rs, 8e-i-a-ii):
     # `ProximitySensor` has no GetDefault(), only a device selector.
     "Devices_Enumeration",
@@ -462,11 +459,6 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
-    # extra/window_activation.rs: IsIconic / SetForegroundWindow / ShowWindow.
-    # Declared here because azul-dll uses it DIRECTLY; it used to compile only
-    # by feature unification from another crate, which the i686-msvc
-    # link-static check does not pull in.
-    "Win32_UI_WindowsAndMessaging",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54
