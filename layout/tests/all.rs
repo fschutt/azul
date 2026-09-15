@@ -294,6 +294,8 @@ mod session_regression;
 mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
+#[path = "subtree_relayout.rs"]
+mod subtree_relayout;
 #[path = "svg_paint.rs"]
 mod svg_paint;
 #[path = "svg_tessellation.rs"]

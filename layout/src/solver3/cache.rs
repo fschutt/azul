@@ -173,6 +173,18 @@ pub struct NodeCache {
     /// Fast check for dirty propagation (Taffy optimization).
     /// When true, all slots are empty — ancestors are also dirty.
     pub is_empty: bool,
+
+    /// The containing block this node was last laid out against. It is the
+    /// PARENT's input to this node, not a result of the node's own content,
+    /// so [`Self::clear`] keeps it.
+    ///
+    /// A dirty subtree re-solved on its own — a layout root below the tree
+    /// root — must be handed the block its parent's pass handed it. The
+    /// parent's final used size is not that block: an auto-height parent has
+    /// grown by its overflowing content. A `height: 100%` body under an
+    /// `<html>` that also holds a menu bar resolved against the viewport in
+    /// the full pass and against the taller html in the partial one.
+    pub last_containing_block: Option<super::geometry::ContainingBlock>,
 }
 
 impl Default for NodeCache {
@@ -181,12 +193,16 @@ impl Default for NodeCache {
             measure_entries: [None, None, None, None, None, None, None, None, None],
             layout_entry: None,
             is_empty: true, // fresh cache is empty/dirty
+            last_containing_block: None,
         }
     }
 }
 
 impl NodeCache {
     /// Clear all cache entries, marking this node as dirty.
+    ///
+    /// `last_containing_block` survives: it describes the parent, which a
+    /// dirty mark on this node does not change.
     pub fn clear(&mut self) {
         self.measure_entries = [None, None, None, None, None, None, None, None, None];
         self.layout_entry = None;
@@ -3058,6 +3074,14 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // resume token) is not part of the cache key, so a hit would return the
     // CONTINUOUS geometry and silently skip breaking. Fragment results are
     // also never STORED (they would poison the continuous cache).
+    // Both modes: a block container sizes its in-flow children in its
+    // Pass 1 (`ComputeSize`) against the block that decides their size, and
+    // only applies positions afterwards. Flex and grid items never pass
+    // through here (taffy lays them out directly), and a dirty flex item is
+    // promoted to its container before it could be a layout root.
+    if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
+        ctx.cache_map.entries[node_index].last_containing_block = Some(*cb);
+    }
     if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
         match compute_mode {
             ComputeMode::ComputeSize => {

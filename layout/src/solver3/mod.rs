@@ -1261,16 +1261,39 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 let _ = (0xDD00_0054u32);
             }
 
-            let is_root_with_margin = root_node.parent.is_none()
-                && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
+            let is_tree_root = root_node.parent.is_none();
+            let is_root_with_margin =
+                is_tree_root && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
 
+            // A layout root BELOW the tree root is a dirty subtree re-solved
+            // on its own, and it must be laid out exactly where and against
+            // what its parent's pass laid it out: from its own slot (the
+            // position `calculate_layout_for_subtree` places the children
+            // from, which a clean parent keeps), inside the containing block
+            // that pass handed it. The parent's content-box origin put the
+            // subtree's children at the parent's corner — AzWidgets' body sits
+            // below a menu bar, and every knob tick of a switch moved the
+            // whole page up by the bar and left by the body's margin.
             let adjusted_cb_pos = if is_root_with_margin {
                 LogicalPosition::new(
                     cb_pos.x + root_bp.margin.left,
                     cb_pos.y + root_bp.margin.top,
                 )
-            } else {
+            } else if is_tree_root {
                 cb_pos
+            } else {
+                pos_get(&calculated_positions, root_idx).unwrap_or(cb_pos)
+            };
+            let root_cb = if is_tree_root {
+                // The root's containing block is the viewport — definite on
+                // both axes, always.
+                geometry::ContainingBlock::definite(cb_size)
+            } else {
+                ctx.cache_map
+                    .entries
+                    .get(root_idx)
+                    .and_then(|c| c.last_containing_block)
+                    .unwrap_or_else(|| geometry::ContainingBlock::definite(cb_size))
             };
             {
                 let _ = (0xDD00_0056u32);
@@ -1326,9 +1349,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     text_cache,
                     root_idx,
                     adjusted_cb_pos,
-                    // The root's containing block is the viewport — definite
-                    // on both axes, always.
-                    &geometry::ContainingBlock::definite(cb_size),
+                    &root_cb,
                     &mut calculated_positions,
                     &mut reflow_needed_for_scrollbars,
                     &mut cache.float_cache,
