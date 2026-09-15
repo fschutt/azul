@@ -984,7 +984,9 @@ lang_deps_cleanup() {
       ;;
     d)
       rm -f "$REPO_ROOT/examples/d/hello-world-e2e" "$REPO_ROOT/examples/d/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/d/hello-world-e2e.o" "$REPO_ROOT/examples/d/hello-world-e2e.obj"
       rm -f "$REPO_ROOT/examples/d/azul.d"
+      rm -rf "$REPO_ROOT/examples/d/azul-d"
       rm -f "$REPO_ROOT/examples/d/$(basename "$LIB_PATH")"
       ;;
     swift)
@@ -1639,22 +1641,30 @@ lang_d() {
   local f; f="$(log_path d)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" 2>/dev/null || true
+    # The example does `import azul;`: build it against the generated dub
+    # package's sources (package.d + one module per api.json module), the way
+    # `dub` would, and check that the one-file azul.d the website ships next
+    # to hello-world.d compiles too (it is the same code as `module azul`).
+    rm -rf "$REPO_ROOT/examples/d/azul-d"
+    cp -R "$CODEGEN_DIR/d" "$REPO_ROOT/examples/d/azul-d" || exit 1
+    cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" || exit 1
     cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/d" || exit 1
+    dmd -o- hello-world.d azul.d || exit 1
+    local SRC=(-Iazul-d/source hello-world.d azul-d/source/azul/*.d)
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+      dmd "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      dmd hello-world.d azul.d "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
+      dmd "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
     else
-      dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world-e2e || exit 1
+      dmd "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
-  finish d "d build/run failed (dmd hello-world.d azul.d)"
+  finish d "d build/run failed (hello-world.d against the d/ package sources)"
 }
 
 lang_crystal() {

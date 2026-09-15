@@ -324,11 +324,10 @@ impl GenerationTargets {
         // 20f. More candidate archetype-A bindings (d/crystal/v/swift/julia) —
         //      C-ABI-direct, off-frontpage, CI-validated. Swift also emits a
         //      static module.modulemap and reuses the generated azul.h.
-        println!("[20f/35] Generating D bindings...");
-        Self::write_string(
-            super::lang_d::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.d"),
-        )?;
+        println!("[20f/35] Generating D bindings (azul.d + d/ dub package)...");
+        for (rel, content) in super::lang_d::generate_files(ir, &CodegenConfig::c_header())? {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
         println!("[20g/35] Generating Crystal bindings (azul.cr + crystal/ shard)...");
         for (rel, content) in
             super::lang_crystal::generate_files(ir, &CodegenConfig::c_header())?

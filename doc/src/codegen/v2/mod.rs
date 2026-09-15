@@ -289,8 +289,9 @@ pub fn generate_red(api_data: &ApiData) -> Result<String> {
     lang_red::generate(&ir, &config)
 }
 
-/// Generate D bindings as String. Returns `azul.d` (explicit `module azul`
-/// FFI translation; callbacks are C-direct `extern(C)` fn pointers).
+/// Generate D bindings as String. Returns `azul.d`, `module azul` in one file:
+/// the C ABI declared in D plus the idiomatic API over it (handle structs, D
+/// enums, native string / Nullable / arrays, delegates for callbacks).
 pub fn generate_d(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
