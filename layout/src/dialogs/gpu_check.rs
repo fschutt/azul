@@ -16,25 +16,32 @@
 //! When the remediation needs a reboot, or when the CURRENT boot path is
 //! already unsafe, the dialog says so before anything is applied.
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update};
-use azul_core::dom::Dom;
-use azul_core::refany::RefAny;
-use azul_core::task::ThreadId;
+use azul_core::{
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
+    dom::Dom,
+    refany::RefAny,
+    task::{ThreadId, ThreadReceiver},
+};
 use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
-use crate::appenv::{GpuProvisionOutcome, GpuProvisionReport, GpuStatus};
-use crate::callbacks::CallbackInfo;
-use crate::thread::{
-    Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
-    WriteBackCallbackType,
+use crate::{
+    appenv::{GpuProvisionOutcome, GpuProvisionReport, GpuStatus},
+    callbacks::CallbackInfo,
+    thread::{
+        Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
+        WriteBackCallbackType,
+    },
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType},
+        progressbar::ProgressBar,
+    },
 };
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use crate::widgets::progressbar::ProgressBar;
-use azul_core::task::ThreadReceiver;
 
 /// Where the dialog is in the inspect → consent → apply story.
 #[derive(Debug, Clone)]
@@ -98,8 +105,8 @@ extern "C" fn check_worker(mut _init: RefAny, mut sender: ThreadSender, _recv: T
     let phase = match crate::appenv::gpu_provision_hooks() {
         Some(hooks) => GpuPhase::Report((hooks.check)()),
         None => GpuPhase::Unavailable(
-            "This build has no driver-provisioning support, so only the \
-             renderer's own report is available."
+            "This build has no driver-provisioning support, so only the renderer's own report is \
+             available."
                 .to_owned(),
         ),
     };
@@ -245,15 +252,14 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
             )));
             if !report.boot_safe {
                 children.push(Dom::create_p_with_text(
-                    "WARNING: as things stand, the next reboot may not reach a \
-                     usable desktop. Apply the repair below BEFORE rebooting.",
+                    "WARNING: as things stand, the next reboot may not reach a usable desktop. \
+                     Apply the repair below BEFORE rebooting.",
                 ));
             }
             children.extend(detail_lines(&report.detail));
             if report.can_remediate {
                 children.push(Dom::create_p_with_text(
-                    "The repair runs the commands listed above and will ask for \
-                     your password.",
+                    "The repair runs the commands listed above and will ask for your password.",
                 ));
                 if report.needs_reboot {
                     children.push(Dom::create_p_with_text(
@@ -272,8 +278,7 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }
         GpuPhase::Applying { done, total, step } => {
             children.push(Dom::create_p_with_text(
-                "Applying... you may be asked for your password. Do not close \
-                 this window.",
+                "Applying... you may be asked for your password. Do not close this window.",
             ));
             // A real fraction or nothing: an indeterminate bar drawn as if it
             // measured something is worse than no bar. `total == 0` is the

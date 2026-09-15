@@ -6,8 +6,8 @@
 //! and browsers use — works on KDE/GNOME, X11 and Wayland) handing off to a
 //! **PipeWire** video stream (dlopen'd `libpipewire-0.3.so.0`, no link-time
 //! dependency). macOS: **ScreenCaptureKit**, dlopen'd at runtime (macOS 12.3+,
-//! no link-time dependency — older systems keep the test pattern). Windows
-//! (DXGI duplication) is a follow-up.
+//! no link-time dependency — older systems keep the test pattern). Windows:
+//! **DXGI desktop duplication**, dxgi/d3d11 loaded at runtime.
 
 #[cfg(target_os = "linux")]
 mod dmabuf;
@@ -15,6 +15,8 @@ mod dmabuf;
 mod linux;
 #[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 
 /// Idempotently register the platform screen-capture backend. Called from the
 /// per-frame layout pass next to `ensure_camera_backend` / `ensure_mic_backend`.
@@ -49,6 +51,21 @@ pub fn ensure_screen_backend() {
                     read: macos::read,
                     close: macos::close,
                     reconfigure: Some(macos::reconfigure),
+                },
+            );
+        });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            crate::plog_info!("[screencap] registering DXGI desktop duplication backend");
+            azul_layout::widgets::capture_common::register_screen_backend(
+                azul_layout::widgets::capture_common::CaptureVTable {
+                    open: windows::open,
+                    read: windows::read,
+                    close: windows::close,
+                    reconfigure: None,
                 },
             );
         });

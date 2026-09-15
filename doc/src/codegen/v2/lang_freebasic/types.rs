@@ -2,34 +2,33 @@
 //!
 //! Strategy:
 //!
-//! - **Unit-only enums** → `Enum AzFoo : AzFoo_A : AzFoo_B : End Enum`.
-//!   FreeBASIC enums are integer-backed by default and start at 0,
-//!   matching the default Rust `repr(C)` enum layout.
-//! - **Tagged-union enums** → emitted as a `Type` containing a tag field
-//!   (the variant tag enum) and a `Union` of payload sub-records, one
-//!   per non-unit variant. This mirrors the C-API layout produced by
-//!   the C generator and matches the wire format used by the prebuilt
-//!   `libazul`.
-//! - **POD structs** → `Type AzFoo ... End Type` with field types
-//!   resolved via `map_type_to_fb`. Default natural alignment is used
-//!   (no `Field = 1` packing) because `extern "C"` Rust structs use
-//!   natural alignment, not packed.
-//! - **Callback typedefs** → declared inside `Extern "C" Lib "azul"`
-//!   as procedural-pointer aliases via `Type AzFooCallbackType As
-//!   Function ... `. We emit those here (above the externals block) so
-//!   they may appear in field types.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with `' SKIPPED: <reason>` line comments.
+//! - **Unit-only enums** → `Enum AzFoo : AzFoo_A : AzFoo_B : End Enum`. FreeBASIC enums are
+//!   integer-backed by default and start at 0, matching the default Rust `repr(C)` enum layout.
+//! - **Tagged-union enums** → emitted as a `Type` containing a tag field (the variant tag enum) and
+//!   a `Union` of payload sub-records, one per non-unit variant. This mirrors the C-API layout
+//!   produced by the C generator and matches the wire format used by the prebuilt `libazul`.
+//! - **POD structs** → `Type AzFoo ... End Type` with field types resolved via `map_type_to_fb`.
+//!   Default natural alignment is used (no `Field = 1` packing) because `extern "C"` Rust structs
+//!   use natural alignment, not packed.
+//! - **Callback typedefs** → declared inside `Extern "C" Lib "azul"` as procedural-pointer aliases
+//!   via `Type AzFooCallbackType As Function ... `. We emit those here (above the externals block)
+//!   so they may appear in field types.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `' SKIPPED:
+//!   <reason>` line comments.
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, StructDef, TypeCategory,
+        },
+    },
+    ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier,
 };
-use super::{ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier};
 
 // ============================================================================
 // Top-level type-block emission
@@ -56,14 +55,12 @@ pub fn generate_types(
         }
     }
 
-    // 2. Forward Type declarations (FreeBASIC supports `Type AzFoo As ...`
-    //    forward declarations). We emit them up front so structs can
-    //    contain pointers to types defined later in the file. The
-    //    `As Object` form does not work for non-class types; instead we
-    //    rely on FreeBASIC's two-pass parser, which tolerates forward
-    //    references inside `Type` bodies as long as they are pointers.
-    //    No explicit forward-decl block is required for `Ptr`-typed
-    //    fields in practice.
+    // 2. Forward Type declarations (FreeBASIC supports `Type AzFoo As ...` forward declarations).
+    //    We emit them up front so structs can contain pointers to types defined later in the file.
+    //    The `As Object` form does not work for non-class types; instead we rely on FreeBASIC's
+    //    two-pass parser, which tolerates forward references inside `Type` bodies as long as they
+    //    are pointers. No explicit forward-decl block is required for `Ptr`-typed fields in
+    //    practice.
 
     // 3. Tagged-union enums (FB Type with embedded Union).
     for e in &ir.enums {

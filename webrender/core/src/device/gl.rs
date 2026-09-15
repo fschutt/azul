@@ -1030,8 +1030,8 @@ impl Drop for SharedDepthTarget {
         // happens instead of only where it is fatal.
         if self.refcount != 0 && !thread::panicking() {
             warn!(
-                "SharedDepthTarget for RBO {:?} dropped with refcount {} \
-                 (expected 0) — the depth renderbuffer is leaked",
+                "SharedDepthTarget for RBO {:?} dropped with refcount {} (expected 0) — the depth \
+                 renderbuffer is leaked",
                 self.rbo_id, self.refcount,
             );
         }

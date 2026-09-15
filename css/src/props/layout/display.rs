@@ -1,9 +1,8 @@
 //! CSS properties for `display` and `float`.
 
-use crate::corety::AzString;
 use alloc::string::{String, ToString};
 
-use crate::props::formatter::PrintAsCssValue;
+use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
 /// Represents a `display` CSS property value
 // +spec:display-property:472a62 - display property controls box generation types per CSS 2.2 §9.2
@@ -23,11 +22,11 @@ pub enum LayoutDisplay {
     Flex,
     InlineFlex,
 
-    // +spec:display-property:03b26a - Table display types mapping document elements to CSS table model
-    // +spec:display-property:d40388 - layout-internal display types set both inner and outer display
-    // +spec:display-property:dcf7f5 - table display values (table, inline-table, table-row, etc.) per CSS 2.2 §17
-    // +spec:table-layout:7fdc60 - display property maps elements to table roles (CSS 2.2 §17.1)
-    // Table layout
+    // +spec:display-property:03b26a - Table display types mapping document elements to CSS table
+    // model +spec:display-property:d40388 - layout-internal display types set both inner and
+    // outer display +spec:display-property:dcf7f5 - table display values (table,
+    // inline-table, table-row, etc.) per CSS 2.2 §17 +spec:table-layout:7fdc60 - display
+    // property maps elements to table roles (CSS 2.2 §17.1) Table layout
     // +spec:display-property:1554ad - Layout-internal display types for table layout
     // +spec:table-layout:6cc828 - <display-internal> and <display-legacy> table display types
     Table,
@@ -74,7 +73,8 @@ impl LayoutDisplay {
         matches!(self, Self::Flex | Self::InlineFlex)
     }
 
-    // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
+    // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2
+    // §17.4)
     /// Returns true if this display type establishes a table formatting context.
     #[must_use]
     pub const fn creates_table_context(&self) -> bool {
@@ -99,8 +99,9 @@ impl LayoutDisplay {
         )
     }
 
-    // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline boxes (Inline)
-    // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
+    // +spec:display-property:101f27 - inline-level boxes (InlineBlock, InlineFlex, etc.) vs inline
+    // boxes (Inline) +spec:display-property:18e77e - inner-only display keywords (flex, grid,
+    // table, flow-root) are not inline-level, defaulting outer display to block
     // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4
     /// Returns true if this display type generates an inline-level box.
     #[must_use]
@@ -132,7 +133,8 @@ impl LayoutDisplay {
     }
 }
 
-// +spec:display-property:cabaec - serialization uses short display keywords per CSSOM precedence rules
+// +spec:display-property:cabaec - serialization uses short display keywords per CSSOM precedence
+// rules
 impl PrintAsCssValue for LayoutDisplay {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -238,7 +240,8 @@ pub fn parse_layout_display(input: &str) -> Result<LayoutDisplay, LayoutDisplayP
         "none" => Ok(LayoutDisplay::None),
         "block" => Ok(LayoutDisplay::Block),
         "inline" => Ok(LayoutDisplay::Inline),
-        // +spec:display-property:f704ef - legacy single-keyword inline-level display values (inline-block, inline-table, inline-flex, inline-grid)
+        // +spec:display-property:f704ef - legacy single-keyword inline-level display values
+        // (inline-block, inline-table, inline-flex, inline-grid)
         "inline-block" => Ok(LayoutDisplay::InlineBlock),
         "flex" => Ok(LayoutDisplay::Flex),
         "inline-flex" => Ok(LayoutDisplay::InlineFlex),
@@ -325,7 +328,9 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[allow(clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS
+                                           // parser/formatter/dispatch table (one branch per
+                                           // property/variant)
     fn test_parse_layout_display() {
         assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
         assert_eq!(

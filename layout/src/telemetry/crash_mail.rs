@@ -286,9 +286,9 @@ fn build_mime_body(text: &str, attachments: &[(String, Vec<u8>)]) -> String {
     for (name, bytes) in attachments {
         let _ = write!(
             out,
-            "--{MIME_BOUNDARY}\r\nContent-Type: application/json; name=\"{name}\"\r\n\
-             Content-Disposition: attachment; filename=\"{name}\"\r\n\
-             Content-Transfer-Encoding: base64\r\n\r\n"
+            "--{MIME_BOUNDARY}\r\nContent-Type: application/json; \
+             name=\"{name}\"\r\nContent-Disposition: attachment; \
+             filename=\"{name}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n"
         );
         // 76-char lines per RFC 2045.
         let encoded = base64_encode(bytes);

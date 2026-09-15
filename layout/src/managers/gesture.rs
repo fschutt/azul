@@ -534,7 +534,6 @@ pub struct TabletPadState {
     pub strip_active: bool,
 }
 
-
 impl_option!(
     TabletPadState,
     OptionTabletPadState,
@@ -713,7 +712,6 @@ pub const fn tablet_usb_vendor_name(vendor_id: u32) -> &'static str {
 ///
 /// The manager now uses `DragContext` to unify all drag types:
 /// - `active_drag`: The unified drag context (replaces individual drag states)
-///
 #[derive(Debug, Clone, PartialEq)]
 // The bools are INDEPENDENT latches (per-input-source armed/pending state), not
 // the states of one machine; an enum would make illegal combinations of them
@@ -1197,7 +1195,10 @@ impl GestureAndDragManager {
             button_state: TOUCH_CONTACT_BUTTON_STATE,
             event_id: allocate_event_id(),
             pressure: 0.5,
-            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
+            tilt: crate::callbacks::PenTilt {
+                x_tilt: 0.0,
+                y_tilt: 0.0,
+            },
             touch_radius: LogicalSize::zero(),
         });
         true
@@ -1323,7 +1324,9 @@ impl GestureAndDragManager {
             // not on the motion frame this builds, so overwriting them here
             // would clear them on every sample.
             hover_distance: self.pen_state.map_or(0.0, |p| p.hover_distance),
-            tool_kind: self.pen_state.map_or(TabletToolKind::Unknown, |p| p.tool_kind),
+            tool_kind: self
+                .pen_state
+                .map_or(TabletToolKind::Unknown, |p| p.tool_kind),
         });
         self.pen_event_pending = true;
     }
@@ -1365,8 +1368,7 @@ impl GestureAndDragManager {
         // The CLICK is an edge — a dial reports `pressed` as a level, and
         // arming on the level would fire once per frame for as long as it is
         // held. Same rule the gamepad's press edges use.
-        self.pending_dial_click =
-            state.pressed && !self.dial_state.is_some_and(|d| d.pressed);
+        self.pending_dial_click = state.pressed && !self.dial_state.is_some_and(|d| d.pressed);
         self.dial_state = Some(state);
     }
 
@@ -1542,7 +1544,11 @@ impl GestureAndDragManager {
             self.set_pen_hover_distance(distance);
             return;
         }
-        if let Some(p) = self.seat_pens.get_mut(&seat_id).and_then(|pen| pen.state.as_mut()) {
+        if let Some(p) = self
+            .seat_pens
+            .get_mut(&seat_id)
+            .and_then(|pen| pen.state.as_mut())
+        {
             p.hover_distance = distance;
         }
     }
@@ -1552,7 +1558,11 @@ impl GestureAndDragManager {
             self.set_pen_tool_kind(kind);
             return;
         }
-        if let Some(p) = self.seat_pens.get_mut(&seat_id).and_then(|pen| pen.state.as_mut()) {
+        if let Some(p) = self
+            .seat_pens
+            .get_mut(&seat_id)
+            .and_then(|pen| pen.state.as_mut())
+        {
             p.tool_kind = kind;
         }
     }
@@ -1563,7 +1573,9 @@ impl GestureAndDragManager {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             self.pen_state.as_ref()
         } else {
-            self.seat_pens.get(&seat_id).and_then(|pen| pen.state.as_ref())
+            self.seat_pens
+                .get(&seat_id)
+                .and_then(|pen| pen.state.as_ref())
         }
     }
 
@@ -2066,12 +2078,14 @@ impl GestureAndDragManager {
 
         // Normalize angle to -π to π range
         #[allow(clippy::while_float)]
-        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
+        // artificial
         while angle_diff > PI {
             angle_diff -= 2.0 * PI;
         }
         #[allow(clippy::while_float)]
-        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
+        // artificial
         while angle_diff < -PI {
             angle_diff += 2.0 * PI;
         }
@@ -2100,13 +2114,18 @@ impl GestureAndDragManager {
 
     /// Every session of one seat, oldest first (9b-ii-b-i).
     pub fn sessions_of(&self, seat_id: u64) -> impl Iterator<Item = &InputSession> {
-        self.input_sessions.iter().filter(move |s| s.seat_id == seat_id)
+        self.input_sessions
+            .iter()
+            .filter(move |s| s.seat_id == seat_id)
     }
 
     /// The most recent session of one seat, ended or not.
     #[must_use]
     pub fn current_session_for(&self, seat_id: u64) -> Option<&InputSession> {
-        self.input_sessions.iter().rev().find(|s| s.seat_id == seat_id)
+        self.input_sessions
+            .iter()
+            .rev()
+            .find(|s| s.seat_id == seat_id)
     }
 
     /// The most recent PRIMARY session - what every "current session" reader
@@ -2596,8 +2615,9 @@ impl crate::managers::NodeIdRemap for GestureAndDragManager {
 
 #[cfg(test)]
 mod touch_session_tests {
-    use super::*;
     use azul_core::task::{Instant as TestInstant, SystemTick};
+
+    use super::*;
 
     /// A timestamp `n` MILLISECONDS from the origin.
     ///
@@ -2779,7 +2799,10 @@ mod autotest_generated {
             button_state: 0x01,
             event_id: 0,
             pressure: 0.5,
-            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
+            tilt: crate::callbacks::PenTilt {
+                x_tilt: 0.0,
+                y_tilt: 0.0,
+            },
             touch_radius: LogicalSize::zero(),
         }
     }
@@ -4540,6 +4563,7 @@ mod dial_event_tests {
     #[test]
     fn a_held_dial_click_does_not_re_fire() {
         use azul_core::events::{EventProvider, EventType};
+
         use super::{DialState, GestureAndDragManager};
 
         let ts = || azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
@@ -4580,7 +4604,6 @@ mod dial_event_tests {
     }
 }
 
-
 #[cfg(test)]
 mod rotary_units_tests {
     use super::rotary_units_to_radians;
@@ -4606,7 +4629,8 @@ mod rotary_units_tests {
             let got = rotary_units_to_radians(10.0, bad);
             assert_eq!(
                 got, 0.0,
-                "resolution {bad} must answer 0.0, the value that means \"not measured\", got {got}"
+                "resolution {bad} must answer 0.0, the value that means \"not measured\", got \
+                 {got}"
             );
             assert!(got.is_finite());
         }

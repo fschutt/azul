@@ -172,7 +172,8 @@ impl ShallowClone for FontRef {
 // Use crate::font_ref_to_parsed_font instead of a local duplicate
 
 impl ParsedFontTrait for FontRef {
-    // +spec:block-formatting-context:21ec9a - bidi direction handled during text shaping for vertical writing modes
+    // +spec:block-formatting-context:21ec9a - bidi direction handled during text shaping for
+    // vertical writing modes
     fn shape_text(
         &self,
         text: &str,
@@ -417,7 +418,8 @@ const FALLBACK_SCALE: f32 = 0.01;
 ///
 /// This is designed to be stable and explicit - we control exactly which features
 /// are enabled rather than relying on allsorts' defaults which may change.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 fn build_feature_mask_for_script(script: Script) -> FeatureMask {
     use Script::{
         Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
@@ -529,7 +531,8 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 }
 
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn to_opentype_script_tag(script: Script) -> u32 {
     use Script::{
         Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
@@ -644,7 +647,8 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
 
 /// Maps the `hyphenation::Language` enum to an OpenType language tag `u32`.
 #[cfg(feature = "text_layout_hyphenation")]
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
+                                  // (or cross-type bindings that can't merge)
 const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     use hyphenation::Language::{
         Afrikaans, Albanian, Armenian, Assamese, Basque, Belarusian, Bengali, Bulgarian, Catalan,
@@ -753,7 +757,8 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     clippy::cast_sign_loss
 )] // bounded layout/render numeric cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn shape_text_internal(
     parsed_font: &ParsedFont,
     text: &str,
@@ -768,8 +773,10 @@ fn shape_text_internal(
     #[cfg(not(feature = "text_layout_hyphenation"))]
     let lang_tag = 0u32;
 
-    // +spec:text-alignment-spacing:4357e6 - non-zero letter-spacing should disable optional ligatures; allsorts API is additive-only so default liga cannot be disabled here
-    // +spec:text-alignment-spacing:24d624 - cursive script letter-spacing behavior is advisory (outside CSS scope per spec note)
+    // +spec:text-alignment-spacing:4357e6 - non-zero letter-spacing should disable optional
+    // ligatures; allsorts API is additive-only so default liga cannot be disabled here
+    // +spec:text-alignment-spacing:24d624 - cursive script letter-spacing behavior is advisory
+    // (outside CSS scope per spec note)
     let mut user_features: Vec<FeatureInfo> = style
         .font_features
         .iter()
@@ -854,7 +861,8 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        let apply_kerning = true; // Always enable GPOS kern feature (not just when legacy kern table exists)
+        let apply_kerning = true; // Always enable GPOS kern feature (not just when legacy kern
+                                  // table exists)
         gpos::apply(
             gpos,
             opt_gdef,

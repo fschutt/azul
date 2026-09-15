@@ -12,12 +12,13 @@
 
 use anyhow::Result;
 
-use crate::codegen::v2::config::*;
-use crate::codegen::v2::generator::{CodeBuilder, LanguageGenerator};
-use crate::codegen::v2::ir::*;
-
 use super::shared;
-use crate::codegen::v2::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
+use crate::codegen::v2::{
+    config::*,
+    generator::{CodeBuilder, LanguageGenerator},
+    ir::*,
+    transmute_helpers::{generate_transmuted_fn_body, parse_arg_type},
+};
 
 // ============================================================================
 // Static Binding Generator

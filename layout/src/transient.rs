@@ -302,8 +302,9 @@ pub const fn transient_dom_id(index: usize) -> DomId {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::{dom::Dom, geom::LogicalPosition};
+
+    use super::*;
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
@@ -839,8 +840,8 @@ impl TransientWindowManager {
     ) -> TransientDiff {
         let mut diff = TransientDiff::default();
 
-        // 0. A dismissed node is re-armed the moment the app stops asking for
-        //    it (`open=false`); while it still asks, the dismissal wins.
+        // 0. A dismissed node is re-armed the moment the app stops asking for it (`open=false`);
+        //    while it still asks, the dismissal wins.
         self.dismissed
             .retain(|n| wanted.iter().any(|p| p.node == *n));
         let wanted: Vec<TransientPlacement> = wanted
@@ -1126,8 +1127,9 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
 
 #[cfg(test)]
 mod manager_tests {
-    use super::*;
     use azul_core::geom::LogicalPosition;
+
+    use super::*;
 
     fn placement(node: usize, x: f32) -> TransientPlacement {
         TransientPlacement {
@@ -1363,8 +1365,10 @@ mod manager_tests {
 
 #[cfg(test)]
 mod focus_return_tests {
-    use azul_core::dom::{DomId, DomNodeId, NodeId};
-    use azul_core::styled_dom::NodeHierarchyItemId;
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
 
     use super::TransientWindowManager;
 
@@ -1411,7 +1415,13 @@ mod focus_return_tests {
         let mut m = TransientWindowManager::new();
         m.remember_focus_before_open(NodeId::new(1), dnid(10), true);
         m.remember_focus_before_open(NodeId::new(2), dnid(20), false);
-        assert_eq!(m.take_focus_before_open(NodeId::new(2)), Some((dnid(20), false)));
-        assert_eq!(m.take_focus_before_open(NodeId::new(1)), Some((dnid(10), true)));
+        assert_eq!(
+            m.take_focus_before_open(NodeId::new(2)),
+            Some((dnid(20), false))
+        );
+        assert_eq!(
+            m.take_focus_before_open(NodeId::new(1)),
+            Some((dnid(10), true))
+        );
     }
 }

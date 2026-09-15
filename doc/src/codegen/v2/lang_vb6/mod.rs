@@ -47,17 +47,14 @@
 //!
 //! # Files emitted
 //!
-//! 1. **`Azul.bas`** — `Public Type` records, `Public Enum`
-//!    declarations, `Public Const` constants, and `Public Declare
-//!    Function`/`Sub` extern declarations against `azul.dll`.
-//!    Module-level wrapper `Public Function`s for free functions.
-//! 2. **`<Type>.cls`** — one VB6 Class Module per disposable type.
-//!    `Class_Initialize` constructs the underlying FFI record;
-//!    `Class_Terminate` calls the matching `_delete` extern. The
-//!    user-facing class names drop the `Az` prefix (`AzApp` →
-//!    `App`, `AzWindow` → `Window`).
-//! 3. **`Azul.vbp`** — VB6 Project file (`Type=Exe`) declaring every
-//!    component VB6 needs to load when opening the project.
+//! 1. **`Azul.bas`** — `Public Type` records, `Public Enum` declarations, `Public Const` constants,
+//!    and `Public Declare Function`/`Sub` extern declarations against `azul.dll`. Module-level
+//!    wrapper `Public Function`s for free functions.
+//! 2. **`<Type>.cls`** — one VB6 Class Module per disposable type. `Class_Initialize` constructs
+//!    the underlying FFI record; `Class_Terminate` calls the matching `_delete` extern. The
+//!    user-facing class names drop the `Az` prefix (`AzApp` → `App`, `AzWindow` → `Window`).
+//! 3. **`Azul.vbp`** — VB6 Project file (`Type=Exe`) declaring every component VB6 needs to load
+//!    when opening the project.
 //!
 //! # Wiring
 //!
@@ -68,9 +65,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod types;
@@ -415,7 +410,7 @@ pub fn to_pascal_case(s: &str) -> String {
 /// `'` line comment. We collapse newlines into spaces — `'` only
 /// terminates at end-of-line.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// Idiomatic VB6 method-name conversion. VB6 has many reserved

@@ -53,8 +53,10 @@ use azul_core::{
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     window::VirtualKeyCode,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     impl_option_inner,
     props::{
         basic::{
@@ -128,32 +130,16 @@ const BORDER_COLOR: ColorU = ColorU {
     b: 172,
     a: 255,
 }; // #acacac
-const BORDER_FOCUS: ColorU = ColorU {
-    r: 66,
-    g: 134,
-    b: 244,
-    a: 255,
-}; // #4286f4
 const TEXT_COLOR: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 }; // #333333
-const OPTION_HOVER_BG: ColorU = ColorU {
-    r: 234,
-    g: 244,
-    b: 252,
-    a: 255,
-}; // #eaf4fc
 
 const WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
 const WHITE_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(WHITE_BG_ITEMS);
-const OPTION_HOVER_BG_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(OPTION_HOVER_BG)];
-const OPTION_HOVER_BG_VEC: StyleBackgroundContentVec =
-    StyleBackgroundContentVec::from_const_slice(OPTION_HOVER_BG_ITEMS);
 
 /// Callback invoked when an option is chosen. The [`ComboBoxState`] carries the
 /// new `selected` index and the field `text` (set to the chosen label).
@@ -189,20 +175,51 @@ pub struct ComboBox {
     pub combo_state: ComboBoxStateWrapper,
     /// Greyed text shown in the field when no value has been typed/selected.
     pub placeholder: AzString,
-    /// Style of the outer wrapper (the `position: relative` context).
-    pub wrapper_style: CssPropertyWithConditionsVec,
-    /// Style of the clickable, focusable, editable input field.
-    pub field_style: CssPropertyWithConditionsVec,
-    /// Style of the text inside the field.
-    pub text_style: CssPropertyWithConditionsVec,
-    /// Style of the drop-down arrow icon on the right of the field.
-    pub arrow_style: CssPropertyWithConditionsVec,
-    /// Style of each option row inside the list panel.
-    pub option_style: CssPropertyWithConditionsVec,
-    /// Extra properties appended to the options-list panel style. The
-    /// open/close `display` toggle stays widget-managed; anything here wins
-    /// over the built-in panel style (inline properties resolve last-wins).
-    pub list_style: CssPropertyWithConditionsVec,
+    /// Style of the outer wrapper (the `position: relative` context), or `None`
+    /// for "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub wrapper_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the clickable, focusable, editable input field, or `None` for
+    /// "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub field_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the text inside the field, or `None` for "no opinion" — in which
+    /// case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub text_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the drop-down arrow icon on the right of the field, or `None` for
+    /// "no opinion" — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub arrow_style: OptionCssPropertyWithConditionsVec,
+    /// Style of each option row inside the list panel, or `None` for "no opinion"
+    /// — in which case the widget's default applies.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub option_style: OptionCssPropertyWithConditionsVec,
+    /// EXTRA properties appended to the options-list panel style, or `None` for
+    /// "no extras". The open/close `display` toggle stays widget-managed;
+    /// anything here wins over it (inline properties resolve last-wins).
+    ///
+    /// The one field on this widget where `Some` MERGES rather than replaces:
+    /// the panel's `display` is what opens and closes the list, so a caller
+    /// cannot be allowed to drop it. An empty vec used to mean "no extras",
+    /// which is why this needed the option most — the widget could not tell a
+    /// caller asking for nothing from a caller who had not spoken.
+    pub list_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -351,25 +368,18 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    // focus: highlight border
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_FOCUS,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: BORDER_FOCUS,
-        },
-    )),
+    // Focus ring, light and dark. Declared in the theme module — see
+    // `themes::flat::FOCUS_BORDER_TOP` — because the dark half needs the
+    // palette's `DARK_ACC`, which this file cannot see. All four edges, because
+    // a ring that sets only some leaves the rest at their resting colour.
+    crate::widgets::themes::flat::FOCUS_BORDER_TOP,
+    crate::widgets::themes::flat::FOCUS_BORDER_BOTTOM,
+    crate::widgets::themes::flat::FOCUS_BORDER_LEFT,
+    crate::widgets::themes::flat::FOCUS_BORDER_RIGHT,
+    crate::widgets::themes::flat::FOCUS_BORDER_TOP_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_BOTTOM_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_LEFT_DARK,
+    crate::widgets::themes::flat::FOCUS_BORDER_RIGHT_DARK,
 ];
 
 /// The editable text inside the field - takes the remaining horizontal space.
@@ -493,7 +503,9 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(OPTION_HOVER_BG_VEC)),
+    // Option-row hover, light and dark — see `themes::flat::OPTION_HOVER`.
+    crate::widgets::themes::flat::OPTION_HOVER,
+    crate::widgets::themes::flat::OPTION_HOVER_DARK,
 ];
 
 impl ComboBox {
@@ -514,12 +526,12 @@ impl ComboBox {
                 on_select: None.into(),
             },
             placeholder: AzString::from_const_str(""),
-            wrapper_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE),
-            field_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE),
-            text_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE),
-            arrow_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE),
-            option_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE),
-            list_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            wrapper_style: OptionCssPropertyWithConditionsVec::None,
+            field_style: OptionCssPropertyWithConditionsVec::None,
+            text_style: OptionCssPropertyWithConditionsVec::None,
+            arrow_style: OptionCssPropertyWithConditionsVec::None,
+            option_style: OptionCssPropertyWithConditionsVec::None,
+            list_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
         }
     }
@@ -594,6 +606,73 @@ impl ComboBox {
         self
     }
 
+    /// The wrapper CSS this combobox renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift. The
+    /// five resolvers below follow the same rule.
+    #[must_use]
+    pub fn resolved_wrapper_style(&self) -> CssPropertyWithConditionsVec {
+        self.wrapper_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE)
+        })
+    }
+
+    /// The input-field CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_field_style(&self) -> CssPropertyWithConditionsVec {
+        self.field_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE))
+    }
+
+    /// The field-text CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_text_style(&self) -> CssPropertyWithConditionsVec {
+        self.text_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE))
+    }
+
+    /// The arrow CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_arrow_style(&self) -> CssPropertyWithConditionsVec {
+        self.arrow_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE))
+    }
+
+    /// The option-row CSS this combobox renders with.
+    #[must_use]
+    pub fn resolved_option_style(&self) -> CssPropertyWithConditionsVec {
+        self.option_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE)
+        })
+    }
+
+    /// The panel CSS this combobox renders with: the widget's own open/closed
+    /// `display` toggle, with the caller's extras appended so they win.
+    ///
+    /// Unlike the others this MERGES rather than replaces — see
+    /// [`Self::list_style`]. `None` and `Some(empty)` therefore resolve alike
+    /// here, but they still say different things, and only one of them survives
+    /// a caller asking a second time.
+    #[must_use]
+    pub fn resolved_list_style(&self, open: bool) -> CssPropertyWithConditionsVec {
+        let base = build_list_style(open);
+        match self.list_style.as_ref() {
+            None => base,
+            Some(extra) => {
+                let mut merged = base.into_library_owned_vec();
+                merged.extend(extra.as_ref().iter().cloned());
+                CssPropertyWithConditionsVec::from_vec(merged)
+            }
+        }
+    }
+
     /// Replaces `self` with a default (empty) combobox and returns the original.
     #[inline]
     #[must_use]
@@ -620,6 +699,15 @@ impl ComboBox {
         let open = self.combo_state.inner.open;
         let items = self.combo_state.items.clone();
 
+        // Resolved before `self.combo_state` is moved into the shared RefAny
+        // below; the resolvers borrow `&self`.
+        let wrapper_style = self.resolved_wrapper_style();
+        let field_style = self.resolved_field_style();
+        let text_style = self.resolved_text_style();
+        let arrow_style = self.resolved_arrow_style();
+        let option_style = self.resolved_option_style();
+        let list_style = self.resolved_list_style(open);
+
         // ONE shared RefAny: the field handlers and every option handler all
         // read/mutate the same ComboBoxStateWrapper (the text_input shared-state
         // pattern), so open/selected/text stay in sync across interactions.
@@ -627,18 +715,18 @@ impl ComboBox {
 
         let text_node = crate::widgets::widget_p_with_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
-            .with_css_props(self.text_style);
+            .with_css_props(text_style);
 
         let arrow = Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_ARROW_CLASS))
-            .with_css_props(self.arrow_style);
+            .with_css_props(arrow_style);
 
         // The focusable, editable input field. Clicking it toggles the list
         // (Hover::MouseUp) and focuses it; typing edits the text node
         // (Focus::TextInput / VirtualKeyDown), mirroring text_input.
         let field = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
-            .with_css_props(self.field_style)
+            .with_css_props(field_style)
             .with_tab_index(TabIndex::Auto)
             // The field itself: an editable value with a list of choices.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -683,7 +771,7 @@ impl ComboBox {
             option_doms.push(
                 crate::widgets::widget_p_with_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
-                    .with_css_props(self.option_style.clone())
+                    .with_css_props(option_style.clone())
                     .with_tab_index(TabIndex::Auto)
                     // Each option is an item within the popup list.
                     .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -703,16 +791,6 @@ impl ComboBox {
                     ),
             );
         }
-
-        // Widget-managed panel style (open/close display toggle) + caller
-        // extras appended last so they win (inline resolution is last-wins).
-        let list_style = if self.list_style.is_empty() {
-            build_list_style(open)
-        } else {
-            let mut merged = build_list_style(open).into_library_owned_vec();
-            merged.extend(self.list_style.as_ref().iter().cloned());
-            CssPropertyWithConditionsVec::from_vec(merged)
-        };
 
         let list = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_LIST_CLASS))
@@ -741,7 +819,7 @@ impl ComboBox {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
-            .with_css_props(self.wrapper_style)
+            .with_css_props(wrapper_style)
             // children: [field, popup] — the popup (holding the list) is the
             // field's next sibling, so `get_next_sibling(field)` still names it.
             .with_children(DomVec::from_vec(alloc::vec![field, popup]))
@@ -895,13 +973,13 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
 /// share (list, and the node above it), does the state + `on_select` work first,
 /// and treats the field re-text as best-effort:
 ///
-///   * parent dom: `popup` is the `<transient-window>` node — closing it releases
-///     the engine's forced-open latch, and the field text is written directly;
-///   * popup dom: `popup` is the popup's ROOT — `set_transient_window_open(false)`
-///     on it is recognised by the shell as "this popup dismisses itself" (it posts
-///     `dismissed` to the parent's mailbox and closes the window), and the parent
-///     applies the field text in its `Dismissed` handler, where the parent's
-///     field node is addressable ([`on_combobox_dismissed`]).
+///   * parent dom: `popup` is the `<transient-window>` node — closing it releases the engine's
+///     forced-open latch, and the field text is written directly;
+///   * popup dom: `popup` is the popup's ROOT — `set_transient_window_open(false)` on it is
+///     recognised by the shell as "this popup dismisses itself" (it posts `dismissed` to the
+///     parent's mailbox and closes the window), and the parent applies the field text in its
+///     `Dismissed` handler, where the parent's field node is addressable
+///     ([`on_combobox_dismissed`]).
 extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let option = info.get_hit_node();
 
@@ -1094,8 +1172,8 @@ mod autotest_generated {
         let popup = &children[1];
         assert!(
             matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
-            "the list must live in a <transient-window> so it can escape the \
-             parent's stacking context and the window bounds",
+            "the list must live in a <transient-window> so it can escape the parent's stacking \
+             context and the window bounds",
         );
         let popup_children = popup.children.as_ref();
         assert_eq!(
@@ -1443,8 +1521,8 @@ mod autotest_generated {
             assert_ne!(
                 position_of(&props),
                 Some(LayoutPosition::Absolute),
-                "open={open}: absolute positioning belonged to the old in-DOM panel; \
-                 inside a popup window it would offset the list away from the window origin",
+                "open={open}: absolute positioning belonged to the old in-DOM panel; inside a \
+                 popup window it would offset the list away from the window origin",
             );
         }
     }
@@ -2750,11 +2828,9 @@ mod autotest_generated {
     /// Returns the styled popup dom plus the flattened option indices.
     fn popup_window_fixture(items: &[&str]) -> (StyledDom, Vec<usize>) {
         let fx = fixture(items);
-        let extracted = azul_core::transient::extract_subtree_as_dom(
-            &fx.styled,
-            NodeId::new(fx.popup),
-        )
-        .expect("the popup node is a <transient-window>, extraction must succeed");
+        let extracted =
+            azul_core::transient::extract_subtree_as_dom(&fx.styled, NodeId::new(fx.popup))
+                .expect("the popup node is a <transient-window>, extraction must succeed");
         assert!(
             matches!(extracted.root.get_node_type(), NodeType::Div),
             "inside its own window the transient container is a plain div"
@@ -2830,20 +2906,23 @@ mod autotest_generated {
         let logged = log
             .downcast_ref::<SelectLog>()
             .expect("log payload survived");
-        assert_eq!(logged.calls.len(), 1, "on_select must fire inside the popup");
+        assert_eq!(
+            logged.calls.len(),
+            1,
+            "on_select must fire inside the popup"
+        );
         assert_eq!(logged.calls[0].selected, 1);
 
         // Root of the extracted dom = flattened index 0.
         assert_eq!(
             transient_writes(&changes),
             alloc::vec![(0, false)],
-            "the close request names the popup's ROOT — the shell's cue to \
-             dismiss the popup window itself",
+            "the close request names the popup's ROOT — the shell's cue to dismiss the popup \
+             window itself",
         );
         assert!(
             text_writes(&changes).is_empty(),
-            "no field exists in the popup dom — a text write here would land \
-             on an arbitrary node",
+            "no field exists in the popup dom — a text write here would land on an arbitrary node",
         );
     }
 

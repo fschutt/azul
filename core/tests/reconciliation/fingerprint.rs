@@ -3,9 +3,11 @@
 // Tier 1 (fingerprint diff): O(1) per node — compare 6 hashes.
 // Tier 2 (compute_node_changes): O(n) per changed field — only for mismatches.
 
-use azul_core::diff::{compute_node_changes, NodeChangeSet, NodeDataFingerprint};
-use azul_core::dom::NodeData;
-use azul_core::styled_dom::StyledNodeState;
+use azul_core::{
+    diff::{compute_node_changes, NodeChangeSet, NodeDataFingerprint},
+    dom::NodeData,
+    styled_dom::StyledNodeState,
+};
 use azul_css::AzString;
 
 // =========================================================================

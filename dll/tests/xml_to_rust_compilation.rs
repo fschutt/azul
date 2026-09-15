@@ -398,7 +398,14 @@ mod xml_compilation_tests {
     #[test]
     fn test_tier_c_button_aria_all_langs() {
         let (rust, c, cpp, py) = gen_all("<button aria-label=\"Go\">Go</button>");
-        assert!(rust.contains("Dom::create_button(AzString::from(\"Go\"), SmallAriaInfo::label(AzString::from(\"Go\")))"), "{}", rust);
+        assert!(
+            rust.contains(
+                "Dom::create_button(AzString::from(\"Go\"), \
+                 SmallAriaInfo::label(AzString::from(\"Go\")))"
+            ),
+            "{}",
+            rust
+        );
         assert!(
             c.contains("AzDom_createButton(AZ_STR(\"Go\"), AzSmallAriaInfo_label(AZ_STR(\"Go\")))"),
             "{}",
@@ -427,7 +434,14 @@ mod xml_compilation_tests {
     #[test]
     fn test_tier_c_a_no_aria_all_langs() {
         let (rust, c, cpp, py) = gen_all("<a href=\"x\">link</a>");
-        assert!(rust.contains("Dom::create_a_no_a11y(AzString::from(\"x\"), OptionString::Some(AzString::from(\"link\")))"), "{}", rust);
+        assert!(
+            rust.contains(
+                "Dom::create_a_no_a11y(AzString::from(\"x\"), \
+                 OptionString::Some(AzString::from(\"link\")))"
+            ),
+            "{}",
+            rust
+        );
         assert!(
             c.contains("AzDom_createANoA11y(AZ_STR(\"x\"), AzOptionString_some(AZ_STR(\"link\")))"),
             "{}",
@@ -451,7 +465,14 @@ mod xml_compilation_tests {
     #[test]
     fn test_tier_c_input_all_langs() {
         let (rust, c, cpp, py) = gen_all("<input type=\"text\" name=\"u\">");
-        assert!(rust.contains("Dom::create_input_no_a11y(AzString::from(\"text\"), AzString::from(\"u\"), AzString::from(\"\"))"), "{}", rust);
+        assert!(
+            rust.contains(
+                "Dom::create_input_no_a11y(AzString::from(\"text\"), AzString::from(\"u\"), \
+                 AzString::from(\"\"))"
+            ),
+            "{}",
+            rust
+        );
         assert!(
             c.contains("AzDom_createInputNoA11y(AZ_STR(\"text\"), AZ_STR(\"u\"), AZ_STR(\"\"))"),
             "{}",
@@ -471,7 +492,8 @@ mod xml_compilation_tests {
         );
     }
 
-    // Tier B — `<details><summary>S</summary></details>` → details_no_a11y + summary_with_text_no_a11y.
+    // Tier B — `<details><summary>S</summary></details>` → details_no_a11y +
+    // summary_with_text_no_a11y.
     #[test]
     fn test_tier_b_details_summary_all_langs() {
         let (rust, c, cpp, py) = gen_all("<details><summary>S</summary></details>");
@@ -505,7 +527,8 @@ mod xml_compilation_tests {
     #[test]
     fn test_tier_d_scalar_widgets_all_langs() {
         let (rust, c, cpp, py) = gen_all(
-            "<progress value=\"0.5\" max=\"1\"></progress><meter value=\"2\" min=\"0\" max=\"10\"></meter><dialog></dialog>",
+            "<progress value=\"0.5\" max=\"1\"></progress><meter value=\"2\" min=\"0\" \
+             max=\"10\"></meter><dialog></dialog>",
         );
         assert!(
             rust.contains("Dom::create_progress_no_a11y(0.5, 1.0)"),
@@ -732,22 +755,19 @@ mod xml_compilation_tests {
     fn test_no_emitted_create_symbol_absent_from_header() {
         // One page exercising every tier + both aria / no-aria branches.
         let body = "\
-            <p>hi</p><h1>T</h1>\
-            <button aria-label=\"Go\">Go</button><button>Plain</button>\
-            <a href=\"x\">link</a><a href=\"y\" aria-label=\"Home\">Home</a>\
-            <label for=\"u\">Name</label>\
-            <input type=\"text\" name=\"u\">\
-            <textarea name=\"bio\"></textarea>\
-            <select name=\"s\"><optgroup label=\"g\"><option value=\"1\">One</option></optgroup></select>\
-            <details><summary aria-label=\"more\">S</summary></details>\
-            <form aria-label=\"f\"></form><fieldset></fieldset><legend>L</legend>\
-            <menu></menu><output></output><datalist></datalist>\
-            <canvas></canvas><audio></audio><video></video><area>\
-            <progress value=\"0.5\" max=\"1\"></progress>\
-            <meter value=\"2\" min=\"0\" max=\"10\"></meter>\
-            <dialog></dialog>\
-            <table aria-label=\"T\"><caption>Cap</caption><tr><td>x</td></tr></table>\
-            <table><tr><td>y</td></tr></table>";
+            <p>hi</p><h1>T</h1><button aria-label=\"Go\">Go</button><button>Plain</button><a \
+                    href=\"x\">link</a><a href=\"y\" aria-label=\"Home\">Home</a><label \
+                    for=\"u\">Name</label><input type=\"text\" name=\"u\"><textarea \
+                    name=\"bio\"></textarea><select name=\"s\"><optgroup label=\"g\"><option \
+                    value=\"1\">One</option></optgroup></select><details><summary \
+                    aria-label=\"more\">S</summary></details><form \
+                    aria-label=\"f\"></form><fieldset></fieldset><legend>L</legend><menu></\
+                    menu><output></output><datalist></datalist><canvas></canvas><audio></\
+                    audio><video></video><area><progress value=\"0.5\" \
+                    max=\"1\"></progress><meter value=\"2\" min=\"0\" \
+                    max=\"10\"></meter><dialog></dialog><table \
+                    aria-label=\"T\"><caption>Cap</caption><tr><td>x</td></tr></\
+                    table><table><tr><td>y</td></tr></table>";
         let (_rust, c, cpp, _py) = gen_all(body);
 
         let verified = verified_c_semantic_symbols();

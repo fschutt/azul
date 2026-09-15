@@ -1,61 +1,54 @@
 //! Crystal binding generator.
 //!
-//! Emits a single `azul.cr` source file exposing the C-ABI of `libazul`
-//! to Crystal programs. Crystal is archetype-A (C-ABI-direct): a `lib`
-//! block declares C structs by value, C enums, C function-pointer proc
-//! types, and every exported symbol as a `fun` binding. Modeled directly
-//! on the Odin backend (same archetype).
+//! Two layers in one binding:
 //!
-//! Unlike Zig — which parses `azul.h` via `@cImport` — Crystal has no C
-//! header importer, so we translate the FFI surface explicitly (like the
-//! Odin / Pascal / Fortran backends): every struct becomes a Crystal
-//! `struct` (inside `lib`), every enum a Crystal `enum` with an explicit
-//! backing integer, every tagged union a `union` of per-variant structs
-//! (mirroring the tested `lang_c` layout), and every C-ABI function a
-//! `fun <crystal_name> = <CName>(...) : Ret` binding inside `lib LibAzul`.
+//! * `lib LibAzul` - the C ABI translated one to one (structs, unions, enums,
+//!   proc aliases, every exported symbol as a `fun`), like the Odin backend.
+//! * `module Azul` - what a Crystal developer writes against: a wrapper class
+//!   per api.json struct or tagged union, Crystal enums, `String` / `T?` /
+//!   `Array(T)` / exceptions at method boundaries, blocks and closures for
+//!   callbacks, any Crystal object as application data, finalizers for
+//!   `Drop`, and `to_s` / `==` / `<=>` / `hash` / `clone` / `.default` for the
+//!   derived traits. See `wrappers.rs` (emitter), `model.rs` (type mapping)
+//!   and `runtime.rs` (ownership base class and handle table).
 //!
-//! # Callbacks are C-direct (the key simplification)
+//! Output: `target/codegen/azul.cr` (everything in one file, what the website
+//! hands out and the e2e lane compiles) and the shard in
+//! `target/codegen/crystal/` (`shard.yml`, `src/azul.cr` requiring
+//! `src/azul/{lib_azul,runtime,wrappers}.cr`, `README.md`).
 //!
-//! A Crystal `Proc` written as `->(a : T) { ... }` and passed to a C
-//! `fun` whose parameter is a `(T) -> R` proc-type compiles to a real C
-//! function pointer (Crystal boxes the closure only when it captures; the
-//! callbacks here capture nothing, so they are bare fn pointers). So the
-//! counter's `on_click` / `layout` callbacks are plain Crystal procs
-//! passed straight to `AzButton_setOnClick` / `AzWindowCreateOptions_create`.
-//! There is NO host-invoker table and NO handle registration — exactly the
-//! model used by `examples/zig/hello-world.zig` and the Odin backend. For
-//! each callback typedef we emit a Crystal proc-type alias
-//! (`alias AzButtonOnClickCallbackType = (AzRefAny, AzCallbackInfo) -> AzUpdate`),
-//! and functions that take a callback-wrapper arg bind the RAW C symbol
-//! taking that bare proc typedef (matching the raw `_setOnClick` variant
-//! the DLL exports — the same one Zig sees through `azul.h`).
+//! # Layout is NOT order-independent
 //!
-//! # Order-independence
-//!
-//! Crystal resolves `lib`-scope declarations regardless of source order,
-//! so — unlike C / Pascal — no forward declarations or topological sort
-//! are needed. Types skipped for codegen (recursive / generic template)
-//! are emitted as opaque pointer aliases (`alias AzXmlNode = Void*`) so
-//! any by-pointer reference still resolves, mirroring the Odin backend.
+//! Crystal resolves `lib`-scope NAMES regardless of source order, but it
+//! lays structs out lazily, on first use, and gets the size wrong when that
+//! walk re-enters a type it is still building. Two rules keep every one of
+//! the 5642 structs/unions byte-identical to `azul.h` (checked by sizeof,
+//! alignof and every field offset, in several first-use orders):
+//! declarations are emitted in the IR's topological `sort_order`, and
+//! callback proc aliases spell pointer args to azul types as `Void*`
+//! (see `types::emit_callback_typedef`). Only generic templates stay opaque
+//! (`alias AzCssPropertyValue = Void*`); they have no single layout.
 //!
 //! # Build / link requirements
 //!
 //! `@[Link("azul")]` on the `lib` emits `-lazul` to the linker; the user
 //! drops `libazul.{so,dylib}` / `azul.dll` on the library path
-//! (`--link-flags "-L."`). The generated `azul.cr` is `require`d by the
-//! driver.
+//! (`--link-flags "-L."`) and writes `require "azul"`.
 
 pub mod functions;
+pub mod model;
+pub mod runtime;
 pub mod types;
+pub mod wrappers;
 
 use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory,
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory},
 };
 
 /// The C library name used in `@[Link("azul")]`.
@@ -65,12 +58,17 @@ pub const LIB_NAME: &str = "azul";
 /// The Crystal `lib` module name wrapping the C-ABI surface.
 pub const LIB_MODULE: &str = "LibAzul";
 
-/// Generate the full `azul.cr` source file.
-pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+/// The parts of the binding, generated once.
+pub struct Parts {
+    pub lib: String,
+    pub wrappers: String,
+    /// api.json functions with no Crystal-side shape (still in the lib layer).
+    pub skipped: Vec<String>,
+}
+
+pub fn parts(ir: &CodegenIR, config: &CodegenConfig) -> Result<Parts> {
     // Crystal idiom is 2-space indentation.
     let mut b = CodeBuilder::new("  ");
-
-    emit_header(&mut b);
     b.line(&format!("@[Link(\"{}\")]", LIB_NAME));
     b.line(&format!("lib {}", LIB_MODULE));
     b.blank();
@@ -86,38 +84,174 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     b.line("end");
     b.blank();
 
-    // Idiomatic top-level type aliases dropping the `Az` prefix
-    // (`alias Dom = LibAzul::AzDom`). The raw `LibAzul::Az*` names remain
-    // available for both types and `fun` bindings.
-    functions::generate_type_aliases(&mut b, ir, config);
-
-    Ok(b.finish())
+    let model = model::Model::new(ir, config);
+    let (wrappers, skipped) = wrappers::generate(&model, &ir.api_version);
+    Ok(Parts {
+        lib: b.finish(),
+        wrappers,
+        skipped,
+    })
 }
 
-fn emit_header(b: &mut CodeBuilder) {
-    b.line("# ============================================================================");
-    b.line("# azul.cr — Crystal bindings for the Azul GUI framework");
-    b.line("# Auto-generated by azul-doc codegen v2 (lang_crystal). DO NOT EDIT MANUALLY.");
-    b.line("# ============================================================================");
-    b.line("#");
-    b.line("# The C-ABI surface is translated explicitly: structs -> struct, enums ->");
-    b.line("# enum, tagged unions -> union, and every exported symbol is declared as a");
-    b.line("# `fun` binding inside the `@[Link(\"azul\")] lib LibAzul` block below. The C");
-    b.line("# symbol names are preserved verbatim on the right of each `fun` (AzApp_create,");
-    b.line("# ...); the Crystal-side name lowercases the first letter (azApp_create) so it");
-    b.line("# is a legal method name (a capitalized call would parse as a constant).");
-    b.line("#");
-    b.line("# Callbacks are C-direct: pass a plain non-capturing `->(...) { ... }` proc");
-    b.line("# straight to AzButton_setOnClick / AzWindowCreateOptions_create — no");
-    b.line("# host-invoker table, exactly like the Zig / Odin / C bindings.");
-    b.line("#");
-    b.line("# Idiomatic type aliases without the `Az` prefix (Dom = LibAzul::AzDom) are");
-    b.line("# emitted at the bottom; the raw LibAzul::Az* names remain available.");
-    b.line("#");
-    b.line("# Build: place libazul.{so,dylib}/azul.dll on the link path and build with");
-    b.line("#   crystal build hello-world.cr --link-flags \"-L.\"");
-    b.line("# ============================================================================");
-    b.blank();
+/// Generate the full single-file `azul.cr`.
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let p = parts(ir, config)?;
+    Ok(amalgamate(&p))
+}
+
+fn amalgamate(p: &Parts) -> String {
+    let mut out = header(&p.skipped);
+    out.push_str(&p.lib);
+    out.push_str(runtime::RUNTIME);
+    out.push_str(&p.wrappers);
+    out
+}
+
+const PART_HEADER: &str = "# Auto-generated by azul-doc codegen v2 (lang_crystal). DO NOT EDIT.\n\n";
+
+/// Every file the binding writes, as (path relative to `target/codegen`,
+/// contents): the single-file `azul.cr` and the `crystal/` shard.
+pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(String, String)>> {
+    let p = parts(ir, config)?;
+    let mut entry = header(&p.skipped);
+    entry.push_str("require \"./azul/lib_azul\"\nrequire \"./azul/runtime\"\nrequire \"./azul/wrappers\"\n");
+    Ok(vec![
+        ("azul.cr".to_string(), amalgamate(&p)),
+        ("crystal/src/azul.cr".to_string(), entry),
+        (
+            "crystal/src/azul/lib_azul.cr".to_string(),
+            format!("{}{}", PART_HEADER, p.lib),
+        ),
+        (
+            "crystal/src/azul/runtime.cr".to_string(),
+            format!("{}{}", PART_HEADER, runtime::RUNTIME),
+        ),
+        (
+            "crystal/src/azul/wrappers.cr".to_string(),
+            format!("{}{}", PART_HEADER, p.wrappers),
+        ),
+        ("crystal/shard.yml".to_string(), shard_yml(&ir.api_version)),
+        ("crystal/README.md".to_string(), README.to_string()),
+    ])
+}
+
+fn shard_yml(version: &str) -> String {
+    format!(
+        "# Auto-generated by azul-doc codegen v2 (lang_crystal). DO NOT EDIT.
+name: azul
+version: {version}
+
+description: |
+  Crystal bindings for the Azul GUI framework (libazul).
+
+authors:
+  - The Azul authors <hello@azul.rs>
+
+homepage: https://azul.rs
+
+crystal: \">= 1.10.0\"
+
+license: MPL-2.0 OR MIT OR Apache-2.0
+
+libraries:
+  libazul: \"{version}\"
+"
+    )
+}
+
+const README: &str = r#"# azul (Crystal)
+
+Crystal bindings for the [Azul](https://azul.rs) GUI framework, generated from
+`api.json` by `azul-doc codegen` (do not edit).
+
+## Install
+
+Add the shard, and put `libazul.so` / `libazul.dylib` / `azul.dll` from the
+Azul release where the linker and the loader find it:
+
+```yaml
+dependencies:
+  azul:
+    path: ../azul-crystal # the generated target/codegen/crystal directory
+```
+
+```sh
+shards install
+crystal build app.cr --link-flags "-L/path/to/libazul"
+```
+
+## Hello world
+
+```crystal
+require "azul"
+
+class Counter
+  property count = 5
+end
+
+def layout(counter : Counter, info : Azul::LayoutCallbackInfo) : Azul::Dom
+  label = Azul::Dom.p_with_text(counter.count.to_s)
+    .with_css("font-size: 32px; margin: 0;")
+
+  button = Azul::Button.new("Increase counter")
+    .with_button_type(:primary)
+    .with_on_click(counter) do |counter, _info|
+      counter.count += 1
+      Azul::Update::RefreshDom
+    end
+
+  Azul::Dom.body.with_child(label).with_child(button.dom)
+end
+
+window = Azul::WindowCreateOptions.new(->layout(Counter, Azul::LayoutCallbackInfo))
+window.window_state.title = "Hello World"
+
+Azul::App.new(Counter.new, Azul::AppConfig.new).run(window)
+```
+
+## How the API maps
+
+* Every api.json class is `Azul::Name`. Fieldless enums are Crystal enums, so
+  `:primary` autocasts. A tagged union is an abstract class with one subclass
+  per variant: `case value when Azul::EventFilter::Hover`.
+* `String`, `Option<T>` (`T?`) and `Vec<T>` (`Array(T)`, `Bytes` for `u8`)
+  cross as native values. A method returning `Result` returns the `Ok` value
+  and raises `Azul::ResultError(E)` on `Err`.
+* `create` is `new`, `create_body` is `.body`, `get_x` is `#x`, `is_x` is
+  `#x?`, `set_x(v)` is `#x = v`. The C API stays available as `LibAzul`.
+* Callbacks take a block or a `Proc`, closures included. Application state is
+  any Crystal object and comes back to the callback with its own type.
+* Memory is managed: values are freed by their finalizer. Passing a non-Copy
+  object by value moves it into libazul, as in Rust; using it afterwards
+  raises `Azul::MovedError` (call `#clone` first to keep a copy).
+* Rust traits: `Debug` is `to_s`/`inspect`, `Clone` is `clone`/`dup`,
+  `PartialEq` is `==`, `PartialOrd`/`Ord` is `Comparable` with `<=>`, `Hash`
+  is `hash`, `Default` is `.default`, `Drop` is the finalizer.
+"#;
+
+fn header(skipped: &[String]) -> String {
+    let mut out = String::from(
+        "# ============================================================================
+# azul.cr - Crystal bindings for the Azul GUI framework
+# Auto-generated by azul-doc codegen v2 (lang_crystal). DO NOT EDIT MANUALLY.
+# ============================================================================
+#
+# `module Azul` is the API: a class per api.json type, Crystal enums, native
+# String / T? / Array(T) values, blocks for callbacks, finalizers for memory.
+# `lib LibAzul` is the C ABI one to one (`LibAzul.azDom_createBody`).
+#
+# Build: place libazul.{so,dylib} / azul.dll on the link path, then
+#   crystal build app.cr --link-flags \"-L.\"
+",
+    );
+    if !skipped.is_empty() {
+        out.push_str("#\n# Only in LibAzul (no argument or return shape the Azul:: layer can express):\n");
+        for s in skipped {
+            out.push_str(&format!("#   {}\n", s));
+        }
+    }
+    out.push_str("# ============================================================================\n\n");
+    out
 }
 
 // ============================================================================
@@ -366,9 +500,15 @@ fn is_crystal_keyword(s: &str) -> bool {
 // ============================================================================
 
 /// A struct gets a real Crystal `struct`; skipped ones become opaque
-/// pointer aliases. Only Recursive / GenericTemplate are skipped — VecRef
-/// / DestructorOrClone are kept because Vec wrappers embed them as fields
-/// and eliding them would corrupt surrounding field offsets.
+/// pointer aliases. Only GenericTemplate is skipped (it has no single
+/// layout). VecRef / DestructorOrClone are kept because Vec wrappers embed
+/// them as fields and eliding them would corrupt surrounding field offsets.
+///
+/// `Recursive` is kept too. The category means "recursive in Rust through a
+/// Vec", and a Vec is a pointer: the C header lays `XmlNodeChild` out by value
+/// with no trouble, and so does Crystal. Emitting it as an opaque `Void*`
+/// alias made every type that embeds it by value too small
+/// (`AzOptionXmlNodeChild` 16 bytes vs 136 in C).
 pub fn include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
@@ -376,10 +516,7 @@ pub fn include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    s.category != TypeCategory::GenericTemplate
 }
 
 pub fn include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -389,72 +526,30 @@ pub fn include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    e.category != TypeCategory::GenericTemplate
 }
 
-/// Whether a function should get a `fun` binding. Mirrors the Odin /
-/// Pascal filter: skip functions whose owning class is a recursive /
-/// VecRef / destructor / generic-template type.
+/// Whether a function gets a `fun` binding: every function of a type this
+/// binding lays out.
+///
+/// The other archetype-A backends drop whole type categories here
+/// (recursive, VecRef, destructor/clone) because their ordinary methods
+/// traffic in shapes those languages cannot pass by value. Crystal passes
+/// any C struct by value, the recursive XML types are laid out for real (see
+/// `include_struct`), and callback pointer args are `Void*`, so none of those
+/// reasons applies. Only generic templates stay out: they have no single
+/// layout and no single symbol.
 pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    // A trait entry point an api.json `derive` declares is not what the
-    // `DestructorOrClone` exclusion below is for. That category is excluded
-    // because those types' ordinary methods traffic in callback function
-    // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
-    // AzString` traffics in neither, and is the same shape as the ~2800
-    // `_toDbgString` declarations this binding already emits. Excluding it
-    // wholesale is why every `*VecDestructor` declared `Debug` and named it
-    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
-    // RECURSIVE types are here for the same reason. `XmlNodeChild` and friends
-    // are excluded below because their ORDINARY methods traffic in a shape
-    // this binding cannot express by value - but `Az{T}_partialEq(a, b) ->
-    // bool` and `Az{T}_toDbgString(ptr) -> AzString` take a pointer and return
-    // a scalar, so the exclusion never applied to them. That is why the same
-    // four types - `Xml`, `XmlNodeChild`, `XmlNodeChildVec`,
-    // `ResultXmlXmlError` - showed up as the residue in fourteen bindings at
-    // once: one cause, not fourteen.
-    if func.kind.is_declared_capability()
-        && (ir.find_enum(&func.class_name).is_some_and(|e| {
-            matches!(
-                e.category,
-                TypeCategory::DestructorOrClone | TypeCategory::Recursive
-            )
-        }) || ir
-            .find_struct(&func.class_name)
-            .is_some_and(|s| s.category == TypeCategory::Recursive))
-    {
-        return config.should_include_type(&func.class_name);
-    }
-
     if !config.should_include_type(&func.class_name) {
         return false;
     }
     if let Some(s) = ir.find_struct(&func.class_name) {
-        if matches!(
-            s.category,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !s.generic_params.is_empty() {
+        if s.category == TypeCategory::GenericTemplate || !s.generic_params.is_empty() {
             return false;
         }
     }
     if let Some(e) = ir.find_enum(&func.class_name) {
-        if matches!(
-            e.category,
-            TypeCategory::Recursive
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !e.generic_params.is_empty() {
+        if e.category == TypeCategory::GenericTemplate || !e.generic_params.is_empty() {
             return false;
         }
     }

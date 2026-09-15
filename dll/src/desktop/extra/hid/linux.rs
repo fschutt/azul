@@ -372,9 +372,7 @@ pub fn poll() {
             // channel drops the oldest anyway.
             for _ in 0..16 {
                 let mut buf = [0u8; 64];
-                let n = unsafe {
-                    libc::read(dev.fd, buf.as_mut_ptr().cast(), buf.len())
-                };
+                let n = unsafe { libc::read(dev.fd, buf.as_mut_ptr().cast(), buf.len()) };
                 if n <= 0 {
                     // EAGAIN on a non-blocking fd = nothing queued, which is
                     // the usual answer and not an error.

@@ -1,6 +1,3 @@
-# Build the DOM with raw Azul::FFI::* record calls so no idiomatic-wrapper
-# destructors run on the moved-out by-value structs.
-
 use strict;
 use warnings;
 use FindBin qw($Bin);
@@ -8,7 +5,6 @@ use lib "$Bin/lib";
 use Azul;
 use FFI::Platypus::Buffer qw(scalar_to_buffer);
 
-# AzString from a Perl string (AzString_fromUtf8 copies the bytes).
 sub mk_str {
     my ($s) = @_;
     my ($ptr, $len) = scalar_to_buffer($s);
@@ -50,11 +46,6 @@ print "[azul] Perl full-GUI hello-world starting.\n";
 my $app_data  = Azul::refany_create($model);
 my $layout_cb = Azul::register_callback('LayoutCallback', $layout);
 
-# Splice the registered LayoutCallback (cb + ctx) into window_state; the raw C
-# _create() takes a bare fn-ptr and drops the ctx. FFI::Platypus record offsets
-# can't be trusted (the Perl codegen mis-sizes union-embedding records), so we
-# find the slot's REAL C-ABI offset by planting a sentinel fn-ptr and scanning
-# for it, then overwrite that slot with the real callback bytes.
 my $wco = Azul::FFI::AzWindowCreateOptions_default();
 {
     no warnings 'portable';
@@ -62,12 +53,10 @@ my $wco = Azul::FFI::AzWindowCreateOptions_default();
     my $probe = Azul::FFI::AzWindowCreateOptions_create($SENTINEL);
     my $off = index($$probe, pack('Q', $SENTINEL));
     die "could not locate layout_callback slot" if $off < 0;
-    # AzLayoutCallback = fn-ptr(8) + AzOptionRefAny(32) = 40 bytes.
     my $LC_SIZE = 40;
     substr($$wco, $off, $LC_SIZE) = substr($$layout_cb, 0, $LC_SIZE);
 }
 
 my $app = Azul::FFI::AzApp_create($app_data, Azul::FFI::AzAppConfig_create());
-# AzApp_run takes *mut App: hand it a pointer into the live record buffer.
 my ($app_ptr, $app_len) = scalar_to_buffer($$app);
 Azul::FFI::AzApp_run($app_ptr, $wco);

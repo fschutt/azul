@@ -46,7 +46,7 @@ All three end up wrapped in a single `ImageRef` and inserted into the tree via `
 `ImageRef` is a reference-counted handle to decoded image data. It's `Send + Sync`. Cloning bumps a refcount; the underlying buffer is freed when the last clone drops. Construct one via:
 
 - `ImageRef::null_image(w, h, format, tag)`. A placeholder of known size.
-- `ImageRef::new_rawimage(raw)`. Wraps a CPU pixel buffer.
+- `ImageRef::create_rawimage(raw)`. Wraps a CPU pixel buffer.
 - `ImageRef::gl_texture(texture)` (also `new_gltexture`). Wraps an existing GL texture.
 - `ImageRef::callback(cb, data)`. Defers rendering until layout knows the size.
 
@@ -70,7 +70,7 @@ let raw = RawImage {
     data_format: RawImageFormat::RGBA8,
     tag: Vec::new().into(),
 };
-let image_ref = ImageRef::new_rawimage(raw).expect("invalid pixel data");
+let image_ref = ImageRef::create_rawimage(raw).expect("invalid pixel data");
 let dom = Dom::create_image(image_ref);
 ```
 

@@ -5,9 +5,6 @@ Option Explicit
 Public Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
     (ByRef Destination As Any, ByRef Source As Any, ByVal Length As Long)
 
-' Every Az* struct below is declared `Long`-as-pointer; the real generated
-' bindings emit Public Type records instead.
-
 Public Declare Function AzString_copyFromBytes Lib "azul" Alias "AzString_copyFromBytes" _
     (ByVal ptr_ As Long, ByVal start_ As Long, ByVal len_ As Long) As Long
 
@@ -72,10 +69,6 @@ End Type
 Public Sub MyDataModel_destructor(ByVal p As Long)
 End Sub
 
-' Build an AzString from a VB6 String. We pass StrPtr(s) which gives the
-' BSTR data pointer; copyFromBytes then duplicates the bytes into an
-' azul-owned string. NOTE: this passes UTF-16 bytes; for non-ASCII
-' content use a UTF-8 conversion helper. For the example it is fine.
 Public Function AzStr(ByRef s As String) As Long
     AzStr = AzString_copyFromBytes(StrPtr(s), 0, LenB(s))
 End Function
@@ -120,7 +113,6 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     btn = AzButton_create(AzStr("Increase counter"))
     AzButton_setButtonType btn, az_ButtonType_Primary
 
-    ' Clone the RefAny so the button keeps its own reference.
     dataClone = AzRefAny_clone(data)
     AzButton_setOnClick btn, dataClone, AddressOf on_click
     buttonDom = AzButton_dom(btn)

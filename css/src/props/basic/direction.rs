@@ -1,17 +1,20 @@
 //! CSS property types for direction (for gradients).
 
-use crate::corety::AzString;
 use alloc::string::String;
 use core::{fmt, num::ParseFloatError};
 
-use crate::props::{
-    basic::{
-        angle::{
-            parse_angle_value, AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned,
+use crate::{
+    corety::AzString,
+    props::{
+        basic::{
+            angle::{
+                parse_angle_value, AngleValue, CssAngleValueParseError,
+                CssAngleValueParseErrorOwned,
+            },
+            geometry::{LayoutPoint, LayoutRect},
         },
-        geometry::{LayoutPoint, LayoutRect},
+        formatter::PrintAsCssValue,
     },
-    formatter::PrintAsCssValue,
 };
 
 /// Corner or side of a rectangle, used to specify CSS gradient directions

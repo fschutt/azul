@@ -16,18 +16,17 @@
 //!
 //! What *is* identical, and therefore lives here:
 //!
-//! * **The kind allowlist** — which callback wrappers actually have
-//!   `impl_managed_callback!` applied on the Rust side. Adding a kind
-//!   bumps one constant rather than one entry per language adapter.
-//! * **IR filtering** — given the IR, return only the callback typedefs
-//!   that map to a kind in the allowlist.
-//! * **Type-name mapping** — Rust IR primitive → cdef C name (`u32` →
-//!   `uint32_t`, `f64` → `double`, …). Every adapter needs this for the
-//!   per-kind invoker signature.
-//! * **Arg-name normalisation** — the IR sometimes carries empty arg
-//!   names; emitters must fall back to a positional default.
-//! * **Return-presence** — does the callback return a non-void value, i.e.
-//!   does the host-side invoker need an out-pointer parameter?
+//! * **The kind allowlist** — which callback wrappers actually have `impl_managed_callback!`
+//!   applied on the Rust side. Adding a kind bumps one constant rather than one entry per language
+//!   adapter.
+//! * **IR filtering** — given the IR, return only the callback typedefs that map to a kind in the
+//!   allowlist.
+//! * **Type-name mapping** — Rust IR primitive → cdef C name (`u32` → `uint32_t`, `f64` → `double`,
+//!   …). Every adapter needs this for the per-kind invoker signature.
+//! * **Arg-name normalisation** — the IR sometimes carries empty arg names; emitters must fall back
+//!   to a positional default.
+//! * **Return-presence** — does the callback return a non-void value, i.e. does the host-side
+//!   invoker need an out-pointer parameter?
 //!
 //! The Lua/Ruby adapters previously each carried their own copy of these
 //! helpers; this module is the single source of truth they delegate to.
@@ -110,12 +109,11 @@ pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
 ///
 /// The pair pattern: for every function `Foo::set_on_x(self, data,
 /// callback: Callback)` in api.json, emit both
-///   - `AzFoo_setOnX(self, data, callback: AzCallbackType)` — raw
-///     fn-ptr form; body wraps as `Callback { cb, ctx: None }`.
-///   - `AzFoo_setOnXWithCtx(self, data, callback: AzCallbackType,
-///     callback_ctx: AzRefAny)` — for managed-FFI hosts whose
-///     callback-handle ctx lives in a GC'd refany. Body wraps as
-///     `Callback { cb, ctx: Some(ctx) }`.
+///   - `AzFoo_setOnX(self, data, callback: AzCallbackType)` — raw fn-ptr form; body wraps as
+///     `Callback { cb, ctx: None }`.
+///   - `AzFoo_setOnXWithCtx(self, data, callback: AzCallbackType, callback_ctx: AzRefAny)` — for
+///     managed-FFI hosts whose callback-handle ctx lives in a GC'd refany. Body wraps as `Callback
+///     { cb, ctx: Some(ctx) }`.
 pub fn is_callback_wrapper(type_name: &str) -> bool {
     HOST_INVOKER_KINDS.contains(&type_name.trim())
 }
@@ -139,15 +137,14 @@ pub fn callback_typedef_for(wrapper: &str) -> String {
 /// Functions matching this predicate are exported from libazul as a
 /// TRIPLE, not with the literal api.json signature:
 ///
-///   - `<c_name>(…, cb: Az<Kind>CallbackType)` — raw fn-ptr form
-///     (native C/C++/Zig/Go users; ctx = None).
-///   - `<c_name>WithCtx(…, cb: Az<Kind>CallbackType, cb_ctx:
-///     AzOptionRefAny)` — fn-ptr + host-handle ctx, destructured.
-///   - `<c_name>Struct(…, cb: Az<Kind>Callback)` — the WHOLE wrapper
-///     struct by value (the literal api.json shape). This is the form
-///     managed-FFI bindings must link: they receive the wrapper from
-///     `Az<Kind>Callback_createFromHostHandle` and pass it through
-///     without destructuring, so the host-handle ctx survives.
+///   - `<c_name>(…, cb: Az<Kind>CallbackType)` — raw fn-ptr form (native C/C++/Zig/Go users; ctx =
+///     None).
+///   - `<c_name>WithCtx(…, cb: Az<Kind>CallbackType, cb_ctx: AzOptionRefAny)` — fn-ptr +
+///     host-handle ctx, destructured.
+///   - `<c_name>Struct(…, cb: Az<Kind>Callback)` — the WHOLE wrapper struct by value (the literal
+///     api.json shape). This is the form managed-FFI bindings must link: they receive the wrapper
+///     from `Az<Kind>Callback_createFromHostHandle` and pass it through without destructuring, so
+///     the host-handle ctx survives.
 ///
 /// HISTORY (2026-07-04): every managed binding used to declare
 /// `<c_name>` with the wrapper-struct signature — an ABI mismatch

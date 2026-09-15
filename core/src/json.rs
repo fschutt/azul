@@ -3,14 +3,14 @@
 //! The actual parsing/serialization lives in `azul_layout::json` which adds
 //! serde_json-based implementations on top of these types.
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
+use core::fmt;
+
 use azul_css::{
     impl_option, impl_option_inner, impl_result, impl_result_inner, impl_vec, impl_vec_clone,
     impl_vec_debug, impl_vec_mut, impl_vec_partialeq, AzString, OptionBool, OptionF64,
     OptionString,
 };
-use core::fmt;
 
 // ============================================================================
 // JSON Value Type
@@ -158,7 +158,9 @@ impl JsonKeyValueVec {
     /// Creates a new, heap-allocated `JsonKeyValueVec` by copying elements from a C array
     #[inline]
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the
+    // documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force
+    // unsafe blocks into the generated dll bindings.
     #[must_use]
     pub fn copy_from_array(ptr: *const JsonKeyValue, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
@@ -187,7 +189,9 @@ impl JsonVec {
     /// Creates a new, heap-allocated `JsonVec` by copying elements from a C array
     #[inline]
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the
+    // documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force
+    // unsafe blocks into the generated dll bindings.
     #[must_use]
     pub fn copy_from_array(ptr: *const Json, len: usize) -> Self {
         if ptr.is_null() || len == 0 {

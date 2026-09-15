@@ -3,13 +3,13 @@
 //! Everything the mobile guide tells you to type by hand, as a command that
 //! probes first and is safe to re-run. Four things live here:
 //!
-//! * `install` / `doctor` / `env` — get the SDKs onto the machine and report
-//!   what is missing, without ever installing something unannounced.
-//! * `emulator` / `simulator` — boot a device headlessly, which is what makes
-//!   any of this usable from CI.
+//! * `install` / `doctor` / `env` — get the SDKs onto the machine and report what is missing,
+//!   without ever installing something unannounced.
+//! * `emulator` / `simulator` — boot a device headlessly, which is what makes any of this usable
+//!   from CI.
 //! * `build` / `run` — put a crate on that device and watch it start.
-//! * `check` — the compile gate across every mobile target, which needs no SDK
-//!   at all because `cargo check` does not link.
+//! * `check` — the compile gate across every mobile target, which needs no SDK at all because
+//!   `cargo check` does not link.
 
 pub mod assets;
 pub mod device;
@@ -119,9 +119,9 @@ impl Opts {
                         "auto" => E2eDriver::Auto,
                         "device" => E2eDriver::Device,
                         "host" => E2eDriver::Host,
-                        other => anyhow::bail!(
-                            "--driver expects auto | device | host, got '{other}'"
-                        ),
+                        other => {
+                            anyhow::bail!("--driver expects auto | device | host, got '{other}'")
+                        }
                     };
                 }
                 "--e2e-timeout" => {
@@ -154,11 +154,7 @@ impl Opts {
 
 pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
     let mut opts = Opts::parse(args)?;
-    let verb = opts
-        .positional
-        .first()
-        .cloned()
-        .unwrap_or_default();
+    let verb = opts.positional.first().cloned().unwrap_or_default();
     let verb = verb.as_str();
     let rest: Vec<&str> = opts.positional[1.min(opts.positional.len())..]
         .iter()
@@ -211,10 +207,17 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                 },
                 dir.display()
             );
-            for entry in ["scripts/build-android.sh", "scripts/build-ios.sh",
-                          "scripts/android/AndroidManifest.xml"] {
+            for entry in [
+                "scripts/build-android.sh",
+                "scripts/build-ios.sh",
+                "scripts/android/AndroidManifest.xml",
+            ] {
                 let p = dir.join(entry);
-                println!("  {} {}", if p.is_file() { "ok  " } else { "MISS" }, p.display());
+                println!(
+                    "  {} {}",
+                    if p.is_file() { "ok  " } else { "MISS" },
+                    p.display()
+                );
             }
             Ok(())
         }
@@ -236,8 +239,8 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             }
             if !blocked.is_empty() {
                 println!(
-                    "\n\x1b[33mStill needs you:\x1b[0m {}\n\
-                     Everything else is installed; re-run this command after doing them.",
+                    "\n\x1b[33mStill needs you:\x1b[0m {}\nEverything else is installed; re-run \
+                     this command after doing them.",
                     blocked.join(", ")
                 );
                 // Not an error: the automatable part genuinely succeeded.
@@ -257,8 +260,8 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             println!("\n\x1b[32mready:\x1b[0m {} ({})", dev.id, dev.driver.name());
             if platform == Platform::Android {
                 println!(
-                    "  adb -s {} logcat            # follow the log\n  \
-                     adb -s {} exec-out screencap -p > shot.png",
+                    "  adb -s {} logcat            # follow the log\n  adb -s {} exec-out \
+                     screencap -p > shot.png",
                     dev.id, dev.id
                 );
             }
@@ -293,15 +296,19 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                 })?;
             let spec = rest.get(1).copied().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "`mobile {verb} {}` needs a crate: a path to a Cargo.toml, a \
-                     directory, or an examples/ name",
+                    "`mobile {verb} {}` needs a crate: a path to a Cargo.toml, a directory, or an \
+                     examples/ name",
                     platform.name()
                 )
             })?;
             let target = run::Target::resolve(project_root, spec, &opts)?;
             println!(
                 "\x1b[1m{} {} ({})\x1b[0m",
-                if verb == "build" { "building" } else { "running" },
+                if verb == "build" {
+                    "building"
+                } else {
+                    "running"
+                },
                 target.crate_name,
                 target.bundle_id
             );
@@ -347,13 +354,19 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             }
 
             let e2e_bad = report.e2e.as_ref().map(|r| !r.complete()).unwrap_or(false)
-                || report.device_verdict.as_ref().map(|v| !v.ok()).unwrap_or(false);
+                || report
+                    .device_verdict
+                    .as_ref()
+                    .map(|v| !v.ok())
+                    .unwrap_or(false);
             if !report.launched || !report.errors.is_empty() || e2e_bad {
                 anyhow::bail!("run did not come up clean — see above");
             }
             Ok(())
         }
-        other => anyhow::bail!("unknown `mobile` subcommand: {other}\n\nTry `azul-doc mobile help`"),
+        other => {
+            anyhow::bail!("unknown `mobile` subcommand: {other}\n\nTry `azul-doc mobile help`")
+        }
     }
 }
 
@@ -385,7 +398,10 @@ fn print_env(tc: &Toolchain) {
     }
     if tc.host_os == HostOs::MacOs && tc.has_xcode() {
         if let Some(dev) = &tc.xcode_developer_dir {
-            println!("export DEVELOPER_DIR={}", toolchain::shell_quote(&dev.display().to_string()));
+            println!(
+                "export DEVELOPER_DIR={}",
+                toolchain::shell_quote(&dev.display().to_string())
+            );
         }
     }
 }

@@ -2,18 +2,15 @@
 //!
 //! Generates a single `azul.pas` unit file that:
 //!
-//! 1. Declares all C-ABI types as Pascal `record` definitions (POD/blittable),
-//!    Pascal enums for unit-only enumerations, and variant records for
-//!    tagged unions.
-//! 2. Forward-declares typed pointers (`PAzFoo = ^TAzFoo;`) at the top of
-//!    the type block so all later `record` and `external` declarations may
-//!    refer to them in any order.
-//! 3. Declares every C-API function as a `cdecl; external 'azul';` import
-//!    using the verbatim `Az` prefix so the linker can match symbol names.
-//! 4. Wraps every type that owns heap memory (i.e. has a matching
-//!    `<TypeName>_delete` C function) in an idiomatic Pascal `class` whose
-//!    `destructor Destroy; override;` calls the matching `_delete`. The
-//!    user calls `obj.Free;` and the destructor fires automatically.
+//! 1. Declares all C-ABI types as Pascal `record` definitions (POD/blittable), Pascal enums for
+//!    unit-only enumerations, and variant records for tagged unions.
+//! 2. Forward-declares typed pointers (`PAzFoo = ^TAzFoo;`) at the top of the type block so all
+//!    later `record` and `external` declarations may refer to them in any order.
+//! 3. Declares every C-API function as a `cdecl; external 'azul';` import using the verbatim `Az`
+//!    prefix so the linker can match symbol names.
+//! 4. Wraps every type that owns heap memory (i.e. has a matching `<TypeName>_delete` C function)
+//!    in an idiomatic Pascal `class` whose `destructor Destroy; override;` calls the matching
+//!    `_delete`. The user calls `obj.Free;` and the destructor fires automatically.
 //!
 //! # Output structure (high-level)
 //!
@@ -74,9 +71,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod lpi;

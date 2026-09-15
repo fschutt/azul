@@ -196,7 +196,8 @@ pub enum LayoutPaddingParseError<'a> {
     TooFewValues,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Owned variant of [`LayoutPaddingParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,7 +296,8 @@ pub enum LayoutMarginParseError<'a> {
     TooFewValues,
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Owned variant of [`LayoutMarginParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -563,18 +565,18 @@ mod tests {
 
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
-    #![allow(clippy::float_cmp)] // fixed-point quantisation makes exact f32 compares meaningful here
+    #![allow(clippy::float_cmp)] // fixed-point quantisation makes exact f32 compares meaningful
+                                 // here
 
-    use std::collections::hash_map::DefaultHasher;
-
-    #[allow(clippy::wildcard_imports)]
-    use super::*;
     use alloc::format;
     use core::{
         fmt,
         hash::{Hash, Hasher},
     };
+    use std::collections::hash_map::DefaultHasher;
 
+    #[allow(clippy::wildcard_imports)]
+    use super::*;
     use crate::props::{
         basic::{
             length::SizeMetric,

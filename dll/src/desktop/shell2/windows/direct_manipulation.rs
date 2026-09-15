@@ -61,8 +61,7 @@ use windows::{
     },
 };
 
-use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 
 /// The last scale DirectManipulation reported, so `OnContentUpdated` can emit a
 /// DELTA. The transform is absolute-since-gesture-start, but `DetectedPinch`
@@ -72,8 +71,7 @@ use crate::log_debug;
 /// Process-global rather than per-window: DirectManipulation drives one gesture
 /// at a time across the desktop, and the handler has no path back to its owner
 /// beyond the HWND it was built with.
-static LAST_SCALE: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0x3f80_0000); // 1.0f32 bits
+static LAST_SCALE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x3f80_0000); // 1.0f32 bits
 
 fn take_scale_delta(absolute: f32) -> f32 {
     let prev = f32::from_bits(LAST_SCALE.load(core::sync::atomic::Ordering::Relaxed));
@@ -184,8 +182,7 @@ impl DirectManipulationOwner {
                 .SetViewportOptions(DIRECTMANIPULATION_VIEWPORT_OPTIONS_MANUALUPDATE)
                 .ok()?;
 
-            let handler: IDirectManipulationViewportEventHandler =
-                DmEventHandler { hwnd }.into();
+            let handler: IDirectManipulationViewportEventHandler = DmEventHandler { hwnd }.into();
             let cookie = viewport.AddEventHandler(Some(hwnd_t), &handler).ok()?;
 
             let rect = RECT {

@@ -14,10 +14,10 @@
 //! shape at the call site from the symbol-map specification. We still
 //! emit the registration calls for both, because:
 //!
-//! - `azulFFI.struct(...)` returns `null` on Bun/Deno (see `mod.rs`),
-//!   so the calls are no-ops on those runtimes.
-//! - The shape is documented in JSDoc-comment form right above the call
-//!   for human readers regardless of runtime.
+//! - `azulFFI.struct(...)` returns `null` on Bun/Deno (see `mod.rs`), so the calls are no-ops on
+//!   those runtimes.
+//! - The shape is documented in JSDoc-comment form right above the call for human readers
+//!   regardless of runtime.
 //!
 //! Tagged-union enums are emitted as koffi unions with an outer wrapper
 //! struct carrying the tag. Each variant payload struct is registered
@@ -28,12 +28,16 @@
 //! Same filter as `lang_lua` and `lang_php`. See `mod.rs` doc-comment
 //! for the full list.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef,
-    MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::{
+            CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, MonomorphizedKind,
+            MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
+        },
+    },
+    ffi_type_name, map_type_to_koffi, sanitize_js_identifier,
 };
-use super::{ffi_type_name, map_type_to_koffi, sanitize_js_identifier};
 
 // ============================================================================
 // Public entry point

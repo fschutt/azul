@@ -1,30 +1,17 @@
-//! The request / resume pattern, one button per request kind.
-//!
-//! Every OS-facing operation that a browser can only answer asynchronously
-//! is a *request*: the click callback issues it, returns, and the answer
-//! arrives later in a *resume* callback as a fresh activation. Desktop
-//! answers within the same frame, mobile when the OS delegate fires, web on
-//! a later task - the code is the same.
-//!
-//! This is also the e2e target for the resumable API: the specs in
-//! `tests/e2e/resume_*.json` drive it with `AZ_BACKEND=headless` and the
-//! `mock` op (a canned picker answer, a canned HTTP response, ...), then
-//! assert on the labels below.
+use azul::{
+    callbacks::CallbackType,
+    db::{Db, DbConfig, DbOpenResult, DbSyncStatusResult, DbValue, DbValueResult},
+    dialog::{ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult},
+    dom::IdOrClass,
+    error::ResultDbDbError,
+    file::FileReadBytesResult,
+    http::{HttpGetResult, HttpRequestConfig},
+    option::{OptionColorU, OptionDbScope, OptionFileTypeList, OptionString},
+    prelude::*,
+    vec::IdOrClassVec,
+    widgets::Button,
+};
 
-use azul::db::{Db, DbConfig, DbOpenResult, DbSyncStatusResult, DbValue, DbValueResult};
-use azul::callbacks::CallbackType;
-use azul::dialog::{ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult};
-use azul::dom::IdOrClass;
-use azul::error::ResultDbDbError;
-use azul::file::FileReadBytesResult;
-use azul::http::{HttpGetResult, HttpRequestConfig};
-use azul::option::{OptionColorU, OptionDbScope, OptionFileTypeList, OptionString};
-use azul::prelude::*;
-use azul::vec::IdOrClassVec;
-use azul::widgets::Button;
-
-/// The endpoints the demo talks to. Under e2e they are mocked; in a real
-/// run they simply fail (the domain is reserved) and the labels show it.
 const FETCH_URL: &str = "https://example.invalid/e2e/status";
 const SYNC_URL: &str = "https://sync.example.invalid/demo";
 
@@ -108,8 +95,6 @@ fn set<F: FnOnce(&mut Demo)>(data: &mut RefAny, f: F) -> Update {
     Update::RefreshDom
 }
 
-// ---- open file -> read bytes: a chain of two resumes -----------------------
-
 extern "C" fn on_open(data: RefAny, _: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
         "Open a file",
@@ -152,8 +137,6 @@ extern "C" fn on_file_read(mut data: RefAny, _: CallbackInfo, result: RefAny) ->
     })
 }
 
-// ---- http ------------------------------------------------------------------
-
 extern "C" fn on_fetch(data: RefAny, _: CallbackInfo) -> Update {
     let _request = HttpRequestConfig::create()
         .with_timeout(5)
@@ -172,8 +155,6 @@ extern "C" fn on_fetched(mut data: RefAny, _: CallbackInfo, result: RefAny) -> U
     set(&mut data, |d| d.http = text)
 }
 
-// ---- colour picker -----------------------------------------------------------
-
 extern "C" fn on_pick_color(data: RefAny, _: CallbackInfo) -> Update {
     let _request = ColorPickerDialog::open("Pick a colour", OptionColorU::None, data, on_color);
     Update::DoNothing
@@ -190,8 +171,6 @@ extern "C" fn on_color(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Upd
     set(&mut data, |d| d.color = text)
 }
 
-// ---- export (fire-and-forget) -------------------------------------------------
-
 extern "C" fn on_export(mut data: RefAny, _: CallbackInfo) -> Update {
     let bytes: Vec<u8> = b"hello from the resume demo\n".to_vec();
     let scheduled = FileDialog::save_bytes("resume-demo.txt", "text/plain", bytes);
@@ -203,8 +182,6 @@ extern "C" fn on_export(mut data: RefAny, _: CallbackInfo) -> Update {
         }
     })
 }
-
-// ---- db: open -> set -> get, then sync ------------------------------------------
 
 extern "C" fn on_db(data: RefAny, _: CallbackInfo) -> Update {
     let config = DbConfig::create(":memory:").with_backup_sync_url(SYNC_URL);
@@ -246,7 +223,11 @@ extern "C" fn on_db_got(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Up
 extern "C" fn on_sync(mut data: RefAny, _: CallbackInfo) -> Update {
     let db = match data.downcast_ref::<Demo>().and_then(|d| d.db.clone()) {
         Some(db) => db,
-        None => return set(&mut data, |d| d.sync = "sync: open the db first".to_string()),
+        None => {
+            return set(&mut data, |d| {
+                d.sync = "sync: open the db first".to_string()
+            })
+        }
     };
     let _request = db.sync_now(OptionDbScope::None, data, on_synced);
     Update::DoNothing

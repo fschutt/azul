@@ -97,6 +97,12 @@ pub struct FontKeyMap {
     namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontKey>>>>,
 }
 
+impl Default for FontKeyMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontKeyMap {
     pub fn new() -> Self {
         FontKeyMap {
@@ -123,7 +129,7 @@ impl FontKeyMap {
         // Track namespace ownership
         let namespace = key.0;
         let mut ns_map = self.namespace_map.write().unwrap();
-        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+        ns_map.entry(namespace).or_default().push(key);
 
         map.insert(key, key);
         Some(key)
@@ -162,6 +168,12 @@ pub struct FontTemplates {
     namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontKey>>>>,
 }
 
+impl Default for FontTemplates {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontTemplates {
     pub fn new() -> Self {
         FontTemplates {
@@ -174,7 +186,7 @@ impl FontTemplates {
         // Track namespace ownership
         let namespace = key.0;
         let mut ns_map = self.namespace_map.write().unwrap();
-        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+        ns_map.entry(namespace).or_default().push(key);
 
         self.parsed_fonts.write().unwrap().insert(key, parsed_font);
     }
@@ -243,6 +255,12 @@ pub struct FontInstanceMap {
     namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontInstanceKey>>>>,
 }
 
+impl Default for FontInstanceMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontInstanceMap {
     pub fn new() -> Self {
         FontInstanceMap {
@@ -271,7 +289,7 @@ impl FontInstanceMap {
         // Track namespace ownership
         let namespace = key.0;
         let mut ns_map = self.namespace_map.write().unwrap();
-        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+        ns_map.entry(namespace).or_default().push(key);
 
         map.insert(key, key);
         Some(key)
@@ -310,6 +328,12 @@ pub struct FontInstanceData {
     namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontInstanceKey>>>>,
 }
 
+impl Default for FontInstanceData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontInstanceData {
     pub fn new() -> Self {
         FontInstanceData {
@@ -328,7 +352,7 @@ impl FontInstanceData {
 
         // Track namespace ownership
         let mut ns_map = self.namespace_map.write().unwrap();
-        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+        ns_map.entry(namespace).or_default().push(key);
 
         self.instances.write().unwrap().insert(key, base);
     }
@@ -388,8 +412,8 @@ impl api::BlobImageResources for SharedFontResources {
             .map(|base| api::FontInstanceData {
                 font_key: base.font_key,
                 size: base.size.into(),
-                options: Some(base.options.clone()),
-                platform_options: base.platform_options.clone(),
+                options: Some(base.options),
+                platform_options: base.platform_options,
                 variations: base.variations.clone(),
             })
     }

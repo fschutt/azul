@@ -111,8 +111,9 @@ curl -L -O https://azul.rs/ui/release/$VERSION/azul17.hpp
 # the C header - every azul<NN>.hpp does #include "azul.h"
 curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
 
-# windows (plus azul.dll.lib, the MSVC import library, if you link with MSVC)
+# windows: the DLL, and azul.dll.lib, the import library you link against
 curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
+curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 # linux
 curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
 # macos (Apple Silicon; Intel: libazul.x86_64.dylib)

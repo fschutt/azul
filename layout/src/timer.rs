@@ -19,7 +19,6 @@ use azul_core::{
     },
     window::{KeyboardState, MouseState, WindowFlags},
 };
-
 use azul_css::AzString;
 
 use crate::{
@@ -223,7 +222,8 @@ impl Timer {
                     // can be compared on.
                     //
                     // NO early-fire tolerance. An interval means exactly that
-                    // interval — `a_tick_interval_throttles_a_wall_clock_timer_at_the_converted_boundary`
+                    // interval —
+                    // `a_tick_interval_throttles_a_wall_clock_timer_at_the_converted_boundary`
                     // and `invoke_throttles_a_wall_clock_interval_on_a_tick_clock_at_the_exact_frame`
                     // both pin that boundary deliberately, and admitting a fire
                     // early would redefine "5 frames" as "4.94 frames". The
@@ -326,7 +326,8 @@ impl Default for Timer {
 /// `CallbackInfo` methods are available via explicit delegation methods below.
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[allow(clippy::pub_underscore_fields)] // _abi_ref/_abi_mut: intentional FFI/api.json ABI-stability placeholder fields
+#[allow(clippy::pub_underscore_fields)] // _abi_ref/_abi_mut: intentional FFI/api.json ABI-stability
+                                        // placeholder fields
 pub struct TimerCallbackInfo {
     pub callback_info: CallbackInfo,
     pub node_id: OptionDomNodeId,
@@ -687,7 +688,8 @@ impl TimerCallbackInfo {
 #[repr(C, u8)]
 // FFI Option enum; boxing the Some variant would break the #[repr(C, u8)] C ABI / api.json.
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[allow(clippy::large_enum_variant)]
 pub enum OptionTimer {
     None,

@@ -7,9 +7,13 @@
 //!
 //! Primary consumer: `core::xml` uses this for CSS-to-Rust code generation.
 
-use alloc::{collections::btree_map::BTreeMap, format, string::String, string::ToString, vec::Vec};
-use core::fmt::Write;
-use core::hash::Hash;
+use alloc::{
+    collections::btree_map::BTreeMap,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt::Write, hash::Hash};
 
 // wildcard imports: the code generator references the full set of property types
 // across every css sub-module; listing them all explicitly is unmaintainable.
@@ -66,6 +70,10 @@ pub struct VecContents {
 }
 
 impl VecContents {
+    // One emit block per BTreeMap field, and the field list is the point: the
+    // blocks are near-identical by construction, so merging them to get under
+    // the line count would hide which vec kinds are actually emitted.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch
     pub fn format(&self, tabs: usize) -> String {
         let mut result = String::new();
         let t = "    ".repeat(tabs);
@@ -87,8 +95,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ =
-                write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const STYLE_FILTER_{key}_ITEMS: &[StyleFilter] = &[\r\n{t2}{val}\r\n{t}];"
             );
         }
@@ -114,8 +122,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ =
-                write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const STYLE_BACKGROUND_REPEAT_{key}_ITEMS: &[StyleBackgroundRepeat] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -128,8 +136,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ =
-                write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const STYLE_BACKGROUND_CONTENT_{key}_ITEMS: &[StyleBackgroundContent] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -142,25 +150,30 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ = write!(result,
-                "\r\n    const STYLE_BACKGROUND_POSITION_{key}_ITEMS: &[StyleBackgroundPosition] = \
-                 &[\r\n{t2}{val}\r\n{t}];"
+            let _ = write!(
+                result,
+                "\r\n    const STYLE_BACKGROUND_POSITION_{key}_ITEMS: &[StyleBackgroundPosition] \
+                 = &[\r\n{t2}{val}\r\n{t}];"
             );
         }
 
         for (key, item) in &self.style_transforms {
             let val = format_style_transforms(item.as_ref(), tabs + 1);
 
-            let _ = write!(result,
-                "\r\n    const STYLE_TRANSFORM_{key}_ITEMS: &[StyleTransform] = &[\r\n{t2}{val}\r\n{t}];"
+            let _ = write!(
+                result,
+                "\r\n    const STYLE_TRANSFORM_{key}_ITEMS: &[StyleTransform] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             );
         }
 
         for (key, item) in &self.font_families {
             let val = format_font_ids(item.as_ref(), tabs + 1);
 
-            let _ = write!(result,
-                "\r\n    const STYLE_FONT_FAMILY_{key}_ITEMS: &[StyleFontFamily] = &[\r\n{t2}{val}\r\n{t}];"
+            let _ = write!(
+                result,
+                "\r\n    const STYLE_FONT_FAMILY_{key}_ITEMS: &[StyleFontFamily] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
             );
         }
 
@@ -288,14 +301,11 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
     let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
 
     match p.metric {
-        SizeMetric::Pt => format!(
-            "PixelValue::const_pt_fractional({pre_comma}, {post_comma})"
-        ),
-        SizeMetric::Em => format!(
-            "PixelValue::const_em_fractional({pre_comma}, {post_comma})"
-        ),
+        SizeMetric::Pt => format!("PixelValue::const_pt_fractional({pre_comma}, {post_comma})"),
+        SizeMetric::Em => format!("PixelValue::const_em_fractional({pre_comma}, {post_comma})"),
         other => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::{other:?}, {pre_comma}, {post_comma})"
+            "PixelValue::const_from_metric_fractional(SizeMetric::{other:?}, {pre_comma}, \
+             {post_comma})"
         ),
     }
 }
@@ -369,7 +379,8 @@ fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
         GridLine::Auto => "GridLine::Auto".to_string(),
         GridLine::Line(n) => format!("GridLine::Line({n})"),
         GridLine::Named(named) => format!(
-            "GridLine::Named(NamedGridLine {{ grid_line_name: AzString::from_const_str({:?}), span_count: {} }})",
+            "GridLine::Named(NamedGridLine {{ grid_line_name: AzString::from_const_str({:?}), \
+             span_count: {} }})",
             named.grid_line_name.as_ref(),
             named.span_count,
         ),
@@ -1170,7 +1181,8 @@ fn format_style_transforms(stops: &[StyleTransform], tabs: usize) -> String {
         .join(&format!(",\r\n{t}"))
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch
+                                 // table (one branch per property/variant)
 fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
     let tabs_minus_one = String::from("    ").repeat(tabs);
     let tabs = String::from("    ").repeat(tabs + 1);

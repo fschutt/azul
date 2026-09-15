@@ -28,8 +28,11 @@ pub fn generate_csproj() -> String {
 
   <PropertyGroup>
     <!-- Keep in sync with examples/csharp/Hello.csproj and
-         doc/guide/en/hello-world/csharp.md (single TFM story). -->
-    <TargetFramework>net10.0</TargetFramework>
+         doc/guide/en/hello-world/csharp.md (single TFM story). net8.0, the
+         oldest supported LTS: a net8.0 library restores into net8.0, net9.0
+         and net10.0 projects alike, while a net10.0-only package fails
+         `dotnet add package` with NU1202 for every .NET 8 project. -->
+    <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>

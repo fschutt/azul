@@ -12,11 +12,10 @@
 //! Linux/macOS/Windows for every construct api.json uses), mirroring
 //! exactly what `lang_c` emits into `azul.h`:
 //!
-//! - unit enums are C `enum`s → 4 bytes (azul.h spells fields with the
-//!   enum type, which is `int`-sized in C);
-//! - tagged unions are `union { struct { tag; payload... } variant; ... }`
-//!   where the tag is `uint8_t` iff the repr contains "u8", else the
-//!   C tag enum (4 bytes);
+//! - unit enums are C `enum`s → 4 bytes (azul.h spells fields with the enum type, which is
+//!   `int`-sized in C);
+//! - tagged unions are `union { struct { tag; payload... } variant; ... }` where the tag is
+//!   `uint8_t` iff the repr contains "u8", else the C tag enum (4 bytes);
 //! - non-Owned field refs (Ref/Ptr/Boxed/...) are pointers (8 bytes);
 //! - callback typedefs are function pointers (8 bytes).
 //!
@@ -282,7 +281,9 @@ pub(crate) fn blob_field_decl(l: AbiLayout) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::v2::ir::{FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant};
+    use crate::codegen::v2::ir::{
+        FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant,
+    };
 
     fn union(repr: Option<&str>) -> MonomorphizedTypeDef {
         MonomorphizedTypeDef {
@@ -314,6 +315,10 @@ mod tests {
         let u8_tag = mono_layout(&union(Some("C, u8")), &ir, 0).expect("layout");
         assert_eq!((u8_tag.size, u8_tag.align), (2, 1), "u8 tag + u8 payload");
         let int_tag = mono_layout(&union(None), &ir, 0).expect("layout");
-        assert_eq!((int_tag.size, int_tag.align), (8, 4), "int tag + u8 payload, padded");
+        assert_eq!(
+            (int_tag.size, int_tag.align),
+            (8, 4),
+            "int tag + u8 payload, padded"
+        );
     }
 }

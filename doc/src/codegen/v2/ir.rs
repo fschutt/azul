@@ -4,8 +4,9 @@
 //! API surface in a language-agnostic way. The IR is built from api.json
 //! and then consumed by language-specific generators.
 
-use indexmap::IndexMap;
 use std::collections::BTreeMap;
+
+use indexmap::IndexMap;
 
 // ============================================================================
 // Top-level IR
@@ -402,6 +403,29 @@ pub struct FunctionDef {
     pub is_unsafe: bool,
 }
 
+impl FunctionDef {
+    /// Whether `arg` is the receiver `ir_builder` synthesises for `{"self": ...}`.
+    pub fn is_receiver_arg(&self, arg: &FunctionArg) -> bool {
+        arg.name == "self" || arg.name == receiver_arg_name(&self.class_name)
+    }
+}
+
+/// The receiver's argument name: the class name in snake_case (`SvgPathElement` -> `svg_path_element`).
+pub fn receiver_arg_name(class_name: &str) -> String {
+    let mut name = String::new();
+    for (i, c) in class_name.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                name.push('_');
+            }
+            name.push(c.to_ascii_lowercase());
+        } else {
+            name.push(c);
+        }
+    }
+    name
+}
+
 /// Kind of function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionKind {
@@ -539,8 +563,9 @@ pub struct FunctionArg {
     /// Documentation
     pub doc: Option<String>,
 
-    /// If this argument is a callback typedef type (e.g., CallbackType, ButtonOnClickCallbackType),
-    /// this contains information about the callback for language generators.
+    /// If this argument is a callback typedef type (e.g., CallbackType,
+    /// ButtonOnClickCallbackType), this contains information about the callback for language
+    /// generators.
     ///
     /// This is set when:
     /// - The argument type ends with "CallbackType"
@@ -564,11 +589,13 @@ pub struct CallbackArgInfo {
     pub callback_typedef_name: String,
 
     /// The name of the callback wrapper struct (e.g., "Callback", "ButtonOnClickCallback")
-    /// This is typically the typedef name with "Type" stripped: "ButtonOnClickCallbackType" → "ButtonOnClickCallback"
-    /// Some wrappers use different conventions (e.g., "Callback" for "CallbackType" becomes "CoreCallback")
+    /// This is typically the typedef name with "Type" stripped: "ButtonOnClickCallbackType" →
+    /// "ButtonOnClickCallback" Some wrappers use different conventions (e.g., "Callback" for
+    /// "CallbackType" becomes "CoreCallback")
     pub callback_wrapper_name: String,
 
-    /// The name of the trampoline function to use (e.g., "invoke_py_callback", "invoke_py_button_on_click_callback")
+    /// The name of the trampoline function to use (e.g., "invoke_py_callback",
+    /// "invoke_py_button_on_click_callback")
     pub trampoline_name: String,
 }
 
@@ -603,7 +630,8 @@ pub struct TypeAliasDef {
     /// Target type (e.g., "u32" or "CssPropertyValue")
     pub target: String,
 
-    /// Generic arguments for the target type (e.g., ["CaretColor"] for CssPropertyValue<CaretColor>)
+    /// Generic arguments for the target type (e.g., ["CaretColor"] for
+    /// CssPropertyValue<CaretColor>)
     pub generic_args: Vec<String>,
 
     /// Documentation

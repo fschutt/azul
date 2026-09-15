@@ -14,12 +14,12 @@
 //!
 //! Let, for one node in one DOM:
 //!
-//! * `P` = the node's STATIC border-box origin — what `calculated_positions`
-//!   stores. "Static" means *before* any scroll offset is applied.
+//! * `P` = the node's STATIC border-box origin — what `calculated_positions` stores. "Static" means
+//!   *before* any scroll offset is applied.
 //! * `A` = the sum of every scrolling ANCESTOR's current offset.
 //! * `S` = the node's OWN current scroll offset.
-//! * `E` = the node's content inset, `padding-left + border-left` /
-//!   `padding-top + border-top` (see [`ContentInset`]).
+//! * `E` = the node's content inset, `padding-left + border-left` / `padding-top + border-top` (see
+//!   [`ContentInset`]).
 //!
 //! The raster paints a glyph whose inline-layout position is `g` at window
 //! position `P + E + g − S − A`. Inverting that one equation names every space:

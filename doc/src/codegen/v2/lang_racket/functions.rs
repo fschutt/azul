@@ -11,11 +11,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::super::managed_host_invoker::managed_c_symbol;
-use super::{kebab, map_type_to_racket};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+        managed_host_invoker::managed_c_symbol,
+    },
+    kebab, map_type_to_racket,
+};
 
 pub fn generate_defines(
     builder: &mut CodeBuilder,
@@ -159,5 +163,5 @@ fn emit_define(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

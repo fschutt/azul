@@ -858,8 +858,14 @@ impl SvgPath {
                         let t = i as f32 / steps as f32;
                         let inv = 1.0 - t;
                         push(SvgPoint {
-                            x: (t * t).mul_add(q.end.x, (inv * inv).mul_add(q.start.x, 2.0 * inv * t * q.ctrl.x)),
-                            y: (t * t).mul_add(q.end.y, (inv * inv).mul_add(q.start.y, 2.0 * inv * t * q.ctrl.y)),
+                            x: (t * t).mul_add(
+                                q.end.x,
+                                (inv * inv).mul_add(q.start.x, 2.0 * inv * t * q.ctrl.x),
+                            ),
+                            y: (t * t).mul_add(
+                                q.end.y,
+                                (inv * inv).mul_add(q.start.y, 2.0 * inv * t * q.ctrl.y),
+                            ),
                         });
                     }
                 }
@@ -876,8 +882,14 @@ impl SvgPath {
                             t * t * t,
                         );
                         push(SvgPoint {
-                            x: d.mul_add(c.end.x, cc.mul_add(c.ctrl_2.x, a.mul_add(c.start.x, b * c.ctrl_1.x))),
-                            y: d.mul_add(c.end.y, cc.mul_add(c.ctrl_2.y, a.mul_add(c.start.y, b * c.ctrl_1.y))),
+                            x: d.mul_add(
+                                c.end.x,
+                                cc.mul_add(c.ctrl_2.x, a.mul_add(c.start.x, b * c.ctrl_1.x)),
+                            ),
+                            y: d.mul_add(
+                                c.end.y,
+                                cc.mul_add(c.ctrl_2.y, a.mul_add(c.start.y, b * c.ctrl_1.y)),
+                            ),
                         });
                     }
                 }
@@ -1185,7 +1197,8 @@ impl TessellatedGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
-    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
+                                             // ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,
@@ -1240,7 +1253,8 @@ impl TessellatedColoredGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
-    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
+                                             // ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,
@@ -1614,7 +1628,8 @@ impl Default for SvgXmlOptions {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 #[repr(C, u8)]
 pub enum SvgParseError {
@@ -1676,4 +1691,3 @@ pub enum Indent {
 #[cfg(test)]
 #[path = "svg_test.rs"]
 mod svg_test;
-

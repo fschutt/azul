@@ -1,24 +1,23 @@
 //! Selection RENDERING for the two things the display list resolved and then
 //! dropped on the floor:
 //!
-//! - a multi-cursor (Ctrl+D) session, whose occurrences all live on the SAME
-//!   node — `TextSelection::affected_nodes` mapped a node to ONE range, so
-//!   every occurrence but the primary was unexpressible;
-//! - the `::selection` text colour, which `get_selection_style` resolved and
-//!   no painter ever applied, leaving selected glyphs dark-on-dark under an
-//!   opaque highlight.
+//! - a multi-cursor (Ctrl+D) session, whose occurrences all live on the SAME node —
+//!   `TextSelection::affected_nodes` mapped a node to ONE range, so every occurrence but the
+//!   primary was unexpressible;
+//! - the `::selection` text colour, which `get_selection_style` resolved and no painter ever
+//!   applied, leaving selected glyphs dark-on-dark under an opaque highlight.
 
-use azul_core::dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{
-    CursorAffinity, GraphemeClusterId, MultiCursorState, SelectionRange, TextCursor,
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, MultiCursorState, SelectionRange, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
 use azul_css::props::basic::ColorU;
-use azul_layout::solver3::display_list::DisplayListItem;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -47,9 +46,8 @@ fn range(start: u32, end: u32) -> SelectionRange {
 
 fn layout_one_paragraph(paragraph_css: &str) -> LayoutWindow {
     let css_src = format!(
-        "* {{ margin: 0; padding: 0; }} \
-         body {{ font-size: 14px; width: 600px; }} \
-         .p {{ display: block; {paragraph_css} }}"
+        "* {{ margin: 0; padding: 0; }} body {{ font-size: 14px; width: 600px; }} .p {{ display: \
+         block; {paragraph_css} }}"
     );
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
     let mut dom =

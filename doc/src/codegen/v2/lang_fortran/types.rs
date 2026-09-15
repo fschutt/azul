@@ -42,10 +42,15 @@ use super::{
 // Top-level type-block emission
 // ============================================================================
 
-pub fn generate_types(
+/// The type definitions of every type `belongs` accepts — one plan
+/// chunk's worth — each group preceded by the api.json-module marker the
+/// per-module facades are built from.
+pub fn generate_types_for(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    belongs: &dyn Fn(&str) -> bool,
+    split: &super::Split,
 ) -> Result<()> {
     builder.line("! ----------------------------------------------------------------------");
     builder.line("! Type definitions: derived types, enums, tagged-union approximations.");
@@ -59,10 +64,11 @@ pub fn generate_types(
     //    they get an ABI-opaque blob stand-in here — mapping them to
     //    `type(c_ptr)` shrank every embedding struct and corrupted all
     //    by-value FFI calls (2026-07 Fortran e2e SIGSEGV root cause).
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_include_enum(e, config) {
             if e.is_union && e.generic_params.is_empty() {
                 if let Some(l) = type_layout(&e.name, ir) {
+                    builder.line(&split.marker(&e.name));
                     emit_opaque_blob(builder, &e.name, l, e.category.description());
                     continue;
                 }
@@ -71,6 +77,7 @@ pub fn generate_types(
             continue;
         }
         if !e.is_union {
+            builder.line(&split.marker(&e.name));
             emit_unit_enum(builder, e);
         }
     }
@@ -87,7 +94,7 @@ pub fn generate_types(
         Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
     }
     let mut items: Vec<(usize, Item)> = Vec::new();
-    for s in &ir.structs {
+    for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_include_struct(s, config) {
             // Same ABI rule as skipped unions above: if the skipped
             // struct is layout-computable, other structs may embed it by
@@ -95,6 +102,7 @@ pub fn generate_types(
             // exact-size blob stand-in instead of collapsing to c_ptr.
             if s.generic_params.is_empty() {
                 if let Some(l) = type_layout(&s.name, ir) {
+                    builder.line(&split.marker(&s.name));
                     emit_opaque_blob(builder, &s.name, l, s.category.description());
                     continue;
                 }
@@ -104,7 +112,7 @@ pub fn generate_types(
         }
         items.push((s.sort_order, Item::Struct(s)));
     }
-    for e in &ir.enums {
+    for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_include_enum(e, config) {
             continue;
         }
@@ -112,7 +120,7 @@ pub fn generate_types(
             items.push((e.sort_order, Item::Union(e)));
         }
     }
-    for ta in &ir.type_aliases {
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
         let Some(ref mono) = ta.monomorphized_def else {
             continue;
         };
@@ -124,14 +132,24 @@ pub fn generate_types(
     items.sort_by_key(|(d, _)| *d);
     for (_, item) in &items {
         match item {
-            Item::Struct(s) => emit_struct(builder, s, ir),
-            Item::Union(e) => emit_tagged_union(builder, e, ir),
-            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
+            Item::Struct(s) => {
+                builder.line(&split.marker(&s.name));
+                emit_struct(builder, s, ir)
+            }
+            Item::Union(e) => {
+                builder.line(&split.marker(&e.name));
+                emit_tagged_union(builder, e, ir)
+            }
+            Item::Mono(ta, mono) => {
+                builder.line(&split.marker(&ta.name));
+                emit_monomorphized_alias(builder, ta, mono, ir)
+            }
         }
     }
 
     // 4. Callback (procedural) typedefs.
-    for cb in &ir.callback_typedefs {
+    for cb in ir.callback_typedefs.iter().filter(|cb| belongs(&cb.name)) {
+        builder.line(&split.marker(&cb.name));
         emit_callback_typedef(builder, cb, ir);
     }
 

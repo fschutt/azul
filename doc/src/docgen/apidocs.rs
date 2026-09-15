@@ -29,8 +29,8 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let version_data = api_data.get_version(version).unwrap();
 
     let title = format!("API v{version}");
-    let jump = quick_jump(&version_data);
-    let content = generate_api_content(&version_data);
+    let jump = quick_jump(version_data);
+    let content = generate_api_content(version_data);
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Api);
     let details_script = reveal_script();
@@ -99,8 +99,7 @@ fn quick_jump(version_data: &VersionData) -> String {
     let common = commonly_used(version_data);
     if !common.is_empty() {
         out.push_str(
-            "              <h2>Commonly used</h2>\n              <div \
-                      class=\"guide-links\">\n",
+            "              <h2>Commonly used</h2>\n              <div class=\"guide-links\">\n",
         );
         for name in &common {
             out.push_str(&format!(
@@ -114,8 +113,7 @@ fn quick_jump(version_data: &VersionData) -> String {
     // Same order as the listing below it, or the index lies about the page.
     for (module_name, _) in by_priority(&version_data.api, |m| m.priority.unwrap_or(0.0)) {
         out.push_str(&format!(
-            "                <a class=\"guide-link\" \
-             href=\"#m.{module_name}\">{module_name}</a>\n"
+            "                <a class=\"guide-link\" href=\"#m.{module_name}\">{module_name}</a>\n"
         ));
     }
     out.push_str("              </div>\n            </section>\n");
@@ -191,7 +189,7 @@ fn identifiers(text: &str) -> impl Iterator<Item = &str> {
 /// own order, so curating a level means naming the handful of entries that
 /// belong at the top, not ranking all two hundred. Ordering here is a reading
 /// aid only - codegen walks the file itself, where the order is ABI-relevant.
-fn by_priority<'a, K, V, P>(map: &'a indexmap::IndexMap<K, V>, priority: P) -> Vec<(&'a K, &'a V)>
+fn by_priority<K, V, P>(map: &indexmap::IndexMap<K, V>, priority: P) -> Vec<(&K, &V)>
 where
     P: Fn(&V) -> f32,
 {
@@ -240,8 +238,8 @@ fn group(summary: &str, body: &str, open: bool, extra_class: &str) -> String {
     }
     let open_attr = if open { " open" } else { "" };
     format!(
-        "<details class=\"api-group{extra_class}\"{open_attr}><summary>{summary}</summary>\
-         <div class=\"api-group-body\">{body}</div></details>"
+        "<details class=\"api-group{extra_class}\"{open_attr}><summary>{summary}</summary><div \
+         class=\"api-group-body\">{body}</div></details>"
     )
 }
 
@@ -268,9 +266,8 @@ fn generate_api_content(version_data: &VersionData) -> String {
         };
         html.push_str("<li class=\"m\">");
         html.push_str(&format!(
-            "<details class=\"api-mod\" id=\"m.{module_name}\"{open}>\
-             <summary><h3>mod {module_name}</h3>\
-             <span class=\"api-n\">{}</span></summary>{body}</details>",
+            "<details class=\"api-mod\" id=\"m.{module_name}\"{open}><summary><h3>mod \
+             {module_name}</h3><span class=\"api-n\">{}</span></summary>{body}</details>",
             count_label(module.classes.len(), "type"),
         ));
         html.push_str("</li>");
@@ -433,10 +430,9 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
     }
 
     format!(
-        "<li class=\"{li_class}\">\
-         <details class=\"api-class {kind_class}\" id=\"st.{class_name}\" open>\
-         <summary><h4>{keyword} {class_name}</h4>{destructor_warning}</summary>\
-         {inner}</details></li>"
+        "<li class=\"{li_class}\"><details class=\"api-class {kind_class}\" \
+         id=\"st.{class_name}\" open><summary><h4>{keyword} \
+         {class_name}</h4>{destructor_warning}</summary>{inner}</details></li>"
     )
 }
 
@@ -454,8 +450,8 @@ fn render_member(
         out.push_str(&render_doc_block(css_class, doc));
     }
     out.push_str(&format!(
-        "<li class=\"{css_class}\" id=\"{class_name}.{member_name}\">\
-         <p>{keyword} <a href=\"#{class_name}.{member_name}\">{member_name}</a>:</p><ul>"
+        "<li class=\"{css_class}\" id=\"{class_name}.{member_name}\"><p>{keyword} <a \
+         href=\"#{class_name}.{member_name}\">{member_name}</a>:</p><ul>"
     ));
 
     // `self`, when the API declares one, reads first.
@@ -502,7 +498,8 @@ fn render_member(
         }
         // A constructor with no declared return builds its own class.
         None if css_class == "cn" => out.push_str(&format!(
-            "<li><p class=\"ret\">-&gt;&nbsp;<a href=\"#st.{class_name}\">{class_name}</a></p></li>"
+            "<li><p class=\"ret\">-&gt;&nbsp;<a \
+             href=\"#st.{class_name}\">{class_name}</a></p></li>"
         )),
         None => {}
     }
@@ -554,7 +551,7 @@ fn reveal_script() -> String {
 
 /// Generate a combined API index page (version selector).
 pub fn generate_api_index(api_data: &ApiData) -> String {
-    let title = format!("Select API version");
+    let title = "Select API version".to_string();
 
     // Version selector: same links as before ({HTML_ROOT}/api/<version>),
     // rendered as azlin docs cards. Ordering = get_sorted_versions, unchanged.

@@ -13,20 +13,16 @@
 //! 2. **Type declarations** (`types.rs`):
 //!    - `FFIExternalEnumeration subclass: #AzFoo` for unit enums.
 //!    - `FFIExternalStructure subclass: #AzFoo` for plain records.
-//!    - `FFIExternalUnion subclass: #AzFoo` + a wrapper struct for
-//!      tagged unions (the union holds the payload variants, the
-//!      wrapper struct prepends the discriminant tag).
-//! 3. **FFI call site** (`functions.rs`): a single class
-//!    `AzulNative` whose **class side** holds one `ffiCall:` method per
-//!    exported C symbol. Each method carries the standard
-//!    `<primitive: #primitiveNativeCall module: #UnifiedFFI>` pragma and
-//!    forwards to `self ffiCall: #(...) module: 'azul'`.
-//! 4. **Idiomatic wrappers** (`wrappers.rs`): plain Smalltalk classes
-//!    in the `Azul-Core` package. The `Az` prefix is stripped, methods
-//!    are camelCase keyword selectors. Disposable wrappers register
-//!    themselves with Pharo's `WeakRegistry` / `FFIExternalResourceManager`
-//!    so `finalize` is called automatically on GC and forwarded to
-//!    `AzulNative class>>azFooDelete:`.
+//!    - `FFIExternalUnion subclass: #AzFoo` + a wrapper struct for tagged unions (the union holds
+//!      the payload variants, the wrapper struct prepends the discriminant tag).
+//! 3. **FFI call site** (`functions.rs`): a single class `AzulNative` whose **class side** holds
+//!    one `ffiCall:` method per exported C symbol. Each method carries the standard `<primitive:
+//!    #primitiveNativeCall module: #UnifiedFFI>` pragma and forwards to `self ffiCall: #(...)
+//!    module: 'azul'`.
+//! 4. **Idiomatic wrappers** (`wrappers.rs`): plain Smalltalk classes in the `Azul-Core` package.
+//!    The `Az` prefix is stripped, methods are camelCase keyword selectors. Disposable wrappers
+//!    register themselves with Pharo's `WeakRegistry` / `FFIExternalResourceManager` so `finalize`
+//!    is called automatically on GC and forwarded to `AzulNative class>>azFooDelete:`.
 //!
 //! ## File format reference (Tonel)
 //!
@@ -57,8 +53,8 @@
 //!
 //! The orchestrator should emit two artifacts:
 //! 1. The `Azul.st` produced by [`generate`].
-//! 2. A `BaselineOfAzul.st` produced by [`baseline::generate_baseline`]
-//!    that lets users load the package with Metacello.
+//! 2. A `BaselineOfAzul.st` produced by [`baseline::generate_baseline`] that lets users load the
+//!    package with Metacello.
 
 pub mod baseline;
 pub mod functions;
@@ -67,9 +63,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// The Smalltalk class on whose **class side** every FFI primitive
 /// lives. By convention all C symbols are reachable as
@@ -100,8 +94,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 1. Type declarations: enumerations, plain structs, tagged unions.
     types::generate_types(&mut builder, ir, config)?;
 
-    // 2. The single AzulNative class declaration + every FFI primitive
-    //    method on its class side.
+    // 2. The single AzulNative class declaration + every FFI primitive method on its class side.
     functions::generate_native_methods(&mut builder, ir, config)?;
 
     // 3. Idiomatic wrapper classes with `finalize`.

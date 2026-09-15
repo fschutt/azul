@@ -51,7 +51,7 @@ Rust code will recompile much faster and your binary size is now in the kilobyte
 
 ## Installation
 
-You need a Rust toolchain (1.90+) and the prebuilt `libazul` for your
+You need a Rust toolchain (1.91+) and the prebuilt `libazul` for your
 platform. The Rust API is a *pre-rendered crate* named `azul`: its generated
 sources live inside the crate (`src/generated/`), so rust-analyzer resolves
 every type and nothing is generated on your machine. The crate links the

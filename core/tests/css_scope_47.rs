@@ -49,7 +49,8 @@ fn inline_css_scopes_to_subtree_no_leak() {
     // merged global background, so they'd compare equal.
     assert_ne!(
         div_a, div_b,
-        "div A (red) and div B (blue) must differ — inline css must not cross-leak between siblings"
+        "div A (red) and div B (blue) must differ — inline css must not cross-leak between \
+         siblings"
     );
     // THE #47 assertion: neither red nor blue may leak to the root/body.
     assert!(

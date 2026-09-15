@@ -7,12 +7,12 @@
 //! (`user_overridden_properties`). This module handles the math and bookkeeping
 //! across frames:
 //!
-//! * [`Spring`] / [`AnimChannel`]: How a single value transitions from `from` to `to`,
-//!   with interruption as a first-class operation ([`AnimChannel::retarget`]).
-//! * [`flip`]: The First/Last inversion that turns a layout change into a
-//!   composited transform, saving relayouts.
-//! * [`AnimationManager`]: The keyed store - keys are reconciliation identities
-//!   so that retargeting finds the in-flight state instead of overlapping.
+//! * [`Spring`] / [`AnimChannel`]: How a single value transitions from `from` to `to`, with
+//!   interruption as a first-class operation ([`AnimChannel::retarget`]).
+//! * [`flip`]: The First/Last inversion that turns a layout change into a composited transform,
+//!   saving relayouts.
+//! * [`AnimationManager`]: The keyed store - keys are reconciliation identities so that retargeting
+//!   finds the in-flight state instead of overlapping.
 //!
 //! # Curve vs. Spring
 //!
@@ -23,6 +23,8 @@
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
 use azul_css::props::basic::animation::AnimationInterpolationFunction;
+/// Re-export of [`SpringCurve`].
+pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 use crate::{
     diff::{calculate_reconciliation_key, NodeMove},
@@ -31,9 +33,6 @@ use crate::{
     id::NodeId,
     styled_dom::NodeHierarchyItem,
 };
-
-/// Re-export of [`SpringCurve`].
-pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 /// A single animated value over time (e.g., an x-coordinate or opacity).
 ///

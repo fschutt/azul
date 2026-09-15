@@ -4,11 +4,10 @@
 //! image is resized:
 //!
 //! - the CPU rasterizer's on-screen image blit (display),
-//! - the capture pipeline producing a consumer's requested size — a local
-//!   100×200 preview AND a remote 500×200 stream cut from ONE captured frame,
-//!   so the camera is read once and sampled per consumer,
-//! - anywhere a `RawImage` must be resized without pulling in the `image`
-//!   crate.
+//! - the capture pipeline producing a consumer's requested size — a local 100×200 preview AND a
+//!   remote 500×200 stream cut from ONE captured frame, so the camera is read once and sampled per
+//!   consumer,
+//! - anywhere a `RawImage` must be resized without pulling in the `image` crate.
 //!
 //! THE CONTRACT: every output pixel is a PURE function of the source and its
 //! own destination coordinates ([`sample`]). A caller may therefore compute
@@ -26,8 +25,10 @@
 
 use alloc::vec::Vec;
 
-use azul_core::resources::RawImageFormat;
-use azul_core::video::{ConsumerFrame, FrameConsumer, VideoFrame};
+use azul_core::{
+    resources::RawImageFormat,
+    video::{ConsumerFrame, FrameConsumer, VideoFrame},
+};
 
 /// The most taps taken along ONE axis of a destination pixel's footprint.
 /// Caps area-averaging cost at `MAX_TAPS²` reads per output pixel regardless

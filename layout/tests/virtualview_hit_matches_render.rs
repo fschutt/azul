@@ -59,8 +59,8 @@ fn the_renderer_places_virtualview_content_by_bounds_and_content_offset() {
     let body = around(RASTER, "scroll_offset_stack.push((", 6);
     assert!(
         body.contains("vv_origin.x") && body.contains("content_offset.x"),
-        "the renderer no longer places VirtualView content by \
-         `bounds.origin + content_offset`; found:\n{body}"
+        "the renderer no longer places VirtualView content by `bounds.origin + content_offset`; \
+         found:\n{body}"
     );
 }
 
@@ -69,12 +69,10 @@ fn the_hit_test_places_virtualview_content_the_same_way() {
     let body = around(HEADLESS, "I::VirtualView {", 40);
     assert!(
         body.contains("content_offset.x") && body.contains("content_offset.y"),
-        "the VirtualView hit-test placement dropped `content_offset`. The \
-         renderer draws the child at `bounds.origin + content_offset`; a \
-         placement built from `bounds.origin` alone maps clicks as though the \
-         materialized window began at row 0 and nothing had scrolled. Clicks \
-         still land on a text node and still produce a caret — at the wrong \
-         character, off by `materialized_origin - scroll_offset`, growing as \
-         the user scrolls.\n\nfound:\n{body}"
+        "the VirtualView hit-test placement dropped `content_offset`. The renderer draws the \
+         child at `bounds.origin + content_offset`; a placement built from `bounds.origin` alone \
+         maps clicks as though the materialized window began at row 0 and nothing had scrolled. \
+         Clicks still land on a text node and still produce a caret — at the wrong character, off \
+         by `materialized_origin - scroll_offset`, growing as the user scrolls.\n\nfound:\n{body}"
     );
 }

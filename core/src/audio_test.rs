@@ -185,7 +185,8 @@ mod autotest_generated {
         assert_eq!(none_unwrapped, None);
     }
 
-    /// numeric edge: `PartialEq` follows IEEE-754 — a NaN sample makes a frame unequal to its clone.
+    /// numeric edge: `PartialEq` follows IEEE-754 — a NaN sample makes a frame unequal to its
+    /// clone.
     #[test]
     fn frame_with_nan_is_not_self_equal() {
         let f = frame(48_000, 1, vec![f32::NAN]);

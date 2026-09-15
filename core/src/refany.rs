@@ -29,8 +29,7 @@
 //! all atomic operations appear in a single global order visible to all threads, preventing
 //! race conditions where one thread doesn't see another's reference count updates.
 
-use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 use core::{
     alloc::Layout,
     ffi::c_void,
@@ -195,7 +194,8 @@ impl Drop for RefCount {
     ///
     /// If this was the last reference (`num_copies` reaches 0), this will also
     /// free the `RefCountInner` and call the custom destructor.
-    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json
+                                              // naming convention; internal access is required
     fn drop(&mut self) {
         // Only decrement if run_destructor is true (meaning this is a clone)
         // and the pointer is valid
@@ -314,10 +314,10 @@ fn report_released_downcast() {
     static SAID: AtomicBool = AtomicBool::new(false);
     if !SAID.swap(true, Ordering::Relaxed) {
         eprintln!(
-            "[azul][refany] a RELEASED RefAny was downcast: its RefCount is already freed, so \
-             the borrow returned None and whatever wanted the data did nothing. This is a \
-             use-after-release in the CALLER, not here. Re-run with RUST_BACKTRACE=1 to name \
-             it. (said once per process)"
+            "[azul][refany] a RELEASED RefAny was downcast: its RefCount is already freed, so the \
+             borrow returned None and whatever wanted the data did nothing. This is a \
+             use-after-release in the CALLER, not here. Re-run with RUST_BACKTRACE=1 to name it. \
+             (said once per process)"
         );
         if std::env::var("RUST_BACKTRACE").is_ok() {
             eprintln!("{}", std::backtrace::Backtrace::force_capture());
@@ -377,7 +377,8 @@ impl RefCount {
     /// Creates a debug snapshot of the current reference counts.
     ///
     /// Loads all atomic values with `SeqCst` ordering to get a consistent view.
-    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json
+                                              // naming convention; internal access is required
     pub(crate) fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
         let dc = self.downcast();
         RefCountInnerDebug {
@@ -696,12 +697,13 @@ impl_option!(
 // - The data pointer points to heap memory (can be sent between threads)
 // - All shared state (RefCountInner) uses atomic operations
 // - No thread-local storage is used
-#[allow(clippy::non_send_fields_in_send_ty)] // see SAFETY note above: atomic refcount, no TLS, no cross-thread deref
+#[allow(clippy::non_send_fields_in_send_ty)] // see SAFETY note above: atomic refcount, no TLS, no
+                                             // cross-thread deref
 unsafe impl Send for RefAny {}
 
 // SAFETY: RefAny is Sync because:
-// - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or
-//   read immutable data, which is inherently thread-safe
+// - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or read immutable
+//   data, which is inherently thread-safe
 // - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics
 //
 // AUDIT: unsound-but-required (same intentional FFI constraint as `Send` above).
@@ -867,10 +869,10 @@ impl RefAny {
     /// - `type_id` uniquely identifies the type
     /// - `custom_destructor` correctly drops the type at `ptr`
     /// - `len` and `align` match the actual type's layout
-    /// - If `serialize_fn != 0`, it must be a valid function pointer of type
-    ///   `extern "C" fn(RefAny) -> Json`
-    /// - If `deserialize_fn != 0`, it must be a valid function pointer of type
-    ///   `extern "C" fn(Json) -> ResultRefAnyString`
+    /// - If `serialize_fn != 0`, it must be a valid function pointer of type `extern "C" fn(RefAny)
+    ///   -> Json`
+    /// - If `deserialize_fn != 0`, it must be a valid function pointer of type `extern "C" fn(Json)
+    ///   -> ResultRefAnyString`
     ///
     /// # Zero-Sized Types
     ///
@@ -881,7 +883,8 @@ impl RefAny {
     ///
     /// Panics if `ptr` is null while `len > 0` (a non-empty value must have a
     /// valid backing pointer).
-    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json
+                                              // naming convention; internal access is required
     pub fn new_c(
         // *const T
         ptr: *const c_void,
@@ -905,8 +908,8 @@ impl RefAny {
         // A NULL pointer for a non-zero-sized type would cause UB when copying
         assert!(
             !(len > 0 && ptr.is_null()),
-            "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). \
-                This would cause undefined behavior. Type: {:?}",
+            "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). This would cause \
+             undefined behavior. Type: {:?}",
             len,
             type_name.as_str()
         );
@@ -979,7 +982,8 @@ impl RefAny {
     /// the type ID matches the expected type. Callers are responsible
     /// for proper type safety checks.
     #[allow(clippy::used_underscore_binding)]
-    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is
+    // required
     #[must_use]
     pub fn get_data_ptr(&self) -> *const c_void {
         self.sharing_info.downcast()._internal_ptr
@@ -989,7 +993,8 @@ impl RefAny {
     /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type;
     /// `0` for ZSTs).
     #[allow(clippy::used_underscore_binding)]
-    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is
+    // required
     #[must_use]
     pub fn get_data_len(&self) -> usize {
         self.sharing_info.downcast()._internal_len
@@ -1032,9 +1037,9 @@ impl RefAny {
     /// Returns `None` if:
     /// - The stored type doesn't match `U` (type safety)
     /// - A mutable borrow is already active (borrow checking)
-    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
-    ///   stored ZST has a null pointer *by design* (nothing is allocated) and
-    ///   downcasts successfully, via a dangling-but-aligned reference.
+    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A stored ZST has a null
+    ///   pointer *by design* (nothing is allocated) and downcasts successfully, via a
+    ///   dangling-but-aligned reference.
     ///
     /// # Type Safety
     ///
@@ -1062,7 +1067,8 @@ impl RefAny {
     /// Clones of the `RefAny` can call this independently (they share data
     /// but have separate runtime borrow tracking).
     #[allow(clippy::used_underscore_binding)]
-    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is
+    // required
     #[inline]
     pub fn downcast_ref<U: 'static>(&mut self) -> Option<Ref<'_, U>> {
         // A RELEASED `RefAny` holds nothing to borrow. Checked explicitly
@@ -1138,10 +1144,10 @@ impl RefAny {
     /// Returns `None` if:
     /// - The stored type doesn't match `U` (type safety)
     /// - Any borrow is already active (borrow checking)
-    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
-    ///   stored ZST has a null pointer *by design* and downcasts successfully,
-    ///   via a dangling-but-aligned reference; note that the on-update observer
-    ///   is NOT fired for a ZST (there are no bytes for it to snapshot).
+    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A stored ZST has a null
+    ///   pointer *by design* and downcasts successfully, via a dangling-but-aligned reference; note
+    ///   that the on-update observer is NOT fired for a ZST (there are no bytes for it to
+    ///   snapshot).
     ///
     /// # Type Safety
     ///
@@ -1168,7 +1174,8 @@ impl RefAny {
     /// The `increase_refmut()` uses `SeqCst`, ensuring other threads see
     /// this mutable borrow before they try to acquire any borrow.
     #[allow(clippy::used_underscore_binding)]
-    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is
+    // required
     #[inline]
     pub fn downcast_mut<U: 'static>(&mut self) -> Option<RefMut<'_, U>> {
         if self.sharing_info.is_released() {
@@ -1472,7 +1479,8 @@ impl RefAny {
     ///
     /// Panics if a memory `Layout` for the replacement value cannot be
     /// constructed (its size overflows `isize::MAX`).
-    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
+    #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json
+                                              // naming convention; internal access is required
     pub fn replace_contents(&mut self, new_value: Self) -> bool {
         use core::ptr;
 

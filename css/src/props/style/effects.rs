@@ -208,8 +208,10 @@ pub mod parsers {
     #[allow(clippy::wildcard_imports)]
     // parser submodule reuses the parent module's value types
     use super::*;
-    use crate::corety::AzString;
-    use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};
+    use crate::{
+        corety::AzString,
+        props::basic::error::{InvalidValueErr, InvalidValueErrOwned},
+    };
 
     // -- Opacity Parser --
 
@@ -942,9 +944,9 @@ impl StyleObjectPositionParseErrorOwned {
 pub fn parse_style_object_position(
     input: &str,
 ) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'_>> {
-    use crate::props::basic::pixel::parse_pixel_value;
-    use crate::props::style::background::{
-        BackgroundPositionHorizontal, BackgroundPositionVertical,
+    use crate::props::{
+        basic::pixel::parse_pixel_value,
+        style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical},
     };
 
     let input = input.trim();
@@ -1054,7 +1056,8 @@ impl AspectRatioValue {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
 ///

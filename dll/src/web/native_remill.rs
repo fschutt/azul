@@ -11,8 +11,10 @@
 
 #![cfg(feature = "web-transpiler-static")]
 
-use std::ffi::{c_char, c_int, CStr, CString};
-use std::sync::Mutex;
+use std::{
+    ffi::{c_char, c_int, CStr, CString},
+    sync::Mutex,
+};
 
 extern "C" {
     fn az_remill_lift(

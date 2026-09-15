@@ -81,10 +81,7 @@ fn window_rect(lw: &LayoutWindow, dom: DomId, node: NodeId) -> (LogicalPosition,
         .used_size
         .expect("a used size");
     let lift = lw.window_space_offset_of_dom(dom);
-    (
-        LogicalPosition::new(pos.x + lift.x, pos.y + lift.y),
-        size,
-    )
+    (LogicalPosition::new(pos.x + lift.x, pos.y + lift.y), size)
 }
 
 /// The shells' CPU hit-test arm, at one point.
@@ -119,10 +116,10 @@ fn hits_a_callback(lw: &LayoutWindow, hit: &azul_layout::hit_test::FullHitTest) 
             return false;
         };
         let nd = lr.styled_dom.node_data.as_container();
-        per_dom
-            .regular_hit_test_nodes
-            .keys()
-            .any(|n| nd.get(*n).is_some_and(|d| !d.get_callbacks().as_ref().is_empty()))
+        per_dom.regular_hit_test_nodes.keys().any(|n| {
+            nd.get(*n)
+                .is_some_and(|d| !d.get_callbacks().as_ref().is_empty())
+        })
     })
 }
 
@@ -141,10 +138,7 @@ fn pressing_the_maximize_control_reaches_the_callback_its_view_rendered() {
         "the control has a box to press: {size:?}"
     );
 
-    let centre = LogicalPosition::new(
-        origin.x + size.width / 2.0,
-        origin.y + size.height / 2.0,
-    );
+    let centre = LogicalPosition::new(origin.x + size.width / 2.0, origin.y + size.height / 2.0);
     let hit = press_at(&lw, centre);
     assert!(
         hit.hovered_nodes.contains_key(&nested),

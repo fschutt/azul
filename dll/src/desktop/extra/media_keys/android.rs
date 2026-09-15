@@ -25,7 +25,7 @@
 
 use azul_core::media_session::{MediaControlKind, MediaControlRequest, NowPlayingInfo};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_control};
+use azul_layout::managers::media_keys::{push_media_control, push_media_key};
 
 use super::media_keycode_to_key;
 

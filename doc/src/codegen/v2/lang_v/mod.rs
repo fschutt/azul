@@ -58,10 +58,10 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory,
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory},
 };
 
 /// The C library name linked via `#flag -lazul`.
@@ -120,7 +120,10 @@ fn emit_flags(b: &mut CodeBuilder) {
     b.line("// frameworks WebRender / the windowing backend pull in.");
     b.line("#flag -L.");
     b.line(&format!("#flag -l{}", LIB_NAME));
-    b.line("#flag darwin -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText");
+    b.line(
+        "#flag darwin -framework Foundation -framework AppKit -framework OpenGL -framework \
+         CoreGraphics -framework CoreText",
+    );
 }
 
 // ============================================================================

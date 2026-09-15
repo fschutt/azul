@@ -20,9 +20,10 @@
 //! - `ScrollBehavior`: auto, instant, smooth
 //! - Proper scroll ancestor chain traversal
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::vec::Vec;
 
+// Re-export types from core for public API
+pub use azul_core::events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition};
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -31,12 +32,12 @@ use azul_core::{
 
 use crate::{
     managers::scroll_state::ScrollManager,
-    solver3::getters::{get_overflow_x, get_overflow_y},
+    solver3::{
+        getters::{get_overflow_x, get_overflow_y},
+        layout_tree::LayoutNodeId,
+    },
     window::DomLayoutResult,
 };
-
-// Re-export types from core for public API
-pub use azul_core::events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition};
 
 /// Minimum scroll delta (in logical pixels) below which scrolling is skipped
 const SCROLL_DELTA_THRESHOLD: f32 = 0.5;
@@ -556,8 +557,7 @@ fn apply_scroll_adjustment(
     behavior: ScrollIntoViewBehavior,
     now: Instant,
 ) {
-    use azul_core::events::EasingFunction;
-    use azul_core::task::SystemTimeDiff;
+    use azul_core::{events::EasingFunction, task::SystemTimeDiff};
 
     let current = scroll_manager
         .get_current_offset(dom_id, node_id)
@@ -2374,8 +2374,14 @@ mod nearest_oversized_tests {
         // Already visible → no scroll.
         assert_eq!(calculate_axis_delta(50.0, 100.0, 0.0, 357.0, Nearest), 0.0);
         // Below → align its end with the container's end.
-        assert_eq!(calculate_axis_delta(400.0, 100.0, 0.0, 357.0, Nearest), 143.0);
+        assert_eq!(
+            calculate_axis_delta(400.0, 100.0, 0.0, 357.0, Nearest),
+            143.0
+        );
         // Above → align its start.
-        assert_eq!(calculate_axis_delta(-50.0, 100.0, 0.0, 357.0, Nearest), -50.0);
+        assert_eq!(
+            calculate_axis_delta(-50.0, 100.0, 0.0, 357.0, Nearest),
+            -50.0
+        );
     }
 }

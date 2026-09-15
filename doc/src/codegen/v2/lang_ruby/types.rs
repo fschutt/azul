@@ -3,19 +3,21 @@
 //! Translates IR types into:
 //! - simple/unit enums      → `module ENUM_NAME; FOO = 0; BAR = 1; end`
 //! - structs                → `class AzFoo < FFI::Struct; layout :x, :int, ...; end`
-//! - tagged unions          → `class AzFoo < FFI::Struct; layout :tag, :int, :payload, AzFooPayload; end`
-//!                            `class AzFooPayload < FFI::Union; layout :variant1, ...; end`
+//! - tagged unions          → `class AzFoo < FFI::Struct; layout :tag, :int, :payload,
+//!   AzFooPayload; end` `class AzFooPayload < FFI::Union; layout :variant1, ...; end`
 //! - callback typedefs      → `callback :az_foo_cb, [:pointer, :int], :pointer`
 //!
 //! Filtering: skips types with `TypeCategory` Recursive / VecRef / GenericTemplate /
 //! DestructorOrClone / CallbackTypedef-as-struct. Skipped types receive a
 //! `# SKIPPED: <reason>` comment line in the output.
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+use super::super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{
+        CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+        MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+    },
 };
 
 // ============================================================================
@@ -596,15 +598,13 @@ fn emit_tagged_union(
     // semantics (mirrors JVM commit 75a1fbcd2).
     //
     // Three extraction shapes:
-    //   1. AzString payload → decode UTF-8 into a Ruby String, then
-    //      call Native.az_option_<x>_delete to free the embedded
-    //      AzString's Vec.ptr buffer.
-    //   2. Wrapper-class payload → call Native.az_<payload>_clone to
-    //      produce an independent struct, wrap in Azul::<Payload>,
-    //      then delete the original Option (drops the original
-    //      payload's heap allocations).
-    //   3. Primitive payload → read the value (independent), delete
-    //      the Option (no-op heap-wise but consistent).
+    //   1. AzString payload → decode UTF-8 into a Ruby String, then call
+    //      Native.az_option_<x>_delete to free the embedded AzString's Vec.ptr buffer.
+    //   2. Wrapper-class payload → call Native.az_<payload>_clone to produce an independent struct,
+    //      wrap in Azul::<Payload>, then delete the original Option (drops the original payload's
+    //      heap allocations).
+    //   3. Primitive payload → read the value (independent), delete the Option (no-op heap-wise but
+    //      consistent).
     if e.variants.len() == 2 {
         let none = e.variants.iter().find(|v| v.name == "None");
         let some = e.variants.iter().find(|v| v.name == "Some");
@@ -951,7 +951,10 @@ fn emit_ruby_to_opt_body(
         builder.line("__azs = self[:payload][:Some][:payload]");
         builder.line("__vp = __azs[:vec][:ptr]");
         builder.line("__vl = __azs[:vec][:len]");
-        builder.line("__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)");
+        builder.line(
+            "__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : \
+             __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)",
+        );
         emit_delete(builder);
         builder.line("__out");
     } else if ruby_has_clone(payload_ty, ir) && ruby_payload_has_wrapper(payload_ty, ir) {
@@ -1021,7 +1024,10 @@ fn emit_ruby_unwrap_body(
         builder.line("__azs = self[:payload][:Ok][:payload]");
         builder.line("__vp = __azs[:vec][:ptr]");
         builder.line("__vl = __azs[:vec][:len]");
-        builder.line("__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)");
+        builder.line(
+            "__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : \
+             __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)",
+        );
         emit_delete(builder);
         builder.line("__out");
     } else if ruby_has_clone(payload_ty, ir) && ruby_payload_has_wrapper(payload_ty, ir) {

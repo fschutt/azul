@@ -33,23 +33,21 @@ pub mod a11y_snapshot;
 pub mod biometric;
 pub mod changeset;
 pub mod clipboard;
+pub mod device_events;
 pub mod drag_drop;
 pub mod eyedropper;
 pub mod file_drop;
 pub mod focus_cursor;
-pub mod device_events;
 pub mod gamepad;
 pub mod geolocation;
 pub mod gesture;
+pub mod gpu_state;
 pub mod hid;
+pub mod hover;
+pub mod keyring;
 pub mod media_keys;
 /// Media playback state machine (11c): the transport + the six media events.
 pub mod media_player;
-/// Cross-thread "raise this window" requests (9h-i-a-ii).
-pub mod window_activation;
-pub mod gpu_state;
-pub mod hover;
-pub mod keyring;
 pub mod permission;
 pub mod scroll_into_view;
 pub mod scroll_registration;
@@ -60,11 +58,15 @@ pub mod text_edit;
 pub mod text_input;
 pub mod undo_redo;
 pub mod virtual_view;
+/// Cross-thread "raise this window" requests (9h-i-a-ii).
+pub mod window_activation;
 
 use alloc::collections::BTreeMap;
 
-use azul_core::dom::{DomId, DomNodeId, NodeId};
-use azul_core::styled_dom::NodeHierarchyItemId;
+use azul_core::{
+    dom::{DomId, DomNodeId, NodeId},
+    styled_dom::NodeHierarchyItemId,
+};
 
 /// The result of a DOM reconciliation, from the point of view of anyone holding
 /// `NodeId`-keyed state for a single DOM.

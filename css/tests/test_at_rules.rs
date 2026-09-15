@@ -10,12 +10,14 @@
 //! For language support, use the standard CSS `:lang()` pseudo-class:
 //! - `div:lang(de) { ... }` works correctly
 
-use azul_css::css::{CssPathPseudoSelector, CssPathSelector};
 #[allow(unused_imports)]
 use azul_css::dynamic_selector::{
     DynamicSelector, LanguageCondition, MediaType, MinMaxRange, OrientationType, OsCondition,
 };
-use azul_css::parser2::new_from_str;
+use azul_css::{
+    css::{CssPathPseudoSelector, CssPathSelector},
+    parser2::new_from_str,
+};
 
 // ============================================================================
 // @media parsing tests

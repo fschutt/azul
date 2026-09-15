@@ -5,17 +5,18 @@
 //! rendering change. Runs the same cold+hinted-resize sequence twice:
 //! once with DL patching on (blit path) and once with it off (control).
 
-use azul_core::dom::{Dom, IdOrClass, NodeType};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::StyledDom;
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::solver3::display_list::set_dl_patching_enabled;
-use azul_layout::window::LayoutWindow;
-use azul_layout::window_state::FullWindowState;
-use rust_fontconfig::FcFontCache;
-
 use azul::desktop::shell2::headless::CpuBackend;
+use azul_core::{
+    dom::{Dom, IdOrClass, NodeType},
+    geom::LogicalSize,
+    resources::RendererResources,
+    styled_dom::StyledDom,
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, solver3::display_list::set_dl_patching_enabled,
+    window::LayoutWindow, window_state::FullWindowState,
+};
+use rust_fontconfig::FcFontCache;
 
 fn page_dom() -> StyledDom {
     let dom = Dom::create_node(NodeType::Div)
@@ -73,8 +74,8 @@ fn run(patching: bool) -> (Vec<u8>, bool) {
     if patching {
         assert!(
             lw.layout_cache.last_patch_move.is_some(),
-            "harness: the patched pass must export a move summary \
-             (centered page delta = +20 logical px, integral)"
+            "harness: the patched pass must export a move summary (centered page delta = +20 \
+             logical px, integral)"
         );
     }
 
@@ -97,9 +98,8 @@ fn blitted_resize_frame_is_pixel_identical_to_a_full_repaint() {
     let (full_frame, control_applied) = run(false);
     assert!(
         blit_applied,
-        "the blit path must actually fire on the patched sequence — a gate \
-         that silently takes the slow path both times proves nothing \
-         (a zero is not a measurement)"
+        "the blit path must actually fire on the patched sequence — a gate that silently takes \
+         the slow path both times proves nothing (a zero is not a measurement)"
     );
     assert!(!control_applied, "the control must NOT blit");
     assert_eq!(blit_frame.len(), full_frame.len());

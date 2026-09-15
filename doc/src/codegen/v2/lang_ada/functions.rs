@@ -9,8 +9,8 @@
 //! The Ada subprogram name follows the form `Az_<Class>_<Method>` so
 //! that:
 //!
-//! - It does not collide with the user-facing wrapper-type primitives
-//!   (which drop the `Az_` prefix).
+//! - It does not collide with the user-facing wrapper-type primitives (which drop the `Az_`
+//!   prefix).
 //! - It is a valid Ada identifier (case-insensitive, no quoting needed).
 //! - Reading a stack trace gives a clear correspondence to the C symbol.
 //!
@@ -20,10 +20,11 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, TypeCategory};
-
+use super::super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, TypeCategory},
+};
 // Re-export the kind enum for convenience to the helper below.
 use super::{ada_ffi_type_name, map_type_to_ada, sanitize_identifier};
 
@@ -263,7 +264,7 @@ fn pascalize_method_name(name: &str) -> String {
             out.extend(c.to_uppercase());
             upper_next = false;
         } else {
-            out.extend(c.to_ascii_lowercase().to_string().chars());
+            out.push_str(&c.to_ascii_lowercase().to_string());
         }
     }
     out

@@ -2,12 +2,11 @@
 //!
 //! Two rules every dialog here obeys:
 //!
-//! 1. **Always CPU-rendered.** A dialog that reports a problem — possibly a
-//!    GPU problem — must not depend on the GPU working, so every window this
-//!    module creates forces `HwAcceleration::Disabled`.
-//! 2. **Consent is structural.** Nothing sends, installs or overwrites
-//!    without the user pressing the button that says so. Background threads
-//!    only CHECK and STAGE.
+//! 1. **Always CPU-rendered.** A dialog that reports a problem — possibly a GPU problem — must not
+//!    depend on the GPU working, so every window this module creates forces
+//!    `HwAcceleration::Disabled`.
+//! 2. **Consent is structural.** Nothing sends, installs or overwrites without the user pressing
+//!    the button that says so. Background threads only CHECK and STAGE.
 //!
 //! The dialogs read app-level configuration (support mailbox, manifest URL,
 //! changelog URL, app name/version) from [`crate::appenv`], which `App::run`
@@ -36,17 +35,19 @@ pub mod telemetry_consent;
 pub mod update_version;
 
 use azul_core::{
+    callbacks::LayoutCallbackType,
     geom::LogicalSize,
     refany::{OptionRefAny, RefAny},
     window::HwAcceleration,
 };
-use azul_css::dynamic_selector::{
-    CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorVec,
+use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorVec,
+    },
+    props::property::CssProperty,
 };
-use azul_css::props::property::CssProperty;
 
 use crate::window_state::WindowCreateOptions;
-use azul_core::callbacks::LayoutCallbackType;
 
 /// A dialog window shell: titled, sized, state in `layout_callback.ctx`,
 /// and — the invariant of this module — CPU-rendered, whatever the app or
@@ -85,10 +86,12 @@ pub(crate) fn style(props: Vec<CssProperty>) -> CssPropertyWithConditionsVec {
 
 #[cfg(test)]
 mod tests {
-    use azul_core::window::HwAcceleration;
+    use azul_core::{
+        callbacks::{LayoutCallbackInfo, LayoutCallbackType},
+        window::HwAcceleration,
+    };
 
     use super::*;
-    use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 
     extern "C" fn dummy_layout(_: RefAny, _: LayoutCallbackInfo) -> azul_core::dom::Dom {
         azul_core::dom::Dom::create_body()

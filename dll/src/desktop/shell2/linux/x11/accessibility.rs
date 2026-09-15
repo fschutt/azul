@@ -10,9 +10,11 @@ use std::sync::{Arc, Mutex};
 use accesskit::{ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate};
 #[cfg(feature = "a11y")]
 use accesskit_unix::Adapter;
-
 #[cfg(feature = "a11y")]
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
+
+#[cfg(feature = "a11y")]
+use crate::desktop::shell2::common::accessibility::A11yTreeFeed;
 
 /// Linux accessibility adapter that bridges Azul and AT-SPI
 #[cfg(feature = "a11y")]
@@ -21,12 +23,9 @@ pub struct LinuxAccessibilityAdapter {
     adapter: Arc<Mutex<Option<Adapter>>>,
     /// Pending actions from assistive technology
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
-    /// The most recent tree we built. Shared with the ActivationHandler so
-    /// `request_initial_tree()` can hand the adapter a non-empty tree the
-    /// moment an AT (screen reader) connects. Without it the handler returned
-    /// None → the adapter never activated → `update_if_active()` stayed a
-    /// no-op, i.e. a11y silently did nothing.
-    last_tree: Arc<Mutex<Option<TreeUpdate>>>,
+    /// The complete current tree, shared with the ActivationHandler so a screen reader that connects
+    /// late gets a full tree rather than whatever incremental update came last.
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
@@ -36,7 +35,7 @@ impl LinuxAccessibilityAdapter {
         Self {
             adapter: Arc::new(Mutex::new(None)),
             pending_actions: Arc::new(Mutex::new(Vec::new())),
-            last_tree: Arc::new(Mutex::new(None)),
+            feed: A11yTreeFeed::new(),
         }
     }
 
@@ -46,24 +45,23 @@ impl LinuxAccessibilityAdapter {
     /// the AT-SPI connection.
     pub fn initialize(&mut self, _window_name: &str) -> Result<(), String> {
         let pending_actions = Arc::clone(&self.pending_actions);
-        let last_tree = Arc::clone(&self.last_tree);
 
         // Create handlers
         let activation_handler = AccessibilityActionHandler {
             pending_actions: Arc::clone(&pending_actions),
-            last_tree: Arc::clone(&last_tree),
+            feed: Arc::clone(&self.feed),
         };
         let action_handler = AccessibilityActionHandler {
             pending_actions: Arc::clone(&pending_actions),
-            last_tree: Arc::clone(&last_tree),
+            feed: Arc::clone(&self.feed),
         };
         let deactivation_handler = AccessibilityDeactivationHandler;
 
         // Create the accesskit adapter - wrap in catch_unwind for safety
         // DBus connection can fail in various ways
-        let adapter_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let adapter_result = crate::desktop::recoverable_panic::catch(|| {
             Adapter::new(activation_handler, action_handler, deactivation_handler)
-        }));
+        });
 
         match adapter_result {
             Ok(adapter) => {
@@ -87,12 +85,10 @@ impl LinuxAccessibilityAdapter {
     /// This function is designed to be non-blocking. If the a11y lock cannot
     /// be acquired immediately, the update is skipped to prevent UI hangs.
     pub fn update_tree(&self, tree_update: TreeUpdate) {
-        // Remember the latest tree so request_initial_tree() (called when an AT
-        // activates the adapter) can return a non-empty tree — otherwise the
-        // adapter never activates and update_if_active() below is a no-op.
-        if let Ok(mut last) = self.last_tree.try_lock() {
-            *last = Some(tree_update.clone());
-        }
+        let Some(tree_update) = self.feed.next_update(tree_update) else {
+            return;
+        };
+        let had_tree = tree_update.tree.is_some();
         // Use try_lock to avoid blocking the UI thread
         let Ok(mut guard) = self.adapter.try_lock() else {
             return; // Skip update if lock not available
@@ -103,9 +99,12 @@ impl LinuxAccessibilityAdapter {
             // accesskit's unix adapter raises AT-SPI events internally and
             // returns `()` (unlike the macOS adapter which hands back a
             // `QueuedEvents`), so there's nothing to dispatch on our side.
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let applied = crate::desktop::recoverable_panic::catch(|| {
                 adapter.update_if_active(|| tree_update);
-            }));
+            });
+            if applied.is_ok() {
+                self.feed.delivered(had_tree);
+            }
         }
     }
 
@@ -123,9 +122,9 @@ impl LinuxAccessibilityAdapter {
             return;
         };
         if let Some(adapter) = guard.as_mut() {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = crate::desktop::recoverable_panic::catch(|| {
                 adapter.update_window_focus_state(has_focus);
-            }));
+            });
         }
     }
 
@@ -148,9 +147,9 @@ impl LinuxAccessibilityAdapter {
             return;
         };
         if let Some(adapter) = guard.as_mut() {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = crate::desktop::recoverable_panic::catch(|| {
                 adapter.set_root_window_bounds(rect, rect);
-            }));
+            });
         }
     }
 
@@ -196,20 +195,14 @@ impl LinuxAccessibilityAdapter {
 #[cfg(feature = "a11y")]
 struct AccessibilityActionHandler {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
-    /// Shared with LinuxAccessibilityAdapter::update_tree — the latest tree,
-    /// returned from request_initial_tree() so the adapter activates with a
-    /// populated tree.
-    last_tree: Arc<Mutex<Option<TreeUpdate>>>,
+    /// Shared with LinuxAccessibilityAdapter::update_tree.
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
 impl ActivationHandler for AccessibilityActionHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-        // Hand the freshly-activated adapter the latest tree we built. Returning
-        // None left the adapter inactive (update_if_active is a no-op until the
-        // adapter is active), so a screen reader connecting after the first
-        // layout saw an empty accessibility tree.
-        self.last_tree.lock().ok().and_then(|g| (*g).clone())
+        self.feed.initial_tree()
     }
 }
 

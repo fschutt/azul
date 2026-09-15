@@ -1,6 +1,5 @@
 //! CSS properties for 2D and 3D transformations.
 
-use crate::corety::AzString;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -16,6 +15,7 @@ use crate::props::basic::{
 };
 use crate::{
     codegen::format::GetHash,
+    corety::AzString,
     props::{
         basic::{
             angle::{
@@ -758,7 +758,8 @@ pub fn parse_style_transform_vec(
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)]
-// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+// property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `transform` value.

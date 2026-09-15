@@ -18,7 +18,6 @@ model!: alias struct! [
 the-model: declare model!
 the-model/counter: 5
 
-;; Build an AzString from a c-string! (AzString_fromUtf8 copies the bytes).
 mk-str: func [s [c-string!] return: [AzString! value]][
     AzString_fromUtf8 as byte-ptr! s length? s
 ]

@@ -2,17 +2,14 @@
 //!
 //! Mapping strategy (mirrors the C# generator's three-way split):
 //!
-//! - **Unit-only enums** -> `FFIExternalEnumeration subclass: #AzFoo`
-//!   with a class-side `enumDecl` returning `#(VariantName 0 ...)`.
-//!   UnifiedFFI auto-generates `AzFoo bar` accessors at image build.
-//! - **Tagged-union enums** -> a `<Az>Foo_Tag` enumeration plus one
-//!   `<Az>FooVariant_<Variant>` `FFIExternalStructure` per variant
-//!   (each carries the tag plus the payload), plus an outer
-//!   `FFIExternalUnion subclass: #AzFoo` whose `fields` overlap each
-//!   variant struct at offset 0.
-//! - **POD structs** -> `FFIExternalStructure subclass: #AzFoo` with a
-//!   class-side `fields` method describing the layout. UFFI emits
-//!   slot accessors automatically.
+//! - **Unit-only enums** -> `FFIExternalEnumeration subclass: #AzFoo` with a class-side `enumDecl`
+//!   returning `#(VariantName 0 ...)`. UnifiedFFI auto-generates `AzFoo bar` accessors at image
+//!   build.
+//! - **Tagged-union enums** -> a `<Az>Foo_Tag` enumeration plus one `<Az>FooVariant_<Variant>`
+//!   `FFIExternalStructure` per variant (each carries the tag plus the payload), plus an outer
+//!   `FFIExternalUnion subclass: #AzFoo` whose `fields` overlap each variant struct at offset 0.
+//! - **POD structs** -> `FFIExternalStructure subclass: #AzFoo` with a class-side `fields` method
+//!   describing the layout. UFFI emits slot accessors automatically.
 //!
 //! Generic templates and recursive/destructor/VecRef categories are
 //! deliberately skipped — they have no clean Smalltalk surface.
@@ -24,13 +21,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef,
-    TypeCategory,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+            StructDef, TypeCategory,
+        },
+    },
     ffi_type_name, map_type_to_uffi, method_category_line, sanitize_identifier, PACKAGE_TYPES,
 };
 

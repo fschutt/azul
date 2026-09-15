@@ -3,17 +3,15 @@
 //! image_flex_grow.rs and the first iteration of this file), so these tests
 //! replicate the demos' REAL structure:
 //!
-//! 1. azul-maps: header (status text + button row) lays out at HEIGHT 0 in the
-//!    live app — the map fills the whole window, the toolbar is invisible and
-//!    unclickable (verified live: a 7×5 xdotool click grid over the header band
-//!    only ever hit the map; the AT-SPI tree has the buttons but no pixels do).
-//!    The real sibling is a MapWidget (VirtualView) — an empty-div stand-in
-//!    does NOT reproduce, so the widget is used here.
-//! 2. azul-paint: the canvas `<img>` (callback image, no intrinsic size) with
-//!    `flex-grow: 1; position: relative; overflow: hidden` lays out 316px wide
-//!    instead of stretching to the body width. Paint has a window menubar, so
-//!    on Linux/KDE the engine wraps the user DOM via inject_software_menubar:
-//!    Html [ menubar, user_body ] — replicated here, since the bare body
+//! 1. azul-maps: header (status text + button row) lays out at HEIGHT 0 in the live app — the map
+//!    fills the whole window, the toolbar is invisible and unclickable (verified live: a 7×5
+//!    xdotool click grid over the header band only ever hit the map; the AT-SPI tree has the
+//!    buttons but no pixels do). The real sibling is a MapWidget (VirtualView) — an empty-div
+//!    stand-in does NOT reproduce, so the widget is used here.
+//! 2. azul-paint: the canvas `<img>` (callback image, no intrinsic size) with `flex-grow: 1;
+//!    position: relative; overflow: hidden` lays out 316px wide instead of stretching to the body
+//!    width. Paint has a window menubar, so on Linux/KDE the engine wraps the user DOM via
+//!    inject_software_menubar: Html [ menubar, user_body ] — replicated here, since the bare body
 //!    version does NOT reproduce.
 
 /// The CPU renderer resolves every glyph run through a `FontManager` — there is no
@@ -32,8 +30,10 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
-    widgets::map::{MapTileLayer, MapViewport, MapWidget},
-    widgets::menubar::build_menubar_dom,
+    widgets::{
+        map::{MapTileLayer, MapViewport, MapWidget},
+        menubar::build_menubar_dom,
+    },
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -238,8 +238,8 @@ fn maps_header_items_present_in_display_list() {
     });
     assert!(
         header_bg,
-        "the root display list does not paint the header's #2b2b2b background \
-         (items={}, kinds={:?}) — display-list generation dropped the header",
+        "the root display list does not paint the header's #2b2b2b background (items={}, \
+         kinds={:?}) — display-list generation dropped the header",
         items.len(),
         kinds
     );
@@ -257,9 +257,9 @@ fn maps_header_items_present_in_display_list() {
 /// yet the live app shows no header — so the drop is in the rasterizer.
 #[test]
 fn maps_render_paints_header_pixels() {
+    use std::{collections::BTreeMap, sync::Arc};
+
     use azul_layout::cpurender;
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     let lw = layout_dom(maps_demo_dom(), MAPS_CSS, 640.0, 480.0);
     let root = lw.layout_results.get(&DomId::ROOT_ID).expect("root result");
@@ -334,9 +334,8 @@ fn maps_render_paints_header_pixels() {
     };
     assert!(
         dark(px(40, 12)) && dark(px(150, 12)),
-        "header band is NOT painted dark at y=40: {samples:?} — the rasterizer drops \
-         or overpaints the header (live bug: child PushClip replaced the \
-         VirtualView composite clip)"
+        "header band is NOT painted dark at y=40: {samples:?} — the rasterizer drops or \
+         overpaints the header (live bug: child PushClip replaced the VirtualView composite clip)"
     );
     // Every sampled header-band pixel must be header chrome (dark bg, white
     // text, or blue button) — never the child's placeholder-tile grey, which
@@ -345,8 +344,7 @@ fn maps_render_paints_header_pixels() {
         let whiteish = c.0 > 230 && c.1 > 230 && c.2 > 230;
         assert!(
             dark(*c) || blue(*c) || whiteish,
-            "header band pixel at x={x} is {c:?} — child content overdrew the \
-             header (clip escape)"
+            "header band pixel at x={x} is {c:?} — child content overdrew the header (clip escape)"
         );
     }
 }
@@ -361,14 +359,14 @@ fn maps_render_paints_header_pixels() {
 /// whole window — wiping the header (live: azul-maps' toolbar invisible).
 #[test]
 fn virtual_view_child_clip_cannot_escape_composite_bounds() {
+    use std::{collections::BTreeMap, sync::Arc};
+
     use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
     use azul_css::props::basic::color::ColorU;
-    use azul_layout::cpurender;
-    use azul_layout::solver3::display_list::{
-        BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
+    use azul_layout::{
+        cpurender,
+        solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect},
     };
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     let rect = |x: f32, y: f32, w: f32, h: f32| -> WindowLogicalRect {
         LogicalRect {
@@ -486,8 +484,8 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
     assert_eq!(
         px(&out, 40, 40),
         (43, 43, 43),
-        "the child's own PushClip escaped the VirtualView composite clip and \
-         painted over the parent's header"
+        "the child's own PushClip escaped the VirtualView composite clip and painted over the \
+         parent's header"
     );
     assert_eq!(
         px(&out, 40, 200),
@@ -532,8 +530,8 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
     assert_eq!(
         px(&out, 180, 40),
         (74, 144, 226),
-        "incremental repaint of the VirtualView band wiped the header button \
-         (partial-intersect item repainted unclipped over a skipped neighbour)"
+        "incremental repaint of the VirtualView band wiped the header button (partial-intersect \
+         item repainted unclipped over a skipped neighbour)"
     );
     assert_eq!(
         px(&out, 40, 12),
@@ -565,8 +563,8 @@ fn maps_header_must_not_collapse_to_zero_height() {
     // Text ~14px + buttons (~13px + 12px padding) + 20px header padding ⇒ ≥ 30px.
     assert!(
         header_rect.size.height > 25.0,
-        "maps header collapsed: height = {} (expected ≥ ~37px; live bug: the \
-         header is invisible and the map starts at y=0)",
+        "maps header collapsed: height = {} (expected ≥ ~37px; live bug: the header is invisible \
+         and the map starts at y=0)",
         header_rect.size.height
     );
     assert!(
@@ -581,15 +579,13 @@ fn maps_header_must_not_collapse_to_zero_height() {
 /// subtree path), NOT via a compiled stylesheet — replicate that exactly,
 /// since the stylesheet-styled variants above pass while the live app fails.
 fn maps_demo_dom_with_css() -> Dom {
-    const HEADER: &str = "background: #2b2b2b; color: white; \
-        display: flex; padding: 10px 16px; flex-direction: row; align-items: center; \
-        justify-content: space-between; font-family: sans-serif; \
-        font-size: 14px; flex-shrink: 0;";
-    const BTN: &str = "background: #4a90e2; color: white; \
-        padding: 6px 12px; border-radius: 4px; cursor: pointer; \
-        margin-left: 6px; font-size: 13px;";
-    const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
-        background: #cbd2d8; overflow: hidden;";
+    const HEADER: &str = "background: #2b2b2b; color: white; display: flex; padding: 10px 16px; \
+                          flex-direction: row; align-items: center; justify-content: \
+                          space-between; font-family: sans-serif; font-size: 14px; flex-shrink: 0;";
+    const BTN: &str = "background: #4a90e2; color: white; padding: 6px 12px; border-radius: 4px; \
+                       cursor: pointer; margin-left: 6px; font-size: 13px;";
+    const MAP_CONTAINER: &str =
+        "flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;";
     const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
     let mut button_row = Dom::create_div().with_css("display: flex; flex-direction: row;");
@@ -727,14 +723,14 @@ fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
 
     assert!(
         canvas_rect.size.width > 600.0,
-        "canvas width = {} (expected ~624–640 from cross-axis stretch; live bug \
-         lays it out 316px wide)",
+        "canvas width = {} (expected ~624–640 from cross-axis stretch; live bug lays it out 316px \
+         wide)",
         canvas_rect.size.width
     );
     assert!(
         canvas_rect.size.height > 300.0,
-        "canvas height = {} (expected to fill the body below the header via \
-         flex-grow; got a collapsed/diminished height)",
+        "canvas height = {} (expected to fill the body below the header via flex-grow; got a \
+         collapsed/diminished height)",
         canvas_rect.size.height
     );
 }
@@ -799,7 +795,8 @@ fn menubar_flex_row_items_lay_out_horizontally_without_clipping() {
     );
     assert!(
         view_item.origin.x > file_item.origin.x + 30.0,
-        "View must sit to the RIGHT of File (File x={}, View x={}) — items stacked instead of a row",
+        "View must sit to the RIGHT of File (File x={}, View x={}) — items stacked instead of a \
+         row",
         file_item.origin.x,
         view_item.origin.x
     );

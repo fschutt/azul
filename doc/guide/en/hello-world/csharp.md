@@ -34,9 +34,9 @@ returns a `Dom` — and the generated `Azul.cs` handles the marshalling. No
 
 ## Installation
 
-You need the **.NET 10 SDK** and the native `libazul` library for your platform.
-(The example project `examples/csharp/Hello.csproj` and the downloadable
-`Azul.csproj` both target `net10.0`.)
+You need the **.NET 8 SDK or newer** and the native `libazul` library for your
+platform. (The example project `examples/csharp/Hello.csproj` and the downloadable
+`Azul.csproj` both target `net8.0`, which .NET 9 and 10 projects consume as well.)
 
 azul isn't on nuget.org, but a self-hosted NuGet v3 feed lives at azul.rs and the
 package bundles the native `libazul` for Linux/macOS/Windows under

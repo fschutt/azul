@@ -4,17 +4,24 @@
 //! avoid-free block stacks), nested resume (a wrapper container splits via
 //! ResumeIn and CONTINUES, not restarts), monolith termination.
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::solver3::break_token::{BreakToken, ChildBreakEntry};
-use azul_layout::solver3::paged_layout::{layout_document_tokenized, TokenizedPage};
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::HashMap;
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    solver3::{
+        break_token::{BreakToken, ChildBreakEntry},
+        paged_layout::{layout_document_tokenized, TokenizedPage},
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
     let styled_dom = Dom::from_xml_string(html);
@@ -193,8 +200,8 @@ fn unforced_break_truncates_the_resumed_childs_top_margin() {
     );
     assert!(
         (pages[1].content_block_size - 140.0).abs() < 0.6,
-        "the resumed child's 20px top margin TRUNCATES at the unforced \
-         break (got {} — 160 would mean the margin survived)",
+        "the resumed child's 20px top margin TRUNCATES at the unforced break (got {} — 160 would \
+         mean the margin survived)",
         pages[1].content_block_size
     );
 }
@@ -229,7 +236,8 @@ fn forced_page_break_node_splits_and_preserves_the_next_margin() {
     );
     assert!(
         (pages[1].content_block_size - 130.0).abs() < 0.6,
-        "a FORCED break preserves the next child's 30px margin (got {} —          100 would mean it was wrongly truncated)",
+        "a FORCED break preserves the next child's 30px margin (got {} —          100 would mean \
+         it was wrongly truncated)",
         pages[1].content_block_size
     );
 }

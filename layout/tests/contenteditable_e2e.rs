@@ -7,6 +7,8 @@
 // 4. Verify damage rects cover only the text region
 // 5. Test cursor movement, selection, backspace
 
+use std::path::PathBuf;
+
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId, NodeType, TabIndex},
     geom::LogicalSize,
@@ -14,16 +16,15 @@ use azul_core::{
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_css::css::Css;
-use azul_layout::solver3::LayoutNodeId;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{self, AzulPixmap, RenderOptions},
     glyph_cache::GlyphCache,
+    solver3::LayoutNodeId,
     window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
-use std::path::PathBuf;
 
 // =========================================================================
 // Test Infrastructure
@@ -515,8 +516,8 @@ fn keystroke_cost_on_the_incremental_path() {
     eprintln!("  [perf] keystroke, incremental path only = {edit_only:?}");
     eprintln!("  [perf] keystroke + FULL repaint          = {edit_and_paint:?}");
     eprintln!(
-        "  [perf] keystroke + DAMAGED repaint       = {edit_and_damaged_paint:?}  \
-         (avg damage {:.0} px2 of 120000, {full_repaints}/{N} escalated to full)",
+        "  [perf] keystroke + DAMAGED repaint       = {edit_and_damaged_paint:?}  (avg damage \
+         {:.0} px2 of 120000, {full_repaints}/{N} escalated to full)",
         damage_area_total / f64::from(N) as f32
     );
 
@@ -702,11 +703,13 @@ fn contenteditable_text_input_changes_output() {
     let glyphs_after = h.count_text_glyphs();
     let total_glyphs_after: usize = glyphs_after.iter().map(|(_, c)| c).sum();
     eprintln!(
-        "  [verify] Glyphs before: {total_glyphs_before}, after: {total_glyphs_after} (expected +1)"
+        "  [verify] Glyphs before: {total_glyphs_before}, after: {total_glyphs_after} (expected \
+         +1)"
     );
     assert!(
         total_glyphs_after > total_glyphs_before,
-        "After inserting 'X', glyph count should increase (was {total_glyphs_before}, now {total_glyphs_after})"
+        "After inserting 'X', glyph count should increase (was {total_glyphs_before}, now \
+         {total_glyphs_after})"
     );
 
     // Verify 5: display list should contain a CursorRect after text input
@@ -724,7 +727,13 @@ fn contenteditable_text_input_changes_output() {
         eprintln!("  [DEBUG] Dumping layout tree:");
         h.dump_layout_tree();
     }
-    assert!(has_cursor, "CursorRect must appear in display list after focus + text input (should_draw_cursor={}, multi_cursor={:?})", draw_cursor, cursor_loc.is_some());
+    assert!(
+        has_cursor,
+        "CursorRect must appear in display list after focus + text input (should_draw_cursor={}, \
+         multi_cursor={:?})",
+        draw_cursor,
+        cursor_loc.is_some()
+    );
 
     // Verify 6: rendered frames differ visually
     let frame2 = h.render();
@@ -1149,10 +1158,13 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
 // =========================================================================
 
 mod structural_roundtrip {
-    use super::*;
-    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-    use azul_core::window::{KeyboardState, VirtualKeyCode};
+    use azul_core::{
+        selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+        window::{KeyboardState, VirtualKeyCode},
+    };
     use azul_layout::managers::changeset::{DocumentOperation, NodePosition};
+
+    use super::*;
 
     /// The APP's model: the editor subtree as a native `Dom`.
     fn editor_model() -> Dom {
@@ -1965,8 +1977,8 @@ fn probe_incremental_keystroke_median() {
     let med_r = render_times[render_times.len() / 2];
     let p90_r = render_times[render_times.len() * 9 / 10];
     eprintln!(
-        "[KEYSTROKE-PROBE] 60 keys @200-para doc: edit median={med_e:?} p90={p90_e:?} | \
-         render median={med_r:?} p90={p90_r:?} | TOTAL median={:?}",
+        "[KEYSTROKE-PROBE] 60 keys @200-para doc: edit median={med_e:?} p90={p90_e:?} | render \
+         median={med_r:?} p90={p90_r:?} | TOTAL median={:?}",
         med_e + med_r
     );
     // The production keystroke = edit + damage-present. Measured
@@ -1989,7 +2001,8 @@ fn probe_incremental_keystroke_median() {
     // gate. LLVM_PROFILE_FILE is set by the coverage harness at runtime.
     if std::env::var_os("LLVM_PROFILE_FILE").is_some() {
         eprintln!(
-            "[probe] coverage-instrumented build: thresholds skipped              (edit {med_e:?}, present {med_d:?})"
+            "[probe] coverage-instrumented build: thresholds skipped              (edit \
+             {med_e:?}, present {med_d:?})"
         );
         return;
     }
@@ -2155,9 +2168,8 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
     );
     assert!(
         lw.layout_cache.last_patch_move.is_none(),
-        "the rebuilt list inherited a translate hint ({:?}) — the compositor \
-         will BLIT the previous frame by that delta instead of painting the \
-         glyphs the user just typed",
+        "the rebuilt list inherited a translate hint ({:?}) — the compositor will BLIT the \
+         previous frame by that delta instead of painting the glyphs the user just typed",
         lw.layout_cache.last_patch_move
     );
 }

@@ -5,7 +5,11 @@
 //! is still wired so `?lang=python` produces a structured response instead of a
 //! 404.
 
-use alloc::{string::String, string::ToString, vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use super::{CodegenBackend, GeneratedFile};
 use crate::css::Css;

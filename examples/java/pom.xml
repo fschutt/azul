@@ -13,25 +13,11 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- The azul release this example targets. With no azul.codegen.dir
-             given (a user who downloaded this pom from azul.rs), the
-             `from-registry` profile below depends on rs.azul:azul at this
-             version from the self-hosted Maven repository. -->
         <azul.version>0.2.0</azul.version>
-        <!-- Directory holding the prebuilt native libazul (.dylib/.so/.dll).
-             Passed to the JVM as jna.library.path so JNA resolves it. -->
         <azul.native.dir>${project.basedir}/../../target/release</azul.native.dir>
     </properties>
 
     <build>
-        <!-- HelloWorld.java lives in this directory; the generated
-             com.azul.* classes are pulled in as a second source root
-             below (build-helper-maven-plugin) straight from
-             target/codegen/java. The compiler excludes (com/**) below
-             drop any stale local copy of the bindings (examples/java/com/,
-             which is git-ignored and may be left over from a prior `cp`)
-             so it is never double-compiled alongside the authoritative
-             target/codegen/java tree. -->
         <sourceDirectory>${project.basedir}</sourceDirectory>
         <plugins>
             <plugin>
@@ -39,11 +25,6 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <!-- Drop any stale local copy of the bindings
-                         (examples/java/com/**) so it is never compiled
-                         alongside the authoritative target/codegen/java
-                         tree (whose files are flat, e.g. App.java, and so
-                         are unaffected by this com/** exclude). -->
                     <excludes>
                         <exclude>com/**</exclude>
                     </excludes>
@@ -61,19 +42,7 @@
                     </archive>
                 </configuration>
             </plugin>
-            <!-- `mvn exec:java` runs the example. The native libazul
-                 (built separately into target/release) is located by JNA
-                 via the jna.library.path system property set below; on
-                 macOS the DYLD_LIBRARY_PATH env var is stripped from
-                 forked/relaunched JVMs by SIP, so an explicit -D is the
-                 reliable path. The AZ_E2E / AZ_BACKEND env vars (passed
-                 through from the environment) drive the headless counter
-                 test inside libazul.
 
-                 Run in a forked JVM (default in exec-maven-plugin 3.x via
-                 the `exec` goal) so the libazul `std::process::exit` after
-                 the E2E run terminates that child, not the Maven JVM, and
-                 its exit code propagates as the build result. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -88,13 +57,6 @@
                     </systemProperties>
                 </configuration>
             </plugin>
-            <!-- Bundle JNA into the app jar so a plain `java -cp
-                 target/hello-world-1.0.0.jar com.azul.HelloWorld` resolves
-                 com.sun.jna.* with no external classpath entry. On Windows the
-                 manual `-cp app.jar;jna.jar` launch failed at runtime with
-                 NoClassDefFoundError: com/sun/jna/Callback (the MSYS shell
-                 mangles the `;`-separated classpath / the .m2 jar is not picked
-                 up the way it is on Unix); an uber-jar makes JNA un-missable. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -119,20 +81,6 @@
         </dependency>
     </dependencies>
 
-    <!-- Where the com.azul.* binding comes from — one of two profiles:
-
-         from-registry (the default, what azul.rs documents): depend on
-         rs.azul:azul from the self-hosted Maven repository. That jar carries
-         the compiled binding AND libazul for linux-x86-64 / darwin-aarch64 /
-         win32-x86-64 as JNA resources, so nothing native has to be downloaded
-         or pointed at; the shaded jar above is a self-contained app.
-
-         from-codegen (activated by -Dazul.codegen.dir=<dir>): compile the
-         freshly generated sources in <dir> (the repo's target/codegen/java,
-         or the azul-java/ tree of azul-java-<version>.tar.gz) as a second
-         source root. This is what the e2e matrix and the "manual" route use.
-         activeByDefault is switched off as soon as another profile in this
-         pom activates, so passing the property picks exactly one. -->
     <profiles>
         <profile>
             <id>from-registry</id>
@@ -162,9 +110,6 @@
             </activation>
             <build>
                 <plugins>
-                    <!-- Add the generated bindings directory as an extra
-                         source root so we never have to copy thousands of
-                         files. -->
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>

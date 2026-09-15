@@ -9,7 +9,8 @@
 //! 6. Process callback results (DOM regeneration, window state changes, etc.)
 //!
 //! Includes full IME (XIM) support for international text input.
-//! Also provides `keysym_to_virtual_keycode()` for X11 keysym → VirtualKeyCode mapping (shared with Wayland).
+//! Also provides `keysym_to_virtual_keycode()` for X11 keysym → VirtualKeyCode mapping (shared with
+//! Wayland).
 
 use std::{
     cell::{Cell, RefCell},
@@ -17,9 +18,6 @@ use std::{
     rc::Rc,
 };
 
-use crate::desktop::shell2::common::event::{
-    HitTestNode, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
-};
 use azul_core::{
     callbacks::Update,
     dom::{DomId, NodeId},
@@ -30,12 +28,19 @@ use azul_core::{
 };
 use azul_layout::managers::hover::InputPointId;
 
-use super::super::common::compose::ComposeAction;
-use super::{defines::*, dlopen::Xlib, X11Window};
-use crate::desktop::shell2::common::event::PlatformWindow;
-
-use super::super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use super::{
+    super::{super::common::debug_server::LogCategory, common::compose::ComposeAction},
+    defines::*,
+    dlopen::Xlib,
+    X11Window,
+};
+use crate::{
+    desktop::shell2::common::event::{
+        HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
+        BUTTON_STATE_RIGHT,
+    },
+    log_debug, log_error, log_info, log_trace, log_warn,
+};
 
 /// Pixels per discrete X11 scroll tick (button 4/5). X11 scroll events are
 /// unitless discrete steps; this constant converts them to pixel deltas for
@@ -50,10 +55,10 @@ pub(super) const X11_SCROLL_TICK_PIXELS: f32 =
 /// XIM clients must declare *one* preedit + *one* status style at IC creation
 /// time. The choice determines who renders the composition string:
 ///
-/// - `Callbacks`: the app renders preedit inline via XIM draw callbacks. This
-///   is what we need to display CJK candidates *inside* the contenteditable.
-/// - `OverTheSpot`: the IM renders preedit in a floating window positioned by
-///   `XNSpotLocation` (updated from `sync_ime_position_to_os`).
+/// - `Callbacks`: the app renders preedit inline via XIM draw callbacks. This is what we need to
+///   display CJK candidates *inside* the contenteditable.
+/// - `OverTheSpot`: the IM renders preedit in a floating window positioned by `XNSpotLocation`
+///   (updated from `sync_ime_position_to_os`).
 /// - `Rooted`: the IM renders preedit in its own window with no app input.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum ImeStyle {
@@ -959,13 +964,14 @@ impl X11Window {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::refany::RefAny;
-                    use azul_core::task::Duration;
-                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                    use azul_layout::scroll_timer::{
-                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    use azul_core::{
+                        refany::RefAny,
+                        task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
                     };
-                    use azul_layout::timer::{Timer, TimerCallbackType};
+                    use azul_layout::{
+                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
+                        timer::{Timer, TimerCallbackType},
+                    };
 
                     let physics_state = ScrollPhysicsState::new(
                         queue,
@@ -1051,9 +1057,7 @@ impl X11Window {
                                 // ORDINARY keystrokes while an IME is attached,
                                 // so committing unconditionally would report a
                                 // CompositionEnd for every letter typed.
-                                Some(text)
-                                    if lw.text_edit_manager.preedit_text.is_some() =>
-                                {
+                                Some(text) if lw.text_edit_manager.preedit_text.is_some() => {
                                     // `commit_composition` clears the preedit
                                     // itself, so there is no second call here.
                                     lw.text_edit_manager.commit_composition(text);
@@ -2033,14 +2037,13 @@ mod tests {
 
         assert!(
             body.matches("push_hit_test_latched").count() >= 3,
-            "the latch must be defined and used at BOTH the hit-test update \
-             and the crossing-leave"
+            "the latch must be defined and used at BOTH the hit-test update and the crossing-leave"
         );
         assert_eq!(
             body.matches(".push_hit_test(").count(),
             1,
-            "exactly one raw hover_manager.push_hit_test may remain — the one \
-             INSIDE push_hit_test_latched"
+            "exactly one raw hover_manager.push_hit_test may remain — the one INSIDE \
+             push_hit_test_latched"
         );
     }
 
@@ -2083,8 +2086,8 @@ mod tests {
         assert_eq!(
             keysym_to_virtual_keycode(XK_1 as KeySym),
             keysym_to_virtual_keycode(XK_exclam as KeySym),
-            "the shifted digit row folds onto one code, which is why the digit \
-             case never needed the press→code map"
+            "the shifted digit row folds onto one code, which is why the digit case never needed \
+             the press→code map"
         );
     }
 
@@ -2108,8 +2111,8 @@ mod tests {
         release(&mut state, &mut map, Q_KEYCODE, XK_q);
         assert!(
             state.pressed_virtual_keycodes.as_ref().is_empty(),
-            "the release must remove the code the PRESS inserted, not the one \
-             its own keysym resolves to: {:?}",
+            "the release must remove the code the PRESS inserted, not the one its own keysym \
+             resolves to: {:?}",
             state.pressed_virtual_keycodes.as_ref()
         );
         assert!(state.pressed_scancodes.as_ref().is_empty());
@@ -2136,8 +2139,8 @@ mod tests {
         release(&mut state, &mut map, CONTROL_KEYCODE, 0);
         assert!(
             !state.ctrl_down(),
-            "Ctrl must come up when its physical key does — a latched modifier \
-             rewrites every subsequent click and keystroke"
+            "Ctrl must come up when its physical key does — a latched modifier rewrites every \
+             subsequent click and keystroke"
         );
     }
 
@@ -2502,8 +2505,8 @@ mod tests {
     /// retry block — `lookup_string_with` returns `None` and this fails.
     #[test]
     fn an_ime_commit_larger_than_the_stack_buffer_is_not_dropped() {
-        let phrase = "\u{3053}\u{308c}\u{306f}\u{65e5}\u{672c}\u{8a9e}\u{306e}\
-                      \u{9577}\u{3044}\u{6587}\u{7ae0}\u{3067}\u{3059}";
+        let phrase = "\u{3053}\u{308c}\u{306f}\u{65e5}\u{672c}\u{8a9e}\u{306e}\u{9577}\u{3044}\\
+                      u{6587}\u{7ae0}\u{3067}\u{3059}";
         let bytes = phrase.as_bytes().to_vec();
         assert!(bytes.len() > 32, "the premise: the commit must overflow");
 

@@ -16,18 +16,20 @@
 
 use std::sync::{Arc, Mutex};
 
-use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom};
-use azul_core::geom::{LogicalPosition, LogicalSize};
-use azul_core::refany::RefAny;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::managers::changeset::{
-    DocOpMergeNodes, DocOpSplitNode, DocumentOperation, NodePosition,
+use azul_core::{
+    callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom},
+    geom::{LogicalPosition, LogicalSize},
+    refany::RefAny,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks,
+    managers::changeset::{DocOpMergeNodes, DocOpSplitNode, DocumentOperation, NodePosition},
+    window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -316,7 +318,8 @@ fn reinvoke_signal_carries_document_space_offsets_for_page_math() {
     );
     assert!(
         (scroll_y - 230.0).abs() < 0.6,
-        "the reinvoke signal carries the DOCUMENT-SPACE scroll offset the          app feeds into page_of_y, got {scroll_y}"
+        "the reinvoke signal carries the DOCUMENT-SPACE scroll offset the          app feeds into \
+         page_of_y, got {scroll_y}"
     );
     // The app-side page math the ledger asks for:
     let first = (scroll_y / 100.0).floor() as usize;
@@ -463,11 +466,13 @@ fn enter_on_a_nested_contenteditable_determines_a_structural_split() {
     let focused = lw.focus_manager.get_focused_node().copied();
     let editing = lw.build_editing_query_state(focused);
     let editing = editing.expect(
-        "build_editing_query_state answered None for a focused node inside \
-         the nested dom — Enter degrades to the activation arm and the user \
-         sees NOTHING happen",
+        "build_editing_query_state answered None for a focused node inside the nested dom — Enter \
+         degrades to the activation arm and the user sees NOTHING happen",
     );
-    assert!(editing.is_contenteditable, "the nested paragraph is editable");
+    assert!(
+        editing.is_contenteditable,
+        "the nested paragraph is editable"
+    );
     assert!(
         !editing.host_preserves_newlines,
         "a rich host must SPLIT on Enter, not insert a literal newline",

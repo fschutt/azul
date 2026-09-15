@@ -34,17 +34,18 @@
 //!
 //! See: https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior
 
-use azul_css::props::style::spatial_nav::StyleSpatialNavigationAction;
-
-use crate::window::DomLayoutResult;
 use alloc::vec::Vec;
+use std::collections::{BTreeMap, BTreeSet};
+
 use azul_core::{
     callbacks::{FocusDirection, FocusTarget},
     dom::{DomId, DomNodeId, NodeId},
     events::{DefaultAction, DefaultActionResult, ScrollAmount, ScrollDirection},
     window::{KeyboardState, VirtualKeyCode},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use azul_css::props::style::spatial_nav::StyleSpatialNavigationAction;
+
+use crate::window::DomLayoutResult;
 
 /// Editing state of the focused node, as the caret sees it — built by the
 /// caller (`LayoutWindow::build_editing_query_state`) because the decision
@@ -273,14 +274,11 @@ pub fn determine_keyboard_default_action_with_editing(
                 // current focus it falls back to a first-focusable, which
                 // would turn every arrow into a focus jump. Require the anchor
                 // to exist before asking.
-                let anchor_is_live = focus
-                    .node
-                    .into_crate_internal()
-                    .is_some_and(|n| {
-                        layout_results.get(&focus.dom).is_some_and(|lr| {
-                            n.index() < lr.styled_dom.node_data.as_container().len()
-                        })
-                    });
+                let anchor_is_live = focus.node.into_crate_internal().is_some_and(|n| {
+                    layout_results
+                        .get(&focus.dom)
+                        .is_some_and(|lr| n.index() < lr.styled_dom.node_data.as_container().len())
+                });
                 if !anchor_is_live {
                     return scroll;
                 }
@@ -393,9 +391,9 @@ fn is_reset_control(
     let Some(data) = node_data.get(internal_id) else {
         return false;
     };
-    data.attributes().as_ref().iter().any(|a| {
-        matches!(a, AttributeType::InputType(t) if t.as_str().eq_ignore_ascii_case("reset"))
-    })
+    data.attributes().as_ref().iter().any(
+        |a| matches!(a, AttributeType::InputType(t) if t.as_str().eq_ignore_ascii_case("reset")),
+    )
 }
 
 /// The nearest `NodeType::Form` ancestor of `node_id`, including itself.
@@ -622,11 +620,13 @@ pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<Fo
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::styled_dom::NodeHierarchyItemId;
 
+    use super::*;
+
     #[test]
-    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a
+                                                  // struct literal is not clearer here
     fn test_tab_focus_next() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -639,7 +639,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a
+                                                  // struct literal is not clearer here
     fn test_shift_tab_focus_previous() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -654,7 +655,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a
+                                                  // struct literal is not clearer here
     fn test_escape_clears_focus() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
@@ -671,7 +673,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a
+                                                  // struct literal is not clearer here
     fn test_prevented_returns_no_action() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -929,11 +932,12 @@ mod autotest_generated {
     fn form_fixture() -> BTreeMap<DomId, DomLayoutResult> {
         let dom = Dom::create_body()
             .with_child(
-                Dom::create_node(NodeType::Form)
-                    .with_child(Dom::create_from_data(node_with_callback(
+                Dom::create_node(NodeType::Form).with_child(Dom::create_from_data(
+                    node_with_callback(
                         NodeType::TextArea,
                         EventFilter::Focus(FocusEventFilter::TextInput),
-                    ))),
+                    ),
+                )),
             )
             .with_child(Dom::create_from_data(node_with_callback(
                 NodeType::TextArea,
@@ -983,7 +987,10 @@ mod autotest_generated {
     #[test]
     fn a_form_is_its_own_ancestor() {
         let layouts = form_fixture();
-        assert_eq!(find_form_ancestor(&dom_node(1), &layouts), Some(dom_node(1)));
+        assert_eq!(
+            find_form_ancestor(&dom_node(1), &layouts),
+            Some(dom_node(1))
+        );
     }
 
     /// A control outside every form has NO target, and that must stay `None`:
@@ -992,7 +999,11 @@ mod autotest_generated {
     fn a_control_outside_a_form_has_no_target() {
         let layouts = form_fixture();
         assert_eq!(find_form_ancestor(&dom_node(3), &layouts), None);
-        assert_eq!(find_form_ancestor(&dom_node(0), &layouts), None, "the body is not a form");
+        assert_eq!(
+            find_form_ancestor(&dom_node(0), &layouts),
+            None,
+            "the body is not a form"
+        );
     }
 
     /// THE PRODUCER THAT WAS MISSING. `DefaultAction::SubmitForm` and its
@@ -1632,8 +1643,8 @@ mod autotest_generated {
             assert!(
                 action == focus_action
                     || matches!(action, DefaultAction::ScrollFocusedContainer { .. }),
-                "{key:?} must either move focus {focus_action:?} or fall back to a scroll, \
-                 got {action:?}",
+                "{key:?} must either move focus {focus_action:?} or fall back to a scroll, got \
+                 {action:?}",
             );
             if action == focus_action {
                 moved += 1;
@@ -1641,8 +1652,8 @@ mod autotest_generated {
         }
         assert!(
             moved > 0,
-            "at least one direction in this fixture has a neighbour to focus; if none does, \
-             the ordering is untested and the fixture needs a second focusable",
+            "at least one direction in this fixture has a neighbour to focus; if none does, the \
+             ordering is untested and the fixture needs a second focusable",
         );
     }
 
@@ -1670,8 +1681,8 @@ mod autotest_generated {
                 assert_eq!(
                     result.action,
                     scroll(direction, ScrollAmount::Line),
-                    "{key:?} must scroll one line towards {direction:?} when spatial \
-                     navigation finds no candidate"
+                    "{key:?} must scroll one line towards {direction:?} when spatial navigation \
+                     finds no candidate"
                 );
             }
 
@@ -2115,8 +2126,8 @@ mod autotest_generated {
         assert_eq!(
             mapped.len(),
             9,
-            "nine actions move focus: next/previous/first/last, the four \
-             directional ones, and clear",
+            "nine actions move focus: next/previous/first/last, the four directional ones, and \
+             clear",
         );
         let mut deduped = mapped.clone();
         deduped.sort();

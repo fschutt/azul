@@ -586,6 +586,35 @@ pub mod encode {
         }
     }
 
+    /// JPEG has no alpha channel, so alpha is dropped and BGR orders are swapped into the L8 or Rgb8 the encoder takes.
+    #[cfg(feature = "jpeg")]
+    fn jpeg_pixels(
+        pixels: &[u8],
+        format: RawImageFormat,
+    ) -> Option<(alloc::borrow::Cow<'_, [u8]>, image::ExtendedColorType)> {
+        use alloc::borrow::Cow;
+
+        use image::ExtendedColorType::{Rgb8, L8};
+
+        let rgb = |channels: usize, bgr: bool| -> Cow<'_, [u8]> {
+            Cow::Owned(
+                pixels
+                    .chunks_exact(channels)
+                    .flat_map(|px| if bgr { [px[2], px[1], px[0]] } else { [px[0], px[1], px[2]] })
+                    .collect(),
+            )
+        };
+        match format {
+            RawImageFormat::R8 => Some((Cow::Borrowed(pixels), L8)),
+            RawImageFormat::RG8 => Some((Cow::Owned(pixels.chunks_exact(2).map(|px| px[0]).collect()), L8)),
+            RawImageFormat::RGB8 => Some((Cow::Borrowed(pixels), Rgb8)),
+            RawImageFormat::BGR8 => Some((rgb(3, true), Rgb8)),
+            RawImageFormat::RGBA8 => Some((rgb(4, false), Rgb8)),
+            RawImageFormat::BGRA8 => Some((rgb(4, true), Rgb8)),
+            _ => None,
+        }
+    }
+
     fn translate_image_error_encode(i: ImageError) -> EncodeImageError {
         match i {
             ImageError::Limits(l) => match l.kind() {
@@ -609,29 +638,20 @@ pub mod encode {
         ($func:ident, $encoder:ident, $feature:expr) => {
             #[cfg(feature = $feature)]
             pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
-                let width = match u32::try_from(image.width) {
-                    Ok(w) => w,
-                    Err(_) => {
+                let Ok(width) = u32::try_from(image.width) else {
                         return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
-                    }
-                };
-                let height = match u32::try_from(image.height) {
-                    Ok(h) => h,
-                    Err(_) => {
+                    };
+                let Ok(height) = u32::try_from(image.height) else {
                         return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
-                    }
-                };
+                    };
                 let mut result = Vec::<u8>::new();
 
                 {
                     let mut cursor = Cursor::new(&mut result);
                     let mut encoder = $encoder::new(&mut cursor);
-                    let pixels = match image.pixels.get_u8_vec_ref() {
-                        Some(s) => s,
-                        None => {
+                    let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                             return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                        }
-                    };
+                        };
 
                     let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
                     let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
@@ -664,17 +684,12 @@ pub mod encode {
     encode_func!(encode_pnm, PnmEncoder, "pnm");
 
     #[cfg(feature = "png")]
+    #[must_use] 
     pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         use image::ImageEncoder;
 
-        let width = match u32::try_from(image.width) {
-            Ok(w) => w,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
-        let height = match u32::try_from(image.height) {
-            Ok(h) => h,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
+        let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
+        let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let mut result = Vec::<u8>::new();
 
         {
@@ -684,15 +699,12 @@ pub mod encode {
                 image::codecs::png::CompressionType::Best,
                 image::codecs::png::FilterType::Adaptive,
             );
-            let pixels = match image.pixels.get_u8_vec_ref() {
-                Some(s) => s,
-                None => {
+            let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                }
-            };
+                };
 
             let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-            let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
+            let pixel_bytes = swapped.as_deref().unwrap_or_else(|| pixels.as_ref());
 
             if let Err(e) = encoder.write_image(
                 pixel_bytes,
@@ -714,36 +726,23 @@ pub mod encode {
     }
 
     #[cfg(feature = "jpeg")]
+    #[must_use] 
     pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
-        let width = match u32::try_from(image.width) {
-            Ok(w) => w,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
-        let height = match u32::try_from(image.height) {
-            Ok(h) => h,
-            Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
-        };
+        let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
+        let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let mut result = Vec::<u8>::new();
 
         {
             let mut cursor = Cursor::new(&mut result);
             let mut encoder = JpegEncoder::new_with_quality(&mut cursor, quality);
-            let pixels = match image.pixels.get_u8_vec_ref() {
-                Some(s) => s,
-                None => {
+            let Some(pixels) = image.pixels.get_u8_vec_ref() else {
                     return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
-                }
+                };
+            let Some((pixel_bytes, color)) = jpeg_pixels(pixels.as_ref(), image.data_format) else {
+                return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData);
             };
 
-            let swapped = bgr_to_rgb_swap(pixels.as_ref(), image.data_format);
-            let pixel_bytes = swapped.as_deref().unwrap_or(pixels.as_ref());
-
-            if let Err(e) = encoder.encode(
-                pixel_bytes,
-                width,
-                height,
-                translate_rawimage_colortype(image.data_format).into(),
-            ) {
+            if let Err(e) = encoder.encode(&pixel_bytes, width, height, color) {
                 return ResultU8VecEncodeImageError::Err(translate_image_error_encode(e));
             }
         }
@@ -1381,26 +1380,38 @@ pub mod encode {
             );
         }
 
-        /// The JPEG encoder only supports L8 and Rgb8. Everything else comes back as an
-        /// `Unsupported` image error, which the wrapper flattens to `Unknown`.
+        /// Camera, screen and render frames are RGBA or BGRA, so JPEG drops their alpha instead of refusing them.
         #[cfg(feature = "jpeg")]
         #[test]
-        fn encode_jpeg_rejects_color_types_it_cannot_write() {
-            for (format, bpp) in [
-                (RawImageFormat::RGBA8, 4usize),
-                (RawImageFormat::BGRA8, 4),
-                (RawImageFormat::RG8, 2),
+        fn encode_jpeg_drops_alpha_and_swaps_bgr() {
+            use crate::image::decode::decode_raw_image_from_any_bytes;
+
+            let red = |format: RawImageFormat, px: &[u8]| {
+                let img = raw_u8(8, 8, format, px.repeat(64));
+                let jpeg = encode_jpeg(&img, 95)
+                    .into_result()
+                    .unwrap_or_else(|e| panic!("encode_jpeg({format:?}) failed: {e}"));
+                let decoded = decode_raw_image_from_any_bytes(jpeg.as_slice())
+                    .into_result()
+                    .expect("decode of our own JPEG failed");
+                let bytes = decoded.pixels.get_u8_vec_ref().expect("8-bit data");
+                bytes.as_ref()[..3].to_vec()
+            };
+            for (format, px) in [
+                (RawImageFormat::RGBA8, &[250u8, 10, 10, 0][..]),
+                (RawImageFormat::BGRA8, &[10, 10, 250, 255][..]),
+                (RawImageFormat::BGR8, &[10, 10, 250][..]),
             ] {
-                let img = raw_u8(2, 2, format, vec![7u8; 2 * 2 * bpp]);
-                assert_eq!(
-                    err_of(&encode_jpeg(&img, 80)),
-                    EncodeImageError::Unknown,
-                    "unexpected error for {format:?}"
-                );
+                let rgb = red(format, px);
+                assert!(rgb[0] > 200 && rgb[1] < 60 && rgb[2] < 60, "{format:?} decoded to {rgb:?}");
             }
-            // ... while the two supported ones do encode.
+            assert!(encode_jpeg(&raw_u8(2, 2, RawImageFormat::RG8, vec![7; 8]), 80).is_ok());
             assert!(encode_jpeg(&raw_u8(2, 2, RawImageFormat::R8, vec![1; 4]), 80).is_ok());
             assert!(encode_jpeg(&raw_u8(2, 2, RawImageFormat::RGB8, vec![1; 12]), 80).is_ok());
+            assert_eq!(
+                err_of(&encode_jpeg(&raw_u8(2, 2, RawImageFormat::RGB16, vec![1; 24]), 80)),
+                EncodeImageError::InvalidData
+            );
         }
 
         #[cfg(feature = "jpeg")]

@@ -3,19 +3,16 @@
 //! time via `Add-Type`).
 //!
 //! Strategy:
-//! - Walk every IR struct that has a `_delete` (i.e. that the C# generator
-//!   produced an `IDisposable` wrapper class for) and emit per-method
-//!   PowerShell functions that delegate to the C# wrapper.
-//! - Also walk `FunctionKind::Constructor` / `StaticMethod` to emit
-//!   `New-Azul<Type>` and `Get-Azul<Type><Method>` style shims.
-//! - Method-name → PowerShell verb is derived from the IR `method_name`
-//!   using a small lookup table (`new`/`create` → `New`,
-//!   `delete`/`drop`/`free` → `Remove`, `run` → `Invoke`,
-//!   `get_*` → `Get`, `set_*` → `Set`, `add_*` → `Add`, `clear_*` →
-//!   `Clear`, `update_*` → `Update`, `start_*` → `Start`, `stop_*` →
-//!   `Stop`). Anything that does not fit a standard verb falls through to
-//!   `Invoke-` (PowerShell's documented catch-all for "perform an action"
-//!   per `Get-Verb`).
+//! - Walk every IR struct that has a `_delete` (i.e. that the C# generator produced an
+//!   `IDisposable` wrapper class for) and emit per-method PowerShell functions that delegate to the
+//!   C# wrapper.
+//! - Also walk `FunctionKind::Constructor` / `StaticMethod` to emit `New-Azul<Type>` and
+//!   `Get-Azul<Type><Method>` style shims.
+//! - Method-name → PowerShell verb is derived from the IR `method_name` using a small lookup table
+//!   (`new`/`create` → `New`, `delete`/`drop`/`free` → `Remove`, `run` → `Invoke`, `get_*` → `Get`,
+//!   `set_*` → `Set`, `add_*` → `Add`, `clear_*` → `Clear`, `update_*` → `Update`, `start_*` →
+//!   `Start`, `stop_*` → `Stop`). Anything that does not fit a standard verb falls through to
+//!   `Invoke-` (PowerShell's documented catch-all for "perform an action" per `Get-Verb`).
 //!
 //! The shims are intentionally thin: each one does parameter binding
 //! (with `[Parameter(...)]` attributes for pipeline support on the
@@ -26,10 +23,10 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+use super::super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
 };
 
 /// Maximum number of functions to emit a `Verb-Noun` shim for. The full
@@ -163,14 +160,8 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
 
-    // User-facing arguments — strip the implicit self placeholder used by
-    // the C# wrapper (its name matches the lowercased class name).
-    let class_lower = s.name.to_lowercase();
-    let user_args: Vec<&FunctionArg> = func
-        .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+    // User-facing arguments — strip the implicit receiver.
+    let user_args: Vec<&FunctionArg> = func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect();
 
     // Doc comment block (PowerShell comment-based help).
     builder.line(&format!("function {} {{", func_name));
@@ -213,7 +204,7 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
     }
     for (idx, a) in user_args.iter().enumerate() {
         let position = if takes_self { idx + 1 } else { idx };
-        let pstype = ps_type_of(*a, takes_self);
+        let pstype = ps_type_of(a, takes_self);
         let mut name_pascal = snake_to_pascal_param(&a.name);
         // Avoid colliding with the implicit `$Instance` (the self param)
         // when an api.json arg is also named `instance`. PowerShell

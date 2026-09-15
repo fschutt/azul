@@ -13,10 +13,12 @@ use std::{
 // Re-using the Library loader from X11
 pub use super::super::x11::dlopen::Library;
 use super::defines::*;
-use crate::desktop::shell2::common::{
-    dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+use crate::{
+    desktop::shell2::common::{
+        dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+    },
+    load_symbol,
 };
-use crate::load_symbol;
 
 /// Dynamically loaded Wayland client, EGL, and cursor function pointers.
 pub struct Wayland {
@@ -224,7 +226,8 @@ pub struct Wayland {
         *mut wl_pointer,
         *mut wl_region,
         u32,
-    ) -> *mut zwp_locked_pointer_v1,
+    )
+        -> *mut zwp_locked_pointer_v1,
     pub zwp_locked_pointer_v1_add_listener: unsafe extern "C" fn(
         *mut zwp_locked_pointer_v1,
         *const zwp_locked_pointer_v1_listener,
@@ -403,8 +406,8 @@ impl Wayland {
                 // Without this line the ONLY symptom is that the mouse cursor
                 // silently stops changing shape (set_cursor bails on the None).
                 crate::plog_warn!(
-                    "[Wayland] libwayland-cursor could not be loaded ({}) — cursor \
-                     shapes will NOT change (arrow/text/resize cursors disabled)",
+                    "[Wayland] libwayland-cursor could not be loaded ({}) — cursor shapes will \
+                     NOT change (arrow/text/resize cursors disabled)",
                     e
                 );
                 None
@@ -853,7 +856,8 @@ unsafe extern "C" fn wl_surface_commit_impl(surface: *mut wl_surface) {
     f(surface as *mut wl_proxy, 6);
 }
 
-// --- remaining constructor requests (marshal_constructor: op, ret-interface, NULL new_id, args) ---
+// --- remaining constructor requests (marshal_constructor: op, ret-interface, NULL new_id, args)
+// ---
 unsafe extern "C" fn wl_compositor_create_region_impl(comp: *mut wl_compositor) -> *mut wl_region {
     let c = ctx();
     let f: unsafe extern "C" fn(

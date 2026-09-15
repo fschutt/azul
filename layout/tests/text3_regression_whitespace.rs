@@ -9,17 +9,18 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · space 250u => 5px · line-height
 //! normal 20px · default tab-size 8 * (0.5*20px space approx) => 80px tab stops.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use azul_css::props::basic::FontRef;
-use azul_layout::font::parsed::ParsedFont;
-use azul_layout::parsed_font_to_font_ref;
-use azul_layout::text3::cache::{
-    create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
-    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
-    UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
+use azul_layout::{
+    font::parsed::ParsedFont,
+    parsed_font_to_font_ref,
+    text3::cache::{
+        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+        LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+        UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
+    },
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -31,7 +32,8 @@ fn assert_px(actual: f32, expected: f32) {
     let delta = (actual - expected).abs();
     assert!(
         delta <= 0.05,
-        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > 0.05px)"
+        "assert_px failed: expected {expected:.4}px, got {actual:.4}px (|delta| {delta:.4}px > \
+         0.05px)"
     );
 }
 

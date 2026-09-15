@@ -1,17 +1,19 @@
 //! Glyph path and cell cache for CPU rendering.
 //!
 //! Two-level cache:
-//! 1. **Path cache**: `PathStorage` objects keyed by (font, glyph, ppem).
-//!    Avoids redundant path construction from font outlines.
-//! 2. **Cell cache**: Rasterizer cells keyed by (font, glyph, ppem, scale, sub-pixel).
-//!    Avoids the expensive path→cells conversion on every frame.
-//!    Cells are computed at position (0,0) and offset at render time.
+//! 1. **Path cache**: `PathStorage` objects keyed by (font, glyph, ppem). Avoids redundant path
+//!    construction from font outlines.
+//! 2. **Cell cache**: Rasterizer cells keyed by (font, glyph, ppem, scale, sub-pixel). Avoids the
+//!    expensive path→cells conversion on every frame. Cells are computed at position (0,0) and
+//!    offset at render time.
 
 use std::collections::HashMap;
 
-use agg_rust::basics::{VertexD, VertexSource, PATH_CMD_STOP};
-use agg_rust::path_storage::PathStorage;
-use agg_rust::rasterizer_cells_aa::CellAa;
+use agg_rust::{
+    basics::{VertexD, VertexSource, PATH_CMD_STOP},
+    path_storage::PathStorage,
+    rasterizer_cells_aa::CellAa,
+};
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
 
@@ -130,6 +132,8 @@ pub struct GlyphCache {
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
     /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
     lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
+    /// LCD stripe order of the panel this cache's window is on.
+    lcd_subpixel_order: LcdSubpixelOrder,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -142,9 +146,13 @@ impl core::fmt::Debug for GlyphCache {
     }
 }
 
+/// Re-exported for platform shells.
+pub use agg_rust::pixfmt_lcd::LcdSubpixelOrder;
+
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
 #[inline]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/
+                                                                   // fixed-point/debug-marker cast
 fn quantize_subpx(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * 4.0).min(3.0) as u8
@@ -166,7 +174,8 @@ const LCD_SUBPX_BUCKETS: u8 = 16;
 
 /// Quantize a fractional pixel position into one of [`LCD_SUBPX_BUCKETS`].
 #[inline]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/
+                                                                   // fixed-point/debug-marker cast
 fn quantize_subpx_lcd(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * f32::from(LCD_SUBPX_BUCKETS)).min(f32::from(LCD_SUBPX_BUCKETS - 1)) as u8
@@ -187,7 +196,24 @@ impl GlyphCache {
             cells: HashMap::new(),
             cells_prev: HashMap::new(),
             lcd_tiles: HashMap::new(),
+            lcd_subpixel_order: LcdSubpixelOrder::Rgb,
         }
+    }
+
+    /// The panel stripe order LCD text is blended for.
+    #[must_use]
+    pub const fn lcd_subpixel_order(&self) -> LcdSubpixelOrder {
+        self.lcd_subpixel_order
+    }
+
+    /// Drops the pre-blended tiles on a change; the caller repaints what is on screen.
+    pub fn set_lcd_subpixel_order(&mut self, order: LcdSubpixelOrder) -> bool {
+        if self.lcd_subpixel_order == order {
+            return false;
+        }
+        self.lcd_subpixel_order = order;
+        self.lcd_tiles.clear();
+        true
     }
 
     /// Entry count of the glyph-path cache (for leak probes).
@@ -292,16 +318,16 @@ impl GlyphCache {
     /// - `glyph_x`, `glyph_y`: final pixel position (used for sub-pixel quantization)
     /// - `scale`: font-unit→pixel scale (0.0 for hinted glyphs)
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
-    /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise).
-    ///   A hinted outline is built at the *integer* ppem; when the requested
-    ///   effective size (`font_size * dpi`) is fractional this rescales it back to
-    ///   the true target size so hinted glyphs match their unhinted neighbours and
-    ///   animate smoothly instead of snapping between integer ppems. When the
-    ///   effective size is already integral this is 1.0 and the hinted glyph keeps
-    ///   its pixel-grid-snapped placement.
+    /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise). A hinted
+    ///   outline is built at the *integer* ppem; when the requested effective size (`font_size *
+    ///   dpi`) is fractional this rescales it HORIZONTALLY back to the true target size, so the
+    ///   glyph fills the advance the shaper measured at that size. The vertical axis is left at
+    ///   the integer ppem: see [`hinted_outline_scale`].
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point/
+                                                                       // debug-marker cast
     pub fn get_or_build_cells(
         &mut self,
         font_hash: u64,
@@ -334,7 +360,8 @@ impl GlyphCache {
         } else {
             quantize_subpx(glyph_x)
         };
-        let subpx_y = if grid_snapped {
+        // Hinted glyphs keep a grid-snapped baseline (the rescale is horizontal only).
+        let subpx_y = if is_hinted {
             0
         } else {
             quantize_subpx(glyph_y)
@@ -371,7 +398,8 @@ impl GlyphCache {
         } else {
             glyph_x.floor() as i32
         };
-        let int_y = if grid_snapped {
+        // Pairs with `subpx_y` above: every hinted glyph rounds its baseline.
+        let int_y = if is_hinted {
             glyph_y.round() as i32
         } else {
             glyph_y.floor() as i32
@@ -387,9 +415,10 @@ impl GlyphCache {
             };
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
-                use agg_rust::basics::FillingRule;
-                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-                use agg_rust::trans_affine::TransAffine;
+                use agg_rust::{
+                    basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa,
+                    trans_affine::TransAffine,
+                };
                 let (path, _) = entry.as_ref()?;
                 let frac_x = f64::from(subpx_x) * 0.25;
                 let frac_y = f64::from(subpx_y) * 0.25;
@@ -399,7 +428,8 @@ impl GlyphCache {
 
                 let transform = if is_hinted {
                     if rescale_hinted {
-                        let mut t = TransAffine::new_scaling_uniform(f64::from(hint_correction));
+                        let (sx, sy) = hinted_outline_scale(hint_correction);
+                        let mut t = TransAffine::new_scaling(sx, sy);
                         t.multiply(&TransAffine::new_translation(frac_x, frac_y));
                         t
                     } else {
@@ -460,7 +490,9 @@ impl GlyphCache {
     /// resolve, so nothing visible is given up, and 3 buckets per glyph keeps
     /// the cache small. The baseline is always grid-snapped (crisp vertical),
     /// matching what the uncached LCD path did.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point/
+                                                                       // debug-marker cast
     pub fn get_or_build_cells_lcd(
         &mut self,
         font_hash: u64,
@@ -518,30 +550,31 @@ impl GlyphCache {
                 ppem,
             };
             let cached_cells = self.paths.get(&path_key).and_then(|entry| {
-                use agg_rust::basics::FillingRule;
-                use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-                use agg_rust::trans_affine::TransAffine;
+                use agg_rust::{
+                    basics::FillingRule, rasterizer_scanline_aa::RasterizerScanlineAa,
+                    trans_affine::TransAffine,
+                };
                 let (path, _) = entry.as_ref()?;
 
                 // Path units -> pixels, same rule as the uncached path: a
                 // hinted outline at integer ppem is already pixel-space,
                 // a fractional effective size rescales by hint_correction,
                 // an unhinted outline is in font units.
-                let path_scale = if is_hinted {
+                let (path_scale_x, path_scale_y) = if is_hinted {
                     if rescale_hinted {
-                        f64::from(hint_correction)
+                        hinted_outline_scale(hint_correction)
                     } else {
-                        1.0
+                        (1.0, 1.0)
                     }
                 } else {
-                    f64::from(scale)
+                    (f64::from(scale), f64::from(scale))
                 };
 
                 // Triple the x axis, then shift by the sub-pixel bucket.
                 // The bucket is a fraction of a PIXEL, and the axis is in
                 // stripes, so it converts as `3 * k / BUCKETS`.
                 let frac_stripes = 3.0 * f64::from(subpx_x) / f64::from(LCD_SUBPX_BUCKETS);
-                let mut t = TransAffine::new_scaling(3.0 * path_scale, path_scale);
+                let mut t = TransAffine::new_scaling(3.0 * path_scale_x, path_scale_y);
                 t.multiply(&TransAffine::new_translation(frac_stripes, 0.0));
 
                 let mut ras = RasterizerScanlineAa::new();
@@ -691,6 +724,11 @@ fn build_hinted_path(
 
     // Build path from hinted points using TrueType quadratic contour conventions
     build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
+}
+
+/// Scaling Y would move the grid-fitted baseline and stems off the pixel grid.
+fn hinted_outline_scale(hint_correction: f32) -> (f64, f64) {
+    (f64::from(hint_correction), 1.0)
 }
 
 /// Whether to run the font's TrueType hinting bytecode AT ALL.
@@ -1508,9 +1546,8 @@ mod autotest_generated {
         assert_eq!(
             cache.paths_len(),
             MAX_PATH_ENTRIES + 1,
-            "rotation must DEMOTE the old generation, not delete it — clearing \
-             wholesale re-hints the entire visible page on whichever keystroke \
-             happens to cross the limit"
+            "rotation must DEMOTE the old generation, not delete it — clearing wholesale re-hints \
+             the entire visible page on whichever keystroke happens to cross the limit"
         );
         // The point of keeping it: an entry that was live before the
         // rotation is served from `prev` and promoted, not rebuilt.
@@ -1831,20 +1868,20 @@ impl GlyphCache {
             px[3] = 255;
         }
         {
-            use agg_rust::basics::FillingRule;
-            use agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear;
-            use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
-            use agg_rust::renderer_base::RendererBase;
-            use agg_rust::renderer_scanline::render_scanlines_aa_solid;
-            use agg_rust::rendering_buffer::RowAccessor;
-            use agg_rust::scanline_u::ScanlineU8;
+            use agg_rust::{
+                basics::FillingRule, pixfmt_lcd::PixfmtRgba32LcdLinear,
+                rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
+                renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
+                scanline_u::ScanlineU8,
+            };
 
             let mut ras = RasterizerScanlineAa::new();
             ras.filling_rule(FillingRule::NonZero);
             ras.add_cells_offset(&cells, -min_px * 3, -min_y);
             let stride = (w * 4) as i32;
             let mut ra = unsafe { RowAccessor::new_with_buf(rgba.as_mut_ptr(), w, h, stride) };
-            let pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+            let mut pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+            pf.set_subpixel_order(self.lcd_subpixel_order);
             let mut rb = RendererBase::new(pf);
             let mut sl = ScanlineU8::new();
             let agg_color = agg_rust::color::Rgba8::new(

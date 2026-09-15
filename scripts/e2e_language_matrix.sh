@@ -828,7 +828,10 @@ lang_deps_cleanup() {
       ;;
     cpp)
       rm -f "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e" "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/cpp/cpp20"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp20/azul.h"
+      local d
+      for d in 03 11 14 17 20 23; do
+        rm -f "$REPO_ROOT/examples/cpp/cpp$d"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp$d/azul.h"
+      done
       ;;
     go)
       rm -f "$REPO_ROOT/examples/go/hello-world-go-e2e" "$REPO_ROOT/examples/go/hello-world-go-e2e.exe"
@@ -869,10 +872,11 @@ lang_deps_cleanup() {
     scala)
       rm -f "$REPO_ROOT/examples/scala/$(basename "$LIB_PATH")"
       rm -rf "$REPO_ROOT/examples/scala/target" "$REPO_ROOT/examples/scala/project/target"
+      rm -rf "$REPO_ROOT/examples/scala/.scala-build" "$REPO_ROOT/examples/scala/.bsp"
       ;;
     zig)
       rm -f "$REPO_ROOT/examples/zig/hello-world-e2e" "$REPO_ROOT/examples/zig/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig"
+      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig" "$REPO_ROOT/examples/zig/azul_c.zig"
       rm -f "$REPO_ROOT/examples/zig/$(basename "$LIB_PATH")"
       ;;
     odin)
@@ -891,7 +895,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/racket/$(basename "$LIB_PATH")"
       ;;
     ocaml)
-      rm -f "$REPO_ROOT/examples/ocaml/azul.ml" "$REPO_ROOT/examples/ocaml/azul.mli"
+      # The binding is azul.ml + one azul_*.ml(i) unit per api.json module.
+      rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
       rm -f "$REPO_ROOT/examples/ocaml/$(basename "$LIB_PATH")"
       rm -rf "$REPO_ROOT/examples/ocaml/_build"
       ;;
@@ -909,10 +914,11 @@ lang_deps_cleanup() {
       _choco_remove freepascal
       ;;
     fortran)
-      rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
-      rm -f "$REPO_ROOT/examples/fortran/azul.f90"
-      # examples/fortran/Makefile is TRACKED (the release ships it as the
-      # documented `Makefile`); the recipe overwrote it with the codegen copy
+      rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod "$REPO_ROOT/examples/fortran/"*.smod
+      # The binding is azul.f90 + one azul_*.f90 module per api.json module.
+      rm -f "$REPO_ROOT/examples/fortran/"azul*.f90 "$REPO_ROOT/examples/fortran/sources.txt"
+      # examples/fortran/Makefile is TRACKED (the release ships the codegen
+      # copy from azul-fortran/, not this one); the recipe overwrote it with the codegen copy
       # and this line then deleted it, so every local e2e run left a deleted
       # tracked file behind (it was committed by accident once). Restore it.
       ( cd "$REPO_ROOT" && git checkout -- examples/fortran/Makefile 2>/dev/null ) \
@@ -978,12 +984,18 @@ lang_deps_cleanup() {
       ;;
     d)
       rm -f "$REPO_ROOT/examples/d/hello-world-e2e" "$REPO_ROOT/examples/d/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/d/hello-world-e2e.o" "$REPO_ROOT/examples/d/hello-world-e2e.obj"
       rm -f "$REPO_ROOT/examples/d/azul.d"
+      rm -rf "$REPO_ROOT/examples/d/azul-d"
       rm -f "$REPO_ROOT/examples/d/$(basename "$LIB_PATH")"
       ;;
     swift)
-      rm -f "$REPO_ROOT/examples/swift/hello-world-e2e"
-      rm -f "$REPO_ROOT/examples/swift/azul.swift" "$REPO_ROOT/examples/swift/azul.h" "$REPO_ROOT/examples/swift/module.modulemap"
+      rm -f "$REPO_ROOT/examples/swift/hello-world-e2e" "$REPO_ROOT/examples/swift/hello-world-e2e.exe"
+      rm -rf "$REPO_ROOT/examples/swift/Azul"
+      rm -f "$REPO_ROOT/examples/swift/azul.swift" "$REPO_ROOT/examples/swift/azul.h"
+      rm -f "$REPO_ROOT/examples/swift/libAzulSwift.so" "$REPO_ROOT/examples/swift/libAzulSwift.dylib"
+      rm -f "$REPO_ROOT/examples/swift/AzulSwift.dll" "$REPO_ROOT/examples/swift/AzulSwift.lib" "$REPO_ROOT/examples/swift/AzulSwift.exp"
+      rm -f "$REPO_ROOT/examples/swift/Azul.swiftmodule" "$REPO_ROOT/examples/swift/Azul.swiftdoc" "$REPO_ROOT/examples/swift/Azul.swiftsourceinfo" "$REPO_ROOT/examples/swift/Azul.abi.json"
       rm -f "$REPO_ROOT/examples/swift/$(basename "$LIB_PATH")"
       ;;
     v)
@@ -992,8 +1004,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/v/$(basename "$LIB_PATH")"
       ;;
     crystal)
-      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e"
-      rm -f "$REPO_ROOT/examples/crystal/azul.cr"
+      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe"
+      rm -rf "$REPO_ROOT/examples/crystal/lib"
       rm -f "$REPO_ROOT/examples/crystal/$(basename "$LIB_PATH")"
       ;;
     julia)
@@ -1071,17 +1083,9 @@ lang_rust() {
     # per-lang timeout kills it. link-dynamic instead links the prebuilt DLL
     # (built with build-dll,debug-server) that build.rs finds in target/release,
     # whose run() honors AZ_E2E — and it skips the multi-minute azul recompile.
-    # On Windows the link-dynamic build links the prebuilt MSVC import lib
-    # `azul.lib`; rustc/build.rs doesn't reliably put target/release on the
-    # linker search path, so add it explicitly. `-L` is ADDITIVE (emits an extra
-    # `/LIBPATH:`), so the system LIB paths (kernel32 etc.) are preserved —
-    # unlike overwriting the `LIB` env var.
-    if [ "$IS_WINDOWS" = 1 ]; then
-      export RUSTFLAGS="${RUSTFLAGS:-} -L native=$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
-    fi
-    cargo build --release -p azul-examples --example hello-world \
-      --no-default-features --features link-dynamic || exit 1
-    run_bt ./target/release/examples/hello-world
+    # Own target dir: a link-dynamic build would overwrite $RELEASE_DIR's library with a stub.
+    CARGO_TARGET_DIR="$REPO_ROOT/target/consumer"       cargo build --release -p azul-examples --example hello-world       --no-default-features --features link-dynamic || exit 1
+    run_bt ./target/consumer/release/examples/hello-world
   ) >"$f" 2>&1
   finish rust
 }
@@ -1089,28 +1093,67 @@ lang_rust() {
 # ---- C++ ---------------------------------------------------------------------
 # Toolchain: clang++ (CI: apt `clang` / macOS preinstalled).
 # Not in rust.yml e2e_native, but the C++20 example mirrors the C one: it
-# #includes the generated azul20.hpp and links libazul. Build cpp20/hello-world.cpp.
+# #includes the generated azul20.hpp and links libazul. Build cpp20/hello-world.cpp
+# and run it; before that, compile EVERY dialect's hello-world.cpp with that
+# dialect's -std flag (the pairing the release ships as hello-world-cppXX.cpp
+# and the api.json tabs document — the C++17 tab used to build the C++20 file
+# with -std=c++17, and nothing here would have caught it).
 lang_cpp() {
   local CXX; CXX="$(command -v clang++ || command -v g++ || true)"
   [ -n "$CXX" ] || { skip cpp "no C++ compiler (apt: clang / Windows: choco install mingw)"; return; }
   local f; f="$(log_path cpp)"
   (
     set -x
-    cp "$CODEGEN_DIR"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
-    cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
+    local d
+    for d in 03 11 14 17 20 23; do
+      cp "$CODEGEN_DIR"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp$d/" 2>/dev/null || true
+      cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp$d/" 2>/dev/null || true
+    done
+    local SDK="" CXXHDR=""
     if [ "$IS_MACOS" = 1 ]; then
       # Pass the active SDK explicitly. Apple clang only searches the
       # TOOLCHAIN's libc++ headers (.../CommandLineTools/usr/include/c++/v1),
       # NOT the SDK's copy — so on a partial CLT install where that dir is
       # missing, <cstdint> fails even with -isysroot. Detect that and point
       # -nostdinc++ at the SDK's own c++/v1 (verified working fallback).
-      local SDK; SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
-      local CXXHDR=""
+      SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
       local TOOLCHAIN_V1="$(dirname "$(dirname "$CXX")")/include/c++/v1"
       if [ ! -d "$TOOLCHAIN_V1" ] && [ -n "$SDK" ] && [ -d "$SDK/usr/include/c++/v1" ]; then
         CXXHDR="-nostdinc++ -isystem $SDK/usr/include/c++/v1"
       fi
+    fi
+    # Compile-only pass, one dialect at a time with ITS flag (-fsyntax-only
+    # is enough: the flag/header/driver pairing is what is under test).
+    # Compilers older than the standard's publication only know its draft
+    # name: ubuntu-22.04's clang 14 rejects -std=c++23 but takes -std=c++2b.
+    std_flag() { # <compiler> <dialect>
+      if echo 'int main(){}' | "$1" -x c++ -fsyntax-only -std=c++$2 - 2>/dev/null; then
+        echo "-std=c++$2"
+      else
+        case "$2" in 20) echo "-std=c++2a" ;; 23) echo "-std=c++2b" ;; *) echo "-std=c++$2" ;; esac
+      fi
+    }
+    # On Windows the clang found above is the MSVC-flavoured one, and MSVC's
+    # standard library has no mode below C++14 (<type_traits>, <utility> use
+    # deduced return types), so a C++03 / C++11 translation unit that includes
+    # the STL cannot compile there at all. Windows users of those dialects build
+    # with MinGW, so check them with MinGW g++ and its libstdc++.
+    dialect_cxx() { # <dialect>
+      if [ "$IS_WINDOWS" = 1 ] && [ "$1" -lt 14 ]; then command -v g++ || true; else echo "$CXX"; fi
+    }
+    for d in 03 11 14 17 20 23; do
+      local cxx; cxx="$(dialect_cxx "$d")"
+      if [ -z "$cxx" ]; then
+        echo "cpp: skipping the C++$d syntax check: no MinGW g++ on PATH (MSVC's STL has no C++$d mode)"
+        continue
+      fi
+      local flag; flag="$(std_flag "$cxx" "$d")"
+      ( cd "$REPO_ROOT/examples/cpp/cpp$d" && \
+        "$cxx" -fsyntax-only "$flag" ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp ) \
+        || { echo "cpp: examples/cpp/cpp$d/hello-world.cpp does not compile with $cxx $flag" >&2; exit 1; }
+    done
+    cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
       "$CXX" -g -O0 -std=c++20 ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -framework AppKit -framework OpenGL -framework CoreGraphics \
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
@@ -1129,32 +1172,70 @@ lang_cpp() {
 
 # ---- Go (cgo) ----------------------------------------------------------------
 # Toolchain: go (preinstalled on GitHub runners) + a C compiler reachable to
-# cgo (clang on macOS, gcc on Linux, MinGW gcc on Windows). The example's
-# main.go pulls in azul.h via the cgo preamble and links libazul; it does NOT
-# import the generated azul-go package (it calls C.Az* directly), so no
-# ../azul-go sibling dir is needed. We mirror the C recipe's per-OS link flags
-# through CGO_CFLAGS / CGO_LDFLAGS.
+# cgo (clang on macOS, gcc on Linux, MinGW gcc on Windows). The example imports
+# the generated `azul-go` package (it used to call C.Az* directly, which is what
+# the old note here described), so `examples/azul-go/` MUST exist before
+# `go build`: the module's `replace` points at it, and a missing directory fails
+# with "replacement directory ../azul-go does not exist" rather than anything
+# that names the real cause. We stage it from the codegen output below and
+# check the copy landed. Link flags mirror the C recipe, per OS.
 lang_go() {
   have go || { skip go "go not installed (preinstalled on GH runners / apt: golang-go)"; return; }
   local f; f="$(log_path go)"
   (
     set -x
+    rm -rf "$REPO_ROOT/examples/azul-go"
+    mkdir -p "$REPO_ROOT/examples/azul-go"
+    if ! cp -r "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/azul-go/"; then
+      echo "go: no generated bindings at $CODEGEN_DIR/go — run the codegen step first" >&2
+      exit 1
+    fi
+    [ -f "$REPO_ROOT/examples/azul-go/azul.go" ] || {
+      echo "go: $CODEGEN_DIR/go staged no azul.go into examples/azul-go" >&2
+      exit 1
+    }
+    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
     cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/go" || exit 1
     export CGO_ENABLED=1
     export CGO_CFLAGS="-I."
+    # cgo with gcc does not finish on the runner. Its first probe is a
+    # generated C file of ~94k lines — five deliberately failing functions for
+    # each of the ~9,400 C names the binding references, all under the 5.6 MB
+    # azul.h — and gcc's error-recovery path crawls through it: one cc1 ran
+    # 150 s+ on a fast arm64 box and 900 s+ on the 2-core ubuntu runner, twice
+    # (2026-09-12/14). clang takes the same probe in 16 s and the whole build
+    # in 35 s (measured in golang:1.22, Debian clang 14). The e2e runner
+    # installs clang; use it wherever it exists.
+    # NOT on Windows: the clang there is the MSVC-flavoured one, and it hands
+    # Go's GNU-style linker flags (`--start-group`, `-tsaware`) to link.exe,
+    # which rejects them (exit 1181). Windows cgo wants its MinGW gcc, whose
+    # probe finishes anyway now that the package references ~1.5k C names.
+    if [ "$IS_WINDOWS" != 1 ] && command -v clang >/dev/null 2>&1; then
+      export CC=clang
+    fi
     local OUT="hello-world-go-e2e"
     if [ "$IS_MACOS" = 1 ]; then
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # cgo links the MSVC import lib directly; the dll resolves from PATH.
-      export CGO_LDFLAGS="$RELEASE_DIR/azul.dll.lib"
+      # The binding itself asks for `-lazul` (`#cgo LDFLAGS` in azul.go), so the
+      # MinGW linker needs the directory to search: without `-L` it failed with
+      # "cannot find -lazul" even though the import lib was named in full. ld
+      # resolves `-lazul` to azul.dll there; the dll resolves from PATH at run
+      # time. Windows-style path, because gcc is a native Windows program.
+      local win_release_dir; win_release_dir="$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
+      export CGO_LDFLAGS="-L$win_release_dir $win_release_dir/azul.dll.lib"
       OUT="hello-world-go-e2e.exe"
     else
       export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
     fi
-    go build -o "$OUT" . || exit 1
+    # -x with a timestamp on every toolchain step: the runner ran past 900 s
+    # twice with the last lines still compiling the standard library, so the
+    # log has to say where the minutes go before the budget is judged again.
+    go build -x -o "$OUT" . 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$(date +%H:%M:%S)" "$l"; done
+    [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
     "./$OUT"
   ) >"$f" 2>&1
   finish go "go build/run failed (cgo + libazul link)"
@@ -1403,12 +1484,18 @@ lang_kotlin() {
 }
 
 # ---- Scala -------------------------------------------------------------------
-# Toolchain: scalac + a JDK + JNA + Java's compiled classes (CI: setup-java +
-# coursier/setup-action for scala). Rides on examples/java/target/classes, so
-# Java must have been built first (run lang_java or `mvn package` in java/).
-# examples/scala/build.sh encapsulates the classpath dance.
+# Toolchain: a JDK + JNA + Java's compiled classes (CI: setup-java +
+# coursier/setup-action for scala) and EITHER Scala CLI (`scala-cli`, the
+# `scala` runner since 3.5 — what the api.json tabs document: `scala-cli run
+# HelloWorld.scala --dep rs.azul:azul:$VERSION --repository .../ui/maven`) OR
+# scalac. With Scala CLI we run the documented command shape against the
+# local build: the Java classes stand in for the rs.azul:azul jar (which only
+# the deployed maven mirror serves) via --extra-jars, JNA comes from --dep.
+# Otherwise examples/scala/build.sh encapsulates the scalac classpath dance.
+# Rides on examples/java/target/classes either way, so Java must have been
+# built first (run lang_java or `mvn package` in java/).
 lang_scala() {
-  have scalac || { skip scala "scalac not installed (coursier/setup-action)"; return; }
+  have scalac || have scala-cli || { skip scala "neither scala-cli nor scalac installed (scala-cli.virtuslab.org/get, coursier/setup-action)"; return; }
   local f; f="$(log_path scala)"
   (
     set -x
@@ -1441,41 +1528,58 @@ lang_scala() {
       fi
     fi
     cd "$REPO_ROOT/examples/scala" || exit 1
-    bash build.sh
+    if have scala-cli; then
+      local FIRST_THREAD=()
+      [ "$IS_MACOS" = 1 ] && FIRST_THREAD=(--java-opt -XstartOnFirstThread)
+      # --server=false: no Bloop daemon left behind to hold the classes dir
+      # (lang_java rewrites it) or to outlive the wall-clock timeout.
+      scala-cli run HelloWorld.scala --server=false \
+        --extra-jars "$REPO_ROOT/examples/java/target/classes" \
+        --dep net.java.dev.jna:jna:5.14.0 \
+        "${FIRST_THREAD[@]}" --java-opt -Djna.library.path=.
+    else
+      bash build.sh
+    fi
   ) >"$f" 2>&1
-  finish scala "scala build/run failed (needs java classes + scalac + JNA)"
+  finish scala "scala build/run failed (needs java classes + scala-cli/scalac + JNA)"
 }
 
 # ---- Zig ---------------------------------------------------------------------
 # Toolchain: zig (CI: goto-bus-stop/setup-zig or mlugg/setup-zig). The example
-# @cImports azul.h and links libazul. README recipe (Zig 0.11+ syntax shown;
-# build.zig targets 0.16). We use the explicit build-exe form for stability.
+# imports azul.zig, which @imports azul_c.zig — the C ABI pre-translated from
+# the IR (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB
+# header took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
+# explicit build-exe form for stability (build.zig targets 0.16).
 lang_zig() {
   have zig || { skip zig "zig not installed (mlugg/setup-zig)"; return; }
   local f; f="$(log_path zig)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.h"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$LIB_PATH"             "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/azul.zig"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/azul_c.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    cp "$LIB_PATH"               "$REPO_ROOT/examples/zig/" 2>/dev/null || true
+    [ -f "$REPO_ROOT/examples/zig/azul_c.zig" ] || {
+      echo "zig: $CODEGEN_DIR/azul_c.zig missing — run the codegen step first" >&2
+      exit 1
+    }
     cd "$REPO_ROOT/examples/zig" || exit 1
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
+      zig build-exe hello-world.zig -lc -lazul -L. -rpath . \
         -framework Foundation -framework AppKit -framework OpenGL \
         -framework CoreGraphics -framework CoreText -femit-bin=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # MinGW/MSVC: link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      zig build-exe hello-world.zig -lc "$RELEASE_DIR/azul.dll.lib" -I. \
+      zig build-exe hello-world.zig -lc "$RELEASE_DIR/azul.dll.lib" \
         -femit-bin=hello-world-e2e.exe || exit 1
     else
-      zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
+      zig build-exe hello-world.zig -lc -lazul -L. -rpath . \
         -femit-bin=hello-world-e2e || exit 1
     fi
     "$BIN"
   ) >"$f" 2>&1
-  finish zig "zig build/run failed (@cImport azul.h)"
+  finish zig "zig build/run failed (azul.zig + azul_c.zig)"
 }
 
 # ---- Odin --------------------------------------------------------------------
@@ -1529,22 +1633,30 @@ lang_d() {
   local f; f="$(log_path d)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" 2>/dev/null || true
+    # The example does `import azul;`: build it against the generated dub
+    # package's sources (package.d + one module per api.json module), the way
+    # `dub` would, and check that the one-file azul.d the website ships next
+    # to hello-world.d compiles too (it is the same code as `module azul`).
+    rm -rf "$REPO_ROOT/examples/d/azul-d"
+    cp -R "$CODEGEN_DIR/d" "$REPO_ROOT/examples/d/azul-d" || exit 1
+    cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" || exit 1
     cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/d" || exit 1
+    dmd -o- hello-world.d azul.d || exit 1
+    local SRC=(-Iazul-d/source hello-world.d azul-d/source/azul/*.d)
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+      dmd "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      dmd hello-world.d azul.d "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
+      dmd "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
     else
-      dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world-e2e || exit 1
+      dmd "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
-  finish d "d build/run failed (dmd hello-world.d azul.d)"
+  finish d "d build/run failed (hello-world.d against the d/ package sources)"
 }
 
 lang_crystal() {
@@ -1552,7 +1664,11 @@ lang_crystal() {
   local f; f="$(log_path crystal)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.cr" "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
+    # The example does `require "azul"`, so lay the generated shard out the
+    # way `shards install` does: lib/azul/{shard.yml,src/azul.cr,...}.
+    rm -rf "$REPO_ROOT/examples/crystal/lib"
+    mkdir -p "$REPO_ROOT/examples/crystal/lib"
+    cp -R "$CODEGEN_DIR/crystal" "$REPO_ROOT/examples/crystal/lib/azul" || exit 1
     cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/crystal" || exit 1
     local BIN=./hello-world-e2e
@@ -1590,24 +1706,36 @@ lang_swift() {
   local f; f="$(log_path swift)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.swift"       "$REPO_ROOT/examples/swift/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h"           "$REPO_ROOT/examples/swift/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    # The example does `import Azul`, so that module is built first: the
+    # generated package sources (one file per api.json module, so swiftc
+    # compiles them in parallel; the one-file azul.swift the website ships is
+    # the same code and takes 2.5x longer) against azul.h through the module
+    # map that exposes it as CAzul. Its library is AzulSwift: `Azul.dll` /
+    # `libAzul.dylib` would be libazul's file on a case-insensitive file system.
+    rm -rf "$REPO_ROOT/examples/swift/Azul"
+    cp -R "$CODEGEN_DIR/swift/Sources/Azul" "$REPO_ROOT/examples/swift/Azul" || exit 1
+    cp "$CODEGEN_DIR/azul.h"           "$REPO_ROOT/examples/swift/" || exit 1
+    cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" || exit 1
     cp "$LIB_PATH"                     "$REPO_ROOT/examples/swift/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/swift" || exit 1
     local BIN=./hello-world-e2e
+    local MODULE=(swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j4 -I. Azul/*.swift)
     if [ "$IS_MACOS" = 1 ]; then
-      swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
+      "${MODULE[@]}" -L. -lazul -o libAzulSwift.dylib || exit 1
+      swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # Link the MSVC import lib directly; the dll resolves from PATH.
+      # Link the MSVC import libs directly; AzulSwift.dll sits next to the
+      # exe and azul.dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      swiftc -I. hello-world.swift azul.swift "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
+      "${MODULE[@]}" "$RELEASE_DIR/azul.dll.lib" -o AzulSwift.dll || exit 1
+      swiftc -I. hello-world.swift AzulSwift.lib "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
     else
-      swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world-e2e || exit 1
+      "${MODULE[@]}" -L. -lazul -o libAzulSwift.so || exit 1
+      swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
-  finish swift "swift build/run failed (swiftc -I. + module.modulemap)"
+  finish swift "swift build/run failed (Azul module from swift/Sources/Azul, then hello-world.swift)"
 }
 
 lang_julia() {
@@ -1686,7 +1814,8 @@ lang_red() {
 # ---- OCaml -------------------------------------------------------------------
 # Toolchain: dune + ocaml + the ctypes / ctypes-foreign opam packages
 # (CI: ocaml/setup-ocaml, then `opam install dune ctypes ctypes-foreign`).
-# README recipe: `dune exec ./hello_world.exe`. Needs azul.ml/.mli + dune files.
+# README recipe: `dune exec ./hello_world.exe`. Needs the generated units
+# (azul.ml + azul_*.ml/.mli, one per api.json module) + the example's dune files.
 lang_ocaml() {
   # opam installs into a SWITCH that is not on PATH until its env is evaluated.
   # setup-ocaml and `opam install dune ctypes` both succeed and opam itself
@@ -1703,12 +1832,15 @@ lang_ocaml() {
   local f; f="$(log_path ocaml)"
   (
     set -x
-    # Only copy the generated sources. The example's own dune/dune-project
-    # already define BOTH the azul library and the hello_world executable —
-    # overwriting them with the codegen's library-only dune breaks the build.
-    cp "$CODEGEN_DIR/azul.ml"  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.mli" "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
-    cp "$LIB_PATH"             "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    # Only copy the generated sources (globbed: the split is one unit per
+    # api.json module, and the unit list is the generator's business). The
+    # example's own dune/dune-project already define BOTH the azul library
+    # and the hello_world executable — overwriting them with the codegen's
+    # library-only dune breaks the build.
+    rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
+    cp "$CODEGEN_DIR"/ocaml/*.ml  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    cp "$CODEGEN_DIR"/ocaml/*.mli "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
+    cp "$LIB_PATH"                "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/ocaml" || exit 1
     dune exec ./hello_world.exe
   ) >"$f" 2>&1
@@ -1789,11 +1921,15 @@ lang_fortran() {
   local f; f="$(log_path fortran)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.f90"            "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/Makefile.fortran"    "$REPO_ROOT/examples/fortran/Makefile" 2>/dev/null || true
-    cp "$LIB_PATH"                        "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    # Globbed: the binding is one module per api.json module behind the
+    # azul.f90 facade, and the generated Makefile knows their compile order.
+    rm -f "$REPO_ROOT/examples/fortran/"azul*.f90 "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
+    cp "$CODEGEN_DIR"/fortran/*.f90        "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/fortran/sources.txt"  "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/fortran/Makefile"     "$REPO_ROOT/examples/fortran/Makefile" 2>/dev/null || true
+    cp "$LIB_PATH"                         "$REPO_ROOT/examples/fortran/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/fortran" || exit 1
-    make || exit 1
+    make -j4 || exit 1
     ./hello_world
   ) >"$f" 2>&1
   finish fortran "fortran smoke-only (no counter E2E per README)"
@@ -2211,14 +2347,23 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
     racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # dune compiles the 7.8 MB azul.ml (ocaml) and cabal the three generated
-    # Haskell modules from scratch on the first run: minutes, not a hang.
+    # dune compiles the ~150 generated OCaml units and cabal the ~200
+    # generated Haskell modules from scratch on the first run: minutes, not
+    # a hang (each was one multi-megabyte file before the 2026-09 split).
     ocaml|haskell) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # gfortran compiles the 245k-line azul.f90 (~45s) and then resolves the
-    # example's type-bound procedure calls against the 2.2 MB azul.mod, which
-    # costs about as much again: 1m48s for a clean `make` on an M-series Mac,
-    # and CI's ubuntu runner is slower. The default 240s left no margin.
+    # gfortran compiles the ~140 generated modules (`make -j4`) and then the
+    # example against them; a clean build was 1m48s on an M-series Mac when
+    # the binding was one 245k-line file, and CI's ubuntu runner is slower.
     fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # cgo compiles the generated azul-go package from scratch on every run:
+    # five MB of Go over 126k lines plus the probes of azul.h. 35 s with
+    # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
+    # slow runner without hiding a return of that class.
+    go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # swiftc compiles the generated Azul module (~170k lines, 44 files) before
+    # the example: 2m12s with -j4 on a 4-core laptop, 1.9 GB and 5m37s as the
+    # one file. The default 240 s is a coin toss on a CI runner.
+    swift) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

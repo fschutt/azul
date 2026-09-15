@@ -1,31 +1,16 @@
-//! Example demonstrating HTTP and ZIP modules for language pack downloading
-//!
-//! Shows how to:
-//! 1. Download language packs from a network URL
-//! 2. Load translations from ZIP files
-//! 3. Cache downloaded language packs locally
-//! 4. Use multiple translation sources (builtin, path, network)
-
-// The localizer handle is exposed via `azul::fluent`; the `{ $name }`-style
-// format-arg types (`FmtArg`/`FmtValue`) via `azul::fmt`.
-use azul::fluent::FluentLocalizerHandle;
-use azul::fmt::{FmtArg, FmtValue};
-// NOTE: the `azul::desktop::http` functions (download_bytes, etc.) are only
-// described in the print statements below (Examples 3 & 6 are simulated), not
-// called — so there is intentionally no `use` for them here.
 use azul::desktop::zip::{
     zip_create_from_files, zip_extract_all, zip_list_contents, ZipReadConfig, ZipWriteConfig,
+};
+use azul::{
+    fluent::FluentLocalizerHandle,
+    fmt::{FmtArg, FmtValue},
 };
 
 fn main() {
     println!("=== HTTP & ZIP Language Pack Demo ===\n");
 
-    // Create a localizer instance
     let localizer = FluentLocalizerHandle::create("en-US");
 
-    // =========================================================================
-    // Example 1: Builtin translations (embedded in binary)
-    // =========================================================================
     println!("1. Loading builtin translations...");
 
     let en_us_ftl = r#"
@@ -69,9 +54,6 @@ emails = { $count ->
     );
     println!();
 
-    // =========================================================================
-    // Example 2: Creating a language pack ZIP for distribution
-    // =========================================================================
     println!("2. Creating language pack ZIP...");
 
     let fr_fr_ftl = r#"
@@ -94,7 +76,6 @@ emails = { $count ->
 }
 "#;
 
-    // Create ZIP with language files
     let files = vec![
         ("fr-FR.fluent".to_string(), fr_fr_ftl.as_bytes().to_vec()),
         ("es-ES.fluent".to_string(), es_es_ftl.as_bytes().to_vec()),
@@ -104,12 +85,10 @@ emails = { $count ->
         zip_create_from_files(files, &ZipWriteConfig::default()).expect("Failed to create ZIP");
     println!("   Created ZIP: {} bytes", zip_data.len());
 
-    // List contents
     let contents =
         zip_list_contents(&zip_data, &ZipReadConfig::default()).expect("Failed to list ZIP");
     println!("   Contents: {:?}", contents);
 
-    // Load from ZIP
     let load_result = localizer.load_from_zip(zip_data.as_slice().into());
     println!("   Loaded {} files from ZIP", load_result.files_loaded);
     println!(
@@ -130,22 +109,12 @@ emails = { $count ->
     );
     println!();
 
-    // =========================================================================
-    // Example 3: Simulated network download (would work with real URL)
-    // =========================================================================
     println!("3. Network language pack download (simulated)...");
 
-    // In a real app, you would download from a URL like:
-    // let result = download_bytes("https://example.com/langpacks/ja-JP.zip");
-
-    // For demo, we show the API usage:
     println!("   Would use: download_bytes(url) -> HttpResult<Vec<u8>>");
     println!("   Or: download_cached(url, cache_dir, filename) -> HttpResult<PathBuf>");
     println!();
 
-    // =========================================================================
-    // Example 4: Extracting specific files from ZIP
-    // =========================================================================
     println!("4. Extracting specific files from ZIP...");
 
     let entries = zip_extract_all(&zip_data, &ZipReadConfig::default()).expect("Failed to extract");
@@ -159,9 +128,6 @@ emails = { $count ->
     }
     println!();
 
-    // =========================================================================
-    // Example 5: Full translation workflow
-    // =========================================================================
     println!("5. Full translation workflow...");
 
     let user_name = "Alice";
@@ -188,16 +154,7 @@ emails = { $count ->
     }
     println!();
 
-    // =========================================================================
-    // Example 6: Language pack update pattern
-    // =========================================================================
     println!("6. Language pack update pattern...");
-
-    // In a real app:
-    // 1. App starts with builtin translations
-    // 2. Check for updates: is_url_reachable(update_url)
-    // 3. Download if available: download_cached(url, cache_dir, None)
-    // 4. Load from cache: localizer.load_from_path(&cached_path, None)
 
     let demo_cache_dir = std::env::temp_dir().join("azul_langpacks");
     println!("   Cache directory: {:?}", demo_cache_dir);

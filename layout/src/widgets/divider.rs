@@ -5,8 +5,10 @@
 //! Key types: [`Divider`], [`DividerOrientation`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::ColorU,
         layout::{
@@ -35,7 +37,13 @@ pub enum DividerOrientation {
 #[repr(C)]
 pub struct Divider {
     pub orientation: DividerOrientation,
-    pub divider_style: CssPropertyWithConditionsVec,
+    /// The rule's CSS, or `None` for "no opinion" — in which case the style is
+    /// derived from `orientation` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers: the first means the
+    /// widget picks, the second means the caller asked for no properties at all
+    /// and gets none.
+    pub divider_style: OptionCssPropertyWithConditionsVec,
 }
 
 /// Default rule colour (#dddddd), matching the frame widget's border colour.
@@ -81,38 +89,55 @@ impl Divider {
     /// Creates a new horizontal divider with default styling.
     #[inline]
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self::create_with_orientation(DividerOrientation::Horizontal)
     }
 
     /// Creates a new divider with the given orientation and default styling.
     #[inline]
     #[must_use]
-    pub fn create_with_orientation(orientation: DividerOrientation) -> Self {
-        let divider_style = match orientation {
-            DividerOrientation::Horizontal => {
-                CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL)
-            }
-            DividerOrientation::Vertical => {
-                CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_VERTICAL)
-            }
-        };
+    pub const fn create_with_orientation(orientation: DividerOrientation) -> Self {
         Self {
             orientation,
-            divider_style,
+            divider_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Sets the orientation, resetting the style to the matching default.
+    /// The rule CSS this divider renders with.
+    ///
+    /// `None` means no opinion, so the orientation decides — the same answer
+    /// both themes give, asked in one place so they cannot drift. It is also why
+    /// `set_orientation` is a plain field write: there is no cached vec left
+    /// that could still describe the other axis.
+    #[must_use]
+    pub fn resolved_divider_style(&self) -> CssPropertyWithConditionsVec {
+        self.divider_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| match self.orientation {
+                DividerOrientation::Horizontal => {
+                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL)
+                }
+                DividerOrientation::Vertical => {
+                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_VERTICAL)
+                }
+            })
+    }
+
+    /// Sets the orientation.
+    ///
+    /// Does not touch `divider_style`: the axis-dependent geometry is resolved
+    /// from `orientation` when the DOM is built. Writing it here would also
+    /// overwrite a caller's explicit style, which it used to do.
     #[inline]
-    pub fn set_orientation(&mut self, orientation: DividerOrientation) {
-        *self = Self::create_with_orientation(orientation);
+    pub const fn set_orientation(&mut self, orientation: DividerOrientation) {
+        self.orientation = orientation;
     }
 
     /// Builder-style setter for the orientation.
     #[inline]
     #[must_use]
-    pub fn with_orientation(mut self, orientation: DividerOrientation) -> Self {
+    pub const fn with_orientation(mut self, orientation: DividerOrientation) -> Self {
         self.set_orientation(orientation);
         self
     }
@@ -120,7 +145,7 @@ impl Divider {
     /// Replaces `self` with a default horizontal divider and returns the original.
     #[inline]
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -135,7 +160,7 @@ impl Divider {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DIVIDER_CLASS))
-            .with_css_props(self.divider_style)
+            .with_css_props(self.resolved_divider_style())
     }
 }
 
@@ -376,7 +401,7 @@ mod autotest_generated {
     fn constructed_style_vecs_have_consistent_length_and_capacity() {
         for o in ALL_ORIENTATIONS {
             let d = Divider::create_with_orientation(o);
-            let v = &d.divider_style;
+            let v = &d.resolved_divider_style();
             assert_eq!(
                 v.len(),
                 v.as_ref().len(),
@@ -406,7 +431,7 @@ mod autotest_generated {
 
     #[test]
     fn horizontal_style_is_a_one_pixel_tall_rule_with_vertical_breathing_room() {
-        let style = Divider::create().divider_style;
+        let style = Divider::create().resolved_divider_style();
 
         assert_eq!(
             height_px(&style),
@@ -429,7 +454,8 @@ mod autotest_generated {
 
     #[test]
     fn vertical_style_is_a_one_pixel_wide_rule_with_horizontal_breathing_room() {
-        let style = Divider::create_with_orientation(DividerOrientation::Vertical).divider_style;
+        let style =
+            Divider::create_with_orientation(DividerOrientation::Vertical).resolved_divider_style();
 
         assert_eq!(
             width_px(&style),
@@ -454,7 +480,7 @@ mod autotest_generated {
     #[test]
     fn both_orientations_share_the_colour_and_the_box_model_flags() {
         for o in ALL_ORIENTATIONS {
-            let style = Divider::create_with_orientation(o).divider_style;
+            let style = Divider::create_with_orientation(o).resolved_divider_style();
             let props = properties(&style);
             let has = |p: &CssProperty| props.contains(p);
 
@@ -516,8 +542,10 @@ mod autotest_generated {
     fn orientation_actually_changes_the_emitted_style() {
         // If the two static tables were ever wired to the same slice the
         // `orientation` argument would silently become a no-op.
-        let h = Divider::create_with_orientation(DividerOrientation::Horizontal).divider_style;
-        let v = Divider::create_with_orientation(DividerOrientation::Vertical).divider_style;
+        let h = Divider::create_with_orientation(DividerOrientation::Horizontal)
+            .resolved_divider_style();
+        let v =
+            Divider::create_with_orientation(DividerOrientation::Vertical).resolved_divider_style();
         assert_ne!(
             properties(&h),
             properties(&v),
@@ -544,7 +572,10 @@ mod autotest_generated {
         // A divider is stateless — a declaration gated on `:hover`/`:active`
         // would simply never paint.
         for o in ALL_ORIENTATIONS {
-            for p in Divider::create_with_orientation(o).divider_style.as_ref() {
+            for p in Divider::create_with_orientation(o)
+                .resolved_divider_style()
+                .as_ref()
+            {
                 assert!(
                     p.apply_if.as_ref().is_empty(),
                     "{o:?}: {:?} is conditional on a stateless widget",
@@ -559,7 +590,7 @@ mod autotest_generated {
         // A duplicated declaration is a last-one-wins ambiguity: two heights or
         // two backgrounds would make one of them silently dead.
         for o in ALL_ORIENTATIONS {
-            let props = properties(&Divider::create_with_orientation(o).divider_style);
+            let props = properties(&Divider::create_with_orientation(o).resolved_divider_style());
             let mut seen = HashSet::new();
             for p in &props {
                 assert!(
@@ -576,7 +607,8 @@ mod autotest_generated {
         // Guard the `isize` -> `PixelValue` conversions: a NaN/inf/negative
         // length must never reach the layout solver.
         for o in ALL_ORIENTATIONS {
-            let values = all_pixel_values(&Divider::create_with_orientation(o).divider_style);
+            let values =
+                all_pixel_values(&Divider::create_with_orientation(o).resolved_divider_style());
             assert_eq!(
                 values.len(),
                 3,
@@ -598,7 +630,7 @@ mod autotest_generated {
     #[test]
     fn the_rule_is_thick_enough_to_be_visible_and_thin_enough_to_be_a_rule() {
         for o in ALL_ORIENTATIONS {
-            let style = Divider::create_with_orientation(o).divider_style;
+            let style = Divider::create_with_orientation(o).resolved_divider_style();
             let thickness = height_px(&style)
                 .or_else(|| width_px(&style))
                 .expect("a divider must declare a thickness on one axis");
@@ -615,7 +647,7 @@ mod autotest_generated {
         // `FloatValue` stores a fixed-point `isize`; a botched encode/decode
         // would show up as 0.001 or -0.0 rather than a clean 0.
         for o in ALL_ORIENTATIONS {
-            let g = flex_grow(&Divider::create_with_orientation(o).divider_style)
+            let g = flex_grow(&Divider::create_with_orientation(o).resolved_divider_style())
                 .expect("flex-grow must be declared");
             assert!(g.is_finite(), "{o:?}: non-finite flex-grow {g}");
             assert_eq!(g, 0.0, "{o:?}: flex-grow is {g}, not 0");
@@ -632,7 +664,7 @@ mod autotest_generated {
 
         // ...and the values that actually landed in the built styles are the
         // ones the constructors asked for.
-        let h = properties(&Divider::create().divider_style);
+        let h = properties(&Divider::create().resolved_divider_style());
         assert!(h.contains(&CssProperty::const_height(LayoutHeight::const_px(1))));
         assert!(h.contains(&CssProperty::const_margin_top(LayoutMarginTop::const_px(4))));
         assert!(h.contains(&CssProperty::const_margin_bottom(
@@ -640,7 +672,8 @@ mod autotest_generated {
         )));
 
         let v = properties(
-            &Divider::create_with_orientation(DividerOrientation::Vertical).divider_style,
+            &Divider::create_with_orientation(DividerOrientation::Vertical)
+                .resolved_divider_style(),
         );
         assert!(v.contains(&CssProperty::const_width(LayoutWidth::const_px(1))));
         assert!(
@@ -660,23 +693,23 @@ mod autotest_generated {
         // corrupt every future divider — so churn hard and re-check the source.
         for o in ALL_ORIENTATIONS {
             let base = Divider::create_with_orientation(o);
-            let expected = properties(&base.divider_style);
+            let expected = properties(&base.resolved_divider_style());
             for round in 0..1000 {
                 let c = base.clone();
                 assert_eq!(
-                    properties(&c.divider_style),
+                    properties(&c.resolved_divider_style()),
                     expected,
                     "{o:?}: clone {round} diverged"
                 );
                 drop(c);
             }
             assert_eq!(
-                properties(&base.divider_style),
+                properties(&base.resolved_divider_style()),
                 expected,
                 "{o:?}: the original was damaged"
             );
             assert_eq!(
-                properties(&Divider::create_with_orientation(o).divider_style),
+                properties(&Divider::create_with_orientation(o).resolved_divider_style()),
                 expected,
                 "{o:?}: a freshly built divider disagrees after 1000 clone/drop cycles"
             );
@@ -702,7 +735,7 @@ mod autotest_generated {
                 "round {round}: orientation field not updated"
             );
             assert_eq!(
-                d.divider_style.len(),
+                d.resolved_divider_style().len(),
                 DECL_COUNT,
                 "round {round}: style vec changed length"
             );
@@ -714,19 +747,27 @@ mod autotest_generated {
             match o {
                 DividerOrientation::Horizontal => {
                     assert_eq!(
-                        width_px(&d.divider_style),
+                        width_px(&d.resolved_divider_style()),
                         None,
                         "round {round}: stale vertical width"
                     );
-                    assert_eq!(height_px(&d.divider_style), Some(1.0), "round {round}");
+                    assert_eq!(
+                        height_px(&d.resolved_divider_style()),
+                        Some(1.0),
+                        "round {round}"
+                    );
                 }
                 DividerOrientation::Vertical => {
                     assert_eq!(
-                        height_px(&d.divider_style),
+                        height_px(&d.resolved_divider_style()),
                         None,
                         "round {round}: stale horizontal height"
                     );
-                    assert_eq!(width_px(&d.divider_style), Some(1.0), "round {round}");
+                    assert_eq!(
+                        width_px(&d.resolved_divider_style()),
+                        Some(1.0),
+                        "round {round}"
+                    );
                 }
             }
         }
@@ -758,44 +799,55 @@ mod autotest_generated {
             )]);
         let mut d = Divider {
             orientation: DividerOrientation::Horizontal,
-            divider_style: custom,
+            divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         d.set_orientation(DividerOrientation::Horizontal);
-        assert_eq!(
+        assert_ne!(
             d,
             Divider::create(),
-            "the custom style survived a same-orientation reset"
+            "an explicit style must not be reset by set_orientation"
         );
         assert_eq!(
-            height_px(&d.divider_style),
-            Some(1.0),
-            "the 42px override was not discarded"
+            height_px(&d.resolved_divider_style()),
+            Some(42.0),
+            "the 42px override was discarded"
         );
     }
 
     #[test]
-    fn set_orientation_heals_a_hand_built_inconsistent_divider() {
-        // Both fields are `pub`, so a caller can construct a divider whose
-        // `orientation` contradicts its `divider_style`. The setter must
-        // rebuild both, not just stamp the enum.
-        let mut desynced = Divider {
+    fn a_hand_built_divider_cannot_contradict_its_own_orientation() {
+        // Both fields are `pub`, and the style used to be stored, so a caller
+        // could build a divider whose `orientation` said Vertical while its
+        // `divider_style` was the horizontal rule — and `set_orientation` had to
+        // rebuild the vec to heal it. With no opinion stored there is nothing to
+        // contradict: the resolver reads the orientation every time.
+        let mut d = Divider {
             orientation: DividerOrientation::Vertical,
-            divider_style: CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            divider_style: OptionCssPropertyWithConditionsVec::None,
         };
-        assert_ne!(
-            desynced,
-            Divider::create_with_orientation(DividerOrientation::Vertical),
-            "the desynced divider was expected to differ from a canonical one"
-        );
-        desynced.set_orientation(DividerOrientation::Vertical);
         assert_eq!(
-            desynced,
-            Divider::create_with_orientation(DividerOrientation::Vertical)
+            properties(&d.resolved_divider_style()),
+            properties(
+                &Divider::create_with_orientation(DividerOrientation::Vertical)
+                    .resolved_divider_style()
+            ),
         );
         assert_eq!(
-            height_px(&desynced.divider_style),
+            height_px(&d.resolved_divider_style()),
             None,
-            "the horizontal height survived"
+            "a vertical rule must not declare the horizontal height"
+        );
+
+        // An explicit style is the caller's answer and is honoured rather than
+        // healed — that is what `Some` means.
+        d.divider_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+        );
+        d.set_orientation(DividerOrientation::Vertical);
+        assert_eq!(
+            height_px(&d.resolved_divider_style()),
+            Some(1.0),
+            "an explicit horizontal style must survive set_orientation"
         );
     }
 
@@ -813,9 +865,12 @@ mod autotest_generated {
                 Divider::create_with_orientation(o),
                 "{o:?}: builder != constructor"
             );
-            assert_eq!(d.divider_style.len(), d.divider_style.as_ref().len());
-            assert!(d.divider_style.capacity() >= d.divider_style.len());
-            assert_eq!(d.divider_style.len(), DECL_COUNT);
+            assert_eq!(
+                d.resolved_divider_style().len(),
+                d.resolved_divider_style().as_ref().len()
+            );
+            assert!(d.resolved_divider_style().capacity() >= d.resolved_divider_style().len());
+            assert_eq!(d.resolved_divider_style().len(), DECL_COUNT);
         }
     }
 
@@ -835,11 +890,11 @@ mod autotest_generated {
         assert_eq!(chained.orientation, DividerOrientation::Vertical);
         // In particular the intermediate horizontal `height` must be gone.
         assert_eq!(
-            height_px(&chained.divider_style),
+            height_px(&chained.resolved_divider_style()),
             None,
             "a stale horizontal height survived the chain"
         );
-        assert_eq!(width_px(&chained.divider_style), Some(1.0));
+        assert_eq!(width_px(&chained.resolved_divider_style()), Some(1.0));
     }
 
     #[test]
@@ -848,7 +903,7 @@ mod autotest_generated {
         for round in 0..500 {
             d = d.with_orientation(ALL_ORIENTATIONS[round % ALL_ORIENTATIONS.len()]);
             assert_eq!(
-                d.divider_style.len(),
+                d.resolved_divider_style().len(),
                 DECL_COUNT,
                 "round {round}: the style vec grew"
             );
@@ -870,7 +925,7 @@ mod autotest_generated {
 
         // The returned value is the *original*, intact.
         assert_eq!(taken.orientation, DividerOrientation::Vertical);
-        assert_eq!(width_px(&taken.divider_style), Some(1.0));
+        assert_eq!(width_px(&taken.resolved_divider_style()), Some(1.0));
         assert_eq!(
             taken,
             Divider::create_with_orientation(DividerOrientation::Vertical)
@@ -881,11 +936,11 @@ mod autotest_generated {
         assert_eq!(d, Divider::default());
         assert_eq!(d.orientation, DividerOrientation::Horizontal);
         assert_eq!(
-            width_px(&d.divider_style),
+            width_px(&d.resolved_divider_style()),
             None,
             "the vertical width survived the swap"
         );
-        assert_eq!(height_px(&d.divider_style), Some(1.0));
+        assert_eq!(height_px(&d.resolved_divider_style()), Some(1.0));
     }
 
     #[test]
@@ -924,7 +979,7 @@ mod autotest_generated {
                 "round {round}: what was left behind is not a default"
             );
             assert_eq!(
-                d.divider_style.len(),
+                d.resolved_divider_style().len(),
                 DECL_COUNT,
                 "round {round}: the style vec changed length"
             );
@@ -939,16 +994,16 @@ mod autotest_generated {
             )]);
         let mut d = Divider {
             orientation: DividerOrientation::Vertical,
-            divider_style: custom,
+            divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         let taken = d.swap_with_default();
         assert_eq!(taken.orientation, DividerOrientation::Vertical);
         assert_eq!(
-            taken.divider_style.len(),
+            taken.resolved_divider_style().len(),
             1,
             "the custom style was rewritten on the way out"
         );
-        assert_eq!(width_px(&taken.divider_style), Some(9.0));
+        assert_eq!(width_px(&taken.resolved_divider_style()), Some(9.0));
         assert_eq!(d, Divider::default());
     }
 
@@ -960,7 +1015,7 @@ mod autotest_generated {
     fn dom_is_a_single_classed_div_with_no_children_or_callbacks() {
         for o in ALL_ORIENTATIONS {
             let divider = Divider::create_with_orientation(o);
-            let expected = properties(&divider.divider_style);
+            let expected = properties(&divider.resolved_divider_style());
             let dom = divider.dom();
 
             assert!(
@@ -1001,7 +1056,8 @@ mod autotest_generated {
             let mut divider = Divider::create();
             divider.set_orientation(DividerOrientation::Vertical);
             divider.set_orientation(o);
-            let expected = properties(&Divider::create_with_orientation(o).divider_style);
+            let expected =
+                properties(&Divider::create_with_orientation(o).resolved_divider_style());
             assert_eq!(
                 inline_properties(&divider.dom()),
                 expected,
@@ -1090,12 +1146,14 @@ mod autotest_generated {
         // pinned so the divergence is documented rather than surprising.
         let desynced = Divider {
             orientation: DividerOrientation::Vertical,
-            divider_style: CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            divider_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            ),
         };
         let rendered = inline_properties(&desynced.dom());
         assert_eq!(
             rendered,
-            properties(&Divider::create().divider_style),
+            properties(&Divider::create().resolved_divider_style()),
             "dom() did not render the style it was handed"
         );
     }
@@ -1106,7 +1164,9 @@ mod autotest_generated {
         // class, otherwise the node becomes untargetable *and* invisible.
         let d = Divider {
             orientation: DividerOrientation::Horizontal,
-            divider_style: CssPropertyWithConditionsVec::new(),
+            divider_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::new(),
+            ),
         };
         let dom = d.dom();
         assert!(has_class(&dom, "__azul-native-divider"));
@@ -1134,7 +1194,9 @@ mod autotest_generated {
 
         let d = Divider {
             orientation: DividerOrientation::Horizontal,
-            divider_style: CssPropertyWithConditionsVec::from_vec(big),
+            divider_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_vec(big),
+            ),
         };
         let rendered = inline_properties(&d.dom());
         assert_eq!(
@@ -1157,7 +1219,9 @@ mod autotest_generated {
         ];
         let d = Divider {
             orientation: DividerOrientation::Horizontal,
-            divider_style: CssPropertyWithConditionsVec::from_vec(props),
+            divider_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_vec(props),
+            ),
         };
         let pairs = inline_properties_with_condition_counts(&d.dom());
         assert_eq!(pairs.len(), 2, "a declaration was dropped");
@@ -1177,7 +1241,7 @@ mod autotest_generated {
     fn building_many_doms_is_stable() {
         // Every divider borrows the same `'static` style table; building and
         // dropping many DOMs from it must not perturb later ones.
-        let expected = properties(&Divider::create().divider_style);
+        let expected = properties(&Divider::create().resolved_divider_style());
         for round in 0..500 {
             let dom = Divider::create().dom();
             assert_eq!(
@@ -1187,7 +1251,10 @@ mod autotest_generated {
             );
             drop(dom);
         }
-        assert_eq!(properties(&Divider::create().divider_style), expected);
+        assert_eq!(
+            properties(&Divider::create().resolved_divider_style()),
+            expected
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1204,7 +1271,9 @@ mod autotest_generated {
         // Same orientation, different style => not equal.
         let styled = Divider {
             orientation: DividerOrientation::Horizontal,
-            divider_style: CssPropertyWithConditionsVec::new(),
+            divider_style: OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::new(),
+            ),
         };
         assert_ne!(
             styled,
@@ -1212,12 +1281,12 @@ mod autotest_generated {
             "the style field must affect equality"
         );
         // Same style, different orientation => not equal.
-        let desynced = Divider {
+        let rotated = Divider {
             orientation: DividerOrientation::Vertical,
-            divider_style: CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            divider_style: OptionCssPropertyWithConditionsVec::None,
         };
         assert_ne!(
-            desynced,
+            rotated,
             Divider::create(),
             "the orientation field must affect equality"
         );

@@ -45,13 +45,11 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     labelText  = AzStr(buf)
     labelDom   = AzDom_createPWithText(labelText)
 
-    fontSize = AzCssProperty_fontSize(AzStyleFontSize_px(32.0))
-    AzDom_addCssProperty(@labelDom, AzCssPropertyWithConditions_simple(fontSize))
+    AzDom_setCss(@labelDom, AzStr("font-size: 32px; margin: 0;"))
 
     button = AzButton_create(AzStr("Increase counter"))
     AzButton_setButtonType(@button, AzButtonType_Primary)
 
-    ' Clone the RefAny so the button keeps its own reference.
     dataClone = AzRefAny_clone(@data)
     AzButton_setOnClick(@button, dataClone, @on_click)
     buttonDom = AzButton_dom(button)

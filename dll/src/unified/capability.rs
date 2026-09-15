@@ -1,10 +1,10 @@
 //! Unified `PlatformCapability` type + probes. See [`crate::unified`].
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::extra::capability::*;
-
 #[cfg(target_arch = "wasm32")]
 use azul_css::AzString;
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::extra::capability::*;
 
 /// wasm stub of the desktop `PlatformCapability` — IDENTICAL `#[repr(C)]` layout. On
 /// wasm there are no native device backends, so every probe reports unavailable.
@@ -31,6 +31,13 @@ impl PlatformCapability {
             available: false,
             backend: AzString::from_const_str("none"),
             reason: AzString::from_const_str("WebTransport has no in-process wasm engine"),
+        }
+    }
+    pub fn iroh() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str("iroh has no browser transport yet"),
         }
     }
     pub fn thread() -> PlatformCapability {

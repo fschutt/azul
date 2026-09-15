@@ -59,8 +59,7 @@ fn load_dir(dir: &Path) -> Vec<E2eTest> {
         .unwrap_or_else(|e| panic!("cannot load e2e scenarios from {}: {e}", dir.display()));
     assert!(
         !tests.is_empty(),
-        "no *.json scenarios found under {} — an empty selection is a broken path, not a green \
-         run",
+        "no *.json scenarios found under {} — an empty selection is a broken path, not a green run",
         dir.display()
     );
     tests

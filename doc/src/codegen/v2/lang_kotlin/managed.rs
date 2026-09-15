@@ -1,11 +1,11 @@
 //! Kotlin managed-FFI runtime helpers (host-invoker pattern).
 //!
-//! Kotlin emits a single `Azul.kt` file containing the JNA `Library`
-//! interface, all `Structure` subclasses, all callback interfaces, and
+//! Kotlin emits a single `Azul.kt` file containing the direct-mapped JNA
+//! objects, all `Structure` subclasses, all callback interfaces, and
 //! the idiomatic wrapper classes. We append a Kotlin `object
 //! AzulHostInvoker` to that file with the same surface as Java's
-//! `AzulHostInvoker` class, plus `interface AzulNativeManaged` for the
-//! host-invoker C-ABI imports.
+//! `AzulHostInvoker` class, plus `object AzulNativeManaged` for the
+//! host-invoker C-ABI imports (`@JvmStatic external`, `Native.register`).
 //!
 //! Why a per-language managed.rs (rather than reusing Java's class):
 //! Kotlin's bindings are self-contained — there's no Java inter-op
@@ -13,10 +13,14 @@
 //! Java module just for the host-invoker would be a worse experience
 //! than emitting a small Kotlin object.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::{ffi_type_name, user_enum_type_name, LIBRARY_NAME};
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::CodegenIR,
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    ffi_type_name, user_enum_type_name, LIBRARY_NAME,
+};
 
 /// Append the host-invoker block to the existing `Azul.kt` body.
 pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
@@ -27,17 +31,14 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("// ────────────────────────────────────────────────────────────────");
     builder.blank();
 
-    // AzulNativeManaged: separate JNA Library for host-invoker C-ABI exports.
-    builder.line("interface AzulNativeManaged : Library {");
-    builder.indent();
-    builder.line("companion object {");
+    // AzulNativeManaged: separate direct-mapped object for the host-invoker
+    // C-ABI exports (same `Native.register` shape as the per-module objects).
+    builder.line("object AzulNativeManaged {");
     builder.indent();
     builder.line(&format!(
-        "@JvmField val INSTANCE: AzulNativeManaged = Native.load(\"{}\", AzulNativeManaged::class.java)",
+        "init {{ Native.register(AzulNativeManaged::class.java, \"{}\") }}",
         LIBRARY_NAME
     ));
-    builder.dedent();
-    builder.line("}");
     builder.blank();
 
     builder.line("fun interface HostHandleReleaserCallback : JnaCallback {");
@@ -45,9 +46,9 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("fun invoke(id: Long)");
     builder.dedent();
     builder.line("}");
-    builder.line("fun AzApp_setHostHandleReleaser(fn: HostHandleReleaserCallback)");
-    builder.line("fun AzRefAny_newHostHandle(id: Long): AzRefAny.ByValue");
-    builder.line("fun AzRefAny_getHostHandle(refanyPtr: Pointer?): Long");
+    builder.line("@JvmStatic external fun AzApp_setHostHandleReleaser(fn: HostHandleReleaserCallback)");
+    builder.line("@JvmStatic external fun AzRefAny_newHostHandle(id: Long): AzRefAny.ByValue");
+    builder.line("@JvmStatic external fun AzRefAny_getHostHandle(refanyPtr: Pointer?): Long");
     builder.blank();
 
     for cb in host_invoker_kinds(ir) {
@@ -74,11 +75,11 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         builder.dedent();
         builder.line("}");
         builder.line(&format!(
-            "fun AzApp_set{w}Invoker(fn: {w}InvokerCallback)",
+            "@JvmStatic external fun AzApp_set{w}Invoker(fn: {w}InvokerCallback)",
             w = wrapper
         ));
         builder.line(&format!(
-            "fun Az{w}_createFromHostHandle(id: Long): Az{w}.ByValue",
+            "@JvmStatic external fun Az{w}_createFromHostHandle(id: Long): Az{w}.ByValue",
             w = wrapper
         ));
         builder.blank();
@@ -112,7 +113,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.line("}");
     builder.line("livePins.add(releaser)");
-    builder.line("AzulNativeManaged.INSTANCE.AzApp_setHostHandleReleaser(releaser)");
+    builder.line("AzulNativeManaged.AzApp_setHostHandleReleaser(releaser)");
     builder.blank();
 
     for cb in host_invoker_kinds(ir) {
@@ -159,7 +160,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         builder.line("}");
         builder.line(&format!("livePins.add({}Invoker)", lower_first(wrapper)));
         builder.line(&format!(
-            "AzulNativeManaged.INSTANCE.AzApp_set{w}Invoker({l}Invoker)",
+            "AzulNativeManaged.AzApp_set{w}Invoker({l}Invoker)",
             w = wrapper,
             l = lower_first(wrapper)
         ));
@@ -188,7 +189,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         builder.dedent();
         builder.line("}");
         builder.line(&format!(
-            "return AzulNativeManaged.INSTANCE.Az{}_createFromHostHandle(id)",
+            "return AzulNativeManaged.Az{}_createFromHostHandle(id)",
             wrapper
         ));
         builder.dedent();
@@ -206,14 +207,14 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("nextHandleId");
     builder.dedent();
     builder.line("}");
-    builder.line("return AzulNativeManaged.INSTANCE.AzRefAny_newHostHandle(id)");
+    builder.line("return AzulNativeManaged.AzRefAny_newHostHandle(id)");
     builder.dedent();
     builder.line("}");
     builder.blank();
 
     builder.line("fun refanyGet(refanyPtr: Pointer?): Any? {");
     builder.indent();
-    builder.line("val id = AzulNativeManaged.INSTANCE.AzRefAny_getHostHandle(refanyPtr)");
+    builder.line("val id = AzulNativeManaged.AzRefAny_getHostHandle(refanyPtr)");
     builder.line("if (id == 0L) return null");
     builder.line("return synchronized(handles) { handles[id] }");
     builder.dedent();
@@ -364,7 +365,8 @@ fn emit_kt_typed_invoker_sam(
         typed_args.join(", ")
     ));
     builder.line(&format!(
-        "val rawStruct = Structure.newInstance({}.ByValue::class.java, result.rawPointer()) as {}.ByValue",
+        "val rawStruct = Structure.newInstance({}.ByValue::class.java, result.rawPointer()) as \
+         {}.ByValue",
         ffi_ret, ffi_ret
     ));
     builder.line("rawStruct.read()");
@@ -568,7 +570,8 @@ fn emit_kt_data_typed_invoker_sam(
                 call_args.join(", ")
             ));
             builder.line(&format!(
-                "val __raw = Structure.newInstance({}.ByValue::class.java, __result.rawPointer()) as {}.ByValue",
+                "val __raw = Structure.newInstance({}.ByValue::class.java, __result.rawPointer()) \
+                 as {}.ByValue",
                 ffi_ret, ffi_ret
             ));
             builder.line("__raw.read()");

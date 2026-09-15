@@ -7,8 +7,7 @@
 //! converts YUV_420_888 -> RGBA into the seam. Mirrors libv4l2 (linux) / nokhwa
 //! (windows) / AVFoundation (apple) into the same capture seam.
 
-use std::os::raw::c_char;
-use std::ptr;
+use std::{os::raw::c_char, ptr};
 
 use ndk_sys::{
     ACameraCaptureSession, ACameraCaptureSession_close, ACameraCaptureSession_setRepeatingRequest,

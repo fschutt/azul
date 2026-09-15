@@ -6,9 +6,6 @@
 //! layout to transmute through, and every request it receives resolves
 //! honestly (`DbErrorKind::NoEngine` / `Disconnected`) instead of hanging.
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::extra::sqlite::*;
-
 #[cfg(target_arch = "wasm32")]
 use core::ffi::c_void;
 
@@ -28,6 +25,9 @@ use azul_css::{
 };
 #[cfg(target_arch = "wasm32")]
 use azul_layout::{callbacks::ResumeCallback, request};
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::extra::sqlite::*;
 
 /// wasm stub of the desktop `Db` handle; `#[repr(C)]` layout MUST match.
 #[cfg(target_arch = "wasm32")]
@@ -82,7 +82,12 @@ pub struct DbOpenResult {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl_option!(DbOpenResult, OptionDbOpenResult, copy = false, [Debug, Clone]);
+impl_option!(
+    DbOpenResult,
+    OptionDbOpenResult,
+    copy = false,
+    [Debug, Clone]
+);
 
 #[cfg(target_arch = "wasm32")]
 impl DbOpenResult {
@@ -118,7 +123,13 @@ impl Db {
     pub fn is_open(&self) -> bool {
         false
     }
-    pub fn get(&self, _store: AzString, _key: DbValue, data: RefAny, on_result: ResumeCallback) -> RequestId {
+    pub fn get(
+        &self,
+        _store: AzString,
+        _key: DbValue,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         request::complete(
             data,
             on_result,
@@ -169,10 +180,20 @@ impl Db {
             },
         )
     }
-    pub fn subscribe(&self, _scope: DbScope, _data: RefAny, _on_change: ResumeCallback) -> RequestId {
+    pub fn subscribe(
+        &self,
+        _scope: DbScope,
+        _data: RefAny,
+        _on_change: ResumeCallback,
+    ) -> RequestId {
         RequestId::unique()
     }
-    pub fn sync_now(&self, _scope: OptionDbScope, data: RefAny, on_result: ResumeCallback) -> RequestId {
+    pub fn sync_now(
+        &self,
+        _scope: OptionDbScope,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         request::complete(
             data,
             on_result,
@@ -185,6 +206,7 @@ impl Db {
         DbSyncStatus::disconnected()
     }
     pub fn set_on_sync_status(&mut self, _data: RefAny, _on_status: ResumeCallback) {}
-    pub fn set_on_conflict(&mut self, _store: AzString, _data: RefAny, _on_merge: DbMergeCallback) {}
+    pub fn set_on_conflict(&mut self, _store: AzString, _data: RefAny, _on_merge: DbMergeCallback) {
+    }
     pub fn close(&mut self) {}
 }

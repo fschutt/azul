@@ -7,13 +7,12 @@
 //!
 //! This has now happened twice:
 //!
-//! 1. `scripts/build_registry_mirrors.sh` was missing from 2026-05-30 (when the
-//!    script was added) to 2026-07-27, dying with exit 127 every single time. A
-//!    `|| true` swallowed it, so the deploy went green while /ui/azul, /ui/npm,
-//!    /ui/nuget and /ui/gems were never built.
-//! 2. `scripts/prune_dead_release_links.py` was missing from the day it was
-//!    added. That step has no `|| true`, so it FAILED the deploy outright — the
-//!    website did not publish even though every artifact had built correctly.
+//! 1. `scripts/build_registry_mirrors.sh` was missing from 2026-05-30 (when the script was added)
+//!    to 2026-07-27, dying with exit 127 every single time. A `|| true` swallowed it, so the deploy
+//!    went green while /ui/azul, /ui/npm, /ui/nuget and /ui/gems were never built.
+//! 2. `scripts/prune_dead_release_links.py` was missing from the day it was added. That step has no
+//!    `|| true`, so it FAILED the deploy outright — the website did not publish even though every
+//!    artifact had built correctly.
 //!
 //! The first failed silently, the second loudly; both came from the same gap
 //! between "the workflow runs this file" and "the workflow checked this file
@@ -105,20 +104,18 @@ fn deploy_pages_checks_out_every_script_it_runs() {
     let invoked = scripts_invoked_after_deploy_pages();
     assert!(
         !invoked.is_empty(),
-        "found no scripts invoked in the deploy_pages region — the matcher is \
-         probably broken, which would make this test silently vacuous"
+        "found no scripts invoked in the deploy_pages region — the matcher is probably broken, \
+         which would make this test silently vacuous"
     );
 
     let missing: Vec<&String> = invoked.iter().filter(|s| !listed.contains(s)).collect();
     assert!(
         missing.is_empty(),
-        "deploy_pages runs {missing:?} by path but does not check them out.\n\n\
-         That job uses `sparse-checkout-cone-mode: false`, so a file not named \
-         in the sparse-checkout list is ABSENT from the workspace. The step \
-         will fail with \"No such file or directory\" on a real deploy — or, if \
-         it is guarded by `|| true`, pass while doing nothing at all, which is \
-         how the registry mirrors were dead for two months behind a green \
-         deploy.\n\n\
-         Currently checked out: {listed:?}"
+        "deploy_pages runs {missing:?} by path but does not check them out.\n\nThat job uses \
+         `sparse-checkout-cone-mode: false`, so a file not named in the sparse-checkout list is \
+         ABSENT from the workspace. The step will fail with \"No such file or directory\" on a \
+         real deploy — or, if it is guarded by `|| true`, pass while doing nothing at all, which \
+         is how the registry mirrors were dead for two months behind a green deploy.\n\nCurrently \
+         checked out: {listed:?}"
     );
 }

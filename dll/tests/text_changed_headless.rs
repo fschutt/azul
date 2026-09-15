@@ -12,39 +12,44 @@
 //! through `HeadlessWindow` — the real `PlatformWindow` pipeline — and
 //! asserts what a live word count needs:
 //!
-//! 1. `TextChanged` reaches the focused host's Focus callback from the timer
-//!    pass, AFTER the commit, with the new text visible through
-//!    `get_unsynced_text_edits`.
-//! 2. A callback that acks (`mark_text_revision_synced`) and returns
-//!    `Update::DoNothing` — the live-label shape, no re-render — is safe: the
-//!    committed text survives the next relayout and is NOT re-committed (no
-//!    second `TextChanged`, revision stable). Only the app's own re-render
+//! 1. `TextChanged` reaches the focused host's Focus callback from the timer pass, AFTER the
+//!    commit, with the new text visible through `get_unsynced_text_edits`.
+//! 2. A callback that acks (`mark_text_revision_synced`) and returns `Update::DoNothing` — the
+//!    live-label shape, no re-render — is safe: the committed text survives the next relayout and
+//!    is NOT re-committed (no second `TextChanged`, revision stable). Only the app's own re-render
 //!    retires it, at which point the app's model is the truth.
 
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
-
-use azul_core::callbacks::{
-    FocusTarget, FocusTargetPath, LayoutCallback, LayoutCallbackInfo, TimerCallbackReturn, Update,
+use std::{
+    cell::RefCell,
+    sync::{Arc, Mutex},
 };
-use azul_core::dom::{Dom, DomId, IdOrClass, IdOrClassVec, NodeType};
-use azul_core::events::{EventFilter, FocusEventFilter, ProcessEventResult};
-use azul_core::geom::LogicalSize;
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::id::NodeId;
-use azul_core::refany::{OptionRefAny, RefAny};
-use azul_core::resources::AppConfig;
-use azul_core::task::TerminateTimer;
-use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
-use azul_css::css::{CssPath, CssPathSelector};
-use azul_layout::callbacks::{Callback, CallbackChange, CallbackInfo, ExternalSystemCallbacks};
-use azul_layout::timer::{Timer, TimerCallbackInfo, TimerCallbackType};
-use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::FcFontCache;
 
-use azul::desktop::shell2::common::event::SharedUndoManager;
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
+use azul::desktop::shell2::{
+    common::{event::SharedUndoManager, PlatformWindow},
+    headless::HeadlessWindow,
+};
+use azul_core::{
+    callbacks::{
+        FocusTarget, FocusTargetPath, LayoutCallback, LayoutCallbackInfo, TimerCallbackReturn,
+        Update,
+    },
+    dom::{Dom, DomId, IdOrClass, IdOrClassVec, NodeType},
+    events::{EventFilter, FocusEventFilter, ProcessEventResult},
+    geom::LogicalSize,
+    icon::{IconProviderHandle, SharedIconProvider},
+    id::NodeId,
+    refany::{OptionRefAny, RefAny},
+    resources::AppConfig,
+    task::TerminateTimer,
+    window::{OptionVirtualKeyCode, VirtualKeyCode},
+};
+use azul_css::css::{CssPath, CssPathSelector};
+use azul_layout::{
+    callbacks::{Callback, CallbackChange, CallbackInfo, ExternalSystemCallbacks},
+    timer::{Timer, TimerCallbackInfo, TimerCallbackType},
+    window_state::WindowCreateOptions,
+};
+use rust_fontconfig::FcFontCache;
 
 /// What the app's `TextChanged` callback observed.
 #[derive(Default)]
@@ -181,7 +186,10 @@ fn host_and_paragraph(window: &HeadlessWindow) -> (NodeId, NodeId) {
             paragraph = Some(nid);
         }
     }
-    (host.expect("a contenteditable host"), paragraph.expect("a <p>"))
+    (
+        host.expect("a contenteditable host"),
+        paragraph.expect("a <p>"),
+    )
 }
 
 /// The paragraph's text as the engine reads it for the next edit: overlay
@@ -266,15 +274,15 @@ fn text_changed_fires_from_the_timer_pass_after_the_commit() {
         let seen = shared.0.lock().unwrap();
         assert_eq!(
             seen.fired, 1,
-            "TextChanged must reach the host's Focus callback exactly once from \
-             the timer pass (0 = the commit never queued a notification, or the \
-             timer pass does not drain; 2 = drained twice)"
+            "TextChanged must reach the host's Focus callback exactly once from the timer pass (0 \
+             = the commit never queued a notification, or the timer pass does not drain; 2 = \
+             drained twice)"
         );
         assert_eq!(
             seen.edits,
             vec![("hello world".to_string(), 1)],
-            "the callback runs POST-commit: it sees the committed text and its \
-             revision through get_unsynced_text_edits"
+            "the callback runs POST-commit: it sees the committed text and its revision through \
+             get_unsynced_text_edits"
         );
     }
     assert_eq!(
@@ -286,8 +294,8 @@ fn text_changed_fires_from_the_timer_pass_after_the_commit() {
     assert_eq!(lw.document_text_revision, 1);
     assert_eq!(
         lw.acked_text_revision, 1,
-        "the callback's ack landed (mark_text_revision_synced from inside a \
-         TextChanged callback that did not re-render)"
+        "the callback's ack landed (mark_text_revision_synced from inside a TextChanged callback \
+         that did not re-render)"
     );
     assert!(
         lw.unsynced_text_edits().is_empty(),
@@ -333,7 +341,11 @@ fn an_ack_without_a_re_render_survives_the_next_relayout_and_is_not_re_committed
     window.start_timer(4242, world_timer());
     window.snapshot_window_state_baseline("test.timer");
     let _ = window.process_timers_and_threads();
-    assert_eq!(shared.0.lock().unwrap().fired, 1, "premise: one commit, one event");
+    assert_eq!(
+        shared.0.lock().unwrap().fired,
+        1,
+        "premise: one commit, one event"
+    );
 
     // A relayout of the SAME generation (a resize, a scroll-driven relayout,
     // a VirtualView materialization) re-LANDS the overlay text; it must not
@@ -372,8 +384,8 @@ fn an_ack_without_a_re_render_survives_the_next_relayout_and_is_not_re_committed
     assert_eq!(
         paragraph_text(&window, paragraph),
         "hello",
-        "the new generation shows the app's model; the acked overlay entry is \
-         retired at the generation swap, not before"
+        "the new generation shows the app's model; the acked overlay entry is retired at the \
+         generation swap, not before"
     );
     assert_eq!(
         shared.0.lock().unwrap().fired,
@@ -410,10 +422,16 @@ fn backspace_reports_an_edit_the_app_can_map_to_its_block() {
     assert_eq!(paragraph_text(&window, paragraph), "hello worl");
 
     let seen = shared.0.lock().unwrap();
-    assert_eq!(seen.fired, 2, "one TextChanged per commit: the typed run, the deletion");
+    assert_eq!(
+        seen.fired, 2,
+        "one TextChanged per commit: the typed run, the deletion"
+    );
     assert_eq!(
         seen.edits,
-        vec![("hello world".to_string(), 1), ("hello worl".to_string(), 2)]
+        vec![
+            ("hello world".to_string(), 1),
+            ("hello worl".to_string(), 2)
+        ]
     );
     assert_eq!(
         seen.paths,

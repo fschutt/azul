@@ -8,8 +8,9 @@
 
 use std::sync::Arc;
 
-use super::super::common::debug_server::LogCategory;
-use super::super::common::{dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError};
+use super::super::common::{
+    debug_server::LogCategory, dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError,
+};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // Re-export types that will be used by Win32 API
@@ -17,6 +18,7 @@ pub type HINSTANCE = *mut std::ffi::c_void;
 pub type HWND = *mut std::ffi::c_void;
 pub type HDC = *mut std::ffi::c_void;
 pub type HGLRC = *mut std::ffi::c_void;
+pub use winapi::um::{wincred::CREDENTIALW, wingdi::PIXELFORMATDESCRIPTOR};
 pub type HMENU = *mut std::ffi::c_void;
 pub type HMONITOR = *mut std::ffi::c_void;
 pub type HICON = *mut std::ffi::c_void;
@@ -532,8 +534,8 @@ impl DynamicLibraryTrait for DynamicLibrary {
                     name: name.to_string(),
                     tried: vec![name.to_string()],
                     suggestion: format!(
-                        "LoadLibraryW failed for '{}'. The DLL may be missing or \
-                         architecturally incompatible.",
+                        "LoadLibraryW failed for '{}'. The DLL may be missing or architecturally \
+                         incompatible.",
                         name
                     ),
                 }),
@@ -628,6 +630,27 @@ pub struct User32Functions {
     // Monitors
     pub MonitorFromWindow: unsafe extern "system" fn(HWND, u32) -> HMONITOR,
     pub GetMonitorInfoW: unsafe extern "system" fn(HMONITOR, *mut MONITORINFOEXW) -> BOOL,
+    pub EnumDisplayMonitors: unsafe extern "system" fn(
+        HDC,
+        *const RECT,
+        Option<unsafe extern "system" fn(HMONITOR, HDC, *mut RECT, LPARAM) -> BOOL>,
+        LPARAM,
+    ) -> BOOL,
+    /// `lpDevMode` is a `DEVMODEW`.
+    pub EnumDisplaySettingsW: unsafe extern "system" fn(*const u16, u32, *mut core::ffi::c_void) -> BOOL,
+    pub SystemParametersInfoW: unsafe extern "system" fn(u32, u32, *mut core::ffi::c_void, u32) -> BOOL,
+    pub PrintWindow: unsafe extern "system" fn(HWND, HDC, u32) -> BOOL,
+    pub GetWindowDC: unsafe extern "system" fn(HWND) -> HDC,
+    pub IsIconic: unsafe extern "system" fn(HWND) -> BOOL,
+    pub IsWindow: unsafe extern "system" fn(HWND) -> BOOL,
+    pub EnumWindows:
+        unsafe extern "system" fn(Option<unsafe extern "system" fn(HWND, LPARAM) -> BOOL>, LPARAM) -> BOOL,
+    pub GetWindowThreadProcessId: unsafe extern "system" fn(HWND, *mut u32) -> u32,
+    /// Windows 7+; `WDA_EXCLUDEFROMCAPTURE` needs Windows 10 2004.
+    pub SetWindowDisplayAffinity: Option<unsafe extern "system" fn(HWND, u32) -> BOOL>,
+    pub GetForegroundWindow: unsafe extern "system" fn() -> HWND,
+    /// Vista+.
+    pub IsProcessDPIAware: Option<unsafe extern "system" fn() -> BOOL>,
 
     // Window properties
     pub SetWindowLongPtrW: unsafe extern "system" fn(HWND, i32, isize) -> isize,
@@ -676,8 +699,7 @@ pub struct User32Functions {
     /// pointer messages Windows uses it to say a pen or a finger produced
     /// them; an ordinary mouse leaves it clear.
     pub GetMessageExtraInfo: unsafe extern "system" fn() -> isize,
-    pub RegisterRawInputDevices:
-        unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
+    pub RegisterRawInputDevices: unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
     /// Returns the byte count written, or `u32::MAX` on error — NOT a BOOL.
     pub GetRawInputData:
         unsafe extern "system" fn(isize, u32, *mut core::ffi::c_void, *mut u32, u32) -> u32,
@@ -762,6 +784,17 @@ pub struct Gdi32Functions {
         *const core::ffi::c_void,
     ) -> *mut core::ffi::c_void,
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
+    pub CreateCompatibleBitmap: unsafe extern "system" fn(HDC, i32, i32) -> *mut core::ffi::c_void,
+    /// `lpbmi` is a `BITMAPINFO`.
+    pub GetDIBits: unsafe extern "system" fn(
+        HDC,
+        *mut core::ffi::c_void,
+        u32,
+        u32,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        u32,
+    ) -> i32,
     /// Create a rectangular region - used for DwmEnableBlurBehindWindow
     /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
     pub CreateRectRgn: unsafe extern "system" fn(i32, i32, i32, i32) -> HRGN,
@@ -805,6 +838,12 @@ pub struct Gdi32Functions {
     /// Reads one pixel as COLORREF (0x00BBGGRR) — the runtime probe that
     /// proves the RGBA-mask DIB section is honored on this GDI stack.
     pub GetPixel: unsafe extern "system" fn(HDC, i32, i32) -> u32,
+    pub GetDeviceCaps: unsafe extern "system" fn(HDC, i32) -> i32,
+    pub ChoosePixelFormat: unsafe extern "system" fn(HDC, *const PIXELFORMATDESCRIPTOR) -> i32,
+    pub DescribePixelFormat:
+        unsafe extern "system" fn(HDC, i32, u32, *mut PIXELFORMATDESCRIPTOR) -> i32,
+    pub SetPixelFormat: unsafe extern "system" fn(HDC, i32, *const PIXELFORMATDESCRIPTOR) -> BOOL,
+    pub SwapBuffers: unsafe extern "system" fn(HDC) -> BOOL,
 }
 
 /// BI_BITFIELDS: `biCompression` value saying "channel masks follow the
@@ -976,6 +1015,46 @@ pub struct DwmapiFunctions {
     /// Flush the DWM compositor - blocks until the current frame is presented
     /// Critical for avoiding black flash when showing window after first render
     pub DwmFlush: unsafe extern "system" fn() -> HRESULT,
+    pub DwmGetWindowAttribute: unsafe extern "system" fn(
+        hwnd: HWND,
+        dwAttribute: u32,
+        pvAttribute: *mut core::ffi::c_void,
+        cbAttribute: u32,
+    ) -> HRESULT,
+}
+
+/// shcore.dll (Windows 8.1+).
+#[derive(Copy, Clone)]
+pub struct ShcoreFunctions {
+    pub GetDpiForMonitor: unsafe extern "system" fn(HMONITOR, u32, *mut u32, *mut u32) -> HRESULT,
+}
+
+/// advapi32.dll.
+#[derive(Copy, Clone)]
+pub struct Advapi32Functions {
+    /// `hkey` is an `HKEY`; returns an `LSTATUS`.
+    pub RegGetValueW: unsafe extern "system" fn(
+        isize,
+        *const u16,
+        *const u16,
+        u32,
+        *mut u32,
+        *mut core::ffi::c_void,
+        *mut u32,
+    ) -> i32,
+    pub CredWriteW: unsafe extern "system" fn(*mut CREDENTIALW, u32) -> BOOL,
+    pub CredReadW: unsafe extern "system" fn(*const u16, u32, u32, *mut *mut CREDENTIALW) -> BOOL,
+    pub CredDeleteW: unsafe extern "system" fn(*const u16, u32, u32) -> BOOL,
+    pub CredFree: unsafe extern "system" fn(*mut core::ffi::c_void),
+}
+
+/// opengl32.dll. Without it only the CPU renderer is available.
+#[derive(Copy, Clone)]
+pub struct Opengl32Functions {
+    pub wglCreateContext: unsafe extern "system" fn(HDC) -> HGLRC,
+    pub wglDeleteContext: unsafe extern "system" fn(HGLRC) -> BOOL,
+    pub wglMakeCurrent: unsafe extern "system" fn(HDC, HGLRC) -> BOOL,
+    pub wglGetProcAddress: unsafe extern "system" fn(*const i8) -> *mut core::ffi::c_void,
 }
 
 /// Pre-load commonly used Win32 DLLs.
@@ -1000,9 +1079,31 @@ pub struct Win32Libraries {
     pub dwmapi: Option<Arc<DynamicLibrary>>,
     /// DWM functions for Windows 11 transparency effects (Mica, Acrylic)
     pub dwmapi_funcs: Option<DwmapiFunctions>,
+    pub shcore_dll: Option<Arc<DynamicLibrary>>,
+    pub shcore: Option<ShcoreFunctions>,
+    pub advapi32_dll: Option<Arc<DynamicLibrary>>,
+    pub advapi32: Option<Advapi32Functions>,
+    pub opengl32_dll: Option<Arc<DynamicLibrary>>,
+    pub opengl32: Option<Opengl32Functions>,
 }
 
+struct SharedWin32Libraries(Win32Libraries);
+// Function pointers and module handles stay valid for the process lifetime and
+// the Win32 functions behind them may be called from any thread.
+unsafe impl Send for SharedWin32Libraries {}
+unsafe impl Sync for SharedWin32Libraries {}
+
 impl Win32Libraries {
+    /// A process-wide instance for code that runs without a window (monitor
+    /// enumeration, screenshots). `None` if user32/gdi32 cannot be loaded.
+    pub fn shared() -> Option<&'static Win32Libraries> {
+        static SHARED: std::sync::OnceLock<Option<SharedWin32Libraries>> = std::sync::OnceLock::new();
+        SHARED
+            .get_or_init(|| Win32Libraries::load().ok().map(SharedWin32Libraries))
+            .as_ref()
+            .map(|s| &s.0)
+    }
+
     pub fn load() -> Result<Self, DlError> {
         let user32_dll = DynamicLibrary::load("user32.dll")?;
         let gdi32_dll = DynamicLibrary::load("gdi32.dll")?;
@@ -1033,6 +1134,18 @@ impl Win32Libraries {
                 // Monitors
                 MonitorFromWindow: user32_dll.get_symbol("MonitorFromWindow")?,
                 GetMonitorInfoW: user32_dll.get_symbol("GetMonitorInfoW")?,
+                EnumDisplayMonitors: user32_dll.get_symbol("EnumDisplayMonitors")?,
+                EnumDisplaySettingsW: user32_dll.get_symbol("EnumDisplaySettingsW")?,
+                SystemParametersInfoW: user32_dll.get_symbol("SystemParametersInfoW")?,
+                PrintWindow: user32_dll.get_symbol("PrintWindow")?,
+                GetWindowDC: user32_dll.get_symbol("GetWindowDC")?,
+                IsIconic: user32_dll.get_symbol("IsIconic")?,
+                IsWindow: user32_dll.get_symbol("IsWindow")?,
+                EnumWindows: user32_dll.get_symbol("EnumWindows")?,
+                GetWindowThreadProcessId: user32_dll.get_symbol("GetWindowThreadProcessId")?,
+                SetWindowDisplayAffinity: user32_dll.get_symbol("SetWindowDisplayAffinity").ok(),
+                GetForegroundWindow: user32_dll.get_symbol("GetForegroundWindow")?,
+                IsProcessDPIAware: user32_dll.get_symbol("IsProcessDPIAware").ok(),
 
                 // Window properties
                 // SetWindowLongPtrW/GetWindowLongPtrW are 64-bit-aware wrappers
@@ -1112,6 +1225,8 @@ impl Win32Libraries {
                 CreateSolidBrush: gdi32_dll.get_symbol("CreateSolidBrush")?,
                 CreateBitmap: gdi32_dll.get_symbol("CreateBitmap")?,
                 DeleteObject: gdi32_dll.get_symbol("DeleteObject")?,
+                CreateCompatibleBitmap: gdi32_dll.get_symbol("CreateCompatibleBitmap")?,
+                GetDIBits: gdi32_dll.get_symbol("GetDIBits")?,
                 CreateRectRgn: gdi32_dll.get_symbol("CreateRectRgn")?,
                 CombineRgn: gdi32_dll.get_symbol("CombineRgn")?,
                 StretchDIBits: gdi32_dll.get_symbol("StretchDIBits")?,
@@ -1121,6 +1236,11 @@ impl Win32Libraries {
                 BitBlt: gdi32_dll.get_symbol("BitBlt")?,
                 DeleteDC: gdi32_dll.get_symbol("DeleteDC")?,
                 GetPixel: gdi32_dll.get_symbol("GetPixel")?,
+                GetDeviceCaps: gdi32_dll.get_symbol("GetDeviceCaps")?,
+                ChoosePixelFormat: gdi32_dll.get_symbol("ChoosePixelFormat")?,
+                DescribePixelFormat: gdi32_dll.get_symbol("DescribePixelFormat")?,
+                SetPixelFormat: gdi32_dll.get_symbol("SetPixelFormat")?,
+                SwapBuffers: gdi32_dll.get_symbol("SwapBuffers")?,
             }
         };
 
@@ -1171,8 +1291,8 @@ impl Win32Libraries {
             ANNOUNCE_OPTIONAL.call_once(|| {
                 if pointer_missing {
                     crate::plog_warn!(
-                        "[Win32] GetPointer* APIs unavailable (pre-Windows 8 user32?) — \
-                         pen/touch input will NOT work (mouse unaffected)"
+                        "[Win32] GetPointer* APIs unavailable (pre-Windows 8 user32?) — pen/touch \
+                         input will NOT work (mouse unaffected)"
                     );
                 }
                 if shell32_missing {
@@ -1183,14 +1303,14 @@ impl Win32Libraries {
                 }
                 if imm32_missing {
                     crate::plog_warn!(
-                        "[Win32] imm32.dll IME symbols unavailable — input-method \
-                         composition (CJK text entry) is disabled"
+                        "[Win32] imm32.dll IME symbols unavailable — input-method composition \
+                         (CJK text entry) is disabled"
                     );
                 }
                 if kernel32_missing {
                     crate::plog_warn!(
-                        "[Win32] kernel32 SetThreadExecutionState unavailable — \
-                         screensaver/sleep suppression is disabled"
+                        "[Win32] kernel32 SetThreadExecutionState unavailable — screensaver/sleep \
+                         suppression is disabled"
                     );
                 }
             });
@@ -1210,6 +1330,7 @@ impl Win32Libraries {
                             .get_symbol("DwmEnableBlurBehindWindow")
                             .ok()?,
                         DwmFlush: dll.get_symbol("DwmFlush").ok()?,
+                        DwmGetWindowAttribute: dll.get_symbol("DwmGetWindowAttribute").ok()?,
                     })
                 })();
                 if funcs.is_some() {
@@ -1229,6 +1350,32 @@ impl Win32Libraries {
             None
         };
 
+        let shcore_dll = DynamicLibrary::load("shcore.dll").ok();
+        let shcore = shcore_dll.as_ref().and_then(|dll| unsafe {
+            Some(ShcoreFunctions {
+                GetDpiForMonitor: dll.get_symbol("GetDpiForMonitor").ok()?,
+            })
+        });
+        let advapi32_dll = DynamicLibrary::load("advapi32.dll").ok();
+        let advapi32 = advapi32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Advapi32Functions {
+                RegGetValueW: dll.get_symbol("RegGetValueW").ok()?,
+                CredWriteW: dll.get_symbol("CredWriteW").ok()?,
+                CredReadW: dll.get_symbol("CredReadW").ok()?,
+                CredDeleteW: dll.get_symbol("CredDeleteW").ok()?,
+                CredFree: dll.get_symbol("CredFree").ok()?,
+            })
+        });
+        let opengl32_dll = DynamicLibrary::load("opengl32.dll").ok();
+        let opengl32 = opengl32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Opengl32Functions {
+                wglCreateContext: dll.get_symbol("wglCreateContext").ok()?,
+                wglDeleteContext: dll.get_symbol("wglDeleteContext").ok()?,
+                wglMakeCurrent: dll.get_symbol("wglMakeCurrent").ok()?,
+                wglGetProcAddress: dll.get_symbol("wglGetProcAddress").ok()?,
+            })
+        });
+
         Ok(Self {
             user32_dll: Some(Arc::new(user32_dll)),
             user32,
@@ -1242,6 +1389,12 @@ impl Win32Libraries {
             kernel32,
             dwmapi: dwmapi.map(Arc::new),
             dwmapi_funcs,
+            shcore_dll: shcore_dll.map(Arc::new),
+            shcore,
+            advapi32_dll: advapi32_dll.map(Arc::new),
+            advapi32,
+            opengl32_dll: opengl32_dll.map(Arc::new),
+            opengl32,
         })
     }
 }

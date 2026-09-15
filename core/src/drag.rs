@@ -12,12 +12,14 @@
 
 use alloc::vec::Vec;
 
-use crate::dom::{DomId, DomNodeId, NodeId, OptionDomNodeId};
-use crate::geom::LogicalPosition;
-use crate::selection::TextCursor;
-use crate::window::WindowPosition;
-
 use azul_css::{AzString, StringVec, U8Vec};
+
+use crate::{
+    dom::{DomId, DomNodeId, NodeId, OptionDomNodeId},
+    geom::LogicalPosition,
+    selection::TextCursor,
+    window::WindowPosition,
+};
 
 /// Type of the active drag operation.
 ///

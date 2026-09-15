@@ -77,6 +77,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.2.4:9cfb13e9e5877ddae4a7d5c6480b7acc0dbd3dbdefb023bce9ce66fdb2b60e54"]
 
+[crate."allocator-api2"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.2.21:20115ebd0952f395364aa8f6ab236d3469d688f6cf8e3b4b0e17ef1a2b0c102a", "0.3.1:7b6405fcb90412693fe6bf7035e137cdf695fd5ee9ddc5abee5e95f042037ecc", "0.4.0:798338741fae821c2ea79be1a7172d6dd76e4aa2836016fc70c6f2065775a5bb"]
+
 [crate."alsa-sys"]  # build-script
 allow = true
 risk = "low"
@@ -132,6 +139,13 @@ risk = "low"
 review = "audited"
 reason = "proc macro desugaring async fn in traits to boxed futures"
 reviewed = ["0.1.92:f02d3511fc10f87f63d18d5d1a8b7cfb1f6458f17054fa5154e586e3b00593e2"]
+
+[crate."async_io_stream"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "runs rustc_version to emit a stable/beta/nightly cfg; nothing else"
+reviewed = ["0.3.3:7a768539ac50180e9ad20c39ce9add855057847d1e6ab0378b6193a83f40eba3"]
 
 [crate."atomic-polyfill"]  # build-script
 allow = true
@@ -195,6 +209,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.3.2:1706f2776186948decb0be83392e285aeac9908f6aa203a5882dde5a6d374626", "2.13.1:9fa8d59551a45043d25683862db0ad9c7df1fb04ad6d8d7e6aaa240422e60826"]
+
+[crate."blake3"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "compiles bundled SSE4.1/AVX2/AVX-512 assembly or C intrinsics with cc after probing the C compiler; appends -fno-lto to CFLAGS"
+reviewed = ["1.8.7:63fe760143201b02b68fcde1a7e23cb7e8414d21aba534387f06d15375fef372"]
 
 [crate."block-buffer"]  # build-dependency
 allow = true
@@ -509,7 +530,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "selects 32/64-bit limbs + serial/simd backend from CARGO_CFG_*; probes rustc version"
-reviewed = ["4.1.3:c9b37d3dd0d36957eec457733ef5190b7bf18d43bd9c5ee83bcbdacf3a2cdb5d"]
+reviewed = ["4.1.3:c9b37d3dd0d36957eec457733ef5190b7bf18d43bd9c5ee83bcbdacf3a2cdb5d", "5.0.0:96e6bbf5f6233803a1dbf734ec1a2b086082a2b16b547ba60843c44a3bcb2b90"]
 
 [crate."curve25519-dalek-derive"]  # proc-macro
 allow = true
@@ -524,6 +545,13 @@ risk = "low"
 review = "audited"
 reason = "proc-macro forwarding derive input to darling_core; pure syn/quote expansion"
 reviewed = ["0.23.0:5f76b2f053a8d1d12afccc5e0618eee499af848295ad935aaadf1ce27442a55a"]
+
+[crate."data-encoding-macro-internal"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro building data-encoding specs and constants at compile time; pure source, no file, env or network access"
+reviewed = ["0.1.19:a9645f2fa679b8483b8f47a560c710a309dfcfd03861432b7250f2c0f9c97b35"]
 
 [crate."deflate64"]  # build-dependency
 allow = true
@@ -616,6 +644,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.0.1:f4dad955fa7d5779a3d1342f9081c20d0d172a406023cb7051893708c466b292"]
 
+[crate."enum-assoc"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro generating associated const/fn tables for enum variants; pure source"
+reviewed = ["1.4.1:d1cbadb2b7b64738ec7e31f2cde2cedd5785de3082acbcad56e710b4f080fce5"]
+
 [crate."enumflags2_derive"]  # proc-macro
 allow = true
 risk = "low"
@@ -700,6 +735,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.1.10:ea5be871f4f50309457a16ab9dc12c91d0258cd9bff3a6a5256c9cc57edeebb2"]
 
+[crate."foldhash"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.2.0:96e7c9db50d7c09360521171d73d09bd569e413c483b4376c973df8d94cdb8e5"]
+
 [crate."foreign-types"]  # build-dependency
 allow = true
 risk = "low"
@@ -735,6 +777,13 @@ review = "audited"
 reason = "generates CRC32 (and an unused snappy tag) lookup tables as Rust source into OUT_DIR"
 reviewed = ["0.4.7:66382bcdb53f0e10d213774b421a4cd15cb22d0e06891fd306752118466e4f47"]
 
+[crate."futures-channel"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.3.34:18a0cfb147ed93e749c9ffaad97f06fcedfbb0a321469617986e93f61afa581c"]
+
 [crate."futures-core"]  # build-dependency
 allow = true
 risk = "low"
@@ -742,12 +791,26 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.3.34:2599cbeed325806c65cd4f29a9c9c9e843b92a75497d2bcceeb452d8cb921107"]
 
+[crate."futures-io"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.3.34:365e8d66c0bb15a5d2cf34726103b5255b321ebb1bd6924cb4175c17da52e102"]
+
 [crate."futures-macro"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "expands futures' join!/select!/stream_select! and #[test]; pure syn/quote rewriting"
 reviewed = ["0.3.34:60e34402b1ca4f5b2cd79319209c246179acdcc7fb512e7109e88c9cbb105b0d"]
+
+[crate."futures-sink"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.3.34:82c9e042a447c5c94116c30cab5a488133d5c1c29778551e72b9e9febb5de279"]
 
 [crate."futures-task"]  # build-dependency
 allow = true
@@ -1057,6 +1120,41 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.1.4:d98857de0cff6d6001346ba80bb2b0475f84d4f6926d635e773dc3be31cabbef", "0.2.2:04fd8dc70ff8de6633fd8985b757b67c7e0dd5ad528c3d25b8242b32e04b9cd8"]
 
+[crate."ipconfig"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "only emits cargo:rustc-link-lib=iphlpapi"
+reviewed = ["0.3.4:1d6e7b2d38b546cbce37768ad402ccb89198c8279eacac8238d68eed0385b75a"]
+
+[crate."iroh"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser and with_crypto_provider cfgs"
+reviewed = ["1.2.0:2639b4ef83b1829a220c7c5417219727b3c0b415f160542c8f44e4d78533d3cd"]
+
+[crate."iroh-dns"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser and with_crypto_provider cfgs"
+reviewed = ["1.3.0:f9d0df102f398c4d0dd3d8d103b541d3638e66866e0a8813c1e4f26fddab52cd"]
+
+[crate."iroh-metrics-derive"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro deriving metric group structs; pure source"
+reviewed = ["1.0.1:41bc6ead56b81d93d0019fe507541d8e820e6904b938e8bb19d112812c438351"]
+
+[crate."iroh-relay"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser and with_crypto_provider cfgs"
+reviewed = ["1.2.0:2639b4ef83b1829a220c7c5417219727b3c0b415f160542c8f44e4d78533d3cd"]
+
 [crate."itertools"]  # build-dependency
 allow = true
 risk = "low"
@@ -1274,6 +1372,27 @@ review = "audited"
 reason = "build.rs compiles vector_tile.proto via prost-build, only under the protoc features (off here)"
 reviewed = ["2.4.0:111196b0bdb7935ce33c996f1d0bf4701783c98e145676d5421b8133c9d21159"]
 
+[crate."n0-dns-resolver"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "reads its own CARGO_FEATURE_* vars and emits transport/crypto-provider cfgs"
+reviewed = ["0.1.0:05c2c558e2477bedb2734c4b5b0622cf4003bb3e9d25b9e6fa2b586f7affa702"]
+
+[crate."n0-error-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro deriving stack-error enums; pure source"
+reviewed = ["1.0.0:6dac5dc535651d265c6b9d57c5dc991ebda4e1b960082cc80007f7e5c659245b"]
+
+[crate."n0-future"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser cfg"
+reviewed = ["0.3.2:84adb829fa789e5f746626f7ad072207289ec32addd9027e1ab666929fb91966"]
+
 [crate."nasm-rs"]  # build-dependency
 allow = true
 risk = "low"
@@ -1287,6 +1406,20 @@ risk = "low"
 review = "audited"
 reason = "reads DEP_OPENSSL_* version to cfg-gate min/max protocol-version API; no build-time I/O"
 reviewed = ["0.2.18:1c93fddc1130f66ce60f4cf17fd7a7b785c58512bcf89a60896ed76499b8a3b3"]
+
+[crate."netdev"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "links the SystemConfiguration framework on macOS/iOS; nothing else"
+reviewed = ["0.45.0:d7f6466c93eb70358c49a16d68a88fec70072dc123d02ecde589b7d3755e01b4", "0.46.2:d7f6466c93eb70358c49a16d68a88fec70072dc123d02ecde589b7d3755e01b4"]
+
+[crate."netwatch"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser, posix_minimal, netdev and bsd cfgs"
+reviewed = ["0.19.3:1a72fe58a155171b221a3c614e65ba46701d29c913f2a595320764ea9a7f6cf7"]
 
 [crate."nix"]  # build-script
 allow = true
@@ -1308,6 +1441,20 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["7.1.3:3caa1d424d4d4c63cf9c614781062694aa51ff4512508461cb799ec595d9a05c", "8.0.0:729ded7cf3157fee4007170a551945dfd3479abd6f7071ae7cbb8c0a2129d17c"]
+
+[crate."noq"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: wasm_browser cfg"
+reviewed = ["1.3.0:84adb829fa789e5f746626f7ad072207289ec32addd9027e1ab666929fb91966"]
+
+[crate."noq-udp"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cfg_aliases only: apple/bsd/solarish, apple datapath, wasm_browser and posix_minimal cfgs"
+reviewed = ["1.3.0:61c63ceb15b8995c022f09d53e0502141bb160fedfa7bdf59522f58e1122815c"]
 
 [crate."num-bigint-dig"]  # build-script
 allow = true
@@ -1477,12 +1624,26 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["2.3.2:2f80aef44accef991942746a3efd60aa28c71ca3c5081577da8add87667a7096"]
 
+[crate."pharos"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "runs rustc_version to emit a stable/beta/nightly cfg; nothing else"
+reviewed = ["0.5.3:7a768539ac50180e9ad20c39ce9add855057847d1e6ab0378b6193a83f40eba3"]
+
 [crate."phf_macros"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "computes a perfect hash over literal keys at expansion; emits a static phf::Map, no IO"
 reviewed = ["0.13.1:8d8c1484b2d859638f756fc48b036194686066893468853e9f46280efc5e67a2"]
+
+[crate."pin-project-internal"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro behind pin-project's #[pin_project]; pure source"
+reviewed = ["1.1.13:7bc75415d85fe9fc90381116e444cd1e50bd5f388fca6312a8b62811854ea19a"]
 
 [crate."pin-project-lite"]  # build-dependency
 allow = true
@@ -1518,6 +1679,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.1.3:f12236f974459d60f07afec9f4eb1bbcbfb6b35548c418beff6a7aa24a212a38"]
+
+[crate."postcard-derive"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro deriving postcard's MaxSize/Schema; pure source"
+reviewed = ["0.2.2:abeacbb1e907fa97f8b888816ee38817c56f099017699c337e81321aa6e6d2df"]
 
 [crate."potential_utf"]  # build-dependency
 allow = true
@@ -1706,7 +1874,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "one-line build script cfg-gating the nightly read_buf feature; sans-I/O library, no build-time I/O"
-reviewed = ["0.23.43:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
+reviewed = ["0.23.45:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
 
 [crate."rustls-pki-types"]  # build-dependency
 allow = true
@@ -1881,7 +2049,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.9.9:c3db6d67be01dd00dba0f6620c2cb3bdaab274fb0cc9784c9ec32f5b0a6d2182"]
+reviewed = ["0.10.1:98232a4b4c4dc86fa0c7d33fc498bcab2e635381425bac8f0ac37a83e10f1c3f", "0.9.9:c3db6d67be01dd00dba0f6620c2cb3bdaab274fb0cc9784c9ec32f5b0a6d2182"]
 
 [crate."stable_deref_trait"]  # build-dependency
 allow = true
@@ -1895,7 +2063,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc-macro deriving enum<->string traits; reads STRUM_DEBUG only to print its own expansion"
-reviewed = ["0.26.4:c00303f46d3b09b74880ec4ca4154d4e2de2c1d5a21ce220b303c73a902804b6"]
+reviewed = ["0.26.4:c00303f46d3b09b74880ec4ca4154d4e2de2c1d5a21ce220b303c73a902804b6", "0.28.0:20bec2cf4d64f029a269b515065e4e3b268abc3789b76e15de4c7d5e6feb816c"]
 
 [crate."subtle"]  # build-dependency
 allow = true
@@ -1917,6 +2085,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.13.2:2f134b3776d71a98a833e55adfd7f01210e134733f6a3c7a79fd3283c51f300c"]
+
+[crate."system-configuration-sys"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "links the SystemConfiguration framework on apple targets; nothing else"
+reviewed = ["0.6.0:3134edddf0c2e21a16292825057acc8d62b207c94f82c73b212ed64569def17c"]
 
 [crate."target-lexicon"]  # build-script
 allow = true
@@ -1980,6 +2155,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.8.4:80dd56e3a82f3432809b7ae78d281239e14dd802144b8fdabb4ec722566ff439"]
+
+[crate."tokio-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro behind #[tokio::main]/#[tokio::test] and select!; pure source"
+reviewed = ["2.7.2:3799c1a0ef0a84777e0a982d054fa11839f3e017c242d72a977012c04f335c39"]
 
 [crate."tracing-attributes"]  # proc-macro
 allow = true
@@ -2212,6 +2394,13 @@ review = "audited"
 reason = "hashes src/lib.rs for a schema version and records git rev-parse HEAD as WBG_VERSION"
 reviewed = ["0.2.127:9c15199b20ae3c1f9ec80dbe9e33cd879b1c83c43577c3804d7297141a4fd2a9"]
 
+[crate."web-time"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["1.1.0:7a035197ea432c18c85fdb1198c968dfc7d2fd67180b8de94534103eb1f038dc"]
+
 [crate."webpki-root-certs"]  # build-dependency
 allow = true
 risk = "medium"
@@ -2372,6 +2561,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.6.4:051ee50025bdfb03845c069fb78c90766d7505a64c70d8a7ec26e554f9c318e6"]
+
+[crate."ws_stream_wasm"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "runs rustc_version to emit a stable/beta/nightly cfg and declares those cfg names"
+reviewed = ["0.7.5:67d6454a73735dd17cde93031c89fa57c53873c66ee573f9bfd0a2815c27bc49"]
 
 [crate."yoke"]  # build-dependency
 allow = true

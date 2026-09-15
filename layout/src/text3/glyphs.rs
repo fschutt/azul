@@ -6,8 +6,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalSize},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::ColorU;
-use azul_css::props::style::StyleBackgroundContent;
+use azul_css::props::{basic::ColorU, style::StyleBackgroundContent};
 
 use crate::text3::cache::{
     get_item_vertical_metrics_approx, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
@@ -1797,8 +1796,8 @@ mod autotest_generated {
         assert_eq!(runs[0].glyphs.len(), 1, "the unknown-font glyph is dropped");
         assert_eq!(
             runs[0].glyphs[0].position.x, 100.0,
-            "pinned: the surviving glyph sits at the origin — the dropped glyph's \
-             40px advance was never applied, so it renders 40px too far left"
+            "pinned: the surviving glyph sits at the origin — the dropped glyph's 40px advance \
+             was never applied, so it renders 40px too far left"
         );
     }
 
@@ -2072,8 +2071,8 @@ mod autotest_generated {
         assert!(instances_bit_equal(&v, &out));
         assert!(
             c.exceptions.is_empty(),
-            "uniform y/size must compact without exceptions — the whole point \
-             of the encoding (got {} exceptions)",
+            "uniform y/size must compact without exceptions — the whole point of the encoding \
+             (got {} exceptions)",
             c.exceptions.len()
         );
         assert_eq!(c.len(), 3);

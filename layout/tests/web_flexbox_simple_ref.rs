@@ -37,7 +37,7 @@ use rust_fontconfig::FcFontCache;
 // ----------------------------------------------------------------------------
 const BODY_CSS: &str = "box-sizing:border-box; margin:0; padding:20px; width:800px; height:600px;";
 const CONTAINER_CSS: &str = "box-sizing:border-box; margin:0; padding:0; display:flex; \
-     width:100%; height:100px; border:5px solid #000000;";
+                             width:100%; height:100px; border:5px solid #000000;";
 const ITEM1_CSS: &str =
     "box-sizing:border-box; margin:0; padding:0; flex-grow:1; border:3px solid #880000;";
 const ITEM2_CSS: &str =

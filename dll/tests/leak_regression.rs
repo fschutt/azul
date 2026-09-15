@@ -88,8 +88,7 @@
 
 use std::{cell::RefCell, sync::Arc};
 
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
+use azul::desktop::shell2::{common::PlatformWindow, headless::HeadlessWindow};
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
     dom::Dom,
@@ -444,12 +443,10 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // --- Warmup ---
     //
     // Several layout passes at the starting size. This lets:
-    // - The font builder pool finish parsing the common families
-    //   (FcFontRegistry transitions to build_complete == true), which
-    //   is the state the fix is guarding.
-    // - The glyph cache / StyledDom cache populate so subsequent
-    //   iterations hit the "LayoutUnchanged" equivalence path (the
-    //   path where the leak was observed).
+    // - The font builder pool finish parsing the common families (FcFontRegistry transitions to
+    //   build_complete == true), which is the state the fix is guarding.
+    // - The glyph cache / StyledDom cache populate so subsequent iterations hit the
+    //   "LayoutUnchanged" equivalence path (the path where the leak was observed).
     for _ in 0..WARMUP_ITERATIONS {
         window
             .regenerate_layout()
@@ -467,8 +464,8 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         while !registry.is_build_complete() {
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(120),
-                "the font registry build did not complete within 120 s; the heap figures \
-                 below would include the builder threads' allocations"
+                "the font registry build did not complete within 120 s; the heap figures below \
+                 would include the builder threads' allocations"
             );
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
@@ -500,8 +497,8 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     assert_eq!(
         SIZES.len(),
         SIZES_LEN,
-        "SIZES_LEN is out of sync with SIZES — WARMUP_SETTLED_BYTES is derived \
-         from it and would be computed for the wrong block size"
+        "SIZES_LEN is out of sync with SIZES — WARMUP_SETTLED_BYTES is derived from it and would \
+         be computed for the wrong block size"
     );
 
     let run_iterations = |window: &mut HeadlessWindow, n: u32| {
@@ -631,8 +628,8 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             prev = now;
         }
         eprintln!(
-            "[leak_regression] warmup: {done} iterations, {} (last block {} B/iter, \
-             threshold {} B/iter)",
+            "[leak_regression] warmup: {done} iterations, {} (last block {} B/iter, threshold {} \
+             B/iter)",
             if settled >= 2 {
                 "settled"
             } else {
@@ -716,9 +713,9 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     let rss_per_iter = rss_a.min(rss_b);
 
     eprintln!(
-        "[leak_regression] heap: baseline={} KiB -> {} -> {} -> {} KiB  \
-         first_window={} B/iter  steady={}/{} B/iter (min {})  |  \
-         rss: {} KiB -> {} -> {} -> {} KiB  steady={}/{} B/iter (min {})",
+        "[leak_regression] heap: baseline={} KiB -> {} -> {} -> {} KiB  first_window={} B/iter  \
+         steady={}/{} B/iter (min {})  |  rss: {} KiB -> {} -> {} -> {} KiB  steady={}/{} B/iter \
+         (min {})",
         baseline / 1024,
         mid / 1024,
         second / 1024,
@@ -767,10 +764,10 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     if !heap_trustworthy {
         eprintln!(
             "[leak_regression] HEAP INSTRUMENT REJECTED: {} KiB of reported heap in a process \
-             with {} KiB RSS. Live heap cannot exceed resident memory, so this figure is not \
-             live heap and no leak verdict is drawn from it. The RSS verdict below still \
-             gates. (macOS mstats().bytes_used counts zone capacity; glibc mallinfo2 \
-             .uordblks counts the main arena only.)",
+             with {} KiB RSS. Live heap cannot exceed resident memory, so this figure is not live \
+             heap and no leak verdict is drawn from it. The RSS verdict below still gates. (macOS \
+             mstats().bytes_used counts zone capacity; glibc mallinfo2 .uordblks counts the main \
+             arena only.)",
             final_heap / 1024,
             final_rss / 1024,
         );
@@ -828,16 +825,14 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     };
     assert!(
         !heap_convicts,
-        "regenerate_layout resize loop leaked {} bytes/iter (>{} allowed) in \
-         STEADY STATE — and this is the MINIMUM of two consecutive {}-iteration \
-         windows, each sampled at a matched point in the size cycle after {} \
-         warmup cycles. Neither one-time costs nor a single allocator-zone \
-         expansion can produce that: a one-off lands in one window and is \
-         cancelled by the other. Growth in BOTH means something is retained per \
-         call. This is the rust-fontconfig build_queue-accumulation leak or an \
-         equivalent regression. (The heap instrument passed self-validation, so \
-         this figure is a real one, AND RSS corroborates it — both instruments \
-         moved, which is what separates a retention from zone-capacity drift, \
+        "regenerate_layout resize loop leaked {} bytes/iter (>{} allowed) in STEADY STATE — and \
+         this is the MINIMUM of two consecutive {}-iteration windows, each sampled at a matched \
+         point in the size cycle after {} warmup cycles. Neither one-time costs nor a single \
+         allocator-zone expansion can produce that: a one-off lands in one window and is \
+         cancelled by the other. Growth in BOTH means something is retained per call. This is the \
+         rust-fontconfig build_queue-accumulation leak or an equivalent regression. (The heap \
+         instrument passed self-validation, so this figure is a real one, AND RSS corroborates it \
+         — both instruments moved, which is what separates a retention from zone-capacity drift, \
          if they do not, suspect the measurement before the code.)",
         m.per_iter, MAX_BYTES_PER_ITER, STRESS_ITERATIONS, WARMUP_CYCLES,
     );
@@ -857,10 +852,10 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     };
     assert!(
         !first_window_convicts,
-        "the first measured window grew {} bytes/iter (>{} allowed) of live heap. Steady \
-         state is {} B/iter, so this is not an unbounded leak — but {} warmup \
-         cycles plus {} iterations were not enough for it to settle, which \
-         means something is filling far more slowly than any cache should.",
+        "the first measured window grew {} bytes/iter (>{} allowed) of live heap. Steady state is \
+         {} B/iter, so this is not an unbounded leak — but {} warmup cycles plus {} iterations \
+         were not enough for it to settle, which means something is filling far more slowly than \
+         any cache should.",
         m.first_window_per_iter,
         MAX_FIRST_WINDOW_BYTES_PER_ITER,
         m.per_iter,
@@ -870,12 +865,10 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
 
     assert!(
         m.rss_per_iter < MAX_RSS_BYTES_PER_ITER,
-        "RSS grew {} bytes/iter (>{} allowed) in steady state while the malloc \
-         heap grew only {} B/iter across {} iterations. The two disagree, and \
-         RSS is the one that sees all of it — non-main glibc arenas (the font \
-         scout/builder threads allocate on their own) and mmap'd regions are \
-         outside malloc accounting entirely. Trust this number over the heap \
-         number.",
+        "RSS grew {} bytes/iter (>{} allowed) in steady state while the malloc heap grew only {} \
+         B/iter across {} iterations. The two disagree, and RSS is the one that sees all of it — \
+         non-main glibc arenas (the font scout/builder threads allocate on their own) and mmap'd \
+         regions are outside malloc accounting entirely. Trust this number over the heap number.",
         m.rss_per_iter,
         MAX_RSS_BYTES_PER_ITER,
         m.per_iter,
@@ -895,10 +888,9 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     // says nothing about the code.
     assert!(
         m.final_heap < MAX_FINAL_HEAP_BYTES,
-        "regenerate_layout resize loop ended holding {} KiB of libc heap \
-         (>{} KiB cap) at {} B/iter across {} iterations. The per-iter rate \
-         is under budget but the absolute heap crossed the failure-mode \
-         threshold — likely a slower or non-linear leak.",
+        "regenerate_layout resize loop ended holding {} KiB of libc heap (>{} KiB cap) at {} \
+         B/iter across {} iterations. The per-iter rate is under budget but the absolute heap \
+         crossed the failure-mode threshold — likely a slower or non-linear leak.",
         m.final_heap / 1024,
         MAX_FINAL_HEAP_BYTES / 1024,
         m.per_iter,
@@ -935,9 +927,8 @@ fn the_leak_detector_actually_detects_a_leak() {
     let floor = (CONTROL_LEAK_BYTES as u64) * 3 / 4;
     assert!(
         m.per_iter >= floor,
-        "leaking {} B/iter on purpose registered as only {} B/iter (needed \
-         >={}). The measurement is not seeing retained memory, so a clean run \
-         of the sibling test proves nothing.",
+        "leaking {} B/iter on purpose registered as only {} B/iter (needed >={}). The measurement \
+         is not seeing retained memory, so a clean run of the sibling test proves nothing.",
         CONTROL_LEAK_BYTES,
         m.per_iter,
         floor,
@@ -945,9 +936,9 @@ fn the_leak_detector_actually_detects_a_leak() {
 
     assert!(
         m.per_iter >= MAX_BYTES_PER_ITER,
-        "the deliberate {} B/iter leak measured {} B/iter, which is under the \
-         {} B/iter budget the real test enforces — the control does not \
-         actually exercise the assertion it exists to validate.",
+        "the deliberate {} B/iter leak measured {} B/iter, which is under the {} B/iter budget \
+         the real test enforces — the control does not actually exercise the assertion it exists \
+         to validate.",
         CONTROL_LEAK_BYTES,
         m.per_iter,
         MAX_BYTES_PER_ITER,
@@ -1006,17 +997,16 @@ fn first_window_growth_ignores_a_transient_but_not_a_persistent_one() {
     let transient = charge(97795 * 1024, 98819 * 1024, 97795 * 1024, 97795 * 1024, 500);
     assert_eq!(
         transient, 0,
-        "a 1 MiB reservation that is released again must not be charged as \
-         first-window growth — the run ended at exactly its baseline"
+        "a 1 MiB reservation that is released again must not be charged as first-window growth — \
+         the run ended at exactly its baseline"
     );
 
     // A cache still filling: every later sample stays up.
     let persistent = charge(10_000_000, 11_000_000, 11_500_000, 12_000_000, 500);
     assert_eq!(
         persistent, 2000,
-        "growth still present at every later sample must be charged in full — \
-         discounting it would blind the check to a slow fill, which is the only \
-         thing it exists to catch"
+        "growth still present at every later sample must be charged in full — discounting it \
+         would blind the check to a slow fill, which is the only thing it exists to catch"
     );
 
     // The blip must not mask a real fill that happens alongside it.
@@ -1035,13 +1025,11 @@ fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
     // ones arrived. Two consequences, both of which were bugs in this control
     // rather than in RSS:
     //
-    //   * residency PLATEAUS under a sustained large leak, so a fraction-of-
-    //     allocation floor is unmeetable by construction once the leak exceeds
-    //     what the runner will keep resident;
-    //   * the minimum-of-two-windows rule, which is right for the main test
-    //     (there, flatness is the expected answer and a minimum is the
-    //     conservative reading), is wrong here — it picks the post-plateau
-    //     window and reports 7 KB/iter for a 256 KiB/iter leak.
+    //   * residency PLATEAUS under a sustained large leak, so a fraction-of- allocation floor is
+    //     unmeetable by construction once the leak exceeds what the runner will keep resident;
+    //   * the minimum-of-two-windows rule, which is right for the main test (there, flatness is the
+    //     expected answer and a minimum is the conservative reading), is wrong here — it picks the
+    //     post-plateau window and reports 7 KB/iter for a 256 KiB/iter leak.
     //
     // What the main test actually rests on is narrower and true: that RSS
     // resolves a leak far above MAX_RSS_BYTES_PER_ITER. Assert exactly that,
@@ -1072,12 +1060,11 @@ fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
     // decide whether a release ships..
     if m.rss_first_steady_per_iter < floor {
         eprintln!(
-            "::warning::[leak_regression] RSS CANNOT CALIBRATE on this machine: a \
-             deliberate {} B/iter leak moved RSS by only {} B/iter (needed >={}). \
-             The RSS assertion in regenerate_layout_does_not_leak_under_resize_stress \
-             is therefore DECORATIVE on this runner — it cannot catch a leak outside \
-             the main arena. Not failing the build, because this measures the \
-             machine, not the code.",
+            "::warning::[leak_regression] RSS CANNOT CALIBRATE on this machine: a deliberate {} \
+             B/iter leak moved RSS by only {} B/iter (needed >={}). The RSS assertion in \
+             regenerate_layout_does_not_leak_under_resize_stress is therefore DECORATIVE on this \
+             runner — it cannot catch a leak outside the main arena. Not failing the build, \
+             because this measures the machine, not the code.",
             RSS_CONTROL_LEAK_BYTES, m.rss_first_steady_per_iter, floor,
         );
         return;
@@ -1085,13 +1072,12 @@ fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
 
     assert!(
         m.rss_first_steady_per_iter >= floor,
-        "leaking {} B/iter of fully-written, incompressible memory moved RSS \
-         by only {} B/iter in the first steady window (needed >={}, which is \
-         20x the {} B/iter budget the main test enforces), while the malloc \
-         heap reported {} B/iter. RSS is the main test's only instrument for \
-         non-main arenas and mmap'd regions; if it cannot resolve a leak this \
-         far above the budget, that assertion is decorative and a leak outside \
-         the main arena would pass unnoticed.",
+        "leaking {} B/iter of fully-written, incompressible memory moved RSS by only {} B/iter in \
+         the first steady window (needed >={}, which is 20x the {} B/iter budget the main test \
+         enforces), while the malloc heap reported {} B/iter. RSS is the main test's only \
+         instrument for non-main arenas and mmap'd regions; if it cannot resolve a leak this far \
+         above the budget, that assertion is decorative and a leak outside the main arena would \
+         pass unnoticed.",
         RSS_CONTROL_LEAK_BYTES,
         m.rss_first_steady_per_iter,
         floor,
@@ -1101,9 +1087,8 @@ fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
 
     assert!(
         m.rss_first_steady_per_iter >= MAX_RSS_BYTES_PER_ITER,
-        "the deliberate {} B/iter leak moved RSS by {} B/iter, under the {} \
-         B/iter budget the real test enforces — the control does not exercise \
-         the assertion it exists to validate.",
+        "the deliberate {} B/iter leak moved RSS by {} B/iter, under the {} B/iter budget the \
+         real test enforces — the control does not exercise the assertion it exists to validate.",
         RSS_CONTROL_LEAK_BYTES,
         m.rss_first_steady_per_iter,
         MAX_RSS_BYTES_PER_ITER,

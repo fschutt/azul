@@ -11,7 +11,9 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -54,7 +56,39 @@ pub enum ButtonType {
     Link,
 }
 
+/// What a button type's face IS, which decides what a theme may do to it
+/// in dark mode. The migration's rule: a page-neutral surface takes the
+/// theme's dark tokens; a surface that is its own colour keeps it in both
+/// modes; a light value never moves.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ButtonSurface {
+    /// The standard command: light grey paper, dark text. Page-neutral —
+    /// the theme paints it in its dark face and ink.
+    Neutral,
+    /// A coloured command (primary, success, danger, ...): the colour is the
+    /// meaning. The theme leaves face, text and border alone.
+    OwnColour,
+    /// The link button: no face at all, only text.
+    NoSurface,
+}
+
 impl ButtonType {
+    /// See [`ButtonSurface`].
+    #[must_use]
+    pub const fn surface(self) -> ButtonSurface {
+        match self {
+            Self::Default => ButtonSurface::Neutral,
+            Self::Link => ButtonSurface::NoSurface,
+            Self::Primary
+            | Self::Secondary
+            | Self::Success
+            | Self::Danger
+            | Self::Warning
+            | Self::Info => ButtonSurface::OwnColour,
+        }
+    }
+
     /// Get the CSS class name for this button type
     #[must_use]
     pub const fn class_name(&self) -> &'static str {
@@ -97,18 +131,24 @@ pub struct Button {
     pub trailing_icon: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)
     pub button_type: ButtonType,
-    /// Style for this button container
-    pub container_style: CssPropertyWithConditionsVec,
-    /// Style of the label
-    pub label_style: CssPropertyWithConditionsVec,
-    /// Style of the image
-    pub image_style: CssPropertyWithConditionsVec,
-    /// Style of the leading icon
-    pub icon_style: CssPropertyWithConditionsVec,
-    /// Style of the trailing icon
-    pub trailing_icon_style: CssPropertyWithConditionsVec,
+    /// Style for this button container, or `None` for "no opinion" — in which
+    /// case the style is derived from `button_type` at render time.
+    ///
+    /// `None` and `Some(empty)` are different answers throughout this struct:
+    /// the first means the widget picks, the second means the caller asked for
+    /// no properties at all and gets none.
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the label, or `None` for the widget's default.
+    pub label_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the image, or `None` for the widget's default.
+    pub image_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the leading icon, or `None` for the widget's default.
+    pub icon_style: OptionCssPropertyWithConditionsVec,
+    /// Style of the trailing icon, or `None` for the widget's default.
+    pub trailing_icon_style: OptionCssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -136,7 +176,7 @@ azul_core::impl_managed_callback! {
 // ============================================================
 
 /// Get the background color for a button type
-const fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
+pub(crate) const fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
     // Returns (normal, hover, active) colors
     match button_type {
         ButtonType::Default => (
@@ -218,11 +258,10 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
         ];
     }
 
-    let (bg_normal, bg_hover, bg_active) = get_button_colors(button_type);
+    // Only the RESTING colour is needed here now: the hover and pressed values
+    // from this triple, and the focus accent, are read by the theme modules.
+    let (bg_normal, _, _) = get_button_colors(button_type);
     let text_color = get_button_text_color(button_type);
-
-    // Focus outline uses system accent color
-    let focus_outline_color = ColorU::bootstrap_primary();
 
     let mut props = Vec::with_capacity(40);
 
@@ -291,10 +330,8 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             ])),
         ));
 
-        // Underline on hover - use TextDecoration::Underline variant
-        props.push(CssPropertyWithConditions::on_hover(
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-        ));
+        // The underline-on-hover lives in the theme modules with the rest of
+        // this button's states — see `flat::button_states`.
     } else {
         // Normal background
         props.push(CssPropertyWithConditions::simple(
@@ -362,91 +399,12 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             }),
         ));
 
-        // Hover state
-        props.push(CssPropertyWithConditions::on_hover(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_hover)])
-                    .into(),
-            ),
-        ));
-        if button_type == ButtonType::Default {
-            let hover_border = ColorU::rgb(173, 181, 189);
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderTopColor(
-                    StyleBorderTopColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderBottomColor(
-                    StyleBorderBottomColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderLeftColor(
-                    StyleBorderLeftColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-            props.push(CssPropertyWithConditions::on_hover(
-                CssProperty::BorderRightColor(
-                    StyleBorderRightColor {
-                        inner: hover_border,
-                    }
-                    .into(),
-                ),
-            ));
-        }
-
-        // Active (pressed) state
-        props.push(CssPropertyWithConditions::on_active(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_active)])
-                    .into(),
-            ),
-        ));
-
-        // Focus state - uses accent color for outline
-        // This makes the button feel "native" as it uses the system accent
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderTopColor(
-                StyleBorderTopColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderBottomColor(
-                StyleBorderBottomColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderLeftColor(
-                StyleBorderLeftColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
-        props.push(CssPropertyWithConditions::on_focus(
-            CssProperty::BorderRightColor(
-                StyleBorderRightColor {
-                    inner: focus_outline_color,
-                }
-                .into(),
-            ),
-        ));
+        // Hover, pressed and focus are NOT here. They live in the theme
+        // modules (`flat::button_states`, `flora::button_states`) and are
+        // appended by `flat::button` / `flora::button`, because the dark half of
+        // each pair needs a palette this file cannot see. Declared here they
+        // could only ever name the light-mode colour, which is how a hovered
+        // button came to keep its light fill on a dark surface.
     }
 
     props
@@ -488,9 +446,6 @@ impl Button {
     #[inline]
     #[must_use]
     pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
-        let container_style = build_button_container_style(button_type);
-        let label_style = build_button_label_style();
-
         Self {
             label,
             image: None.into(),
@@ -499,28 +454,89 @@ impl Button {
             trailing_icon: AzString::from_const_str(""),
             button_type,
             on_click: None.into(),
-            container_style: CssPropertyWithConditionsVec::from_vec(container_style),
-            label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
-            image_style: CssPropertyWithConditionsVec::from_vec(label_style),
-            icon_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE),
-            trailing_icon_style: CssPropertyWithConditionsVec::from_const_slice(
-                BUTTON_ICON_DEFAULT_STYLE,
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
+            image_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::Some(
+                crate::widgets::themes::UiTheme::Flat,
             ),
+            icon_style: OptionCssPropertyWithConditionsVec::None,
+            trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
-    /// Set the button type and update styling accordingly
+    /// The container CSS this button renders with.
+    ///
+    /// `None` means no opinion, so `button_type` decides — the same answer both
+    /// themes give, asked in one place so they cannot drift. It is also why
+    /// `set_button_type` is a plain field write: the type and the colours derived
+    /// from it were two facts stored apart, and a caller writing the public
+    /// `button_type` field left a Primary button painted like a Default one.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_vec(build_button_container_style(
+                    self.button_type,
+                ))
+            })
+    }
+
+    /// The label CSS this button renders with.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+    }
+
+    /// The image CSS this button renders with.
+    ///
+    /// Defaults to the label's style: an image sits where the label would and
+    /// inherits the same box.
+    #[must_use]
+    pub fn resolved_image_style(&self) -> CssPropertyWithConditionsVec {
+        self.image_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(build_button_label_style()))
+    }
+
+    /// The leading-icon CSS this button renders with.
+    #[must_use]
+    pub fn resolved_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.icon_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE)
+        })
+    }
+
+    /// The trailing-icon CSS this button renders with.
+    #[must_use]
+    pub fn resolved_trailing_icon_style(&self) -> CssPropertyWithConditionsVec {
+        self.trailing_icon_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(BUTTON_ICON_DEFAULT_STYLE)
+            })
+    }
+
+    /// Set the button type.
+    ///
+    /// Does not touch `container_style`: the type-specific colours are resolved
+    /// from `button_type` when the DOM is built.
     #[inline]
-    pub fn set_button_type(&mut self, button_type: ButtonType) {
+    pub const fn set_button_type(&mut self, button_type: ButtonType) {
         self.button_type = button_type;
-        self.container_style =
-            CssPropertyWithConditionsVec::from_vec(build_button_container_style(button_type));
     }
 
     /// Builder method to set the button type
     #[inline]
     #[must_use]
-    pub fn with_button_type(mut self, button_type: ButtonType) -> Self {
+    pub const fn with_button_type(mut self, button_type: ButtonType) -> Self {
         self.set_button_type(button_type);
         self
     }
@@ -531,6 +547,19 @@ impl Button {
         let mut m = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut m, self);
         m
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[inline]
@@ -589,131 +618,21 @@ impl Button {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{EventFilter, HoverEventFilter},
-        };
-
-        let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick {
-                refany: data,
-                callback,
-            }) => vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                callback: CoreCallback {
-                    cb: callback.cb as *const () as usize,
-                    ctx: callback.ctx,
-                },
-                refany: data,
-            }],
-            None => Vec::new(),
-        };
-
-        // Add both the base class and the type-specific class
-        // ⚠ BISECTION step 5 (REVERT): const-str classes → HEAP classes (AzString::from(&str)
-        // = s.to_string().into()). Decisive test: if web-button-nocb RUNS now → the const-str
-        // CLONE (s.clone() of a NoDestructor/borrowed AzString in set_ids_and_classes) mis-lifts
-        // (deref of unmirrored .rodata); fix = transpiler const-str mirror OR heap classes here.
-        // If it still OOBs → the AttributeTypeVec machinery (swap/into_library_owned_vec/retain/
-        // push/set_attributes) is the lift bug, independent of const-str.
-        let type_class = self.button_type.class_name();
-        let classes: Vec<IdOrClass> = vec![
-            Class(AzString::from("__azul-native-button")),
-            Class(AzString::from(type_class)),
-        ];
-
-        // (2026-06-10: the June-02 bisection strips are REVERTED — the underlying corruption
-        // was the alloc collect-machinery Leaf-stub in the web transpiler, fixed there. The
-        // label keeps its inline css; the button carries its on_click callbacks + tab index
-        // again — without them every Button click was a silent no-op on ALL backends, and the
-        // web route-walk discovered 0 callbacks. The FIX-A ordering (container style before
-        // ids/classes) is kept: builder-order is semantically neutral natively.)
-        let mut button = Dom::create_node(NodeType::Button);
-
-        let has_icon = !self.icon.as_str().is_empty() || self.icon_dom.is_some();
-        let has_image = self.image.is_some();
-        let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
-
-        // Snapshot the accessible name BEFORE `self.label` / `self.icon` are
-        // moved into the DOM below. An icon-only button falls back to the icon
-        // NAME — "arrow_drop_down" reads far better than U+E5C5, which is all a
-        // screen reader gets from the glyph itself.
-        let a11y_name_src: String = if self.label.as_str().is_empty() {
-            if has_icon {
-                self.icon.as_str().to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            self.label.as_str().to_string()
-        };
-
-        // Child order: leading icon, image, label, trailing icon. In a
-        // row container that reads left-to-right; a column container (large
-        // ribbon-style buttons) stacks icon over label over arrow.
-        if has_icon {
-            // A caller-supplied icon DOM wins over resolving `icon`, which is
-            // then only the accessible name (snapshotted above).
-            button = button.with_child(match self.icon_dom.into_option() {
-                Some(dom) => dom,
-                None => Dom::create_icon(self.icon).with_css_props(self.icon_style),
-            });
-        }
-
-        // If an image was set via `set_image`, render it as the first child
-        // (left of the label, since the container is a horizontal flex row).
-        if let Some(image) = self.image.into_option() {
-            button = button.with_child(Dom::create_image(image).with_css_props(self.image_style));
-        }
-
-        // An empty label on an icon-only button is skipped entirely so the
-        // (zero-size but line-height-carrying) text node cannot disturb the
-        // icon centering. A button with no icon at all keeps its empty text
-        // node — an all-empty button should still render as an empty label.
-        let skip_label =
-            self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
-        if !skip_label {
-            button = button.with_child(
-                crate::widgets::widget_p()
-                    .with_css_props(self.label_style)
-                    .with_children(azul_core::dom::DomVec::from_vec(vec![
-                        Dom::create_text_do_not_use_without_block_level_wrapper(self.label),
-                    ])),
-            );
-        }
-
-        if has_trailing_icon {
-            button = button.with_child(
-                Dom::create_icon(self.trailing_icon).with_css_props(self.trailing_icon_style),
-            );
-        }
-
-        // A button is focusable, so a keyboard user WILL land on it. Without
-        // accessibility info it is absent from the accessibility tree entirely
-        // — the tab stop exists and describes nothing. An icon-only button is
-        // the worst case: its label is a private-use glyph that reads as
-        // nothing at all.
+        // Rendering lives in the theme modules, where the palette is in scope:
+        // the dark-mode colours, the interactive states and (for flora) the
+        // raised face are all appended there. This used to build its own copy of
+        // the tree and never reach `flat::button` / `flora::button`, which left
+        // both functions dead and the product's buttons without any of that.
         //
-        // The name comes from the label when there is one; an icon-only button
-        // falls back to its icon NAME ("arrow_drop_down" reads far better than
-        // U+E5C5), which the caller can override with a real one.
-        // NOTE: computed from the strings captured before they were moved into
-        // the DOM above — `a11y_name_src` is taken at the top of this function.
-        let a11y_name = a11y_name_src;
-        let mut a11y = azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::PushButton,
-            ..azul_core::a11y::AccessibilityInfo::default()
-        };
-        if !a11y_name.is_empty() {
-            a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
+        // `UiTheme::default()` is Flat, and so is every other widget's fallback.
+        match self.theme.into_option() {
+            Some(crate::widgets::themes::UiTheme::Flora) => {
+                crate::widgets::themes::flora::button(self)
+            }
+            Some(crate::widgets::themes::UiTheme::Flat) | None => {
+                crate::widgets::themes::flat::button(self)
+            }
         }
-
-        button
-            .with_css_props(self.container_style)
-            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-            .with_callbacks(callbacks.into())
-            .with_tab_index(TabIndex::Auto)
-            .with_accessibility_info(a11y)
     }
 }
 
@@ -728,6 +647,7 @@ mod autotest_generated {
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
 
     use super::*;
+    use crate::widgets::theme_probe;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -1282,9 +1202,27 @@ mod autotest_generated {
                     .any(|p| matches!(p.property, CssProperty::TextColor(_))),
                 "{ty:?}: no text colour — is the bisection probe back?",
             );
+            // The conditionals are no longer HERE: hover, pressed and focus moved
+            // to the theme modules, which is where the dark half of each pair can
+            // be written. What this half of the guard still checks is that the
+            // base style did not quietly acquire some other conditional rule.
             assert!(
-                v.as_ref().iter().any(|p| !p.apply_if.as_ref().is_empty()),
-                "{ty:?}: no conditional (hover/active/focus) properties — is the probe back?",
+                v.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
+                "{ty:?}: the base style declares a conditional property; states belong in the \
+                 theme modules",
+            );
+            // ...and the guard's real subject — that SOMETHING reacts to the
+            // pointer — is asked of the rendered button, where the theme has
+            // appended its states.
+            let rendered = Button::with_type(AzString::from_const_str("x"), ty).dom();
+            assert!(
+                rendered
+                    .root
+                    .style
+                    .iter_inline_properties()
+                    .any(|(_, conds)| !conds.as_ref().is_empty()),
+                "{ty:?}: the rendered button has no conditional properties at all, so it gives no \
+                 feedback on hover, press or focus",
             );
         }
 
@@ -1424,24 +1362,24 @@ mod autotest_generated {
                 let container = build_button_container_style(ty);
                 let label_style = build_button_label_style();
                 assert_eq!(
-                    b.container_style.len(),
+                    b.resolved_container_style().len(),
                     container.len(),
                     "{ty:?}: container_style length is inconsistent"
                 );
                 assert_eq!(
-                    b.container_style.as_ref(),
+                    b.resolved_container_style().as_ref(),
                     container.as_slice(),
                     "{ty:?}: container_style does not match the builder"
                 );
                 assert_eq!(
-                    b.label_style.as_ref(),
+                    b.resolved_label_style().as_ref(),
                     label_style.as_slice(),
                     "{ty:?}: label_style does not match the builder"
                 );
                 // `with_type` deliberately reuses the label style for the image.
                 assert_eq!(
-                    b.image_style.as_ref(),
-                    b.label_style.as_ref(),
+                    b.resolved_image_style().as_ref(),
+                    b.resolved_label_style().as_ref(),
                     "{ty:?}: image_style diverged from label_style"
                 );
             }
@@ -1482,7 +1420,7 @@ mod autotest_generated {
             b.set_button_type(ty);
             assert_eq!(b.button_type, ty, "{ty:?}: field not updated");
             assert_eq!(
-                b.container_style.as_ref(),
+                b.resolved_container_style().as_ref(),
                 build_button_container_style(ty).as_slice(),
                 "{ty:?}: container_style was not rebuilt for the new type",
             );
@@ -1494,12 +1432,12 @@ mod autotest_generated {
         // Re-setting the same type must *replace*, never append: an appending
         // implementation would grow the style vec without bound.
         let mut b = btn("Save", ButtonType::Primary);
-        let len = b.container_style.len();
+        let len = b.resolved_container_style().len();
         for _ in 0..100 {
             b.set_button_type(ButtonType::Primary);
         }
         assert_eq!(
-            b.container_style.len(),
+            b.resolved_container_style().len(),
             len,
             "container_style grew across repeated set_button_type calls"
         );
@@ -1513,8 +1451,8 @@ mod autotest_generated {
     #[test]
     fn set_button_type_leaves_the_label_and_the_other_styles_untouched() {
         let mut b = btn("Delete", ButtonType::Default);
-        let label_style = b.label_style.clone();
-        let image_style = b.image_style.clone();
+        let label_style = b.resolved_label_style().clone();
+        let image_style = b.resolved_image_style().clone();
         b.set_button_type(ButtonType::Danger);
         assert_eq!(
             b.label.as_str(),
@@ -1522,11 +1460,13 @@ mod autotest_generated {
             "set_button_type clobbered the label"
         );
         assert_eq!(
-            b.label_style, label_style,
+            b.resolved_label_style(),
+            label_style,
             "set_button_type clobbered label_style"
         );
         assert_eq!(
-            b.image_style, image_style,
+            b.resolved_image_style(),
+            image_style,
             "set_button_type clobbered image_style"
         );
     }
@@ -1806,7 +1746,10 @@ mod autotest_generated {
                 classes(&dom),
                 vec![
                     "__azul-native-button".to_string(),
-                    ty.class_name().to_string()
+                    ty.class_name().to_string(),
+                    // The theme marker the render path adds — `Button::dom` renders through
+                    // `flat::button` / `flora::button`, which tag the node with their theme.
+                    "__azul-theme-flat".to_string(),
                 ],
                 "{ty:?}: wrong classes (base class first, then the type class)",
             );
@@ -1817,16 +1760,69 @@ mod autotest_generated {
         }
     }
 
+    /// `ButtonType::surface` decides what the theme may do in dark mode: the
+    /// neutral (Default) face takes the theme's dark face; a coloured command
+    /// keeps its own colour — no dark background twin at all — and the link
+    /// has no face. A blue primary button on a dark window stays blue.
+    #[test]
+    fn only_the_neutral_surface_takes_a_dark_face() {
+        use azul_css::props::property::CssPropertyType;
+
+        // RESTING dark twins only — `[Theme(Dark)]` and nothing else. The
+        // hover/pressed twins from `button_states` carry a pseudo-state too,
+        // and a coloured command legitimately has those (in its own colour).
+        let dark_backgrounds = |ty: ButtonType| {
+            use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
+            btn("OK", ty)
+                .dom()
+                .root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, c)| {
+                    p.get_type() == CssPropertyType::BackgroundContent
+                        && !c.as_ref().is_empty()
+                        && c.as_ref()
+                            .iter()
+                            .all(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                })
+                .count()
+        };
+        assert!(
+            dark_backgrounds(ButtonType::Default) >= 1,
+            "the neutral face takes the theme's dark face"
+        );
+        for ty in [
+            ButtonType::Primary,
+            ButtonType::Secondary,
+            ButtonType::Success,
+            ButtonType::Danger,
+            ButtonType::Warning,
+            ButtonType::Info,
+        ] {
+            assert_eq!(ty.surface(), ButtonSurface::OwnColour);
+            assert_eq!(
+                dark_backgrounds(ty),
+                0,
+                "{ty:?}: a coloured command keeps its colour in dark mode"
+            );
+        }
+        assert_eq!(ButtonType::Link.surface(), ButtonSurface::NoSurface);
+        assert_eq!(ButtonType::Default.surface(), ButtonSurface::Neutral);
+    }
+
     #[test]
     fn dom_carries_the_container_style_on_the_root_and_the_label_style_on_the_child() {
         for ty in ALL_TYPES {
             let b = btn("OK", ty);
-            let container = properties(&b.container_style);
-            let label_style = properties(&b.label_style);
+            let container = properties(&b.resolved_container_style());
+            let label_style = properties(&b.resolved_label_style());
             let dom = b.dom();
 
+            // Only the RESTING declarations: the theme appends hover, pressed
+            // and focus rules on top of the container style, and those are not
+            // part of what the widget declared.
             assert_eq!(
-                inline_properties(&dom),
+                theme_probe::unconditional(&dom),
                 container,
                 "{ty:?}: the root inline style is not the container style"
             );
@@ -1859,7 +1855,7 @@ mod autotest_generated {
             RawImageFormat::RGBA8,
             Vec::new(),
         ));
-        let image_style = properties(&b.image_style);
+        let image_style = properties(&b.resolved_image_style());
         let dom = b.dom();
 
         let children = dom.children.as_ref();
@@ -1938,7 +1934,10 @@ mod autotest_generated {
             classes(&dom),
             vec![
                 "__azul-native-button".to_string(),
-                "__azul-btn-primary".to_string()
+                "__azul-btn-primary".to_string(),
+                // The theme marker the render path adds — `Button::dom` renders through
+                // `flat::button` / `flora::button`, which tag the node with their theme.
+                "__azul-theme-flat".to_string(),
             ],
             "the label leaked into the class list",
         );

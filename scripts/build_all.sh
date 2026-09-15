@@ -109,7 +109,7 @@ RUST_EXAMPLES=(
 
 for example in "${RUST_EXAMPLES[@]}"; do
     run_build "Rust example: ${example} (static)" \
-        "cargo build -p azul-examples --example ${example}" || true
+        "cargo build -p azul-examples --example ${example} --no-default-features --features link-static" || true
 done
 
 # ============================================
@@ -119,14 +119,10 @@ echo -e "\n${BLUE}--- Step 6: Build Rust Examples (Dynamic Linking) ---${NC}"
 
 # First check if the dynamic library exists
 if [[ -f "${DYLIB_PATH}" ]]; then
-    RUST_DYNAMIC_EXAMPLES=(
-        "hello-world-dynamic"
-        "calc-dynamic"
-    )
-
-    for example in "${RUST_DYNAMIC_EXAMPLES[@]}"; do
+    # Own target dir: a link-dynamic build would overwrite the library above with a stub.
+    for example in "${RUST_EXAMPLES[@]}"; do
         run_build "Rust example: ${example} (dynamic)" \
-            "cargo build -p azul-examples-dynamic --example ${example}" || true
+            "CARGO_TARGET_DIR=${PROJECT_ROOT}/target/consumer cargo build -p azul-examples --example ${example} --no-default-features --features link-dynamic" || true
     done
 else
     echo -e "${YELLOW}[SKIP]${NC} Dynamic Rust examples - shared library not found at ${DYLIB_PATH}"
@@ -153,7 +149,7 @@ else
         LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul -Wl,-rpath,${PROJECT_ROOT}/target/release -lm -lpthread -ldl"
     else
         CC_FLAGS=""
-        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul"
+        LINK_FLAGS="${PROJECT_ROOT}/target/release/azul.dll"
     fi
 
     C_EXAMPLES=(

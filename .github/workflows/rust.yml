@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - uses: ./.github/actions/supply-chain-preflight
 
   content_state_lint:
@@ -229,7 +229,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
@@ -372,7 +372,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
@@ -437,7 +437,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
@@ -503,7 +503,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Check crates
         run: |
@@ -531,7 +531,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install dependencies (Ubuntu)
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
@@ -584,7 +584,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Run azul-doc tests
         run: |
@@ -603,6 +603,15 @@ jobs:
           chmod +x .azul-doc-bin/azul-doc
           echo "$PWD/.azul-doc-bin" >> "$GITHUB_PATH"
 
+      - name: Download generated bindings (built once by codegen_linux)
+        # The examples lint checks every example and guide call site against
+        # the symbols the generator emitted. Without this tree it used to skip
+        # itself and still print [ok]; it now fails instead.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codegen-tree-${{ runner.os }}
+          path: target/codegen
+
       - name: Double-drop invariant + guide links (azul-doc)
         run: azul-doc check
 
@@ -620,7 +629,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install dependencies (Ubuntu)
         # `fonts-dejavu-core`: AzWriter's pagination tests MEASURE text - a
@@ -707,7 +716,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install dependencies (Ubuntu)
         run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
@@ -737,7 +746,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -759,6 +768,9 @@ jobs:
 
       - name: Check azul-dll with svg and xml
         run: cargo check -p azul-dll --no-default-features --features "link-static,svg,xml"
+
+      - name: Check azul-dll with the iroh transport
+        run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y,iroh"
 
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
@@ -796,7 +808,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -812,6 +824,13 @@ jobs:
           ./scripts/zero_test_guard.sh --strict dll-lib.txt
           if ! grep -qE '^test desktop::shell2::windows::' dll-lib.txt; then
             echo "::error::no desktop::shell2::windows::* test ran - the Win32 backend is still untested."
+            exit 1
+          fi
+          # The iroh engine is `cfg(az_iroh_engine)`: a target or feature slip compiles it out
+          # silently, and its loopback test (a real QUIC connection between two endpoints) is the
+          # only thing that exercises the transport at all.
+          if ! grep -qE '^test desktop::extra::iroh::engine::' dll-lib.txt; then
+            echo "::error::no desktop::extra::iroh::engine::* test ran - the iroh transport is compiled out."
             exit 1
           fi
 
@@ -879,7 +898,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           targets: ${{ matrix.target }}
 
       - name: Download generated bindings (built once per OS)
@@ -1020,7 +1039,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           targets: ${{ matrix.target }}
       - name: Cache cross
         id: cache-cross
@@ -1113,7 +1132,7 @@ jobs:
       - name: Install Rust (for bootstrap + rustup)
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Clone rust9x source (for std + toolchain link)
         shell: bash
@@ -1244,7 +1263,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Rust build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1298,7 +1317,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Install Miri
         run: |
           rustup toolchain install nightly-2026-09-03 --component miri
@@ -1379,7 +1398,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Rust build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -1449,7 +1468,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang lldb libv4l-dev
@@ -1555,7 +1574,7 @@ jobs:
         if: steps.icu-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Run ICU parity tests (${{ matrix.backend.feature }})
         if: steps.icu-cache.outputs.cache-hit != 'true' && matrix.backend.run
@@ -1594,7 +1613,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install clang (Ubuntu)
         if: runner.os == 'Linux'
@@ -1655,7 +1674,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install toolchains (clang/c++/python + headless GL deps)
         run: |
@@ -1735,7 +1754,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -1899,65 +1918,6 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo check --verbose -p azul-examples --examples --features serde,icu,fluent,http,zip
 
-      - name: Take screenshots (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-              ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-linux.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (macOS)
-        if: matrix.os == 'macos-14'
-        continue-on-error: true
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-macos.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Take screenshots (Windows)
-        if: matrix.os == 'windows-2022'
-        continue-on-error: true
-        shell: bash
-        run: |
-          chmod +x scripts/screenshot_single.sh
-          mkdir -p target/screenshots
-          PORT=8780
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            echo "Taking screenshot for $example on port $PORT"
-            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
-            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
-              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-windows.png"
-            fi
-            PORT=$((PORT + 1))
-          done
-
-      - name: Upload Screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-${{ matrix.os }}
-          path: target/screenshots/*.png
-          retention-days: 7
-          if-no-files-found: warn
-
       - name: Upload the lean libazul
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -2023,7 +1983,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -2123,7 +2083,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -2468,7 +2428,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install clang + deps (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -2667,7 +2627,6 @@ jobs:
           path: |
             target/release
             target/pyext-e2e/release
-            target/codegen
           key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -2698,11 +2657,21 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install dependencies (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      # `download-artifact` MERGES into an existing directory. A restore-key
+      # prefix match above can hand this job a `target/codegen` from an older
+      # run, and a file that later codegen no longer produces (a wrapper for a
+      # type that became `Copy`) survives the merge and reaches every consumer
+      # of the e2e artifact — `mvn package` then fails on natives the C API
+      # never had. The tree comes from the artifact alone.
+      - name: Replace any cached codegen tree
+        shell: bash
+        run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -2772,7 +2741,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install dependencies (Linux)
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core
@@ -2900,7 +2869,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Rust build cache
         if: matrix.family.key == 'rust'
@@ -3234,7 +3203,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Rust build cache
         if: matrix.family.key == 'rust'
@@ -3558,7 +3527,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           targets: ${{ matrix.target }}
       - name: Check mobile build artifact cache
         id: build-cache
@@ -3566,7 +3535,6 @@ jobs:
         with:
           path: |
             target/${{ matrix.target }}/release
-            target/codegen
           key: mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
             mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-
@@ -3588,6 +3556,16 @@ jobs:
             rm -rf "$DIR"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # `download-artifact` MERGES into an existing directory. A restore-key
+      # prefix match above can hand this job a `target/codegen` from an older
+      # run, and a file that later codegen no longer produces (a wrapper for a
+      # type that became `Copy`) survives the merge and reaches every consumer
+      # of the e2e artifact — `mvn package` then fails on natives the C API
+      # never had. The tree comes from the artifact alone.
+      - name: Replace any cached codegen tree
+        shell: bash
+        run: rm -rf target/codegen
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -3697,7 +3675,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -3838,7 +3816,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           targets: aarch64-linux-android, x86_64-linux-android
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -3847,6 +3825,13 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: 12266719
+          # The action's default is `tools platform-tools`. The legacy `tools`
+          # package is gone from the SDK repository the runner's cmdline-tools
+          # 16.0 queries, so `sdkmanager tools` exits 1 ("Failed to find package
+          # 'tools'") and the job dies before building anything. Nothing here
+          # uses it: the next step installs build-tools and the platform
+          # explicitly, and platform-tools stays.
+          packages: platform-tools
       - name: Install SDK build-tools + platform
         run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
       - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
@@ -3889,18 +3874,24 @@ jobs:
             cp "$APK" "mobile-apps/${demo}-android.apk"
           done
 
-          echo "=== Android APK (x86_64 emulator variant): azul-self-test ==="
+          # The emulator variant used to be `azul-self-test`, which was deleted
+          # from the workspace; this job kept building it and failed with
+          # "package ID specification `azul-self-test` did not match any
+          # packages". AzWidgets is the natural stand-in: it is already one of
+          # the demos built above, and exercising the widget showcase on the
+          # emulator is a broader smoke test than the old one was.
+          echo "=== Android APK (x86_64 emulator variant): AzWidgets ==="
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDKBIN/x86_64-linux-android24-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           AZ_ANDROID_NO_DEPLOY=1 \
-            bash scripts/build-android.sh x86_64-linux-android azul-self-test com.azul.azul_self_test azul-self-test
-          APK="target/android-bundle/azul-self-test-x86_64/aligned.apk"
-          [ -f "$APK" ] || { echo "::error::x86_64 self-test produced no APK at $APK"; exit 1; }
+            bash scripts/build-android.sh x86_64-linux-android AzWidgets com.azul.AzWidgets AzWidgets
+          APK="target/android-bundle/AzWidgets-x86_64/aligned.apk"
+          [ -f "$APK" ] || { echo "::error::x86_64 emulator APK missing at $APK"; exit 1; }
           "$BT/apksigner" verify --verbose "$APK" \
-            || { echo "::error::x86_64 self-test APK is not validly signed"; exit 1; }
+            || { echo "::error::x86_64 emulator APK is not validly signed"; exit 1; }
           unzip -l "$APK" | grep -q 'lib/x86_64/.*\.so' \
-            || { echo "::error::x86_64 self-test APK has no lib/x86_64/*.so"; exit 1; }
-          cp "$APK" "mobile-apps/azul-self-test-android-x86_64.apk"
+            || { echo "::error::x86_64 emulator APK has no lib/x86_64/*.so"; exit 1; }
+          cp "$APK" "mobile-apps/AzWidgets-android-x86_64.apk"
           ls -l mobile-apps
       - name: Upload mobile demo apps (Android)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4227,7 +4218,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4329,11 +4320,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
-            examples/assets/screenshots
             scripts/build_registry_mirrors.sh
             scripts/verify_install_commands.sh
             scripts/prune_dead_release_links.py
             scripts/publish_upstream.sh
+            scripts/dependency-justifications.toml
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
@@ -4495,27 +4486,6 @@ jobs:
         with:
           name: reftest-results
           path: artifacts-reftest
-
-      - name: Download Linux screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-ubuntu-22.04
-          path: artifacts-screenshots-linux
-
-      - name: Download macOS screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-macos-14
-          path: artifacts-screenshots-macos
-
-      - name: Download Windows screenshots
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: screenshots-windows-2022
-          path: artifacts-screenshots-windows
 
       - name: Download Linux demo binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4857,53 +4827,13 @@ jobs:
             fi
           fi
 
-          mkdir -p website/images
-          for screenshot_dir in artifacts-screenshots-linux artifacts-screenshots-macos artifacts-screenshots-windows; do
-            if [ -d "$screenshot_dir" ]; then
-              for png in "$screenshot_dir"/*.png; do
-                if [ -f "$png" ]; then
-                  filename=$(basename "$png")
-                  case "$screenshot_dir" in
-                    *linux*) os="linux" ;;
-                    *macos*) os="mac" ;;
-                    *windows*) os="windows" ;;
-                  esac
-                  case "$os" in
-                    mac) src_sfx="-macos" ;;
-                    *)   src_sfx="-${os}" ;;
-                  esac
-                  newname="${filename%%${src_sfx}.png}.${os}.png"
-                  cp "$png" "website/images/$newname"
-                  echo "  [OK] Copied screenshot: $newname"
-                fi
-              done
-            fi
-          done
-
-          echo "Checking for missing screenshots, using fallbacks from examples/assets/screenshots..."
-          for example in hello-world widgets opengl infinity async xhtml calc; do
-            for os in linux mac windows; do
-              target="website/images/${example}.${os}.png"
-              if [ ! -f "$target" ]; then
-                fallback="examples/assets/screenshots/${example}.${os}.png"
-                if [ -f "$fallback" ]; then
-                  cp "$fallback" "$target"
-                  echo "::warning::screenshot fallback: $target came from $fallback, not from this run"
-                  echo "  [FALLBACK] Copied $fallback -> $target"
-                else
-                  mac_fallback="examples/assets/screenshots/${example}.mac.png"
-                  if [ -f "$mac_fallback" ]; then
-                    cp "$mac_fallback" "$target"
-                    echo "  [FALLBACK] Copied $mac_fallback -> $target (mac as fallback)"
-                  else
-                    echo "  [MISSING] No screenshot for ${example}.${os}.png"
-                  fi
-                fi
-              fi
-            done
-          done
-
-          ls -la website/images/ || echo "No images directory"
+          # The example screenshots on /ui are STATIC. They are taken by hand with
+          # scripts/screenshot_single.sh, committed to examples/assets/screenshots,
+          # and written into the site by `azul-doc deploy` (Example::load) as
+          # ui/images/<example>.<os>.{light,dark}.png. CI neither takes nor
+          # overwrites them. It used to do both, and none of it was ever visible:
+          # the capture landed in website/images/<example>.<os>.png, a name no page
+          # links and a directory the /ui index does not read.
 
           if [ -d "$RELEASE_DIR" ]; then
             echo "Updating file sizes in release HTML..."
@@ -5227,7 +5157,7 @@ jobs:
                    -o -name '*.dylib' -o -name '*.dll' -o -name '*.pyd' \
                    -o -name '*.deb' -o -name '*.rpm' -o -name '*.whl' -o -name '*.nupkg' \
                    -o -name '*.gem' -o -name '*.jar' -o -name '*.tgz' \
-                   -o -name '*.cs' -o -name '*.psm1' \
+                   -o -name 'Azul.cs' -o -name '*.psm1' \
                    -o -name 'examples.zip' -o -name 'guide.pdf' \) \
                 ! -name 'libazul.so' ! -name 'libazul.dylib' ! -name 'libazul.x86_64.dylib' \
                 ! -name 'azul.dll' ! -name 'azul.i686.dll' ! -name 'azul.dll.lib'
@@ -5450,9 +5380,9 @@ jobs:
           - channel: bindings
             image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
           - channel: rust
-            image: rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+            image: rust:1.91-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33
           - channel: cargo
-            image: rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+            image: rust:1.91-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33
           - channel: doclinks
             image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
     steps:
@@ -5481,6 +5411,11 @@ jobs:
         shell: sh
         run: |
           set -eu
+          # The workspace is created by the runner's user and mounted into the
+          # container, where this step runs as root, so git refuses it as a
+          # repository with "dubious ownership" (exit 128) before cloning
+          # anything. Trust exactly this directory.
+          git config --global --add safe.directory "$PWD"
           git init -q .
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           git config core.sparseCheckout true
@@ -5599,7 +5534,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Cache cargo-deny
         id: cache-cargo-deny
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -5665,7 +5600,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -5743,7 +5678,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
           components: clippy
 
       - name: clippy (extreme lints - enforced as -D warnings)
@@ -5791,7 +5726,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       # PINNED, AND PINNED TOGETHER WITH THE NIGHTLY BELOW.
       #
       # TSan links Rust-instrumented code against clang's compiler-rt TSan
@@ -5823,7 +5758,7 @@ jobs:
 
       # TSan requires Rust instrumentation to avoid false positives with futex-based Mutexes.
       # `-Zsanitizer` and `-Zbuild-std` are unstable, so this half cannot move to
-      # stable; the ASan/UBSan runs below already use the stable 1.90.0 build.
+      # stable; the ASan/UBSan runs below already use the stable 1.91.0 build.
       # PINNED to a date for the reason given on the clang step above.
       - name: Install nightly (pinned, for -Zsanitizer)
         run: rustup toolchain install nightly-2026-09-03 --component rust-src
@@ -5961,7 +5896,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -6007,7 +5942,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Check docs PDF cache
         id: pdf-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -6053,7 +5988,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
       - name: Install build dependencies
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
@@ -6164,7 +6099,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install build dependencies
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
@@ -6192,6 +6127,29 @@ jobs:
     needs: [codegen_linux]
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      # Read and refresh the ghcr.io copy of the manylinux image (see
+      # scripts/ci/pick_manylinux_image.sh).
+      packages: write
+    # Job-level so the retry below builds exactly what the first attempt did.
+    env:
+      # The manylinux2014 tag cibuildwheel v2.21.3 builds in. Pinned here
+      # because the registry failover names the image itself.
+      MANYLINUX_TAG: "2024.10.07-1"
+      CIBW_BUILD_FRONTEND: "build"
+      CIBW_BUILD: "cp310-*"
+      CIBW_SKIP: "*-musllinux* *_i686 pp*"
+      CIBW_BEFORE_ALL_LINUX: >
+        yum install -y clang mesa-libGL-devel libX11-devel ||
+        (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91.0 --profile minimal
+      CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.91.0'
+      CIBW_TEST_COMMAND: >
+        python -c "import azul; c = azul.ColorU.create(1, 2, 3, 4); del c;
+        a = azul.AppConfig.create(); del a;
+        print('wheel import + pyclass teardown OK')"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -6201,7 +6159,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -6223,21 +6181,36 @@ jobs:
           cp packaging/pypi/pyproject.toml ./pyproject.toml
           cp packaging/pypi/README.md ./README.md
 
-      - name: Build wheels (cibuildwheel)
-        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
+      - name: Pick a reachable manylinux registry
+        # cibuildwheel creates its container with `--pull=always`, so every run
+        # asks the image's registry for the manifest. A quay.io outage (HTTP 502,
+        # 2026-09-15) failed the whole release although nothing was wrong with
+        # the wheel. The script falls back to a ghcr.io copy of the same image,
+        # which it refreshes whenever quay.io is up.
         env:
-          CIBW_BUILD_FRONTEND: "build"
-          CIBW_BUILD: "cp310-*"
-          CIBW_SKIP: "*-musllinux* *_i686 pp*"
-          CIBW_BEFORE_ALL_LINUX: >
-            yum install -y clang mesa-libGL-devel libX11-devel ||
-            (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0 --profile minimal
-          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.90.0'
-          CIBW_TEST_COMMAND: >
-            python -c "import azul; c = azul.ColorU.create(1, 2, 3, 4); del c;
-            a = azul.AppConfig.create(); del a;
-            print('wheel import + pyclass teardown OK')"
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/pick_manylinux_image.sh "$MANYLINUX_TAG"
+
+      - name: Build wheels (cibuildwheel)
+        id: cibw
+        # A registry that fails between the pick above and the build still gets
+        # one retry, re-picked after a pause; a real build error fails both.
+        continue-on-error: true
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
+        with:
+          output-dir: dist
+
+      - name: Wait, then pick a registry again before retrying
+        if: steps.cibw.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 120
+          bash scripts/ci/pick_manylinux_image.sh "$MANYLINUX_TAG"
+
+      - name: Build wheels (cibuildwheel, retry)
+        if: steps.cibw.outcome == 'failure'
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
         with:
           output-dir: dist
 
@@ -6877,7 +6850,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
-          toolchain: 1.90.0
+          toolchain: 1.91.0
 
       - name: Install build dependencies + LuaRocks
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks

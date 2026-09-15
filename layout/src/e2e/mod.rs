@@ -46,7 +46,8 @@ pub mod hooks {
     pub struct E2eHostHooks {
         /// Grab a real window screenshot as a base64 data-URI. `None` (headless)
         /// makes the `screenshot` op return an error.
-        pub take_native_screenshot_base64: Option<fn(&mut CallbackInfo) -> Result<String, String>>,
+        pub take_native_screenshot_base64:
+            Option<fn(&mut CallbackInfo, Option<bool>) -> Result<String, String>>,
     }
 
     impl E2eHostHooks {
@@ -77,9 +78,12 @@ pub mod hooks {
     }
 
     /// Screenshot seam (`screenshot` op). Errors headlessly.
-    pub(crate) fn take_native_screenshot_base64(ci: &mut CallbackInfo) -> Result<String, String> {
+    pub(crate) fn take_native_screenshot_base64(
+        ci: &mut CallbackInfo,
+        render_shadow: Option<bool>,
+    ) -> Result<String, String> {
         match get().take_native_screenshot_base64 {
-            Some(f) => f(ci),
+            Some(f) => f(ci, render_shadow),
             None => Err("native screenshot unavailable (no e2e host hook installed)".to_string()),
         }
     }

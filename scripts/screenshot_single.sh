@@ -1,518 +1,757 @@
 #!/bin/bash
-# Screenshot Single Example Script
-# Usage: ./scripts/screenshot_single.sh <example_name> [port]
+# Screenshot the C examples for the website.
 #
-# This script:
-# 1. Compiles the DLL if not already done
-# 2. Checks headers are present
-# 3. Creates target/examples-temp/<example>/ with DLL + headers
-# 4. Compiles the example in that folder
-# 5. Runs it with AZ_DEBUG in background
-# 6. Waits for startup
-# 7. Tests if app is running and port is listening
-# 8. Takes screenshot and saves it
-# 9. Shuts down the application
-# 10. Verifies shutdown
+# THE ONLY PRODUCER of the example screenshots on /ui. They are static: taken
+# by hand, per OS, with this script, which installs them into
+# examples/assets/screenshots; commit them from there. CI neither takes nor
+# overwrites them. Publishing a fresh set for one OS:
+#
+#   ./scripts/screenshot_single.sh all
+#   git add examples/assets/screenshots/*.<os>*.png
+#
+# Each passing example is installed as <example>.<os>.light.png,
+# <example>.<os>.dark.png and <example>.<os>.png (the light one, the name
+# api.json points at). AZ_SCREENSHOT_NO_INSTALL=1 leaves them in
+# target/examples-temp/<example>/ only. Make sure api.json's `screenshot.<os>` for each example is
+# `<example>.<os>.png` — `Example::load` derives the light/dark names from it.
+# Flip it in the SAME commit as the images: pointed at files that do not exist
+# yet, the loader falls through to calculator.png on the live site.
+#
+# Usage:
+#   ./scripts/screenshot_single.sh                    # hello-world
+#   ./scripts/screenshot_single.sh widgets            # one example
+#   ./scripts/screenshot_single.sh hello-world calc   # several, ONE dll build
+#   ./scripts/screenshot_single.sh all                # every example on the index
+#
+# Runs on Linux, macOS and Windows (MSYS/MinGW) unchanged: build the library,
+# compile each example against it, run it twice under the AZ_E2E scenario
+# runner — once with the desktop in light mode, once in dark — and keep the native window
+# capture from each run.
+#
+# Output per example, in target/examples-temp/<example>/:
+#   <example>.<os>.light.png   <example>.<os>.dark.png
+# and, unless AZ_SCREENSHOT_NO_INSTALL is set, the same files (plus
+# <example>.<os>.png) in examples/assets/screenshots/.
+#
+# ── Why AZ_E2E and not AZ_DEBUG ──────────────────────────────────────────────
+# The debug server is an in-process HTTP listener on a real port. Taking one
+# screenshot needed all of it — a port to allocate, a liveness poll, a curl
+# round trip, a graceful-close request — and it had to be COMPILED IN
+# (`--features debug-server`), which is a feature the shipped library does NOT
+# carry. `e2e-scripting` compiles the same op dispatcher with no socket at all:
+# the scenario is a JSON file, the app runs it and exits with a test-runner
+# verdict, and there is nothing to connect to.
+#
+# And `build-dll` ALREADY ENABLES `e2e-scripting` ("AZ_E2E SCRIPTING, in every
+# shipped dylib", dll/Cargo.toml). So this script asks for no feature the normal
+# build does not already have, which is what makes the build below a cache hit
+# instead of a rebuild — and is why it can no longer overwrite an artifact
+# someone else built. Adding `debug-server` is what used to force both.
+#
+# ── Why two processes and not one theme toggle ───────────────────────────────
+# Each theme gets its own run: the desktop is switched first, then the example
+# starts and has to DISCOVER the system theme itself (see "Desktop light/dark
+# switching" below). One process toggled mid-run silently produced two
+# identical light captures on any desktop that does not keep its appearance
+# where the old script looked — KDE reads ~/.config/kdeglobals, XFCE xfconf.
 
 set -e
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-EXAMPLE_NAME="${1:-hello-world}"
-PORT="${2:-8765}"
-STARTUP_WAIT=8  # Windows needs more time for OpenGL context creation
-SHUTDOWN_WAIT=3
-MAX_RETRIES=10
-
-# Paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEMP_DIR="$ROOT_DIR/target/examples-temp/$EXAMPLE_NAME"
-EXAMPLE_SRC="$ROOT_DIR/examples/c/${EXAMPLE_NAME}.c"
-
-# Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_step() { echo -e "${BLUE}[STEP $1]${NC} $2"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
-# Platform detection
-is_windows() {
-    [[ "$(uname)" == MINGW* ]] || [[ "$(uname)" == MSYS* ]] || [[ "$(uname)" == CYGWIN* ]]
-}
+is_windows() { [[ "$(uname)" == MINGW* ]] || [[ "$(uname)" == MSYS* ]] || [[ "$(uname)" == CYGWIN* ]]; }
+is_linux()   { [ "$(uname)" == "Linux" ]; }
+is_macos()   { [ "$(uname)" == "Darwin" ]; }
 
-is_linux() {
-    [ "$(uname)" == "Linux" ]
-}
-
-is_macos() {
-    [ "$(uname)" == "Darwin" ]
-}
-
-# Platform-specific process management
-get_pid_on_port() {
-    local port=$1
-    if is_windows; then
-        netstat -ano 2>/dev/null | grep ":$port " | grep LISTEN | awk '{print $5}' | head -1
-    else
-        lsof -ti :$port 2>/dev/null || true
-    fi
-}
-
-kill_pid() {
-    local pid=$1
-    if is_windows; then
-        taskkill //PID $pid //F 2>/dev/null || true
-    else
-        kill -9 $pid 2>/dev/null || true
-    fi
-}
-
-kill_by_name() {
-    local name=$1
-    if is_windows; then
-        taskkill //IM "$name.exe" //F 2>/dev/null || true
-    else
-        killall "$name" 2>/dev/null || true
-    fi
-}
-
-check_process_alive() {
-    local pid=$1
-    if is_windows; then
-        tasklist //FI "PID eq $pid" 2>/dev/null | grep -q "$pid"
-    else
-        kill -0 $pid 2>/dev/null
-    fi
-}
-
-# Cleanup function
-cleanup() {
-    log_info "Cleaning up..."
-    local pid=$(get_pid_on_port $PORT)
-    if [ -n "$pid" ]; then
-        kill_pid $pid
-    fi
-}
-
-# Set trap for cleanup
-trap cleanup EXIT
-
-# Kill any existing process with the same name
-log_info "Killing any existing $EXAMPLE_NAME processes..."
-kill_by_name "$EXAMPLE_NAME"
-sleep 1
-
-# Check if example source exists
-if [ ! -f "$EXAMPLE_SRC" ]; then
-    log_error "Example source not found: $EXAMPLE_SRC"
-    log_info "Available examples:"
-    ls -1 "$ROOT_DIR/examples/c/"*.c 2>/dev/null | xargs -I{} basename {} .c || echo "  (none)"
-    exit 1
+if is_macos; then OS_TAG="mac"
+elif is_windows; then OS_TAG="windows"
+elif is_linux; then OS_TAG="linux"
+else log_error "Unsupported platform: $(uname)"; exit 1
 fi
 
-log_info "=========================================="
-log_info "Screenshot Test: $EXAMPLE_NAME"
-log_info "Port: $PORT"
-log_info "=========================================="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMP_ROOT="$ROOT_DIR/target/examples-temp"
+HEADER_DIR="$ROOT_DIR/target/codegen"
+RUN_TIMEOUT="${AZ_SCREENSHOT_TIMEOUT:-180}"   # per process, must outlast settle_ms
 
-# Step 1: Build the DLL. Reuse whatever profile the caller already built rather
-# than forcing a second from-scratch build into a different target dir. CI's
-# build_binaries job builds `--profile prod-release` one step earlier, so default
-# to that — the cargo build below is then a no-op artifact hit instead of a full
-# azul-dll + deps rebuild. Override with AZ_SCREENSHOT_PROFILE=release for a
-# faster local run.
-PROFILE="${AZ_SCREENSHOT_PROFILE:-prod-release}"
+# The seven examples the website's index page shows (`show_on_index` in
+# api.json). `all` expands to exactly these.
+INDEX_EXAMPLES=(hello-world widgets opengl infinity async xhtml calc)
 
-log_step 1 "Building DLL (profile=$PROFILE)..."
+# ── Arguments ───────────────────────────────────────────────────────────────
+# A bare number is the old debug-server port (the AZ_DEBUG version of this
+# script took one). Dropped rather than treated as an example named "8780".
+EXAMPLES=()
+for arg in "$@"; do
+    case "$arg" in
+        ''|*[!0-9]*)
+            if [ "$arg" = "all" ]; then
+                EXAMPLES+=("${INDEX_EXAMPLES[@]}")
+            else
+                EXAMPLES+=("$arg")
+            fi
+            ;;
+        *) log_info "Ignoring legacy port argument '$arg' (nothing listens any more)" ;;
+    esac
+done
+[ ${#EXAMPLES[@]} -eq 0 ] && EXAMPLES=(hello-world)
 
-DLL_PATH=""
-if [ "$(uname)" == "Darwin" ]; then
-    DLL_PATH="$ROOT_DIR/target/$PROFILE/libazul.dylib"
-elif [ "$(uname)" == "Linux" ]; then
-    DLL_PATH="$ROOT_DIR/target/$PROFILE/libazul.so"
+# ── Profile ─────────────────────────────────────────────────────────────────
+# `release` — the workspace's LOCAL profile (lto = false, codegen-units = 16),
+# as `.cargo/config.toml` already asks for: "Local release builds should remain
+# fast; CI handles LTO via --profile prod-release". An unconditional
+# `prod-release` default here quietly broke that rule.
+#
+# Measured, because the obvious story is wrong: on a full chain rebuild the two
+# profiles cost about the SAME (release 12m11s, prod-release 11m38s) — the time
+# is in azul-css -> azul-core -> azul-layout, not in LTO. What `release` buys a
+# screenshot run is not speed, it is SEPARATION: a developer's machine has a
+# `release` tree already and no `prod-release` one, and building into
+# `target/prod-release` here would replace the library a release build
+# publishes from that same path.
+#
+# `AZ_SCREENSHOT_PROFILE` overrides — e.g. `prod-release` to capture the
+# shipped codegen when that tree is already built.
+PROFILE="${AZ_SCREENSHOT_PROFILE:-release}"
+LIB_DIR="$ROOT_DIR/target/$PROFILE"
+
+if is_macos; then DLL_PATH="$LIB_DIR/libazul.dylib"
+elif is_linux; then DLL_PATH="$LIB_DIR/libazul.so"
+else DLL_PATH="$LIB_DIR/azul.dll"
+fi
+
+# ── Step 0: generated bindings that match api.json ─────────────────────────
+# target/codegen (azul.h, and the Rust the library includes) is generated from
+# api.json by azul-doc, and nothing regenerates it on its own. After a pull that
+# changed the API, the examples here are new and the header is not: the async
+# example failed to compile on macOS with "unknown type name 'AzHttpClient'".
+# Regenerate whenever the header is older than api.json or the generator, and
+# before the library build, which compiles the generated Rust.
+needs_codegen=""
+if [ ! -f "$HEADER_DIR/azul.h" ]; then
+    needs_codegen="no $HEADER_DIR/azul.h"
+elif [ "$ROOT_DIR/api.json" -nt "$HEADER_DIR/azul.h" ]; then
+    needs_codegen="api.json is newer than the generated header"
+elif [ -n "$(find "$ROOT_DIR/doc/src" -name '*.rs' -newer "$HEADER_DIR/azul.h" -print -quit 2>/dev/null)" ]; then
+    needs_codegen="the generator (doc/src) is newer than the generated header"
+fi
+if [ -n "$needs_codegen" ]; then
+    if [ -n "$AZ_SCREENSHOT_SKIP_BUILD" ]; then
+        log_warn "Bindings are stale ($needs_codegen) but AZ_SCREENSHOT_SKIP_BUILD is set - not regenerating"
+    else
+        log_step "Regenerating bindings: $needs_codegen"
+        (cd "$ROOT_DIR" && cargo run --release -p azul-doc -- codegen all) || { log_error "codegen failed"; exit 1; }
+        # The library includes the generated Rust; make sure cargo rebuilds it.
+        touch "$ROOT_DIR/dll/src/lib.rs"
+    fi
+fi
+
+# ── Step 1: the library, once for every example in this run ─────────────────
+log_step "Building libazul (profile=$PROFILE, features=build-dll)..."
+
+if [ -n "$AZ_SCREENSHOT_SKIP_BUILD" ] && [ -f "$DLL_PATH" ]; then
+    log_warn "AZ_SCREENSHOT_SKIP_BUILD set - reusing $DLL_PATH as-is"
 else
-    DLL_PATH="$ROOT_DIR/target/$PROFILE/azul.dll"
+    cd "$ROOT_DIR"
+    cargo build --profile "$PROFILE" -p azul-dll --features build-dll
 fi
 
-cd "$ROOT_DIR"
-cargo build --profile "$PROFILE" -p azul-dll --features build-dll,debug-server
 if [ ! -f "$DLL_PATH" ]; then
-    log_error "Failed to compile DLL"
+    log_error "No library at $DLL_PATH"
     exit 1
 fi
-log_success "DLL compiled: $DLL_PATH"
+log_success "Library: $DLL_PATH ($(ls -lh "$DLL_PATH" | awk '{print $5}'))"
 
-# Step 2: Check headers are present
-log_step 2 "Checking headers..."
+# ── Stale generated headers in the examples tree ────────────────────────────
+# `target/codegen` is the ONLY source of truth for azul.h and the azul*.hpp
+# set; `cargo run -p azul-doc -- codegen all` regenerates every one of them.
+# Copies nevertheless accumulate next to the examples, because that is how CI
+# builds them (`cp target/codegen/azul.h examples/c/` before each compile step)
+# and nothing removes them afterwards. They are untracked, so they simply sit
+# there going stale — and a QUOTED `#include "azul.h"` searches the source
+# file's own directory before any `-I`, so a stale sibling silently WINS over
+# the header this script passes.
+#
+# That is not a warning, a link error or a version mismatch: the example
+# compiles clean against a header whose structs no longer match the library's,
+# and dies with SIGSEGV a few hundred milliseconds into `App::run`. One found
+# here was three weeks old (4.98 MB against the generated 5.66 MB).
+#
+# Deleted rather than refreshed: nothing in this script reads them, and a file
+# that is not there cannot shadow anything.
+for stray in "$ROOT_DIR"/examples/c/azul*.h "$ROOT_DIR"/examples/c/azul*.hpp \
+             "$ROOT_DIR"/examples/cpp/*/azul*.hpp "$ROOT_DIR"/examples/cpp/azul*.hpp; do
+    if [ -f "$stray" ]; then
+        rm -f "$stray"
+        log_info "Removed stale generated header $(basename "$(dirname "$stray")")/$(basename "$stray")"
+    fi
+done
 
-HEADER_PATH="$ROOT_DIR/target/codegen/azul.h"
-if [ ! -f "$HEADER_PATH" ]; then
-    log_error "Header not found: $HEADER_PATH"
-    log_info "Run codegen first or check the path"
+if [ ! -f "$HEADER_DIR/azul.h" ]; then
+    log_error "Header not found: $HEADER_DIR/azul.h"
+    log_info "Run 'cargo run --release -p azul-doc -- codegen all' first"
     exit 1
 fi
-log_success "Header found: $HEADER_PATH"
 
-# Step 3: Create temp folder with DLL + headers
-log_step 3 "Creating temp folder: $TEMP_DIR"
+# Probe the compiler first: a broken toolchain can exit 1 with no output (e.g. foreign DLLs on PATH shadowing cc1's).
+CC_BIN="gcc"; is_macos && CC_BIN="clang"
+cc_probe="$TEMP_ROOT/.cc-probe"
+mkdir -p "$cc_probe"
+echo 'int main(void){return 0;}' > "$cc_probe/probe.c"
+if ! "$CC_BIN" -o "$cc_probe/probe" "$cc_probe/probe.c" 2>"$cc_probe/probe.log"; then
+    log_error "$CC_BIN cannot compile a trivial program - the toolchain is broken, not the examples"
+    if [ -s "$cc_probe/probe.log" ]; then
+        cat "$cc_probe/probe.log"
+    else
+        log_error "...and it printed no diagnostic at all, which on Windows means"
+        log_error "the compiler's own DLLs did not load. Check PATH: $(command -v "$CC_BIN")"
+        is_windows && log_info "e.g. PATH=/c/msys64/ucrt64/bin:\$PATH ./scripts/screenshot_single.sh $*"
+    fi
+    exit 1
+fi
+rm -rf "$cc_probe"
 
-rm -rf "$TEMP_DIR"
-mkdir -p "$TEMP_DIR"
-
-# Copy DLL
-cp "$DLL_PATH" "$TEMP_DIR/"
-log_info "Copied DLL to $TEMP_DIR/"
-
-# Copy header
-cp "$HEADER_PATH" "$TEMP_DIR/"
-log_info "Copied header to $TEMP_DIR/"
-
-# Copy example source
-cp "$EXAMPLE_SRC" "$TEMP_DIR/"
-log_info "Copied $EXAMPLE_NAME.c to $TEMP_DIR/"
-
-# Copy the shared asset tree next to the temp folder, NOT into it.
-# The examples resolve assets relative to the binary as "../assets/...", and the
-# binary runs in $TEMP_DIR = target/examples-temp/<example>/, so "../assets"
-# means target/examples-temp/assets. Nothing put it there, so every example that
-# loads an asset came up empty: opengl.c reads ../assets/testdata.json and
-# rendered no geometry, icons.c reads ../assets/images/favicon.ico. The
-# screenshots on the website show exactly that emptiness.
+# ── Step 2: the shared asset tree ───────────────────────────────────────────
+# The examples resolve assets relative to the binary as "../assets/...", and
+# each binary runs in target/examples-temp/<example>/, so "../assets" means
+# target/examples-temp/assets. Nothing put it there, so every example that
+# loads one came up empty: opengl.c reads ../assets/testdata.json and rendered
+# no geometry, icons.c reads ../assets/images/favicon.ico. Copied once per run,
+# and only when the source tree is newer.
 ASSETS_SRC="$ROOT_DIR/examples/assets"
-ASSETS_DST="$(dirname "$TEMP_DIR")/assets"
+ASSETS_DST="$TEMP_ROOT/assets"
+mkdir -p "$TEMP_ROOT"
 if [ -d "$ASSETS_SRC" ]; then
-    mkdir -p "$ASSETS_DST"
-    cp -R "$ASSETS_SRC/." "$ASSETS_DST/"
-    log_info "Copied examples/assets -> $ASSETS_DST"
-else
-    log_warn "examples/assets not found at $ASSETS_SRC - asset-loading examples will render empty"
-fi
-
-log_success "Temp folder prepared"
-
-# Step 4: Compile the example
-log_step 4 "Compiling example..."
-
-cd "$TEMP_DIR"
-
-EXAMPLE_BIN="$TEMP_DIR/$EXAMPLE_NAME"
-DLL_NAME=$(basename "$DLL_PATH")
-
-if is_macos; then
-    # macOS compilation - source file BEFORE libraries
-    clang -o "$EXAMPLE_BIN" \
-        -I"$TEMP_DIR" \
-        "$EXAMPLE_NAME.c" \
-        -L"$TEMP_DIR" \
-        -lazul \
-        -framework AppKit \
-        -framework OpenGL \
-        -framework CoreGraphics \
-        -framework CoreText \
-        -framework CoreFoundation \
-        -Wl,-rpath,"$TEMP_DIR"
-elif is_linux; then
-    # Linux compilation - source file BEFORE libraries (critical for ld)
-    # Note: X11/GL are loaded via dlopen at runtime, only need pthread/m/dl
-    gcc -o "$EXAMPLE_BIN" \
-        -I"$TEMP_DIR" \
-        "$EXAMPLE_NAME.c" \
-        -L"$TEMP_DIR" \
-        -lazul \
-        -lpthread -lm -ldl \
-        -Wl,-rpath,"$TEMP_DIR"
-elif is_windows; then
-    # Windows/MINGW compilation
-    EXAMPLE_BIN="$TEMP_DIR/$EXAMPLE_NAME.exe"
-    # On Windows, gcc expects libazul.dll or libazul.a, so we create a symlink/copy
-    if [ -f "$TEMP_DIR/azul.dll" ] && [ ! -f "$TEMP_DIR/libazul.dll" ]; then
-        cp "$TEMP_DIR/azul.dll" "$TEMP_DIR/libazul.dll"
-    fi
-    # Source file BEFORE libraries
-    gcc -o "$EXAMPLE_BIN" \
-        -I"$TEMP_DIR" \
-        "$EXAMPLE_NAME.c" \
-        -L"$TEMP_DIR" \
-        -lazul \
-        -lopengl32 -lgdi32 -luser32 -lkernel32 -lm
-else
-    log_error "Unsupported platform: $(uname)"
-    exit 1
-fi
-
-if [ ! -f "$EXAMPLE_BIN" ]; then
-    log_error "Failed to compile example"
-    exit 1
-fi
-
-log_success "Example compiled: $EXAMPLE_BIN"
-
-# Step 5: Ensure port is free before starting
-log_step 5 "Ensuring port $PORT is free..."
-
-existing_pid=$(get_pid_on_port $PORT)
-if [ -n "$existing_pid" ]; then
-    log_warn "Port $PORT is in use by PID $existing_pid, killing..."
-    kill_pid $existing_pid
-    sleep 1
-fi
-log_success "Port $PORT is free"
-
-# Step 6: Run example with AZ_DEBUG
-log_step 6 "Starting example with AZ_DEBUG=$PORT..."
-
-cd "$TEMP_DIR"
-
-# Debug: Show what's in the temp directory
-log_info "Files in temp directory:"
-ls -la "$TEMP_DIR" | head -20
-
-# Platform-specific execution
-if is_windows; then
-    # On Windows, ensure DLL is findable - add temp dir to PATH
-    export PATH="$TEMP_DIR:$PATH"
-    log_info "Running: AZ_DEBUG=$PORT ./$EXAMPLE_NAME.exe"
-    log_info "PATH includes: $TEMP_DIR"
-    # Check if DLL exists
-    if [ -f "$TEMP_DIR/azul.dll" ]; then
-        log_info "azul.dll found in temp dir"
+    if [ ! -d "$ASSETS_DST" ] || [ "$ASSETS_SRC" -nt "$ASSETS_DST" ]; then
+        mkdir -p "$ASSETS_DST"
+        cp -R "$ASSETS_SRC/." "$ASSETS_DST/"
+        touch "$ASSETS_DST"
+        log_info "Refreshed $ASSETS_DST"
     else
-        log_error "azul.dll NOT found in temp dir!"
-    fi
-    AZ_DEBUG=$PORT "./$EXAMPLE_NAME.exe" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
-elif is_linux; then
-    # Use xvfb-run on Linux if DISPLAY is not set (CI environment)
-    if [ -z "$DISPLAY" ]; then
-        log_info "No DISPLAY set, using xvfb-run..."
-        xvfb-run -a env AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
-    else
-        AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+        log_info "Assets up to date: $ASSETS_DST"
     fi
 else
-    AZ_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
-fi
-APP_PID=$!
-
-log_info "Started with PID: $APP_PID"
-log_info "Waiting ${STARTUP_WAIT}s for startup..."
-sleep $STARTUP_WAIT
-
-# Step 7: Verify app is running and port is listening
-log_step 7 "Verifying app is running..."
-
-# Check if process is still alive
-if ! check_process_alive $APP_PID; then
-    log_error "Process died during startup!"
-    log_error "=== STDOUT ==="
-    cat "$TEMP_DIR/stdout.log" || true
-    log_error "=== STDERR ==="
-    cat "$TEMP_DIR/stderr.log" || true
-    
-    # On Windows, try to get more info about the crash
-    if is_windows; then
-        log_error "=== Windows Debug Info ==="
-        log_error "Checking if DLL dependencies are met..."
-        # List DLLs the exe depends on (if objdump available)
-        objdump -p "$EXAMPLE_BIN" 2>/dev/null | grep "DLL Name" || true
-        log_error "DLL files in directory:"
-        ls -la "$TEMP_DIR"/*.dll 2>/dev/null || echo "No DLLs found"
-    fi
-    exit 1
-fi
-log_info "Process $APP_PID is alive"
-
-# Check if port is listening
-port_check=$(get_pid_on_port $PORT)
-if [ -z "$port_check" ]; then
-    log_error "Port $PORT is not listening!"
-    log_error "=== STDERR ==="
-    cat "$TEMP_DIR/stderr.log" || true
-    kill_pid $APP_PID
-    exit 1
-fi
-log_success "Port $PORT is listening (PID: $port_check)"
-
-# Quick connectivity test
-log_info "Testing HTTP connectivity..."
-log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"get_logs\"}"
-
-CONNECTIVITY_RESPONSE_FILE="$TEMP_DIR/connectivity_response.json"
-CURL_STDERR_FILE="$TEMP_DIR/curl_stderr.log"
-
-# Use --max-time and --connect-timeout to prevent hanging
-log_info "Running curl with 10s timeout..."
-curl -s -X POST "http://localhost:$PORT/" \
-    -H "Content-Type: application/json" \
-    -d '{"op":"get_logs"}' \
-    --connect-timeout 5 \
-    --max-time 10 \
-    -o "$CONNECTIVITY_RESPONSE_FILE" \
-    2>"$CURL_STDERR_FILE" || true
-curl_exit=$?
-
-log_info "curl completed with exit code: $curl_exit"
-if [ -s "$CURL_STDERR_FILE" ]; then
-    log_warn "curl stderr: $(cat $CURL_STDERR_FILE)"
+    log_warn "examples/assets not found - asset-loading examples will render empty"
 fi
 
-# Show app stderr after request
-log_info "=== App stderr after get_logs ==="
-tail -20 "$TEMP_DIR/stderr.log" 2>/dev/null || true
-log_info "=== End app stderr ==="
+# ── Step 3: the scenario both runs of every example replay ──────────────────
+#
+# `"real": true` on the waits is load-bearing. A plain `wait` advances the
+# runner's INJECTABLE clock and yields one turn of the shell's loop — exact,
+# free, and the right thing for the assertion corpus, but it buys no time for
+# anything outside the process. The map example fetches its tiles over HTTPS;
+# with a virtual `wait` of 15 000 ms the whole scenario returned in 0.45 s and
+# captured the empty tile grid. `wait_frame` then arms the frame barrier so the
+# capture cannot land between a repaint request and the frame it asked for.
+#
+# No `close` step: the runner's result printer exits the process with the
+# scenario's verdict once the last step reports. A `close` here would race the
+# teardown against that report and surface as "the window closed before the
+# tests reported".
+# How long to let an example settle before the capture. Most reach their final
+# frame almost immediately; the ones that go to the NETWORK do not, and a
+# screenshot taken too early is not a slow screenshot, it is a WRONG one —
+# `async` captured its empty tile grid with the `z6/34/22` coordinate
+# placeholders still showing, identically in both themes, which is exactly what
+# the light/dark guard below then rejected.
+settle_ms() {
+    case "$1" in
+        # Vector map tiles over HTTPS, painted only once they arrive.
+        async) echo "${AZ_SCREENSHOT_SETTLE_MS:-15000}" ;;
+        *)     echo "${AZ_SCREENSHOT_SETTLE_MS:-2500}" ;;
+    esac
+}
 
-response_size=$(wc -c < "$CONNECTIVITY_RESPONSE_FILE")
-log_info "Response size: $response_size bytes"
-
-if [ $curl_exit -ne 0 ]; then
-    log_error "curl failed with exit code $curl_exit"
-    log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
-    kill_pid $APP_PID
-    exit 1
-fi
-
-# Simple check: just verify "status" and "ok" are in the response (handles pretty-print)
-if ! grep -q '"status"' "$CONNECTIVITY_RESPONSE_FILE" || ! grep -q '"ok"' "$CONNECTIVITY_RESPONSE_FILE"; then
-    log_error "HTTP connectivity test failed"
-    log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
-    kill_pid $APP_PID
-    exit 1
-fi
-log_success "HTTP connectivity OK"
-
-# Wait a bit before taking screenshot
-sleep 1
-
-# Step 8: Take screenshot
-log_step 8 "Taking screenshot..."
-
-SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
-JSON_RESPONSE_FILE="$TEMP_DIR/screenshot_response.json"
-
-log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"take_native_screenshot\"}"
-
-# Save raw response to file immediately, avoiding memory/ARG_MAX limits
-curl -s -X POST "http://localhost:$PORT/" \
-    -H "Content-Type: application/json" \
-    -d '{"op":"take_native_screenshot"}' \
-    --max-time 60 \
-    -o "$JSON_RESPONSE_FILE"
-
-log_info "Response saved to $JSON_RESPONSE_FILE ($(ls -lh "$JSON_RESPONSE_FILE" | awk '{print $5}'))"
-
-# Check status and extract screenshot using Python (avoids jq pipe issues with large files)
-python3 << EOF
-import json
-import base64
-import sys
-
-try:
-    with open("$JSON_RESPONSE_FILE", "r") as f:
-        data = json.load(f)
-    
-    if data.get("status") != "ok":
-        print("ERROR: " + data.get("message", "Unknown error"))
-        sys.exit(1)
-    
-    img_data = data["data"]["value"]["data"]
-    base64_data = img_data.replace("data:image/png;base64,", "")
-    img_bytes = base64.b64decode(base64_data)
-    
-    with open("$SCREENSHOT_FILE", "wb") as f:
-        f.write(img_bytes)
-    
-    print("OK: {} bytes".format(len(img_bytes)))
-    sys.exit(0)
-except Exception as e:
-    print("ERROR: " + str(e))
-    sys.exit(1)
+write_scenario() {
+    local name=$1
+    local dir="$TEMP_ROOT/$name"
+    mkdir -p "$dir"
+    cat > "$dir/screenshot.e2e.json" <<EOF
+{
+  "name": "screenshot_${name//-/_}",
+  "description": "Capture the native window of the ${name} example for the website. The theme comes from the desktop (or AZ_THEME where there is none), so this one scenario serves both the light and the dark run.",
+  "steps": [
+    { "op": "wait", "ms": $(settle_ms "$name"), "real": true },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 750, "real": true },
+    { "op": "take_native_screenshot", "render_shadow": true }
+  ]
+}
 EOF
+}
 
-python_result=$?
-if [ $python_result -eq 0 ] && [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
-    log_success "Screenshot saved: $SCREENSHOT_FILE"
-    log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
-else
-    log_error "Screenshot extraction failed"
-fi
+# ── Desktop light/dark switching ────────────────────────────────────────────
+#
+# The theme is switched on the DESKTOP, not just pinned in the app, and that
+# buys two things a pin cannot:
+#
+#  * the WINDOW DECORATIONS follow. KWin draws the titlebar from the desktop's
+#    colour scheme and `AZ_THEME` cannot reach it, so a pinned-light capture on
+#    a Breeze Dark session came out as a light window under a dark titlebar.
+#  * it exercises the REAL path. A pin tells the app what to think; switching
+#    the desktop makes the app DISCOVER it, through `discover()` and the
+#    portal, the same way it would for a user.
+#
+# AZ_THEME only where there is no desktop to switch; otherwise the app must discover the theme itself.
+#
+# The desktop is put back the way it was found on ANY exit path (see the trap):
+# a script that leaves the machine in dark mode because that happened to be the
+# last capture is one nobody runs twice.
+DESKTOP_THEME_TOOL=""
+SAVED_DESKTOP_THEME=""
 
-# Wait before shutdown
-sleep 1
+# Light (1) / dark (0), written and broadcast like the Settings app does.
+windows_set_light_theme() {
+    local v=$1
+    powershell -NoProfile -Command "
+        \$k = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        New-ItemProperty -Path \$k -Name AppsUseLightTheme    -Value $v -Type Dword -Force | Out-Null
+        New-ItemProperty -Path \$k -Name SystemUsesLightTheme -Value $v -Type Dword -Force | Out-Null
+        Add-Type -Namespace Az -Name U32 -MemberDefinition '[DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr h, uint m, System.UIntPtr w, string l, uint f, uint t, out System.UIntPtr r);'
+        \$r = [System.UIntPtr]::Zero
+        # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s per window
+        [void][Az.U32]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'ImmersiveColorSet', 2, 5000, [ref]\$r)
+    " >/dev/null 2>&1
+}
 
-# Step 9: Shut down application
-log_step 9 "Shutting down application..."
+detect_theme_tool() {
+    if is_macos; then
+        command -v osascript >/dev/null 2>&1 && { echo "macos"; return; }
+    elif is_windows; then
+        command -v powershell >/dev/null 2>&1 && { echo "windows"; return; }
+    else
+        # KDE first: on a Plasma session gsettings exists but nothing reads it.
+        if [ "$(printf '%s' "$XDG_CURRENT_DESKTOP" | tr a-z A-Z)" = "KDE" ] \
+           && command -v plasma-apply-colorscheme >/dev/null 2>&1; then
+            echo "kde"; return
+        fi
+        if command -v xfconf-query >/dev/null 2>&1 \
+           && xfconf-query -c xsettings -p /Net/ThemeName >/dev/null 2>&1; then
+            echo "xfce"; return
+        fi
+        if command -v gsettings >/dev/null 2>&1 \
+           && gsettings get org.gnome.desktop.interface color-scheme >/dev/null 2>&1; then
+            echo "gnome"; return
+        fi
+    fi
+    echo ""
+}
 
-log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"close\"}"
+save_desktop_theme() {
+    case "$DESKTOP_THEME_TOOL" in
+        kde)   LC_ALL=C plasma-apply-colorscheme --list-schemes 2>/dev/null \
+                   | sed -n 's/^ \* \(.*\) (current color scheme)$/\1/p' ;;
+        gnome) gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null ;;
+        xfce)  xfconf-query -c xfwm4 -p /general/theme 2>/dev/null ;;
+        macos) defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light ;;
+        windows) powershell -Command "(Get-ItemProperty -Path HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize -Name AppsUseLightTheme).AppsUseLightTheme" 2>/dev/null ;;
+    esac
+}
 
-CLOSE_RESPONSE_FILE="$TEMP_DIR/close_response.json"
-curl -s -X POST "http://localhost:$PORT/" \
-    -H "Content-Type: application/json" \
-    -d '{"op":"close"}' \
-    -o "$CLOSE_RESPONSE_FILE" || true
-
-if grep -q '"status":"ok"' "$CLOSE_RESPONSE_FILE" 2>/dev/null; then
-    log_info "Close command sent successfully"
-else
-    log_warn "Close command may have failed"
-fi
-
-log_info "Waiting ${SHUTDOWN_WAIT}s for graceful shutdown..."
-sleep $SHUTDOWN_WAIT
-
-# Step 10: Verify shutdown
-log_step 10 "Verifying shutdown..."
-
-# Check if process is gone
-if check_process_alive $APP_PID; then
-    log_warn "Process still alive, force killing..."
-    kill_pid $APP_PID
+set_desktop_theme() {
+    local theme=$1
+    case "$DESKTOP_THEME_TOOL" in
+        kde)
+            if [ "$theme" = "dark" ]; then
+                plasma-apply-colorscheme BreezeDark >/dev/null 2>&1
+            else
+                plasma-apply-colorscheme BreezeLight >/dev/null 2>&1
+            fi
+            ;;
+        gnome)
+            if [ "$theme" = "dark" ]; then
+                gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null
+                gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null
+            else
+                gsettings set org.gnome.desktop.interface color-scheme 'default' 2>/dev/null
+                gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita' 2>/dev/null
+            fi
+            ;;
+        xfce)
+            # The WM theme decides polarity on XFCE (USER RULING 2026-09-04:
+            # "azwriter should use what the titlebar uses").
+            if [ "$theme" = "dark" ]; then
+                xfconf-query -c xfwm4 -p /general/theme -s "Adwaita-dark" 2>/dev/null
+                xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita-dark" 2>/dev/null
+            else
+                xfconf-query -c xfwm4 -p /general/theme -s "Adwaita" 2>/dev/null
+                xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita" 2>/dev/null
+            fi
+            ;;
+        macos)
+            local v=false
+            [ "$theme" = "dark" ] && v=true
+            osascript -e "tell app \"System Events\" to tell appearance preferences to set dark mode to $v" >/dev/null 2>&1
+            ;;
+        windows)
+            local v=1
+            [ "$theme" = "dark" ] && v=0
+            windows_set_light_theme "$v"
+            ;;
+        *) return 1 ;;
+    esac
+    # Let the settings daemon publish the change. The app reads it at startup,
+    # so this only has to beat the launch below.
     sleep 1
+    return 0
+}
+
+restore_desktop_theme() {
+    [ -z "$DESKTOP_THEME_TOOL" ] && return 0
+    [ -z "$SAVED_DESKTOP_THEME" ] && return 0
+    case "$DESKTOP_THEME_TOOL" in
+        kde)   plasma-apply-colorscheme "$SAVED_DESKTOP_THEME" >/dev/null 2>&1 ;;
+        gnome) gsettings set org.gnome.desktop.interface color-scheme "$SAVED_DESKTOP_THEME" 2>/dev/null ;;
+        xfce)  xfconf-query -c xfwm4 -p /general/theme -s "$SAVED_DESKTOP_THEME" 2>/dev/null ;;
+        macos)
+            if [ "$SAVED_DESKTOP_THEME" = "Dark" ]; then
+                osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
+            else
+                osascript -e 'tell app "System Events" to tell appearance preferences to set dark mode to false' >/dev/null 2>&1
+            fi
+            ;;
+        windows)
+            windows_set_light_theme "$SAVED_DESKTOP_THEME"
+            ;;
+    esac
+    log_info "Desktop appearance restored to $SAVED_DESKTOP_THEME"
+}
+
+# ── KWin ScreenShot2 authorization (KDE Plasma on Wayland) ─────────────────
+#
+# On a KDE Wayland session the native capture goes through KWin's
+# `org.kde.KWin.ScreenShot2` D-Bus interface — KWin has neither
+# ext-image-copy-capture nor the ext-foreign-toplevel-list a portable window
+# capture needs. KWin answers that interface only for an application it can
+# match: it resolves the caller's PID to /proc/<pid>/exe and looks for an
+# installed .desktop file whose `Exec` is that same binary and whose
+# `X-KDE-DBUS-Restricted-Interfaces` names the interface. So each example gets a
+# throwaway .desktop entry for the duration of its run, and the KService cache
+# (ksycoca) is rebuilt so KWin can see it. All of them are removed on exit.
+KWIN_AUTH_FILES=()
+KWIN_SYCOCA=""
+if is_linux && [ "$XDG_SESSION_TYPE" = "wayland" ] \
+   && [ "$(printf '%s' "$XDG_CURRENT_DESKTOP" | tr a-z A-Z)" = "KDE" ]; then
+    KWIN_SYCOCA="$(command -v kbuildsycoca6 || command -v kbuildsycoca5 || true)"
 fi
 
-# Check if port is free
-port_check=$(get_pid_on_port $PORT)
-if [ -n "$port_check" ]; then
-    log_warn "Port still in use, killing PID $port_check..."
-    kill_pid $port_check
-    sleep 1
-fi
+authorize_kwin_screenshot() {
+    local name=$1 bin=$2
+    [ -z "$KWIN_SYCOCA" ] && return 0
+    local apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    local file="$apps/azul-screenshot-$name.desktop"
+    mkdir -p "$apps"
+    # KWin compares CANONICAL paths, so resolve symlinks here too.
+    cat > "$file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=azul screenshot ($name)
+Exec=$(readlink -f "$bin")
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+EOF
+    KWIN_AUTH_FILES+=("$file")
+    "$KWIN_SYCOCA" >/dev/null 2>&1 || true
+}
 
-# Final verification
-port_check=$(get_pid_on_port $PORT)
-if [ -z "$port_check" ]; then
-    log_success "Application shut down cleanly, port $PORT is free"
+# Make the window of process $1 the ACTIVE one, through a KWin script.
+#
+# KWin's ScreenShot2 captures the active window, and KWin's focus-stealing
+# prevention keeps focus on whatever the user was typing into when a new window
+# maps: launched from a busy terminal, 4 of 7 examples came back as the
+# terminal (the capture refuses those — it checks the caption). A script
+# setting the active window goes through `Workspace::activateWindow`, which
+# does not consult focus-stealing prevention.
+#
+# It runs HERE, from the shell, while the app sits idle in its settle wait — not
+# inside the capture. Activation makes KWin ping the window, and a window that
+# cannot answer (because its thread is blocked in a D-Bus capture) is marked
+# "(Not Responding)", which the capture then photographs in the titlebar.
+kwin_activate_pid() {
+    local pid=$1 dir=$2
+    [ -z "$KWIN_SYCOCA" ] && return 0
+    local plugin="azul-screenshot-activate-$pid"
+    local js="$dir/activate-$pid.js"
+    # `var`, no arrow functions: Plasma 5's QJSEngine. windowList/activeWindow
+    # is Plasma 6, clientList/activeClient Plasma 5.
+    cat > "$js" <<EOF
+(function () {
+  var list = typeof workspace.windowList === 'function' ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].pid === $pid) {
+      if ('activeWindow' in workspace) { workspace.activeWindow = list[i]; } else { workspace.activeClient = list[i]; }
+      break;
+    }
+  }
+})();
+EOF
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s "$plugin" >/dev/null 2>&1 || true
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss "$js" "$plugin" >/dev/null 2>&1 || return 0
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting start >/dev/null 2>&1 || true
+    sleep 0.3
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s "$plugin" >/dev/null 2>&1 || true
+    rm -f "$js"
+}
+
+cleanup_on_exit() {
+    restore_desktop_theme
+    if [ ${#KWIN_AUTH_FILES[@]} -gt 0 ]; then
+        rm -f "${KWIN_AUTH_FILES[@]}"
+        [ -n "$KWIN_SYCOCA" ] && "$KWIN_SYCOCA" >/dev/null 2>&1
+        log_info "Removed ${#KWIN_AUTH_FILES[@]} temporary KWin ScreenShot2 authorization(s)"
+    fi
+}
+trap cleanup_on_exit EXIT INT TERM
+
+DESKTOP_THEME_TOOL="$(detect_theme_tool)"
+if [ -n "$DESKTOP_THEME_TOOL" ] && [ -z "$AZ_SCREENSHOT_NO_DESKTOP_SWITCH" ]; then
+    SAVED_DESKTOP_THEME="$(save_desktop_theme)"
+    log_info "Desktop theme switching via '$DESKTOP_THEME_TOOL' (currently: ${SAVED_DESKTOP_THEME:-unknown})"
 else
-    log_error "Failed to free port $PORT!"
+    DESKTOP_THEME_TOOL=""
+    log_warn "No desktop theme switcher - decorations will not follow the capture's theme"
+fi
+
+# ── Per-example work ────────────────────────────────────────────────────────
+
+# Compile one example against the library IN ITS BUILD DIRECTORY. Nothing is
+# copied: the 53 MB (prod-release) to 261 MB (release) library used to be
+# copied into all seven example folders on every run, and a copy is also how a
+# stale library outlives the build that replaced it. An rpath (Linux, macOS) or
+# PATH entry (Windows) pointed at target/<profile> cannot go stale.
+compile_example() {
+    local name=$1
+    local dir="$TEMP_ROOT/$name"
+    local src="$ROOT_DIR/examples/c/${name}.c"
+    local bin="$dir/$name"
+    is_windows && bin="$dir/${name}.exe"
+
+    mkdir -p "$dir"
+    # The source is compiled from a copy in $dir (see below), so a header copy
+    # left in $dir shadows the generated one exactly like a stray in
+    # examples/c/ does. One did on macOS: target/examples-temp/async/azul.h,
+    # older than the API the example uses.
+    rm -f "$dir"/azul*.h "$dir"/azul*.hpp
+
+    # Skip when the binary is newer than everything it is built from. Seven
+    # examples that changed in none of these rebuilt seven times a run.
+    if [ -f "$bin" ] && [ "$bin" -nt "$src" ] && [ "$bin" -nt "$DLL_PATH" ] \
+       && [ "$bin" -nt "$HEADER_DIR/azul.h" ]; then
+        log_info "$name: up to date, not recompiling" >&2
+        echo "$bin"
+        return 0
+    fi
+
+    # COMPILE A COPY, never `examples/c/<name>.c` in place. `#include "azul.h"`
+    # is a QUOTED include, so the compiler searches the source file's own
+    # directory before any `-I`, and `examples/c/` collects an `azul.h` of its
+    # own: CI copies the generated header in there before building the C
+    # examples (`cp target/codegen/azul.h examples/c/`), and that untracked copy
+    # then sits in the tree going stale. Building in place bound these examples
+    # to a three-week-old header — 4.98 MB against the generated 5.66 MB — and
+    # the resulting struct-layout mismatch across the FFI boundary was a
+    # deterministic SIGSEGV a few hundred ms into `App::run`, with no diagnostic
+    # of any kind. Out here the only `azul.h` in scope is the one `-I` names.
+    local local_src="$dir/${name}.c"
+    cp "$src" "$local_src"
+    src="$local_src"
+
+    if is_macos; then
+        clang -o "$bin" -I"$HEADER_DIR" "$src" \
+            -L"$LIB_DIR" -lazul \
+            -framework AppKit -framework OpenGL -framework CoreGraphics \
+            -framework CoreText -framework CoreFoundation \
+            -Wl,-rpath,"$LIB_DIR"
+    elif is_linux; then
+        # Source BEFORE libraries (ld resolves left to right). X11/GL are
+        # dlopen'd at run time, so only pthread/m/dl are needed here.
+        gcc -o "$bin" -I"$HEADER_DIR" "$src" \
+            -L"$LIB_DIR" -lazul \
+            -lpthread -lm -ldl \
+            -Wl,-rpath,"$LIB_DIR"
+    else
+        # The DLL by path: -lazul would pick the static azul.lib in the same directory.
+        gcc -o "$bin" -I"$HEADER_DIR" "$src" \
+            "$DLL_PATH" \
+            -lm
+    fi
+
+    [ -f "$bin" ] || return 1
+    echo "$bin"
+}
+
+# Run one example once, with the theme pinned, and keep its capture.
+run_theme() {
+    local name=$1 bin=$2 theme=$3
+    local dir="$TEMP_ROOT/$name"
+    local shot_dir="$dir/shots-$theme"
+    local out_file="$dir/${name}.${OS_TAG}.${theme}.png"
+
+    rm -rf "$shot_dir"
+    mkdir -p "$shot_dir"
+    cd "$dir"
+
+    if [ -n "$DESKTOP_THEME_TOOL" ]; then
+        set_desktop_theme "$theme" || true
+    fi
+
+    local -a launcher=()
+    if is_linux && [ -z "$DISPLAY" ]; then
+        log_info "No DISPLAY set, using xvfb-run"
+        launcher=(xvfb-run -a)
+    fi
+    if is_windows; then
+        # No rpath on Windows: the loader finds azul.dll on PATH.
+        export PATH="$LIB_DIR:$PATH"
+    fi
+
+    # Pin only when there is no desktop to switch; see "Desktop light/dark
+    # switching" above.
+    local -a theme_pin=()
+    if [ -z "$DESKTOP_THEME_TOOL" ]; then
+        theme_pin=(AZ_THEME="$theme")
+    fi
+
+    local rc=0
+    env "${theme_pin[@]}" AZ_E2E="$dir/screenshot.e2e.json" AZ_E2E_SHOT_DIR="$shot_dir" \
+        timeout "$RUN_TIMEOUT" "${launcher[@]}" "$bin" \
+        > "$dir/stdout.$theme.log" 2> "$dir/stderr.$theme.log" &
+    local launcher_pid=$!
+
+    if [ -n "$KWIN_SYCOCA" ]; then
+        # Activate twice early (the window may not be mapped at the first try;
+        # startup on Wayland takes up to ~2 s) and once more a second and a half
+        # before a long settle ends, so the window is focused and idle — its
+        # ping answered — well before the capture step runs.
+        local settle; settle=$(settle_ms "$name")
+        local app_pid=""
+        for t in 1 1; do
+            sleep "$t"
+            app_pid=$(pgrep -n -f "^${bin}\$" || true)
+            [ -n "$app_pid" ] && kwin_activate_pid "$app_pid" "$dir"
+        done
+        if [ "$settle" -gt 5000 ] && kill -0 "$launcher_pid" 2>/dev/null; then
+            sleep $(( (settle - 1500) / 1000 - 2 ))
+            app_pid=$(pgrep -n -f "^${bin}\$" || true)
+            [ -n "$app_pid" ] && kwin_activate_pid "$app_pid" "$dir"
+        fi
+    fi
+
+    wait "$launcher_pid" || rc=$?
+
+    if [ $rc -ne 0 ]; then
+        log_error "$name exited $rc in the $theme run"
+        tail -40 "$dir/stderr.$theme.log" || true
+        return 1
+    fi
+
+    # One capture op, so one file — but glob rather than hard-code shot-000.png
+    # so an added step cannot silently make this pick up the wrong frame.
+    local shot
+    shot=$(ls "$shot_dir"/shot-*.png 2>/dev/null | tail -1)
+    if [ -z "$shot" ] || [ ! -s "$shot" ]; then
+        log_error "$name: no screenshot written to $shot_dir"
+        tail -40 "$dir/stderr.$theme.log" || true
+        return 1
+    fi
+
+    mv "$shot" "$out_file"
+    rmdir "$shot_dir" 2>/dev/null || true
+    log_success "$name $theme: $out_file ($(ls -lh "$out_file" | awk '{print $5}'))"
+}
+
+capture_example() {
+    local name=$1
+    local dir="$TEMP_ROOT/$name"
+    local src="$ROOT_DIR/examples/c/${name}.c"
+
+    log_step "=== $name ($OS_TAG) ==="
+
+    if [ ! -f "$src" ]; then
+        log_error "Example source not found: $src"
+        log_info "Available examples:"
+        ls -1 "$ROOT_DIR/examples/c/"*.c 2>/dev/null | xargs -I{} basename {} .c || echo "  (none)"
+        return 1
+    fi
+
+    local bin
+    if ! bin=$(compile_example "$name"); then
+        log_error "$name: failed to compile"
+        return 1
+    fi
+
+    write_scenario "$name"
+    authorize_kwin_screenshot "$name" "$bin"
+    log_info "$name: settling $(settle_ms "$name") ms before each capture"
+
+    run_theme "$name" "$bin" light || return 1
+    run_theme "$name" "$bin" dark || return 1
+
+    # The two captures must actually differ. A theme that is requested and not
+    # honoured is silent — the run passes, two identical frames get committed,
+    # and the site shows the same picture under both switches. That is what the
+    # old desktop-appearance toggle did on every desktop whose appearance does
+    # not live in gsettings, for months. Byte equality is a weak test and a
+    # sufficient one: nothing else about these two runs differs.
+    local light="$dir/${name}.${OS_TAG}.light.png"
+    local dark="$dir/${name}.${OS_TAG}.dark.png"
+    if cmp -s "$light" "$dark"; then
+        log_error "$name: light and dark captures are byte-identical - the app did not follow the theme switch"
+        return 1
+    fi
+
+    if [ -z "$AZ_SCREENSHOT_NO_INSTALL" ]; then
+        local dest="$ROOT_DIR/examples/assets/screenshots"
+        mkdir -p "$dest"
+        cp "$light" "$dest/${name}.${OS_TAG}.light.png" \
+            && cp "$dark" "$dest/${name}.${OS_TAG}.dark.png" \
+            && cp "$light" "$dest/${name}.${OS_TAG}.png" \
+            || { log_error "$name: could not install the captures into $dest"; return 1; }
+        log_success "$name: installed ${name}.${OS_TAG}.{light,dark}.png and ${name}.${OS_TAG}.png into examples/assets/screenshots/"
+    fi
+
+    return 0
+}
+
+# ── Run ─────────────────────────────────────────────────────────────────────
+FAILED=()
+PASSED=()
+for example in "${EXAMPLES[@]}"; do
+    if capture_example "$example"; then
+        PASSED+=("$example")
+    else
+        FAILED+=("$example")
+    fi
+done
+
+echo
+log_info "=========================================="
+log_info "SUMMARY  (profile=$PROFILE, os=$OS_TAG)"
+log_info "=========================================="
+for e in "${PASSED[@]}"; do
+    if [ -z "$AZ_SCREENSHOT_NO_INSTALL" ]; then
+        log_success "$e -> examples/assets/screenshots/${e}.${OS_TAG}.{light,dark}.png (+ ${e}.${OS_TAG}.png)"
+    else
+        log_success "$e -> $TEMP_ROOT/$e/${e}.${OS_TAG}.{light,dark}.png"
+    fi
+done
+for e in "${FAILED[@]}"; do
+    log_error "$e FAILED (logs in $TEMP_ROOT/$e/stderr.*.log)"
+done
+
+if [ ${#FAILED[@]} -ne 0 ]; then
     exit 1
 fi
-
-# Summary
-log_info "=========================================="
-log_info "SUMMARY"
-log_info "=========================================="
-log_success "Example: $EXAMPLE_NAME"
-log_success "Temp Dir: $TEMP_DIR"
-
-if [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
-    log_success "Screenshot: $SCREENSHOT_FILE ($(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}'))"
-else
-    log_error "Screenshot: FAILED"
-    exit 1
-fi
-
-log_info "Log files:"
-log_info "  stdout: $TEMP_DIR/stdout.log"
-log_info "  stderr: $TEMP_DIR/stderr.log"
-
-log_success "=========================================="
-log_success "TEST PASSED"
-log_success "=========================================="
-
+log_success "ALL CAPTURES OK"
 exit 0

@@ -1,44 +1,43 @@
 //! D binding generator.
 //!
-//! Emits a single `azul.d` source file (`module azul`) that exposes the
-//! C-ABI of `libazul` to D programs. Like the Odin / Pascal / Fortran
-//! backends, D has no `azul.h` importer in this pipeline, so the FFI
-//! surface is translated explicitly: every struct becomes a D `struct`
-//! (C layout is D's default `struct` layout), every enum a D `enum` with
-//! an explicit backing integer, every tagged union a D `union` of
-//! per-variant structs (mirroring the tested `lang_c` layout), and every
-//! C-ABI function a declaration inside an `extern(C) { ... }` block.
+//! Two layers:
 //!
-//! # Callbacks are C-direct (the key simplification)
+//! * the C ABI (`module azul.raw`): every struct, enum, tagged union and
+//!   callback typedef as the `extern(C)` declaration `azul.h` has, and every
+//!   exported symbol in an `extern(C) nothrow @nogc` block. D lays a struct out
+//!   exactly like C, so no header importer is involved. See `types.rs` and
+//!   `functions.rs`.
+//! * the D API (`import azul;`): a struct per api.json type, native `string`,
+//!   `Nullable!T`, `T[]` and exceptions at member boundaries, delegates and
+//!   lambdas for callbacks, any class object as application data, and
+//!   `toString` / `dup` / `opEquals` / `opCmp` / `toHash` / `defaultValue` for
+//!   the derived traits. See `model.rs` (type mapping), `runtime.rs` (handle
+//!   boxes, closure handles) and `wrappers.rs` (emitter).
 //!
-//! D — like Zig, Go, C and Odin — can produce a real C function pointer:
-//! an `extern(C) Ret function(Args)` value. So the counter's `on_click`
-//! / `layout` callbacks are plain D functions declared `extern(C)`, whose
-//! address is passed straight to `AzButton_setOnClick` /
-//! `AzWindowCreateOptions_create`. There is NO host-invoker table, NO
-//! handle registration — exactly the model used by
-//! `examples/zig/hello-world.zig` and `examples/odin/hello-world.odin`.
-//! For each callback typedef we emit a D fn-pointer alias
-//! (`alias AzButtonOnClickCallbackType = extern(C) AzUpdate function(...)`),
-//! and functions that take a callback-wrapper arg bind the RAW C symbol
-//! taking that bare fn-pointer typedef (matching the raw `_setOnClick`
-//! variant the DLL exports — the same one Zig sees through `azul.h`).
+//! # Ownership
 //!
-//! # Order-independence
+//! A non-`Copy` type is a handle struct: copying a handle shares the value
+//! (refcounted, like `std.stdio.File`), the last handle runs the type's
+//! `_delete`, and passing a handle by value moves the value into libazul, so
+//! every copy of it throws `AzulMovedError` afterwards. `dup()` makes an
+//! independent copy. Handles are copyable because Phobos needs that: `writeln`,
+//! `format`, `~=` and `Nullable` all copy their arguments, and none of them
+//! compile for a struct with `@disable this(this)`. A `Copy` type is a plain
+//! struct over the C value.
 //!
-//! D resolves module-scope declarations regardless of source order, so —
-//! unlike C / Pascal — no forward declarations or topological sort are
-//! needed. Types skipped for codegen (recursive / generic template) are
-//! emitted as opaque pointer aliases (`alias AzXmlNode = void*;`) so any
-//! by-pointer reference still resolves, mirroring the Odin backend.
+//! # Output (paths relative to `target/codegen`)
 //!
-//! # Build / link requirements
-//!
-//! The generated `azul.d` and the driver are compiled together and linked
-//! against `libazul` (`dmd hello-world.d azul.d -L-L. -L-lazul` on
-//! Unix). The `module azul;` line lets the driver `import azul;`.
+//! * `azul.d` - `module azul` in one file, what the website bundle ships next
+//!   to `hello-world.d`: `dmd hello-world.d azul.d -L-L. -L-lazul`.
+//! * `d/` - a dub package: `dub.json`, `source/azul/package.d` publicly
+//!   importing `azul.raw`, `azul.runtime`, one module per api.json module and
+//!   `azul.trampolines`; `tests/compile_check.d`, which calls every generated
+//!   member once so the templates are instantiated (`dmd -o- -Isource
+//!   tests/compile_check.d source/azul/*.d`); and a README.
 
 pub mod functions;
+pub mod model;
+pub mod runtime;
 pub mod types;
 pub mod wrappers;
 
@@ -46,74 +45,357 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory,
+use super::{
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{ArgRefKind, CodegenIR, EnumDef, FieldRefKind, FunctionDef, StructDef, TypeCategory},
 };
 
 /// The C library name linked against (`-lazul`).
 pub const LIB_NAME: &str = "azul";
 
-/// Generate the full `azul.d` source file.
-pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    // D idiom is 4-space indentation; the emitters hardcode `\t` inside
-    // aggregate bodies (like the Odin backend), so the builder unit is
-    // only cosmetic here.
+const PART_HEADER: &str = "// Auto-generated by azul-doc codegen v2 (lang_d). DO NOT EDIT.\n\n";
+
+/// The generated parts of the binding.
+pub struct Parts {
+    /// The raw layer (types + extern block), without a module line.
+    pub raw: String,
+    /// Idiomatic source per api.json module.
+    pub modules: Vec<(String, String)>,
+    /// The callback trampolines.
+    pub trampolines: String,
+    /// Body of `tests/compile_check.d` (after its imports).
+    pub check: String,
+    pub skipped: Vec<String>,
+    pub stats: wrappers::Stats,
+}
+
+pub fn parts(ir: &CodegenIR, config: &CodegenConfig) -> Result<Parts> {
     let mut b = CodeBuilder::new("    ");
-
-    emit_header(&mut b);
-    b.line("module azul;");
-    b.blank();
-
-    // Track every emitted top-level name so a duplicate (a struct + a
-    // type-alias sharing a name, a case-collision, …) can never produce a
-    // D "redeclaration" error.
     let mut emitted: BTreeSet<String> = BTreeSet::new();
-
     types::generate_types(&mut b, ir, config, &mut emitted);
     functions::generate_extern_block(&mut b, ir, config);
-    functions::generate_aliases(&mut b, ir, config);
-    wrappers::generate_wrappers(&mut b, ir, config);
+    let raw = b.finish();
 
-    Ok(b.finish())
+    let model = model::Model::new(ir, config);
+    let out = wrappers::generate(&model);
+    Ok(Parts {
+        raw,
+        modules: out.modules.into_iter().collect(),
+        trampolines: out.trampolines,
+        check: out.check,
+        skipped: out.skipped,
+        stats: out.stats,
+    })
 }
 
-fn emit_header(b: &mut CodeBuilder) {
-    b.line("// ============================================================================");
-    b.line("// azul.d — D bindings for the Azul GUI framework");
-    b.line("// Auto-generated by azul-doc codegen v2 (lang_d). DO NOT EDIT MANUALLY.");
-    b.line("// ============================================================================");
-    b.line("//");
-    b.line("// The C-ABI surface is translated explicitly: structs -> struct, enums ->");
-    b.line("// enum (with explicit backing integer), tagged unions -> union of per-variant");
-    b.line("// structs, and every exported symbol is declared inside the `extern(C) { ... }`");
-    b.line("// block below. Symbol names match the C bindings verbatim (AzApp_create, ...).");
-    b.line("//");
-    b.line("// Callbacks are C-direct: pass a plain `extern(C)` function's address straight");
-    b.line("// to AzButton_setOnClick / AzWindowCreateOptions_create — no host-invoker");
-    b.line("// table, exactly like the Zig / C / Odin bindings.");
-    b.line("//");
-    b.line("// Idiomatic aliases without the `Az` prefix (alias App_create = AzApp_create;)");
-    b.line("// are emitted at the bottom; the raw Az* symbols remain available.");
-    b.line("//");
-    b.line("// Build: compile this module together with your driver and link libazul, e.g.");
-    b.line("//   dmd hello-world.d azul.d -L-L. -L-lazul");
-    b.line("// ============================================================================");
-    b.blank();
+/// Generate the single-file `azul.d` (`module azul`).
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let p = parts(ir, config)?;
+    Ok(amalgamate(&p, &ir.api_version))
+}
+
+fn amalgamate(p: &Parts, version: &str) -> String {
+    let mut out = header(p, version);
+    out.push_str("module azul;\n\n");
+    out.push_str(RAW_IMPORTS);
+    out.push_str(runtime::IMPORTS);
+    out.push('\n');
+    out.push_str(&p.raw);
+    out.push_str(runtime::RUNTIME);
+    for (_, src) in &p.modules {
+        out.push_str(src);
+    }
+    out.push_str(&p.trampolines);
+    out
+}
+
+const RAW_IMPORTS: &str = "public import core.stdc.config : c_long, c_ulong;\n";
+
+/// Every file the binding writes, as (path relative to `target/codegen`,
+/// contents).
+pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(String, String)>> {
+    let p = parts(ir, config)?;
+    let mut files = vec![
+        ("azul.d".to_string(), amalgamate(&p, &ir.api_version)),
+        ("d/dub.json".to_string(), dub_json(&ir.api_version)),
+        ("d/README.md".to_string(), README.to_string()),
+        (
+            "d/source/azul/raw.d".to_string(),
+            format!(
+                "{}/// The C ABI of libazul: every type and exported function as azul.h declares it.\nmodule azul.raw;\n\n{}\n{}",
+                PART_HEADER, RAW_IMPORTS, p.raw
+            ),
+        ),
+        (
+            "d/source/azul/runtime.d".to_string(),
+            format!(
+                "{}/// Handle boxes, closure handles, exceptions and string conversions.\nmodule azul.runtime;\n\nimport azul;\n{}\n{}",
+                header(&p, &ir.api_version),
+                runtime::IMPORTS,
+                runtime::RUNTIME
+            ),
+        ),
+        (
+            "d/source/azul/trampolines.d".to_string(),
+            format!(
+                "{}/// One C entry point per callback typedef that finds the D delegate to call.\nmodule azul.trampolines;\n\nimport azul;\n{}\n{}",
+                PART_HEADER,
+                runtime::IMPORTS,
+                p.trampolines
+            ),
+        ),
+    ];
+    let mut package = String::from(PART_HEADER);
+    package.push_str(
+        "/// Azul GUI framework: `import azul;` is the whole API.\nmodule azul;\n\npublic import azul.raw;\npublic import azul.runtime;\npublic import azul.trampolines;\n",
+    );
+    for (module, src) in &p.modules {
+        let m = module_name(module);
+        package.push_str(&format!("public import azul.{};\n", m));
+        files.push((
+            format!("d/source/azul/{}.d", m),
+            format!(
+                "{}module azul.{};\n\nimport azul;\n{}\n{}",
+                PART_HEADER,
+                m,
+                runtime::IMPORTS,
+                src
+            ),
+        ));
+    }
+    files.push(("d/source/azul/package.d".to_string(), package));
+    files.push((
+        "d/tests/compile_check.d".to_string(),
+        format!(
+            "{}// Calls every member of the D API once, inside `if (false)`, so the compiler\n// instantiates and type-checks every template a program could use. Compile only:\n//   dmd -o- -Isource tests/compile_check.d source/azul/*.d\nmodule compile_check;\n\nimport azul;\n\n{}",
+            PART_HEADER, p.check
+        ),
+    ));
+    Ok(files)
+}
+
+/// The D module an api.json module lives in (`dom` -> `azul.dom`).
+pub fn module_name(module: &str) -> String {
+    let m: String = module
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let m = if m.is_empty() { "misc".to_string() } else { m };
+    if matches!(m.as_str(), "raw" | "runtime" | "trampolines" | "package")
+        || is_d_keyword(&m)
+        || m.starts_with(|c: char| c.is_ascii_digit())
+    {
+        format!("api_{}", m)
+    } else {
+        m
+    }
+}
+
+fn dub_json(version: &str) -> String {
+    format!(
+        r#"{{
+    "name": "azul",
+    "description": "D bindings for the Azul GUI framework (generated from api.json by azul-doc; do not edit)",
+    "homepage": "https://azul.rs",
+    "authors": ["The Azul authors"],
+    "license": "MIT",
+    "version": "{}",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "libs-posix": ["{}"],
+    "libs-windows": ["azul.dll"]
+}}
+"#,
+        version, LIB_NAME
+    )
+}
+
+const README: &str = r#"# Azul (D)
+
+D bindings for the [Azul](https://azul.rs) GUI framework, generated from
+`api.json` by `azul-doc codegen` (do not edit).
+
+## Install
+
+Put `libazul.so` / `libazul.dylib` / `azul.dll` + `azul.dll.lib` from the Azul
+release where the linker and the loader find it, and depend on this directory:
+
+```sh
+dub add-local path/to/azul-d      # the generated target/codegen/d directory
+dub build --lflags=-L/path/to/libazul
+```
+
+Without dub, compile the sources with your program (or use the one-file
+`azul.d` the website ships, which is the same code as `module azul`):
+
+```sh
+dmd -Ipath/to/azul-d/source app.d path/to/azul-d/source/azul/*.d -L-L. -L-lazul
+dmd app.d azul.d -L-L. -L-lazul
+```
+
+## Hello world
+
+```d
+module hello_world;
+
+import azul;
+import std.conv : to;
+
+final class Counter
+{
+    int count = 5;
+}
+
+Dom layout(Counter counter, LayoutCallbackInfo info)
+{
+    auto label = Dom.pWithText(counter.count.to!string)
+        .withCss("font-size: 32px; margin: 0;");
+
+    auto button = Button("Increase counter")
+        .withButtonType(ButtonType.primary)
+        .withOnClick(counter, (Counter c, CallbackInfo _) {
+            c.count += 1;
+            return Update.refreshDom;
+        });
+
+    return Dom.body()
+        .withChild(label)
+        .withChild(button.dom());
+}
+
+void main()
+{
+    auto window = WindowCreateOptions(&layout);
+    window.windowState.title = "Hello World";
+    App(new Counter, AppConfig()).run(window);
+}
+```
+
+## How the API maps
+
+* Every api.json type is `azul.Name`. A fieldless enum is a D `enum`
+  (`ButtonType.primary`). Any other type is a struct: a plain copyable struct
+  when the Rust type is `Copy`, otherwise a handle.
+* A tagged union is a struct with a nested `Tag` enum: `final switch (v.tag)`
+  matches it, `v.isFoo` / `v.foo` read a variant, `Name.foo(payload)` makes one.
+* `string`, `Option<T>` (`Nullable!T`) and `Vec<T>` (`T[]`, `ubyte[]` for
+  `u8`) cross as native values. A method returning `Result` returns the `Ok`
+  value and throws `ResultException!E` (an `AzulException`) on `Err`.
+* `create` is `Name(...)` (a static `opCall`), `create_body` is
+  `Name.body()`, `get_x` is `x` and `set_x` is `x = value` (property syntax),
+  `is_x` is `isX`. Field accessors of a handle write through
+  (`window.windowState.size.dimensions.width = 400`).
+* Callbacks take a function, delegate or lambda with typed parameters; the
+  application data is any class object and comes back with its own type. The
+  binding keeps both alive (GC roots) for as long as libazul holds them.
+* Memory is managed. Copying a handle shares its value; the last copy frees
+  it. Passing a handle by value moves the value into libazul, as in Rust, and
+  using any copy afterwards throws `AzulMovedError`; call `dup()` first to keep
+  an independent copy.
+* Rust traits: `Debug` is `toString`, `Clone` is `dup`, `PartialEq` is
+  `opEquals`, `PartialOrd` is `float opCmp` (NaN when incomparable), `Ord` is
+  `int opCmp`, `Hash` is `toHash`, `Default` is `Name.defaultValue()` /
+  `defaultValue!Name()` (and `Name()` when no zero-argument constructor takes
+  that spelling), `Drop` is the destructor. A D enum's own `==`, `<`, hashing
+  and `to!string` stand in for the derives of a fieldless enum.
+* Handles are refcounted without locking: share one between threads only
+  behind your own synchronization.
+* The C ABI stays available (`AzDom_createBody`, ...), in `azul.raw`.
+
+## Checking the binding
+
+`tests/compile_check.d` calls every member once (inside `if (false)`), so the
+compiler instantiates every template a program could use:
+
+```sh
+dmd -o- -Isource tests/compile_check.d source/azul/*.d
+```
+"#;
+
+fn header(p: &Parts, version: &str) -> String {
+    let s = &p.stats;
+    let mut out = format!(
+        "// ============================================================================
+// azul.d - D bindings for the Azul GUI framework {version}
+// Auto-generated by azul-doc codegen v2 (lang_d). DO NOT EDIT MANUALLY.
+// ============================================================================
+//
+// `import azul;` is the API: a struct per api.json type (a refcounted handle, or
+// a plain struct for Copy types), D enums, native string / Nullable!T / T[] and
+// exceptions, delegates for callbacks. The C ABI is declared below it (Az*).
+//
+// Build: compile this module with your program and link libazul:
+//   dmd app.d azul.d -L-L. -L-lazul
+//
+// Declared: {} handle structs, {} plain structs, {} enums; {} member functions.
+// Native at the boundary: Option -> Nullable!T {}/{}, Vec -> T[] {}/{},
+//   Result -> return + throw {}/{}; tagged unions as structs with a Tag enum {}.
+",
+        s.classes,
+        s.structs,
+        s.enums,
+        s.members,
+        s.options_native,
+        s.options_total,
+        s.vecs_native,
+        s.vecs_total,
+        s.results_native,
+        s.results_total,
+        s.unions,
+    );
+    let mut raw: Vec<&String> = p
+        .skipped
+        .iter()
+        .filter(|s| !s.ends_with(wrappers::NATIVE) && !s.ends_with(wrappers::TAKEN))
+        .collect();
+    raw.sort();
+    if !raw.is_empty() {
+        out.push_str(
+            "//\n// Only in the C ABI (no argument or return shape the D API can express):\n",
+        );
+        for s in raw {
+            out.push_str(&format!("//   {}\n", s));
+        }
+    }
+    let mut taken: Vec<&str> = p
+        .skipped
+        .iter()
+        .filter_map(|s| s.strip_suffix(wrappers::TAKEN))
+        .map(str::trim_end)
+        .collect();
+    taken.sort();
+    if !taken.is_empty() {
+        out.push_str(
+            "//\n// Not a separate member (another member has its D name and parameter types):\n",
+        );
+        for s in taken {
+            out.push_str(&format!("//   {}\n", s));
+        }
+    }
+    out.push_str(
+        "// ============================================================================\n\n",
+    );
+    out
 }
 
 // ============================================================================
-// Shared name / type helpers (used by submodules)
+// Raw type mapping
 // ============================================================================
 
-/// The `Az`-prefixed FFI type name for an IR type (e.g. `Dom` -> `AzDom`).
+/// The `Az`-prefixed raw type name for an IR type (`Dom` -> `AzDom`).
 pub fn ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
 }
 
-/// Is `name` a type declared somewhere in the IR (so it resolves to an
-/// `Az`-prefixed D declaration)?
+/// Is `name` a type declared somewhere in the IR?
 pub fn is_ir_type(name: &str, ir: &CodegenIR) -> bool {
     let n = name.trim();
     ir.find_struct(n).is_some()
@@ -122,79 +404,33 @@ pub fn is_ir_type(name: &str, ir: &CodegenIR) -> bool {
         || ir.callback_typedefs.iter().any(|c| c.name == n)
 }
 
-/// Map a Rust/IR value type to its D equivalent (by-value position).
-///
-/// Primitives map to D's native fixed-width types; `usize`/`isize` map to
-/// D's `size_t`/`ptrdiff_t` (== C `size_t`/`ssize_t`). Pointers/references
-/// are delegated to [`ptr_to_d`]. Anything the IR knows becomes
-/// `Az<Name>`; anything else degrades to `void*`.
+/// The raw D type of a Rust/IR type in by-value position.
 pub fn map_type_to_d(rust_type: &str, ir: &CodegenIR) -> String {
     let t = rust_type.trim();
-
-    if let Some(rest) = t.strip_prefix("*const ") {
-        return ptr_to_d(rest, ir);
+    for prefix in ["*const ", "*mut ", "&mut ", "&"] {
+        if let Some(rest) = t.strip_prefix(prefix) {
+            return ptr_to_d(rest, ir);
+        }
     }
-    if let Some(rest) = t.strip_prefix("*mut ") {
-        return ptr_to_d(rest, ir);
-    }
-    if let Some(rest) = t.strip_prefix("&mut ") {
-        return ptr_to_d(rest, ir);
-    }
-    if let Some(rest) = t.strip_prefix('&') {
-        return ptr_to_d(rest, ir);
-    }
-
-    // Arrays: `[T; N]` -> `<DT>[N]`
-    if t.starts_with('[') && t.ends_with(']') {
+    if let Some(elem) = model::array_elem(t) {
         let inner = &t[1..t.len() - 1];
-        if let Some(semi) = inner.rfind(';') {
-            let elem = inner[..semi].trim();
-            if let Ok(n) = inner[semi + 1..].trim().parse::<usize>() {
-                return format!("{}[{}]", map_type_to_d(elem, ir), n);
-            }
-        }
+        let n = inner[inner.rfind(';').unwrap() + 1..].trim();
+        return format!("{}[{}]", map_type_to_d(elem, ir), n);
     }
-
-    match t {
-        // Void in value position never really occurs (void returns are
-        // handled elsewhere); degrade to an opaque ptr.
-        "void" | "c_void" | "()" => "void*".to_string(),
-
-        "bool" | "GLboolean" => "bool".to_string(),
-
-        "u8" | "c_uchar" => "ubyte".to_string(),
-        "i8" | "c_char" => "byte".to_string(),
-        "u16" | "c_ushort" => "ushort".to_string(),
-        "i16" | "c_short" => "short".to_string(),
-        "u32" | "c_uint" | "GLuint" | "GLenum" | "GLbitfield" => "uint".to_string(),
-        "i32" | "c_int" | "GLint" | "GLsizei" => "int".to_string(),
-        // C `long`/`unsigned long` are 8 bytes on the LP64 targets azul
-        // ships (Linux/macOS) and 4 on Windows LLP64; azul's public
-        // surface does not use them, so mapping to 64-bit is safe here.
-        "u64" | "c_ulong" | "c_ulonglong" | "GLuint64" => "ulong".to_string(),
-        "i64" | "c_long" | "c_longlong" | "GLint64" => "long".to_string(),
-        "f32" | "c_float" | "GLfloat" | "GLclampf" => "float".to_string(),
-        "f64" | "c_double" | "GLdouble" | "GLclampd" => "double".to_string(),
-        // Pointer-sized integers: D `size_t`/`ptrdiff_t` == C size_t/ssize_t.
-        "usize" | "size_t" | "uintptr_t" => "size_t".to_string(),
-        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => "ptrdiff_t".to_string(),
-
-        _ => {
-            if is_ir_type(t, ir) {
-                ffi_type_name(t)
-            } else {
-                "void*".to_string()
-            }
-        }
+    if matches!(t, "void" | "c_void" | "()") {
+        return "void*".to_string();
+    }
+    if let Some(p) = model::Prim::from_rust(t) {
+        return p.d().to_string();
+    }
+    if is_ir_type(t, ir) {
+        ffi_type_name(t)
+    } else {
+        "void*".to_string()
     }
 }
 
-/// Map the pointee of a pointer/reference to a D pointer expression.
-///
-/// - `void`/`c_void` -> `void*`
-/// - a known IR type -> `Az<Name>*`
-/// - a primitive -> `<DT>*`
-/// - anything else -> `void*`
+/// The raw D pointer type for a pointer/reference to `inner`.
 pub fn ptr_to_d(inner: &str, ir: &CodegenIR) -> String {
     let inner = inner.trim();
     match inner {
@@ -214,7 +450,6 @@ pub fn ptr_to_d(inner: &str, ir: &CodegenIR) -> String {
     }
 }
 
-/// Map a `(type_name, FieldRefKind)` pair to the D field/param type.
 pub fn field_type_for_ref_kind(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         FieldRefKind::Owned => map_type_to_d(type_name, ir),
@@ -227,7 +462,6 @@ pub fn field_type_for_ref_kind(type_name: &str, ref_kind: &FieldRefKind, ir: &Co
     }
 }
 
-/// Map a `(type_name, ArgRefKind)` pair to the D argument type.
 pub fn arg_type_for_ref_kind(type_name: &str, ref_kind: &ArgRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         ArgRefKind::Owned => map_type_to_d(type_name, ir),
@@ -237,9 +471,23 @@ pub fn arg_type_for_ref_kind(type_name: &str, ref_kind: &ArgRefKind, ir: &Codege
     }
 }
 
-/// Sanitize a name for use as a D identifier. D reserved words get a
-/// trailing underscore.
+// ============================================================================
+// Names
+// ============================================================================
+
+/// A name usable as a D identifier: keywords and the names `object` declares
+/// in every module get a trailing `_`.
 pub fn sanitize_identifier(name: &str) -> String {
+    if is_d_keyword(name) || is_object_name(name) {
+        format!("{}_", name)
+    } else {
+        name.to_string()
+    }
+}
+
+/// A raw-layer identifier: only D keywords get a trailing `_`, so every C
+/// member keeps the name `azul.h` gives it (`Error`, `string`, ...).
+pub fn raw_identifier(name: &str) -> String {
     if is_d_keyword(name) {
         format!("{}_", name)
     } else {
@@ -247,7 +495,87 @@ pub fn sanitize_identifier(name: &str) -> String {
     }
 }
 
-fn is_d_keyword(s: &str) -> bool {
+/// `snake_case` / `CamelCase` / `camelCase` -> `lowerCamelCase`, lower-casing a
+/// leading acronym (`URL` -> `url`, `HTTPRequest` -> `httpRequest`).
+pub fn camel(name: &str) -> String {
+    let parts: Vec<&str> = name.split('_').filter(|p| !p.is_empty()).collect();
+    let mut out = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            out.push_str(&lower_leading(part));
+        } else {
+            let mut chars = part.chars();
+            if let Some(f) = chars.next() {
+                out.push(f.to_ascii_uppercase());
+                out.push_str(chars.as_str());
+            }
+        }
+    }
+    out
+}
+
+fn lower_leading(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let run = chars.iter().take_while(|c| c.is_ascii_uppercase()).count();
+    if run == 0 {
+        return s.to_string();
+    }
+    let lower_to = if run == 1 || run == chars.len() {
+        run
+    } else if chars[run].is_ascii_lowercase() {
+        run - 1
+    } else {
+        run
+    };
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if i < lower_to {
+                c.to_ascii_lowercase()
+            } else {
+                *c
+            }
+        })
+        .collect()
+}
+
+/// Names `object.d` declares, visible in every D module.
+fn is_object_name(s: &str) -> bool {
+    matches!(
+        s,
+        "string"
+            | "wstring"
+            | "dstring"
+            | "size_t"
+            | "ptrdiff_t"
+            | "sizediff_t"
+            | "hash_t"
+            | "equals_t"
+            | "noreturn"
+            | "Object"
+            | "Throwable"
+            | "Exception"
+            | "Error"
+            | "TypeInfo"
+            | "ClassInfo"
+            | "ModuleInfo"
+            | "Interface"
+            | "Monitor"
+    )
+}
+
+/// The D spelling of an api.json type: a name `object.d` declares (visible in
+/// every module) would be shadowed, so it gets an `Azul` prefix.
+pub fn d_type_name(name: &str) -> String {
+    if is_object_name(name) {
+        format!("Azul{}", name)
+    } else {
+        name.to_string()
+    }
+}
+
+pub fn is_d_keyword(s: &str) -> bool {
     matches!(
         s,
         "abstract"
@@ -256,7 +584,6 @@ fn is_d_keyword(s: &str) -> bool {
             | "asm"
             | "assert"
             | "auto"
-            | "body"
             | "bool"
             | "break"
             | "byte"
@@ -275,7 +602,6 @@ fn is_d_keyword(s: &str) -> bool {
             | "debug"
             | "default"
             | "delegate"
-            | "delete"
             | "deprecated"
             | "do"
             | "double"
@@ -350,105 +676,85 @@ fn is_d_keyword(s: &str) -> bool {
             | "wchar"
             | "while"
             | "with"
+            | "__FILE__"
+            | "__LINE__"
+            | "__MODULE__"
+            | "__FUNCTION__"
+            | "__PRETTY_FUNCTION__"
+            | "__gshared"
+            | "__traits"
+            | "__vector"
+            | "__parameters"
     )
 }
 
 // ============================================================================
-// Shared inclusion filters (mirror the Odin / Pascal backends' rules)
+// Inclusion filters
 // ============================================================================
 
-/// A struct gets a real D `struct`; skipped ones become opaque pointer
-/// aliases. Only Recursive / GenericTemplate are skipped — VecRef /
-/// DestructorOrClone are kept because Vec wrappers embed them as fields
-/// and eliding them would corrupt surrounding field offsets.
+/// A struct gets a real declaration; only generic templates stay opaque. See
+/// `types.rs` for why `Recursive` types are laid out for real.
 pub fn include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
-    if !config.should_include_type(&s.name) {
-        return false;
-    }
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    config.should_include_type(&s.name)
+        && s.generic_params.is_empty()
+        && s.category != TypeCategory::GenericTemplate
 }
 
 pub fn include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
-    if !config.should_include_type(&e.name) {
-        return false;
-    }
-    if !e.generic_params.is_empty() {
-        return false;
-    }
-    !matches!(
-        e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate
-    )
+    config.should_include_type(&e.name)
+        && e.generic_params.is_empty()
+        && e.category != TypeCategory::GenericTemplate
 }
 
-/// Whether a function should get an `extern(C)` declaration. Mirrors the
-/// Odin / Pascal filter: skip functions whose owning class is a recursive
-/// / VecRef / destructor / generic-template type.
+/// Whether a function is declared: every function of an included type. The raw
+/// layer can spell any C signature (function pointers included), so no category
+/// of type is dropped for being hard to declare.
 pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    // A trait entry point an api.json `derive` declares is not what the
-    // `DestructorOrClone` exclusion below is for. That category is excluded
-    // because those types' ordinary methods traffic in callback function
-    // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
-    // AzString` traffics in neither, and is the same shape as the ~2800
-    // `_toDbgString` declarations this binding already emits. Excluding it
-    // wholesale is why every `*VecDestructor` declared `Debug` and named it
-    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
-    // RECURSIVE types are here for the same reason. `XmlNodeChild` and friends
-    // are excluded below because their ORDINARY methods traffic in a shape
-    // this binding cannot express by value - but `Az{T}_partialEq(a, b) ->
-    // bool` and `Az{T}_toDbgString(ptr) -> AzString` take a pointer and return
-    // a scalar, so the exclusion never applied to them. That is why the same
-    // four types - `Xml`, `XmlNodeChild`, `XmlNodeChildVec`,
-    // `ResultXmlXmlError` - showed up as the residue in fourteen bindings at
-    // once: one cause, not fourteen.
-    if func.kind.is_declared_capability()
-        && (ir.find_enum(&func.class_name).is_some_and(|e| {
-            matches!(
-                e.category,
-                TypeCategory::DestructorOrClone | TypeCategory::Recursive
-            )
-        }) || ir
-            .find_struct(&func.class_name)
-            .is_some_and(|s| s.category == TypeCategory::Recursive))
-    {
-        return config.should_include_type(&func.class_name);
-    }
-
     if !config.should_include_type(&func.class_name) {
         return false;
     }
     if let Some(s) = ir.find_struct(&func.class_name) {
-        if matches!(
-            s.category,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !s.generic_params.is_empty() {
+        if s.category == TypeCategory::GenericTemplate || !s.generic_params.is_empty() {
             return false;
         }
     }
     if let Some(e) = ir.find_enum(&func.class_name) {
-        if matches!(
-            e.category,
-            TypeCategory::Recursive
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !e.generic_params.is_empty() {
+        if e.category == TypeCategory::GenericTemplate || !e.generic_params.is_empty() {
             return false;
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camel_case_names() {
+        assert_eq!(camel("with_css"), "withCss");
+        assert_eq!(camel("create_p_with_text"), "createPWithText");
+        assert_eq!(camel("DoNothing"), "doNothing");
+        assert_eq!(camel("URL"), "url");
+        assert_eq!(camel("HTTPRequest"), "httpRequest");
+        assert_eq!(camel("RGBA8"), "rgba8");
+    }
+
+    #[test]
+    fn identifiers_never_collide_with_d_keywords_or_object() {
+        assert_eq!(sanitize_identifier("body"), "body");
+        assert_eq!(sanitize_identifier("function"), "function_");
+        assert_eq!(sanitize_identifier("default"), "default_");
+        assert_eq!(sanitize_identifier("string"), "string_");
+        assert_eq!(sanitize_identifier("width"), "width");
+        assert_eq!(d_type_name("Monitor"), "AzulMonitor");
+        assert_eq!(d_type_name("Dom"), "Dom");
+    }
+
+    #[test]
+    fn module_names_are_valid_and_never_reserved() {
+        assert_eq!(module_name("dom"), "dom");
+        assert_eq!(module_name("runtime"), "api_runtime");
+        assert_eq!(module_name(""), "misc");
+    }
 }

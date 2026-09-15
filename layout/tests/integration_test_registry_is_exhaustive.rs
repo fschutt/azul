@@ -51,14 +51,13 @@ const HARNESS_ROOT: &str = "all.rs";
 /// moment one is fixed or removed, so the list cannot rot.
 const KNOWN_ORPHANS: &[(&str, &str)] = &[(
     "solver3/test_inline_intrinsic_width.rs",
-    "PRE-EXISTING (since 27db54be8): written as a `#[cfg(test)] mod` for the \
-     layout/src/ tree, not as an integration test — it imports \
-     `crate::{solver3, text3}` and `super::super::create_test_font_manager`, \
-     neither of which resolves from tests/. Cargo never auto-discovers \
-     subdirectory files, so nothing has ever compiled it and its 2 tests have \
-     never run. Fixing it means moving it under layout/src/solver3/ (or \
-     rewriting the paths to `azul_layout::…` and giving it a font-manager \
-     helper), which is a source change, not a test-layout change.",
+    "PRE-EXISTING (since 27db54be8): written as a `#[cfg(test)] mod` for the layout/src/ tree, \
+     not as an integration test — it imports `crate::{solver3, text3}` and \
+     `super::super::create_test_font_manager`, neither of which resolves from tests/. Cargo never \
+     auto-discovers subdirectory files, so nothing has ever compiled it and its 2 tests have \
+     never run. Fixing it means moving it under layout/src/solver3/ (or rewriting the paths to \
+     `azul_layout::…` and giving it a font-manager helper), which is a source change, not a \
+     test-layout change.",
 )];
 
 /// Every `#[path = "…"]` string in `tests/all.rs`.
@@ -138,11 +137,10 @@ fn every_test_file_is_either_registered_in_all_rs_or_declared_in_cargo_toml() {
     // point at nothing.
     assert!(
         CARGO_TOML.contains("autotests = false"),
-        "layout/Cargo.toml no longer sets `autotests = false`, so Cargo is \
-         auto-discovering tests/*.rs again — every file links its own ~66 MB \
-         binary. Either restore it (and keep this guard) or delete tests/all.rs \
-         and this file together; a half-applied consolidation is the worst of \
-         both."
+        "layout/Cargo.toml no longer sets `autotests = false`, so Cargo is auto-discovering \
+         tests/*.rs again — every file links its own ~66 MB binary. Either restore it (and keep \
+         this guard) or delete tests/all.rs and this file together; a half-applied consolidation \
+         is the worst of both."
     );
 
     let registered = registered_paths();
@@ -153,20 +151,20 @@ fn every_test_file_is_either_registered_in_all_rs_or_declared_in_cargo_toml() {
     // make every assertion below pass while proving nothing at all.
     assert!(
         registered.len() >= 100,
-        "parsed only {} `#[path = \"…\"]` registrations out of tests/all.rs — \
-         the parser broke. An empty list makes this test vacuous.",
+        "parsed only {} `#[path = \"…\"]` registrations out of tests/all.rs — the parser broke. \
+         An empty list makes this test vacuous.",
         registered.len()
     );
     assert!(
         declared.len() >= 5,
-        "parsed only {} `[[test]] path = \"tests/…\"` entries out of \
-         layout/Cargo.toml — the parser broke.",
+        "parsed only {} `[[test]] path = \"tests/…\"` entries out of layout/Cargo.toml — the \
+         parser broke.",
         declared.len()
     );
     assert!(
         actual.len() >= 100,
-        "found only {} .rs files in layout/tests/ — the directory listing \
-         broke (or the tests were deleted).",
+        "found only {} .rs files in layout/tests/ — the directory listing broke (or the tests \
+         were deleted).",
         actual.len()
     );
 
@@ -207,10 +205,10 @@ fn every_test_file_is_either_registered_in_all_rs_or_declared_in_cargo_toml() {
         .collect();
     assert!(
         both.is_empty(),
-        "test file(s) BOTH registered in tests/all.rs and declared as their own \
-         `[[test]]` in layout/Cargo.toml: {both:?}. They compile and run twice, \
-         which doubles the link cost this consolidation exists to remove — and \
-         if they touch shared state they now race themselves. Pick one."
+        "test file(s) BOTH registered in tests/all.rs and declared as their own `[[test]]` in \
+         layout/Cargo.toml: {both:?}. They compile and run twice, which doubles the link cost \
+         this consolidation exists to remove — and if they touch shared state they now race \
+         themselves. Pick one."
     );
 
     let stale: Vec<&str> = top_level_registered
@@ -220,9 +218,9 @@ fn every_test_file_is_either_registered_in_all_rs_or_declared_in_cargo_toml() {
         .collect();
     assert!(
         stale.is_empty(),
-        "tests/all.rs registers file(s) that no longer exist: {stale:?}. \
-         (This normally fails at compile time; if you are seeing it as a test \
-         failure the module was cfg'd out.) Delete the `#[path]`/`mod` lines."
+        "tests/all.rs registers file(s) that no longer exist: {stale:?}. (This normally fails at \
+         compile time; if you are seeing it as a test failure the module was cfg'd out.) Delete \
+         the `#[path]`/`mod` lines."
     );
 }
 
@@ -310,14 +308,12 @@ fn no_test_source_in_a_subdirectory_is_orphaned() {
 
     assert!(
         orphans.is_empty(),
-        "test source(s) under layout/tests/*/ that nothing reaches: \
-         {orphans:?}\n\n\
-         Subdirectory files are never auto-discovered by Cargo — not even with \
-         `autotests = true` — so an unreferenced one has never been compiled \
-         and its assertions have never run, however green the suite looks. \
-         Either register it (a `#[path = \"<dir>/<file>.rs\"] mod …;` in \
-         tests/all.rs, or a `mod <file>;` from the suite's mod.rs), declare it \
-         as a `[[test]]` in layout/Cargo.toml, or delete it."
+        "test source(s) under layout/tests/*/ that nothing reaches: {orphans:?}\n\nSubdirectory \
+         files are never auto-discovered by Cargo — not even with `autotests = true` — so an \
+         unreferenced one has never been compiled and its assertions have never run, however \
+         green the suite looks. Either register it (a `#[path = \"<dir>/<file>.rs\"] mod …;` in \
+         tests/all.rs, or a `mod <file>;` from the suite's mod.rs), declare it as a `[[test]]` in \
+         layout/Cargo.toml, or delete it."
     );
 }
 
@@ -331,15 +327,14 @@ fn the_orphan_exemptions_are_not_stale() {
     for &(rel, reason) in KNOWN_ORPHANS {
         assert!(
             subdir.contains(rel),
-            "`{rel}` is listed as a known orphan but no longer exists — delete \
-             the entry from KNOWN_ORPHANS in this file (reason on file: \
-             {reason})"
+            "`{rel}` is listed as a known orphan but no longer exists — delete the entry from \
+             KNOWN_ORPHANS in this file (reason on file: {reason})"
         );
         assert!(
             !is_reachable(rel, &corpus, &declared, &registered),
-            "`{rel}` is now reachable, so its KNOWN_ORPHANS entry is masking \
-             nothing and would hide the NEXT orphan that lands beside it — \
-             delete the entry from this file (reason on file: {reason})"
+            "`{rel}` is now reachable, so its KNOWN_ORPHANS entry is masking nothing and would \
+             hide the NEXT orphan that lands beside it — delete the entry from this file (reason \
+             on file: {reason})"
         );
     }
 }

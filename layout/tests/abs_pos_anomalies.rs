@@ -80,8 +80,8 @@ const CANVAS_H: f32 = 676.0; // 800 - 124
 #[test]
 fn a_four_zero_anchors_span_and_center_their_flex_child() {
     let (dom, css) = shell(
-        "top: 0; left: 0; right: 0; bottom: 0; \
-         display: flex; align-items: center; justify-content: center;",
+        "top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; \
+         justify-content: center;",
     );
     let lw = layout_dom(dom, &css);
     let abs = lw.get_node_layout_rect(node(2)).expect("abs rect");
@@ -114,8 +114,8 @@ fn b_percent_size_resolves_against_the_positioned_ancestor() {
     let sheet = lw.get_node_layout_rect(node(3)).expect("sheet rect");
     assert!(
         (abs.size.width - CANVAS_W).abs() < 1.0 && (abs.size.height - CANVAS_H).abs() < 1.0,
-        "width/height:100% must resolve against the relative ancestor \
-         {CANVAS_W}x{CANVAS_H}, got {:?} (report: ZERO size)",
+        "width/height:100% must resolve against the relative ancestor {CANVAS_W}x{CANVAS_H}, got \
+         {:?} (report: ZERO size)",
         abs.size
     );
     assert!(
@@ -133,8 +133,8 @@ fn c_auto_size_shrinks_to_fit_the_child() {
     let sheet = lw.get_node_layout_rect(node(3)).expect("sheet rect");
     assert!(
         (abs.size.width - 794.0).abs() < 1.0 && (abs.size.height - 100.0).abs() < 1.0,
-        "auto-size abs box must shrink-to-fit its 794x100 child, got {:?} \
-         (report: children disappear)",
+        "auto-size abs box must shrink-to-fit its 794x100 child, got {:?} (report: children \
+         disappear)",
         abs.size
     );
     assert!(
@@ -153,8 +153,7 @@ fn d_symmetric_left_right_insets_solve_the_width_equation() {
     let sheet = lw.get_node_layout_rect(node(3)).expect("sheet rect");
     assert!(
         (abs.size.width - 794.0).abs() < 1.0,
-        "css 2.2 10.3.7: width = 1280 - 243 - 243 = 794, got {} \
-         (report: ~552 + black band)",
+        "css 2.2 10.3.7: width = 1280 - 243 - 243 = 794, got {} (report: ~552 + black band)",
         abs.size.width
     );
     assert!(

@@ -3,15 +3,15 @@
 //! Each test drives the public engine API the shells drive and asserts on what
 //! the user ends up with — the text buffer, or the items in the display list.
 //!
-//! - IME composition must live in the SHAPING only, never in the text store,
-//!   so committing inserts once and cancelling leaves nothing behind.
-//! - The end-of-pass focus finalize must not overwrite a caret a click just
-//!   placed on the IFC root of a `container > p > text` editable.
+//! - IME composition must live in the SHAPING only, never in the text store, so committing inserts
+//!   once and cancelling leaves nothing behind.
+//! - The end-of-pass focus finalize must not overwrite a caret a click just placed on the IFC root
+//!   of a `container > p > text` editable.
 //! - Typing into a node that only INHERITS `contenteditable` must land.
-//! - A click on plain selectable text must not claim the blink timer, and a
-//!   focus change must not erase the selection that same click made.
-//! - The FIRST character typed into an EMPTY editable must land: it has no
-//!   text run for the insert to splice into.
+//! - A click on plain selectable text must not claim the blink timer, and a focus change must not
+//!   erase the selection that same click made.
+//! - The FIRST character typed into an EMPTY editable must land: it has no text run for the insert
+//!   to splice into.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
@@ -27,10 +27,8 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .p { display: block; } \
-                   .big { font-size: 40px; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .p { \
+                   display: block; } .big { font-size: 40px; }";
 
 fn block(child: Dom) -> Dom {
     with_class(Dom::create_div(), "p").with_child(child)
@@ -634,13 +632,13 @@ fn the_preedit_underline_spans_the_measured_advance_not_an_eight_pixel_guess() {
 
     assert!(
         (width - measured).abs() < 0.01,
-        "the underline spans the shaped advance of the composed clusters: \
-         measured {measured}, drew {width}"
+        "the underline spans the shaped advance of the composed clusters: measured {measured}, \
+         drew {width}"
     );
     assert!(
         (width - estimated).abs() > 1.0,
-        "premise: at 40px the two shapings disagree, so the assertion above can \
-         tell them apart — measured {measured}, estimate {estimated}"
+        "premise: at 40px the two shapings disagree, so the assertion above can tell them apart — \
+         measured {measured}, estimate {estimated}"
     );
 }
 
@@ -816,9 +814,8 @@ fn the_first_character_typed_into_an_empty_p_wrapped_editable_lands() {
     assert_eq!(
         text_of(&lw, HOST),
         "X",
-        "the first character typed into an empty editable must land — with no \
-         run to splice into, the insert was a silent no-op and the document \
-         could not be started"
+        "the first character typed into an empty editable must land — with no run to splice into, \
+         the insert was a silent no-op and the document could not be started"
     );
 }
 
@@ -884,7 +881,11 @@ fn the_first_character_typed_into_an_empty_editable_paints_glyphs() {
     let mut lw =
         layout(Dom::create_body().with_child(Dom::create_div().with_contenteditable(true)));
     const HOST: usize = 1;
-    assert_eq!(glyph_count(&lw), 0, "premise: an empty document paints no glyph");
+    assert_eq!(
+        glyph_count(&lw),
+        0,
+        "premise: an empty document paints no glyph"
+    );
 
     lw.focus_manager.set_focused_node(Some(dnid(HOST)));
     lw.record_text_input("X");
@@ -894,12 +895,14 @@ fn the_first_character_typed_into_an_empty_editable_paints_glyphs() {
     assert_eq!(
         lw.frame_report_synced().font_shape_deficit,
         0,
-        "no shaping call may have hit an unloaded font (the counted version \
-         of the invisible-first-character bug)"
+        "no shaping call may have hit an unloaded font (the counted version of the \
+         invisible-first-character bug)"
     );
     assert!(
         glyph_count(&lw) >= 1,
-        "the first character of a blank document must PAINT, not just land in          the buffer — its font was never loaded by any full layout, and the          reshape path silently shaped it to zero glyphs"
+        "the first character of a blank document must PAINT, not just land in          the buffer \
+         — its font was never loaded by any full layout, and the          reshape path silently \
+         shaped it to zero glyphs"
     );
 }
 
@@ -915,12 +918,19 @@ fn the_first_character_of_a_p_wrapped_blank_document_paints_glyphs() {
         ),
     );
     const HOST: usize = 1;
-    assert_eq!(glyph_count(&lw), 0, "premise: an empty document paints no glyph");
+    assert_eq!(
+        glyph_count(&lw),
+        0,
+        "premise: an empty document paints no glyph"
+    );
 
     lw.focus_manager.set_focused_node(Some(dnid(HOST)));
     lw.record_text_input("X");
     let _ = lw.apply_text_changeset();
 
     assert_eq!(text_of(&lw, HOST), "X");
-    assert!(glyph_count(&lw) >= 1, "the character must paint inside the wrapper too");
+    assert!(
+        glyph_count(&lw) >= 1,
+        "the character must paint inside the wrapper too"
+    );
 }

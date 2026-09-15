@@ -1,5 +1,4 @@
-use azul::prelude::*;
-use azul::widgets::Button;
+use azul::{prelude::*, widgets::Button};
 
 struct DataModel {
     counter: usize,
@@ -11,17 +10,13 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    let label = Dom::create_p_with_text(counter.as_str())
-        .with_css("font-size: 32px; margin: 0;");
+    let label = Dom::create_p_with_text(counter.as_str()).with_css("font-size: 32px; margin: 0;");
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);
-    let button = button.dom()
-        .with_css("flex-grow: 1;");
+    let button = button.dom().with_css("flex-grow: 1;");
 
-    Dom::create_body()
-        .with_child(label)
-        .with_child(button)
+    Dom::create_body().with_child(label).with_child(button)
 }
 
 extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {

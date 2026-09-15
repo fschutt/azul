@@ -15,10 +15,10 @@
 //! manifest `ACCESS_FINE/COARSE/BACKGROUND_LOCATION` declarations. Until it
 //! ships, `find_class` fails and subscribe/release degrade to a no-op.
 
-use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
-
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
 
 // One geolocation subscription is live at a time (the manager is
 // refcount-based). A nonzero handle lets `release` target the right
@@ -106,8 +106,7 @@ fn release() {
 /// backend attach sequence.
 #[cfg(target_os = "android")]
 fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    use jni::{objects::JObject, JavaVM};
 
     let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
     let activity_ptr = crate::desktop::shell2::android::activity_ptr();

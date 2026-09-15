@@ -18,10 +18,13 @@
 //! GL version, ensuring that cache entries are invalidated when the GPU driver
 //! changes.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use webrender::{ProgramBinary, ProgramCache, ProgramCacheObserver, ProgramSourceDigest};
 
 /// Disk-backed shader cache that implements WebRender's ProgramCacheObserver trait.

@@ -5,34 +5,32 @@
 //! Stores per-capability state + a refcount keyed on bearing DOM nodes. Three
 //! callers drive it:
 //!
-//! - The **layout pass** scans the styled DOM for permission-bearing
-//!   `NodeTypes` (`GeolocationProbe`, `CameraPreview`, `SensorProbe`, etc.) and
-//!   calls `subscribe` / `release` to maintain the refcount. The diff
-//!   between consecutive layouts yields the [`PermissionDiffEvent`]s the
-//!   platform backend translates into native subscribe/release operations.
+//! - The **layout pass** scans the styled DOM for permission-bearing `NodeTypes`
+//!   (`GeolocationProbe`, `CameraPreview`, `SensorProbe`, etc.) and calls `subscribe` / `release`
+//!   to maintain the refcount. The diff between consecutive layouts yields the
+//!   [`PermissionDiffEvent`]s the platform backend translates into native subscribe/release
+//!   operations.
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/permission/<plat>.rs`)
-//!   observes the diff events and issues the matching native call
-//!   (`AVCaptureDevice.requestAccess` on iOS, `ActivityCompat.requestPermissions`
-//!   on Android, etc.). When the OS callback fires it calls `set_status`,
-//!   which is mirrored back into callback land via the `CallbackInfo`
-//!   accessor `get_permission_status`.
+//! - The **platform backend** (`dll/src/desktop/extra/permission/<plat>.rs`) observes the diff
+//!   events and issues the matching native call (`AVCaptureDevice.requestAccess` on iOS,
+//!   `ActivityCompat.requestPermissions` on Android, etc.). When the OS callback fires it calls
+//!   `set_status`, which is mirrored back into callback land via the `CallbackInfo` accessor
+//!   `get_permission_status`.
 //!
-//! - **Callbacks** read `get_status(...)` synchronously to decide whether
-//!   to mount a permission-bearing node or show a fallback (the
-//!   "user-gesture-first" pattern in the research brief §8.3).
+//! - **Callbacks** read `get_status(...)` synchronously to decide whether to mount a
+//!   permission-bearing node or show a fallback (the "user-gesture-first" pattern in the research
+//!   brief §8.3).
 //!
 //! The manager has no platform dependencies and is `no_std`-friendly (uses
 //! `alloc::collections::BTreeMap` + `alloc::vec::Vec`).
 
-use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::Vec;
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 
-use azul_core::dom::DomNodeId;
-use azul_core::events::{
-    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    task::Instant,
 };
-use azul_core::task::Instant;
 
 /// One closed enum covering every capability the framework can request.
 ///
@@ -666,8 +664,9 @@ mod tests {
 
 #[cfg(test)]
 mod pump_provider_tests {
-    use super::*;
     use azul_core::task::{Instant, SystemTick};
+
+    use super::*;
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))
@@ -716,8 +715,10 @@ mod pump_provider_tests {
 mod autotest_generated {
     use alloc::collections::BTreeSet;
 
-    use azul_core::dom::{DomId, NodeId};
-    use azul_core::task::{Instant, SystemTick};
+    use azul_core::{
+        dom::{DomId, NodeId},
+        task::{Instant, SystemTick},
+    };
 
     use super::*;
     use crate::managers::{NodeIdMap, NodeIdRemap};

@@ -11,11 +11,10 @@
 //! Loading precedence, most specific wins:
 //!
 //! 1. the `AZ_TELEMETRY` environment variable (CI, corporate lockdown, tests)
-//! 2. `.azul/telemetryconfig.json` next to the executable (packager/admin pin;
-//!    `"tier": "off"` here suppresses even the consent dialog)
+//! 2. `.azul/telemetryconfig.json` next to the executable (packager/admin pin; `"tier": "off"` here
+//!    suppresses even the consent dialog)
 //! 3. `{config_dir}/{app-id}/telemetry.json` (this app's user choice)
-//! 4. `{config_dir}/azul/telemetry.json` (user-global "remember for all azul
-//!    apps")
+//! 4. `{config_dir}/azul/telemetry.json` (user-global "remember for all azul apps")
 //!
 //! The files are human-readable JSON on purpose: the config *is* part of the
 //! transparency story.
@@ -537,8 +536,8 @@ fn apply_env(config: &mut TelemetryConfig) {
                 }
             }
             None => eprintln!(
-                "[azul][telemetry] {ENV_TIER}={raw:?} is not one of off|crashes|metrics|full \
-                 — ignoring it (telemetry stays {})",
+                "[azul][telemetry] {ENV_TIER}={raw:?} is not one of off|crashes|metrics|full — \
+                 ignoring it (telemetry stays {})",
                 config.tier.as_str()
             ),
         }

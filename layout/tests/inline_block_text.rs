@@ -1,19 +1,25 @@
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::display_list::DisplayListItem;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
+use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
 /// Test inline-block text rendering
 /// Verifies that text inside inline-block elements generates TextLayout / Text items
 use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        display_list::DisplayListItem, paged_layout::layout_document_paged_with_config,
+        pagination::FakePageConfig,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 #[test]
 fn test_inline_block_text_generates_text_items() {
@@ -205,7 +211,10 @@ fn test_inline_block_css_width_is_applied() {
             other => panic!("Width should be Px(150), got {other:?}"),
         },
         MultiValue::Auto => {
-            panic!("Width should be Exact(150px), but got Auto! CSS width is not being parsed correctly.");
+            panic!(
+                "Width should be Exact(150px), but got Auto! CSS width is not being parsed \
+                 correctly."
+            );
         }
         other => {
             panic!("Width should be Exact(150px), but got {other:?}!");
@@ -228,7 +237,10 @@ fn test_inline_block_css_width_is_applied() {
             other => panic!("Height should be Px(80), got {other:?}"),
         },
         MultiValue::Auto => {
-            panic!("Height should be Exact(80px), but got Auto! CSS height is not being parsed correctly.");
+            panic!(
+                "Height should be Exact(80px), but got Auto! CSS height is not being parsed \
+                 correctly."
+            );
         }
         other => {
             panic!("Height should be Exact(80px), but got {other:?}!");
@@ -408,8 +420,10 @@ fn test_text_wraps_at_constrained_width() {
     let min_expected_height = 28.0; // At least close to 2 lines
     assert!(
         box_rect.size().height >= min_expected_height,
-        "Box height should be >= {}px (text should wrap to 2 lines), got {}px. Text is NOT wrapping!",
-        min_expected_height, box_rect.size().height
+        "Box height should be >= {}px (text should wrap to 2 lines), got {}px. Text is NOT \
+         wrapping!",
+        min_expected_height,
+        box_rect.size().height
     );
 
     println!(
@@ -659,8 +673,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
         // If it is, the inline-block is being placed on a new line incorrectly
         assert!(
             button_bounds.origin().x > 30.0,
-            "FAIL: Button is at x={}, should be > 30 if on same line as counter. \
-             The inline-block is being placed on a NEW LINE instead of inline with the text!",
+            "FAIL: Button is at x={}, should be > 30 if on same line as counter. The inline-block \
+             is being placed on a NEW LINE instead of inline with the text!",
             button_bounds.origin().x
         );
 
@@ -674,8 +688,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
 
         assert!(
             button_bounds.origin().y < counter_y_end + 10.0, // allow small tolerance
-            "FAIL: Button is at y={}, should be < {} (within counter's line). \
-             The inline-block is being placed BELOW the inline text!",
+            "FAIL: Button is at y={}, should be < {} (within counter's line). The inline-block is \
+             being placed BELOW the inline text!",
             button_bounds.origin().y,
             counter_y_end
         );
@@ -696,8 +710,7 @@ fn test_body_as_root_inline_block_positioning() {
     //   .with_child(button) // inline-block button
     //
     // NO HTML wrapper - body is the root node (DOM index 0)
-    use azul_core::dom::IdOrClass;
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{dom::IdOrClass, styled_dom::StyledDom};
 
     // Create the DOM structure programmatically (like the Live-App does)
     let label = Dom::create_text_do_not_use_without_block_level_wrapper("5")
@@ -707,8 +720,8 @@ fn test_body_as_root_inline_block_positioning() {
 
     let mut body_dom = Dom::create_body().with_child(label).with_child(button);
     let (css, _) = azul_css::parser2::new_from_str(
-        ".label { font-size: 50px; display: inline; } \
-         .button { display: inline-block; padding: 5px 10px; background: #efefef; }",
+        ".label { font-size: 50px; display: inline; } .button { display: inline-block; padding: \
+         5px 10px; background: #efefef; }",
     );
     let styled_dom = StyledDom::create(&mut body_dom, css);
 
@@ -859,14 +872,17 @@ fn test_body_as_root_inline_block_positioning() {
         // is shifted left by padding-left. If button is at x ~= 0, the body margin bug exists.
         assert!(
             button_bounds.origin().x > 15.0,
-            "BUG: Button is at x={:.1}, expected > 15 (margin 8 + text ~25 - padding 10). \
-             Body margin is NOT being applied to calculated_positions!",
+            "BUG: Button is at x={:.1}, expected > 15 (margin 8 + text ~25 - padding 10). Body \
+             margin is NOT being applied to calculated_positions!",
             button_bounds.origin().x
         );
 
         println!("\nSUCCESS: Body margin is correctly applied!");
     } else {
-        println!("\nWARNING: Could not find button background rect (this may be ok if using different styling)");
+        println!(
+            "\nWARNING: Could not find button background rect (this may be ok if using different \
+             styling)"
+        );
         // Still check calculated_positions for the inline-block node
         if let Some(tree) = &layout_cache.tree {
             // Find the inline-block node
@@ -882,7 +898,8 @@ fn test_body_as_root_inline_block_positioning() {
                         );
                         assert!(
                             pos.x > 30.0,
-                            "BUG: InlineBlock is at x={:.1}, expected > 30. Body margin not applied!",
+                            "BUG: InlineBlock is at x={:.1}, expected > 30. Body margin not \
+                             applied!",
                             pos.x
                         );
                         println!("\nSUCCESS: Body margin is correctly applied!");

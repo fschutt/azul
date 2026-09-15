@@ -34,6 +34,8 @@ fn main() {
     // =========================================================================
     // PRE-LOAD: Font cache (excluded from benchmark, same as real app startup)
     // =========================================================================
+    use std::collections::BTreeMap;
+
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -45,7 +47,6 @@ fn main() {
         solver3::{self, cache::LayoutCache},
         FontManager, TextLayoutCache,
     };
-    use std::collections::BTreeMap;
 
     println!("--- Font pre-load (excluded from per-frame timing) ---");
 
@@ -195,13 +196,13 @@ fn main() {
             Default::default(), // owner_colors (U1)
             Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii)
             false,              // paint_selection_handles (U2-a)
-            None, // preedit_text
+            None,               // preedit_text
             &ImageCache::default(),
             None, // content_overlay
             None, // system_style
             get_system_time_fn,
-            &[],                // css_dirty
-            &BTreeMap::new(),   // virtual_view_sizes
+            &[],              // css_dirty
+            &BTreeMap::new(), // virtual_view_sizes
         )
         .expect("layout failed");
         let dl_items = display_list.items.len();
@@ -228,8 +229,18 @@ fn main() {
         pipeline_times.push(total_ms);
         stage_times.push((s1_ms, s1b_ms, s2_ms, s3_ms));
 
-        println!("  [{}/{}] {:.1}ms total | parse+cascade={:.1}ms fonts={:.1}ms layout={:.1}ms ({} DL) render={:.1}ms",
-            iter + 1, ITERATIONS, total_ms, s1_ms, s1b_ms, s2_ms, dl_items, s3_ms);
+        println!(
+            "  [{}/{}] {:.1}ms total | parse+cascade={:.1}ms fonts={:.1}ms layout={:.1}ms ({} DL) \
+             render={:.1}ms",
+            iter + 1,
+            ITERATIONS,
+            total_ms,
+            s1_ms,
+            s1b_ms,
+            s2_ms,
+            dl_items,
+            s3_ms
+        );
     }
 
     // =========================================================================

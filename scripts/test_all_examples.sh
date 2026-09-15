@@ -43,7 +43,7 @@ test_rust_examples() {
     cd "$PROJECT_ROOT/examples/rust"
     
     for example in async calc hello-world infinity opengl widgets xhtml; do
-        OUTPUT=$(cargo build --example "$example" --features "link-static" 2>&1)
+        OUTPUT=$(cargo build --example "$example" --no-default-features --features "link-static" 2>&1)
         if echo "$OUTPUT" | grep -q "^error"; then
             print_status "FAIL" "rust/$example"
         else

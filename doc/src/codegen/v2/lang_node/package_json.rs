@@ -14,11 +14,10 @@
 //! export through Node's CJS-interop shim. We chose CJS over ESM
 //! because:
 //!
-//! - `koffi` itself is a CJS package; mixing CJS-required deps inside
-//!   an ESM file forces consumers onto the unstable Node `--experimental-*`
-//!   flags.
-//! - Every JS runtime since 2014 supports CJS. ESM-only support is a
-//!   regression for older Node LTS versions still in production use.
+//! - `koffi` itself is a CJS package; mixing CJS-required deps inside an ESM file forces consumers
+//!   onto the unstable Node `--experimental-*` flags.
+//! - Every JS runtime since 2014 supports CJS. ESM-only support is a regression for older Node LTS
+//!   versions still in production use.
 //!
 //! koffi minimum: `^2.7` (the version that introduced the
 //! `koffi.proto(...)` API used by our callback wrappers).

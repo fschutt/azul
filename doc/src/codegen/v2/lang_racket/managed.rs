@@ -18,17 +18,16 @@
 //! is dropped, the GC frees the closure and the next C call crashes.
 //!
 //! We defend on two axes:
-//!   * **Invoker closures + releaser** — pinned in the module-level
-//!     `live-pins` list, alive for the whole process.
-//!   * **User callbacks** — stored in the module-level `azul-handles`
-//!     hash keyed by host-handle id; the RefAny destructor calls back
-//!     through the releaser to drop the entry only once the framework
-//!     drops the last clone.
+//!   * **Invoker closures + releaser** — pinned in the module-level `live-pins` list, alive for the
+//!     whole process.
+//!   * **User callbacks** — stored in the module-level `azul-handles` hash keyed by host-handle id;
+//!     the RefAny destructor calls back through the releaser to drop the entry only once the
+//!     framework drops the last clone.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{
-    has_return, host_invoker_kinds, to_kebab_case, wrapper_name,
+use super::super::{
+    generator::CodeBuilder,
+    ir::{CallbackTypedefDef, CodegenIR},
+    managed_host_invoker::{has_return, host_invoker_kinds, to_kebab_case, wrapper_name},
 };
 
 /// Emit the whole managed-FFI runtime.

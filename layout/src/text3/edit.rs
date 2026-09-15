@@ -138,7 +138,10 @@ pub fn run_text_changes(
 /// the runs common to both ends plus the change to the concatenated middle.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // run text is bounded far below u32
-pub fn run_text_diff(old: &[InlineContent], new: &[InlineContent]) -> azul_core::selection::RunTextDiff {
+pub fn run_text_diff(
+    old: &[InlineContent],
+    new: &[InlineContent],
+) -> azul_core::selection::RunTextDiff {
     use azul_core::selection::{RunRemap, RunTextChange, RunTextDiff};
     if old.len() == new.len() {
         return RunTextDiff {
@@ -238,7 +241,7 @@ pub enum EditOutcome {
 /// [`edit_text`], but the no-op channel is explicit. Appliedness is tracked
 /// from the byte/run-count deltas already computed per selection — no content
 /// comparison. An insert of `""` counts as a miss (both deltas zero).
-#[must_use] 
+#[must_use]
 pub fn edit_text_outcome(
     content: &[InlineContent],
     selections: &[Selection],
@@ -306,9 +309,9 @@ pub fn edit_text_outcome(
 ///
 /// When the selection is a Range:
 /// - `Insert`: deletes the range, then inserts text at the collapsed cursor
-/// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range
-///   deletion replaces the character-level delete — pressing Backspace with
-///   a selection should remove the selection, not the selection + 1 char)
+/// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range deletion replaces the
+///   character-level delete — pressing Backspace with a selection should remove the selection, not
+///   the selection + 1 char)
 #[must_use]
 pub fn apply_edit_to_selection(
     content: &[InlineContent],
@@ -369,9 +372,8 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 ///
 /// Handles:
 /// - Deletions within a single text run.
-/// - Deletions spanning multiple runs: the start/end runs are truncated, the
-///   runs strictly between them are dropped, and the two truncated runs are
-///   merged when they share the same style.
+/// - Deletions spanning multiple runs: the start/end runs are truncated, the runs strictly between
+///   them are dropped, and the two truncated runs are merged when they share the same style.
 ///
 /// Non-text items (images, etc.) at the boundaries are left intact (their text
 /// offset resolves to 0), while intermediate non-text items are dropped along
@@ -452,8 +454,8 @@ pub fn delete_range(
             _ => 0,
         };
 
-        // 1. Keep only text[..lo_byte] in the start run; remember the head length
-        //    (the collapse point for the caret).
+        // 1. Keep only text[..lo_byte] in the start run; remember the head length (the collapse
+        //    point for the caret).
         let head_len = if let Some(InlineContent::Text(run)) = new_content.get_mut(lo_run) {
             let cut = lo_byte.min(run.text.len());
             let mut t = String::from(&*run.text);
@@ -472,19 +474,18 @@ pub fn delete_range(
             run.text = alloc::sync::Arc::from(t.as_str());
         }
 
-        // 3. Drop the intermediate runs. After draining, the end run sits at
-        //    `lo_run + 1`. Clamp the end so a bogus out-of-range `hi_run` can
-        //    never panic the drain.
+        // 3. Drop the intermediate runs. After draining, the end run sits at `lo_run + 1`. Clamp
+        //    the end so a bogus out-of-range `hi_run` can never panic the drain.
         let drain_end = hi_run.min(new_content.len());
         if drain_end > lo_run + 1 {
             new_content.drain((lo_run + 1)..drain_end);
         }
         let tail_idx = lo_run + 1;
 
-        // 4. Merge head and tail when both are text with matching style. Compared
-        //    by value (`StyleProperties: PartialEq`) so runs that were split from
-        //    one DOM element — or otherwise carry identical styling — re-join into
-        //    a single run, while genuinely different styles stay separate.
+        // 4. Merge head and tail when both are text with matching style. Compared by value
+        //    (`StyleProperties: PartialEq`) so runs that were split from one DOM element — or
+        //    otherwise carry identical styling — re-join into a single run, while genuinely
+        //    different styles stay separate.
         let mergeable = matches!(
             (new_content.get(lo_run), new_content.get(tail_idx)),
             (Some(InlineContent::Text(a)), Some(InlineContent::Text(b)))
@@ -741,17 +742,16 @@ fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor
             #[cfg(debug_assertions)]
             {
                 eprintln!(
-                    "[azul][text] cursor byte {byte} is past the run text (len \
-                     {len}) - a stale cursor survived a content swap; clamping \
-                     to the end"
+                    "[azul][text] cursor byte {byte} is past the run text (len {len}) - a stale \
+                     cursor survived a content swap; clamping to the end"
                 );
             }
             c.cluster_id.start_byte_in_run = len as u32;
         } else if !run.text.is_char_boundary(byte) {
             debug_assert!(
                 false,
-                "cursor byte {byte} is not a char boundary of the run text - \
-                 a stale cursor survived a content swap",
+                "cursor byte {byte} is not a char boundary of the run text - a stale cursor \
+                 survived a content swap",
             );
             let mut b = byte;
             while b > 0 && !run.text.is_char_boundary(b) {
@@ -763,7 +763,7 @@ fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor
     c
 }
 
-#[must_use] 
+#[must_use]
 pub fn delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,

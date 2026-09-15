@@ -4,13 +4,12 @@
 //!
 //! Two things must both be true before a log record is worth building:
 //!
-//! 1. **A sink exists.** Either the debug server is collecting
-//!    (`log_active()`), or the stderr echo is on (`AZ_LOG_STDERR=1`). Without
-//!    this check we would `format!` 482 547 strings on a three-resize run and
-//!    then throw every one of them away — that is not a hypothetical figure,
+//! 1. **A sink exists.** Either the debug server is collecting (`log_active()`), or the stderr echo
+//!    is on (`AZ_LOG_STDERR=1`). Without this check we would `format!` 482 547 strings on a
+//!    three-resize run and then throw every one of them away — that is not a hypothetical figure,
 //!    it is the measured `[Debug][Layout]` count from 2026-08-07.
-//! 2. **The runtime filter passes** — [`azul_core::log_filter`], atomics for
-//!    level and category, changeable while the process runs.
+//! 2. **The runtime filter passes** — [`azul_core::log_filter`], atomics for level and category,
+//!    changeable while the process runs.
 //!
 //! Logging is NEVER gated by a cargo feature here. That is a standing user
 //! ruling, and it exists because a compile-time gate silently deleted azul's
@@ -118,7 +117,13 @@ fn echo_to_stderr() -> bool {
 /// In the `debug-server` build `azul_layout::e2e::log` only fills the debugger
 /// queue and the `AZ_RECORD` file — it never touches the `log` facade — so the
 /// gate keeps ownership of stderr there.
-#[cfg(all(feature = "std", feature = "logging", not(feature = "debug-server")))]
+///
+/// `e2e-scripting` (enabled by build-dll) selects that same logger.
+#[cfg(all(
+    feature = "std",
+    feature = "logging",
+    not(any(feature = "debug-server", feature = "e2e-scripting"))
+))]
 fn facade_writes_stderr(level: LogLevel) -> bool {
     super::debug_server::log_active()
         && crate::desktop::logging::builtin_stderr_logger_prints(match level {
@@ -132,7 +137,11 @@ fn facade_writes_stderr(level: LogLevel) -> bool {
 
 /// No second stderr writer: either the debug-server build (whose `log` does not
 /// reach the `log` facade) or a build with no `log` facade at all.
-#[cfg(not(all(feature = "std", feature = "logging", not(feature = "debug-server"))))]
+#[cfg(not(all(
+    feature = "std",
+    feature = "logging",
+    not(any(feature = "debug-server", feature = "e2e-scripting"))
+)))]
 const fn facade_writes_stderr(_level: LogLevel) -> bool {
     false
 }
@@ -558,14 +567,14 @@ mod tests {
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             stdout.contains("1 passed"),
-            "the child did not run the probe test (filter `{DUP_TEST_PATH}` stale?)\n\
-             --- child stdout ---\n{stdout}\n--- child stderr ---\n{stderr}"
+            "the child did not run the probe test (filter `{DUP_TEST_PATH}` stale?)\n--- child \
+             stdout ---\n{stdout}\n--- child stderr ---\n{stderr}"
         );
         let hits = stderr.lines().filter(|l| l.contains(DUP_PROBE)).count();
         assert_eq!(
             hits, 1,
-            "one `emit` must produce exactly one stderr line, got {hits}\n\
-             --- child stderr ---\n{stderr}"
+            "one `emit` must produce exactly one stderr line, got {hits}\n--- child stderr \
+             ---\n{stderr}"
         );
     }
 

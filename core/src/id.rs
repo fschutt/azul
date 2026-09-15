@@ -65,7 +65,6 @@ pub mod node_id {
     /// **Never manually construct raw usize values for node hierarchy fields!**
     /// Always use the provided `from_usize`/`into_raw` functions to avoid
     /// off-by-one errors that can cause index-out-of-bounds panics.
-    ///
     #[repr(C)]
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
@@ -113,7 +112,6 @@ pub mod node_id {
         ///
         /// The returned value uses **1-based encoding**! A value of `0` means "no node",
         /// NOT "node at index 0". Use [`NodeId::from_usize`] to decode.
-        ///
         #[inline]
         #[must_use]
         pub const fn into_raw(val: &Option<Self>) -> usize {

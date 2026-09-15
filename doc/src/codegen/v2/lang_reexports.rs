@@ -15,11 +15,11 @@
 //! }
 //! ```
 
-use anyhow::Result;
 use std::collections::BTreeMap;
 
-use super::generator::CodeBuilder;
-use super::ir::*;
+use anyhow::Result;
+
+use super::{generator::CodeBuilder, ir::*};
 
 /// Configuration for re-export generation
 pub struct ReexportConfig {
@@ -322,8 +322,9 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         "Timer",
         "Duration",
         "Instant",
-        // NOTE: String is intentionally NOT included in prelude to avoid conflicts with std::string::String
-        // Users should use azul::str::String explicitly or .into() for conversions
+        // NOTE: String is intentionally NOT included in prelude to avoid conflicts with
+        // std::string::String Users should use azul::str::String explicitly or .into() for
+        // conversions
     ];
 
     // Search for each type across all modules

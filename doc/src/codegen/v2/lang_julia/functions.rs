@@ -13,13 +13,17 @@
 
 use std::collections::BTreeSet;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef};
-use super::super::managed_host_invoker::{
-    callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CodegenIR, FunctionDef},
+        managed_host_invoker::{
+            callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
+        },
+    },
+    arg_type_for_ref_kind, map_type_to_julia, sanitize_identifier, should_emit_function,
 };
-use super::{arg_type_for_ref_kind, map_type_to_julia, sanitize_identifier, should_emit_function};
 
 pub fn generate_functions(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     b.line("# ----------------------------------------------------------------------------");
@@ -43,7 +47,7 @@ pub fn generate_functions(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenC
 
 fn emit_ccall_wrapper(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     for d in &func.doc {
-        b.line(&format!("# {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("# {}", d.replace(['\n', '\r'], " ")));
     }
 
     // Functions with a callback-wrapper arg export a triple in the DLL; we

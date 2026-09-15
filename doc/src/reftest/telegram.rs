@@ -11,15 +11,17 @@
 //! `AZ_DOC_TG_CHAT_ID` (and the more standard `TELEGRAM_BOT_TOKEN` /
 //! `TELEGRAM_CHAT_ID`) override the file.
 
-use std::fs;
-use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
-use std::sync::{
-    mpsc::{self, Receiver},
-    Arc,
+use std::{
+    fs,
+    io::{self, BufRead, Write},
+    path::PathBuf,
+    sync::{
+        mpsc::{self, Receiver},
+        Arc,
+    },
+    thread,
+    time::Duration,
 };
-use std::thread;
-use std::time::Duration;
 
 use serde_derive::{Deserialize, Serialize};
 use ureq::Agent;
@@ -517,7 +519,8 @@ pub fn setup_interactive() -> Result<(), String> {
 
     let bridge = TelegramBridge::from_config(cfg);
     bridge.send_message(
-        "azul-doc paired.\n\nYou'll see prompts here when running:\n  azul-doc autoreview apply-midlevel ...",
+        "azul-doc paired.\n\nYou'll see prompts here when running:\n  azul-doc autoreview \
+         apply-midlevel ...",
         None,
     )?;
     println!("  Sent a test message — check your Telegram.");

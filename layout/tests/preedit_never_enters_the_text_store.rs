@@ -11,13 +11,12 @@
 //! the first place:
 //!
 //! - the composition lives in `TextEditManager::preedit_text` and in
-//!   `LayoutWindow::preedit_shaped_node`, and reaches the screen only through
-//!   `reshape_text_node`, which touches the layout and not the store;
-//! - `ContentOverlay::set_text` — the ONE writer of the optimistic text store —
-//!   has exactly one call site, the committed-edit path
-//!   (`update_text_cache_after_edit`);
-//! - `get_text_before_textinput`, which every reader of the document goes
-//!   through, therefore never sees a composition.
+//!   `LayoutWindow::preedit_shaped_node`, and reaches the screen only through `reshape_text_node`,
+//!   which touches the layout and not the store;
+//! - `ContentOverlay::set_text` — the ONE writer of the optimistic text store — has exactly one
+//!   call site, the committed-edit path (`update_text_cache_after_edit`);
+//! - `get_text_before_textinput`, which every reader of the document goes through, therefore never
+//!   sees a composition.
 //!
 //! `layout/tests/text_edit_seam_regressions.rs` pins the behaviour on a FLAT
 //! editable (`an_ime_composition_never_reaches_the_text_store` and its two
@@ -161,14 +160,14 @@ fn the_preedit_path_never_touches_the_text_store() {
             !body.contains("content_overlay"),
             "`{name}` writes to (or reads from) `content_overlay`. The composition must reach the \
              screen through `reshape_text_node` ONLY: the store is what
-             `get_text_before_textinput` answers from, so a composition in it IS the document, \
-             and committing then inserts it a second time.\n{body}"
+             `get_text_before_textinput` answers from, so a composition in it IS the document, and \
+             committing then inserts it a second time.\n{body}"
         );
         assert!(
             !body.contains("update_text_cache_after_edit"),
-            "`{name}` routes through `update_text_cache_after_edit`, which writes the content into \
-             `content_overlay`. That is the double-insert bug: the commit that follows delivers \
-             the same string again as ordinary text input.\n{body}"
+            "`{name}` routes through `update_text_cache_after_edit`, which writes the content \
+             into `content_overlay`. That is the double-insert bug: the commit that follows \
+             delivers the same string again as ordinary text input.\n{body}"
         );
     }
 }
@@ -195,9 +194,8 @@ fn the_document_reader_knows_nothing_about_compositions() {
 // Behavioural: the P-wrapped editable, which is the shape the widgets use
 // ---------------------------------------------------------------------------
 
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .p { display: block; }";
+const CSS: &str =
+    "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .p { display: block; }";
 
 /// `body(0) > div[contenteditable](1) > div.p(2) > text(3)`. The composition is
 /// applied to the IFC root (2); the document is read back at both the host (1)

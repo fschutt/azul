@@ -7,7 +7,9 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -20,12 +22,15 @@ use azul_css::{
     OptionString, *,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{OptionUiTheme, UiTheme},
+};
 
-static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
 ))];
-static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-content",
 ))];
 
@@ -57,10 +62,11 @@ azul_core::impl_managed_callback! {
 #[repr(C)]
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
+    pub theme: OptionUiTheme,
     /// Style for the checkbox container
-    pub container_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// Style for the checkbox content
-    pub content_style: CssPropertyWithConditionsVec,
+    pub content_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
@@ -108,7 +114,7 @@ const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(CO
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
-static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
@@ -185,14 +191,14 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
@@ -210,14 +216,44 @@ impl CheckBox {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
+            theme: OptionUiTheme::None,
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 ..Default::default()
             },
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                DEFAULT_CHECKBOX_CONTAINER_STYLE,
-            ),
-            content_style: if checked {
+            // No opinion: the theme resolves these. Pre-filling them here
+            // would make every checkbox look like it had been styled by hand,
+            // leaving a theme no way to tell "the caller wants exactly this"
+            // from "nobody said".
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            content_style: OptionCssPropertyWithConditionsVec::None,
+            accessibility_name: OptionString::None,
+        }
+    }
+
+    /// The container CSS this checkbox renders with.
+    ///
+    /// `None` means "no opinion", so the widget's own default applies. Both
+    /// themes asked this question with their own copy of the same `match`;
+    /// asking it here keeps the two from drifting apart, and gives the tests
+    /// the value that is actually painted rather than the field behind it.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(DEFAULT_CHECKBOX_CONTAINER_STYLE)
+            })
+    }
+
+    /// The checkmark CSS this checkbox renders with; see
+    /// [`Self::resolved_container_style`]. The default depends on the checked
+    /// flag, which is why it is resolved late rather than at construction.
+    #[must_use]
+    pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
+        self.content_style.clone().into_option().unwrap_or_else(|| {
+            if self.check_box_state.inner.checked {
                 CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED,
                 )
@@ -225,9 +261,8 @@ impl CheckBox {
                 CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED,
                 )
-            },
-            accessibility_name: OptionString::None,
-        }
+            }
+        })
     }
 
     #[inline]
@@ -236,6 +271,19 @@ impl CheckBox {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[inline]
@@ -261,59 +309,19 @@ impl CheckBox {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        // Read before the widget's fields are moved into the DOM below.
-        let cb_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
-
-        // Read the state BEFORE the wrapper is moved into the callback below.
-        let checked_now = self.check_box_state.inner.checked;
-
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{Dom, EventFilter, HoverEventFilter},
+        let theme = match self.theme {
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => UiTheme::Flat,
         };
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
-            .with_css_props(self.container_style)
-            .with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb: input::default_on_checkbox_clicked as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(self.check_box_state),
-                }]
-                .into(),
-            )
-            .with_tab_index(TabIndex::Auto)
-            // A checkbox that does not publish its checked state announces as
-            // unchecked forever, however it renders. The state must travel with
-            // every build, not be set once at construction.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::CheckButton,
-                accessibility_name: cb_name,
-                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
-                    if checked_now {
-                        azul_core::a11y::AccessibilityState::CheckedTrue
-                    } else {
-                        azul_core::a11y::AccessibilityState::CheckedFalse
-                    },
-                ]),
-                ..Default::default()
-            })
-            .with_children(
-                vec![Dom::create_div()
-                    .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
-                    .with_css_props(self.content_style)]
-                .into(),
-            )
+        match theme {
+            UiTheme::Flat => crate::widgets::themes::flat::check_box(self),
+            UiTheme::Flora => crate::widgets::themes::flora::check_box(self),
+        }
     }
 }
 
 // handle input events for the checkbox
-mod input {
+pub mod input {
 
     use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
@@ -321,7 +329,8 @@ mod input {
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
     use crate::callbacks::CallbackInfo;
 
-    pub(super) extern "C" fn default_on_checkbox_clicked(
+    #[must_use]
+    pub extern "C" fn default_on_checkbox_clicked(
         mut check_box: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
@@ -355,11 +364,11 @@ mod input {
         // the build-time CheckedTrue/False would go stale on the first click.
         info.set_accessibility_state(
             info.get_hit_node(),
-            azul_core::a11y::AccessibilityStateVec::from_vec(vec![if check_box.inner.checked {
-                azul_core::a11y::AccessibilityState::CheckedTrue
+            azul_core::a11y::AccessibilityStateVec::from_const_slice(if check_box.inner.checked {
+                &[azul_core::a11y::AccessibilityState::CheckedTrue]
             } else {
-                azul_core::a11y::AccessibilityState::CheckedFalse
-            }]),
+                &[azul_core::a11y::AccessibilityState::CheckedFalse]
+            }),
         );
 
         if check_box.inner.checked {
@@ -412,6 +421,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -760,14 +770,14 @@ mod autotest_generated {
         let checked = CheckBox::create(true);
         let unchecked = CheckBox::create(false);
         assert_eq!(
-            properties(&checked.container_style),
-            properties(&unchecked.container_style),
+            properties(&checked.resolved_container_style()),
+            properties(&unchecked.resolved_container_style()),
             "the container style differs between the checked and unchecked state",
         );
 
         // ... and the *content* styles differ in opacity and nothing else.
-        let a = properties(&checked.content_style);
-        let b = properties(&unchecked.content_style);
+        let a = properties(&checked.resolved_content_style());
+        let b = properties(&unchecked.resolved_content_style());
         assert_eq!(
             a.len(),
             b.len(),
@@ -794,12 +804,12 @@ mod autotest_generated {
         // branch (or a `const_new(1)` typo) yields a checkbox that is permanently ticked
         // or permanently blank — both of which still *type*-check.
         assert_eq!(
-            opacity(&CheckBox::create(true).content_style),
+            opacity(&CheckBox::create(true).resolved_content_style()),
             Some(1.0),
             "a checked checkbox does not show its checkmark",
         );
         assert_eq!(
-            opacity(&CheckBox::create(false).content_style),
+            opacity(&CheckBox::create(false).resolved_content_style()),
             Some(0.0),
             "an unchecked checkbox still shows its checkmark",
         );
@@ -810,10 +820,16 @@ mod autotest_generated {
         for checked in [false, true] {
             let c = CheckBox::create(checked);
             // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent.
-            assert_eq!(width_px(&c.container_style), Some(CONTAINER_SIDE));
-            assert_eq!(height_px(&c.container_style), Some(CONTAINER_SIDE));
-            assert_eq!(width_px(&c.content_style), Some(CONTENT_SIDE));
-            assert_eq!(height_px(&c.content_style), Some(CONTENT_SIDE));
+            assert_eq!(
+                width_px(&c.resolved_container_style()),
+                Some(CONTAINER_SIDE)
+            );
+            assert_eq!(
+                height_px(&c.resolved_container_style()),
+                Some(CONTAINER_SIDE)
+            );
+            assert_eq!(width_px(&c.resolved_content_style()), Some(CONTENT_SIDE));
+            assert_eq!(height_px(&c.resolved_content_style()), Some(CONTENT_SIDE));
         }
     }
 
@@ -830,7 +846,7 @@ mod autotest_generated {
         );
 
         let c = CheckBox::create(true);
-        let padding = |f: fn(&CssProperty) -> Option<f32>| find(&c.container_style, f);
+        let padding = |f: fn(&CssProperty) -> Option<f32>| find(&c.resolved_container_style(), f);
         let pad_l = padding(|p| match p {
             CssProperty::PaddingLeft(v) => v.get_property().map(|v| px(&v.inner)),
             _ => None,
@@ -856,7 +872,7 @@ mod autotest_generated {
         let inner =
             CONTAINER_SIDE - pad_l.unwrap() - pad_r.unwrap() - bor_l.unwrap() - bor_r.unwrap();
         assert_eq!(
-            width_px(&c.content_style),
+            width_px(&c.resolved_content_style()),
             Some(inner),
             "the checkmark no longer fills the container's padding box",
         );
@@ -869,8 +885,8 @@ mod autotest_generated {
         for checked in [false, true] {
             let c = CheckBox::create(checked);
             for (name, v) in [
-                ("container", &c.container_style),
-                ("content", &c.content_style),
+                ("container", &c.resolved_container_style()),
+                ("content", &c.resolved_content_style()),
             ] {
                 let props = properties(v);
                 let mut seen = Vec::new();
@@ -891,10 +907,13 @@ mod autotest_generated {
         // Without `cursor: pointer` the checkbox looks inert even though it is the
         // node that carries the mouse-up handler.
         for checked in [false, true] {
-            let cursor = find(&CheckBox::create(checked).container_style, |p| match p {
-                CssProperty::Cursor(c) => c.get_property().copied(),
-                _ => None,
-            });
+            let cursor = find(
+                &CheckBox::create(checked).resolved_container_style(),
+                |p| match p {
+                    CssProperty::Cursor(c) => c.get_property().copied(),
+                    _ => None,
+                },
+            );
             assert_eq!(
                 cursor,
                 Some(StyleCursor::Pointer),
@@ -1058,13 +1077,13 @@ mod autotest_generated {
                 "installing a callback flipped the checked flag",
             );
             assert_eq!(
-                properties(&c.container_style),
-                properties(&pristine.container_style),
+                properties(&c.resolved_container_style()),
+                properties(&pristine.resolved_container_style()),
                 "installing a callback rewrote the container style",
             );
             assert_eq!(
-                properties(&c.content_style),
-                properties(&pristine.content_style),
+                properties(&c.resolved_content_style()),
+                properties(&pristine.resolved_content_style()),
                 "installing a callback rewrote the content style",
             );
         }
@@ -1088,12 +1107,12 @@ mod autotest_generated {
             by_setter.check_box_state.inner,
         );
         assert_eq!(
-            properties(&by_builder.container_style),
-            properties(&by_setter.container_style),
+            properties(&by_builder.resolved_container_style()),
+            properties(&by_setter.resolved_container_style()),
         );
         assert_eq!(
-            properties(&by_builder.content_style),
-            properties(&by_setter.content_style),
+            properties(&by_builder.resolved_content_style()),
+            properties(&by_setter.resolved_content_style()),
         );
 
         let a = by_builder
@@ -1184,21 +1203,48 @@ mod autotest_generated {
     fn dom_puts_the_container_style_on_the_box_and_the_content_style_on_the_mark() {
         // Swapping the two would style the 8px mark like a 14px bordered box (and vice
         // versa) — the widget would still render, just wrong.
+        //
+        // Compared without the theme-gated declarations: the theme appends a
+        // dark background to each node on top of what the widget resolved, and
+        // those twins are asserted separately below.
         for checked in [false, true] {
             let c = CheckBox::create(checked);
-            let container = properties(&c.container_style);
-            let content = properties(&c.content_style);
+            let container = properties(&c.resolved_container_style());
+            let content = properties(&c.resolved_content_style());
 
             let dom = c.dom();
             assert_eq!(
-                inline_properties(&dom),
+                theme_probe::unthemed(&dom),
                 container,
                 "checked={checked}: the container style did not land on the container",
             );
             assert_eq!(
-                inline_properties(&dom.children.as_ref()[0]),
+                theme_probe::unthemed(&dom.children.as_ref()[0]),
                 content,
                 "checked={checked}: the content style did not land on the checkmark",
+            );
+        }
+    }
+
+    #[test]
+    fn dom_gives_the_box_and_the_checked_mark_a_dark_mode_twin() {
+        // The counterpart to the test above: the theme's dark declarations are
+        // what keeps a light-mode fill off a dark surface, so they have to
+        // actually be emitted, not merely tolerated by the comparison there.
+        for checked in [false, true] {
+            let dom = CheckBox::create(checked).dom();
+
+            assert!(
+                theme_probe::dark(&dom)
+                    .iter()
+                    .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+                "checked={checked}: the box would paint its light fill in dark mode",
+            );
+            // Only the checked mark is filled, so only it needs a dark fill.
+            assert_eq!(
+                theme_probe::dark(&dom.children.as_ref()[0]).is_empty(),
+                !checked,
+                "checked={checked}: the mark's dark fill does not follow the check",
             );
         }
     }

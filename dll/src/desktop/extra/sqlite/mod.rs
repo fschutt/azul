@@ -4,14 +4,12 @@
 //! The surface is identical on every target and raw SQL is not part of it:
 //!
 //! * `Db::open(config, data, on_open)` resumes with a `DbOpenResult`.
-//! * `get` / `iterate` / `query_index` are requests that resume with a
-//!   `DbValueResult` / `DbRowsResult`; `set` / `remove` are fire-and-forget
-//!   writes that land in the local store immediately and mark the row dirty
-//!   in the oplog.
-//! * `subscribe` delivers a `DbChangeResult` for every change inside a scope,
-//!   local or pulled; `sync_now` pushes the dirty oplog rows to the backup
-//!   endpoint and pulls the remote changes back, resuming with a
-//!   `DbSyncStatusResult`. Offline is `Queued`, never an error.
+//! * `get` / `iterate` / `query_index` are requests that resume with a `DbValueResult` /
+//!   `DbRowsResult`; `set` / `remove` are fire-and-forget writes that land in the local store
+//!   immediately and mark the row dirty in the oplog.
+//! * `subscribe` delivers a `DbChangeResult` for every change inside a scope, local or pulled;
+//!   `sync_now` pushes the dirty oplog rows to the backup endpoint and pulls the remote changes
+//!   back, resuming with a `DbSyncStatusResult`. Offline is `Queued`, never an error.
 //!
 //! Desktop engine: **turso** (pure-Rust SQLite, no C dependency), hidden
 //! behind the `db-sqlite` feature. Every store is one table
@@ -30,7 +28,6 @@
 //! i64` into a 32-bit `off_t`), so those two targets ship with the feature
 //! on and the engine off — `open` fails there, which is the documented
 //! no-engine behaviour, not a crash.
-//!
 
 use core::ffi::c_void;
 use std::sync::{Arc, Mutex};
@@ -110,9 +107,10 @@ static OPEN_DBS: Mutex<Vec<std::sync::Weak<Inner>>> = Mutex::new(Vec::new());
 /// without a system clock).
 fn duration_ms(d: &azul_core::task::Duration) -> u64 {
     match d {
-        azul_core::task::Duration::System(t) => {
-            t.secs.saturating_mul(1000).saturating_add(u64::from(t.nanos) / 1_000_000)
-        }
+        azul_core::task::Duration::System(t) => t
+            .secs
+            .saturating_mul(1000)
+            .saturating_add(u64::from(t.nanos) / 1_000_000),
         azul_core::task::Duration::Tick(t) => t.tick_diff,
     }
 }
@@ -148,8 +146,13 @@ fn free_bytes_at(path: &str) -> u64 {
     #[cfg(all(windows, feature = "winapi"))]
     {
         use std::os::windows::ffi::OsStrExt;
-        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(core::iter::once(0)).collect();
-        let mut free_to_caller: winapi::shared::ntdef::ULARGE_INTEGER = unsafe { core::mem::zeroed() };
+        let wide: Vec<u16> = dir
+            .as_os_str()
+            .encode_wide()
+            .chain(core::iter::once(0))
+            .collect();
+        let mut free_to_caller: winapi::shared::ntdef::ULARGE_INTEGER =
+            unsafe { core::mem::zeroed() };
         // SAFETY: `wide` is NUL-terminated; the out-pointer is a valid, writable
         // ULARGE_INTEGER; the two other out-pointers may be null.
         let ok = unsafe {
@@ -298,7 +301,12 @@ pub struct DbOpenResult {
     pub result: ResultDbDbError,
 }
 
-impl_option!(DbOpenResult, OptionDbOpenResult, copy = false, [Debug, Clone]);
+impl_option!(
+    DbOpenResult,
+    OptionDbOpenResult,
+    copy = false,
+    [Debug, Clone]
+);
 
 impl DbOpenResult {
     /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
@@ -315,7 +323,10 @@ fn now_ms() -> u64 {
 }
 
 fn valid_store(store: &str) -> bool {
-    !store.is_empty() && !store.starts_with("__az_") && !store.contains('\0') && !store.contains("__idx__")
+    !store.is_empty()
+        && !store.starts_with("__az_")
+        && !store.contains('\0')
+        && !store.contains("__idx__")
 }
 
 fn empty_rows() -> DbRows {
@@ -346,7 +357,13 @@ fn local_store_path(local_name: &str) -> String {
     }
     let stem: String = local_name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let dir = azul_layout::file::FilePath::get_data_local_dir()
         .or_else(azul_layout::file::FilePath::get_data_dir)
@@ -354,7 +371,9 @@ fn local_store_path(local_name: &str) -> String {
         .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().into_owned());
     let dir = std::path::Path::new(&dir).join("azul-db");
     let _ = std::fs::create_dir_all(&dir);
-    dir.join(format!("{stem}.sqlite")).to_string_lossy().into_owned()
+    dir.join(format!("{stem}.sqlite"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 impl Db {
@@ -403,7 +422,10 @@ impl Db {
         {
             let path = local_store_path(config.local_name.as_str());
             let handle = engine::open(&path).ok_or_else(|| {
-                DbError::new(DbErrorKind::Io, format!("could not open the local store at {path}"))
+                DbError::new(
+                    DbErrorKind::Io,
+                    format!("could not open the local store at {path}"),
+                )
             })?;
             let mut state = DbState {
                 config,
@@ -524,7 +546,8 @@ impl Db {
                     if ok {
                         s.last_write_ms = now_ms();
                         engine::enforce_budget(s);
-                        if s.config.backup_sync_url.is_some() && s.sync_state != DbSyncState::Error {
+                        if s.config.backup_sync_url.is_some() && s.sync_state != DbSyncState::Error
+                        {
                             s.sync_state = DbSyncState::Queued;
                         }
                     }
@@ -560,7 +583,10 @@ impl Db {
                     if ok {
                         s.last_write_ms = now_ms();
                     }
-                    if ok && s.config.backup_sync_url.is_some() && s.sync_state != DbSyncState::Error {
+                    if ok
+                        && s.config.backup_sync_url.is_some()
+                        && s.sync_state != DbSyncState::Error
+                    {
                         s.sync_state = DbSyncState::Queued;
                     }
                     ok
@@ -838,8 +864,8 @@ fn announce_db_stub(what: &str) {
     ANNOUNCE.call_once(|| {
         eprintln!(
             "[azul][db] {what} called, but this build has no `db-sqlite` feature: every Db \
-             request resolves with DbErrorKind::NoEngine. Rebuild azul-dll with \
-             --features build-dll,db-sqlite"
+             request resolves with DbErrorKind::NoEngine. Rebuild azul-dll with --features \
+             build-dll,db-sqlite"
         );
     });
 }
@@ -1000,7 +1026,9 @@ mod engine {
     }
 
     pub fn meta_get_u64(state: &DbState, key: &str) -> u64 {
-        meta_get(state, key).and_then(|s| s.parse().ok()).unwrap_or(0)
+        meta_get(state, key)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
     }
 
     pub fn meta_set(state: &DbState, key: &str, value: &str) -> Result<(), DbError> {
@@ -1025,8 +1053,9 @@ mod engine {
         exec(
             state,
             &format!(
-                "CREATE TABLE IF NOT EXISTS {} (k BLOB PRIMARY KEY NOT NULL, v BLOB, dirty INTEGER NOT \
-                 NULL DEFAULT 0, modified INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS {} (k BLOB PRIMARY KEY NOT NULL, v BLOB, dirty \
+                 INTEGER NOT NULL DEFAULT 0, modified INTEGER NOT NULL DEFAULT 0, deleted INTEGER \
+                 NOT NULL DEFAULT 0)",
                 quote(store)
             ),
             Vec::new(),
@@ -1079,10 +1108,19 @@ mod engine {
         }
     }
 
-    fn update_indexes(state: &DbState, store: &str, key: &DbValue, value: Option<&DbValue>) -> Result<(), DbError> {
+    fn update_indexes(
+        state: &DbState,
+        store: &str,
+        key: &DbValue,
+        value: Option<&DbValue>,
+    ) -> Result<(), DbError> {
         for index in declared_indexes(state, store) {
             let table = quote(&idx_table(store, index.name.as_str()));
-            exec(state, &format!("DELETE FROM {table} WHERE k = ?"), vec![db_to_value(key)])?;
+            exec(
+                state,
+                &format!("DELETE FROM {table} WHERE k = ?"),
+                vec![db_to_value(key)],
+            )?;
             if let Some(ik) = value.and_then(|v| index_key(v, index.key_path.as_str())) {
                 exec(
                     state,
@@ -1108,7 +1146,8 @@ mod engine {
         let seq = meta_get_u64(state, "next_seq") + 1;
         exec(
             state,
-            "INSERT INTO __az_oplog (seq, store, k, v, deleted, modified) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO __az_oplog (seq, store, k, v, deleted, modified) VALUES (?, ?, ?, ?, ?, \
+             ?)",
             vec![
                 Value::Integer(seq as i64),
                 Value::Text(store.to_string()),
@@ -1148,17 +1187,28 @@ mod engine {
     }
 
     /// `(value, modified, dirty)` of a row, tombstones included.
-    pub fn read_row(state: &DbState, store: &str, key: &DbValue) -> Result<Option<(Option<DbValue>, u64, bool)>, DbError> {
+    pub fn read_row(
+        state: &DbState,
+        store: &str,
+        key: &DbValue,
+    ) -> Result<Option<(Option<DbValue>, u64, bool)>, DbError> {
         let rows = query(
             state,
-            &format!("SELECT v, modified, dirty, deleted FROM {} WHERE k = ?", quote(store)),
+            &format!(
+                "SELECT v, modified, dirty, deleted FROM {} WHERE k = ?",
+                quote(store)
+            ),
             vec![db_to_value(key)],
         )?;
         Ok(rows.into_iter().next().map(|mut r| {
             let deleted = value_u64(r.get(3)) != 0;
             let dirty = value_u64(r.get(2)) != 0;
             let modified = value_u64(r.get(1));
-            let v = if deleted { None } else { Some(value_to_db(core::mem::replace(&mut r[0], Value::Null))) };
+            let v = if deleted {
+                None
+            } else {
+                Some(value_to_db(core::mem::replace(&mut r[0], Value::Null)))
+            };
             (v, modified, dirty)
         }))
     }
@@ -1183,11 +1233,17 @@ mod engine {
     fn range_sql(column: &str, range: &DbKeyRange, params: &mut Vec<Value>) -> String {
         let mut clauses = Vec::new();
         if let Some(lower) = range.lower.as_ref() {
-            clauses.push(format!("{column} {} ?", if range.lower_open { ">" } else { ">=" }));
+            clauses.push(format!(
+                "{column} {} ?",
+                if range.lower_open { ">" } else { ">=" }
+            ));
             params.push(db_to_value(lower));
         }
         if let Some(upper) = range.upper.as_ref() {
-            clauses.push(format!("{column} {} ?", if range.upper_open { "<" } else { "<=" }));
+            clauses.push(format!(
+                "{column} {} ?",
+                if range.upper_open { "<" } else { "<=" }
+            ));
             params.push(db_to_value(upper));
         }
         clauses.join(" AND ")
@@ -1218,7 +1274,12 @@ mod engine {
         }
     }
 
-    pub fn iterate(state: &DbState, store: &str, range: &DbKeyRange, limit: u32) -> Result<DbRows, DbError> {
+    pub fn iterate(
+        state: &DbState,
+        store: &str,
+        range: &DbKeyRange,
+        limit: u32,
+    ) -> Result<DbRows, DbError> {
         if !store_exists(state, store) {
             return Ok(super::empty_rows());
         }
@@ -1280,7 +1341,8 @@ mod engine {
     pub fn user_stores(state: &DbState) -> Vec<String> {
         query(
             state,
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_\\_az\\_%' ESCAPE '\\' AND name NOT LIKE '%\\_\\_idx\\_\\_%' ESCAPE '\\'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_\\_az\\_%' \
+             ESCAPE '\\' AND name NOT LIKE '%\\_\\_idx\\_\\_%' ESCAPE '\\'",
             Vec::new(),
         )
         .unwrap_or_default()
@@ -1319,7 +1381,8 @@ mod engine {
             let mut evicted = 0u64;
             for store in user_stores(state) {
                 let sql = format!(
-                    "DELETE FROM {q} WHERE dirty = 0 AND k IN (SELECT k FROM {q} WHERE dirty = 0 ORDER BY modified ASC LIMIT 32)",
+                    "DELETE FROM {q} WHERE dirty = 0 AND k IN (SELECT k FROM {q} WHERE dirty = 0 \
+                     ORDER BY modified ASC LIMIT 32)",
                     q = quote(&store)
                 );
                 evicted += exec(state, &sql, Vec::new()).unwrap_or(0);
@@ -1332,7 +1395,9 @@ mod engine {
     }
 
     /// The dirty oplog rows after `last_pushed_seq`: `(seq, store, key, value, modified)`.
-    pub fn unpushed_ops(state: &DbState) -> Result<Vec<(u64, String, DbValue, Option<DbValue>, u64)>, DbError> {
+    pub fn unpushed_ops(
+        state: &DbState,
+    ) -> Result<Vec<(u64, String, DbValue, Option<DbValue>, u64)>, DbError> {
         let last = meta_get_u64(state, "last_pushed_seq");
         let rows = query(
             state,
@@ -1362,11 +1427,18 @@ mod engine {
 
     /// Acknowledge a push: forget the pushed oplog rows and clear the dirty
     /// flag of rows not modified since.
-    pub fn mark_pushed(state: &DbState, upto_seq: u64, pushed: &[(u64, String, DbValue, Option<DbValue>, u64)]) -> Result<(), DbError> {
+    pub fn mark_pushed(
+        state: &DbState,
+        upto_seq: u64,
+        pushed: &[(u64, String, DbValue, Option<DbValue>, u64)],
+    ) -> Result<(), DbError> {
         for (_, store, key, _, modified) in pushed {
             exec(
                 state,
-                &format!("UPDATE {} SET dirty = 0 WHERE k = ? AND modified <= ?", quote(store)),
+                &format!(
+                    "UPDATE {} SET dirty = 0 WHERE k = ? AND modified <= ?",
+                    quote(store)
+                ),
                 vec![db_to_value(key), Value::Integer(*modified as i64)],
             )?;
         }
@@ -1386,7 +1458,10 @@ mod engine {
                 s.collections.as_ref().is_empty()
                     || s.collections.as_ref().iter().any(|c| {
                         c.store.as_str() == store
-                            && c.range.as_ref().map(|r| range_contains(r, key)).unwrap_or(true)
+                            && c.range
+                                .as_ref()
+                                .map(|r| range_contains(r, key))
+                                .unwrap_or(true)
                     })
             }
         }
@@ -1446,7 +1521,9 @@ mod sync {
             None | Some(DbValue::Null) => String::from("{\"t\":\"null\"}"),
             Some(DbValue::Integer(i)) => format!("{{\"t\":\"int\",\"v\":{i}}}"),
             Some(DbValue::Real(r)) => format!("{{\"t\":\"real\",\"v\":{r}}}"),
-            Some(DbValue::Text(s)) => format!("{{\"t\":\"text\",\"v\":\"{}\"}}", json_escape(s.as_str())),
+            Some(DbValue::Text(s)) => {
+                format!("{{\"t\":\"text\",\"v\":\"{}\"}}", json_escape(s.as_str()))
+            }
             Some(DbValue::Blob(b)) => format!("{{\"t\":\"blob\",\"v\":\"{}\"}}", hex(b.as_ref())),
         }
     }
@@ -1459,14 +1536,17 @@ mod sync {
             "int" => DbValue::Integer(v?.as_i64().into_option()?),
             "real" => DbValue::Real(v?.as_number().into_option()?),
             "text" => DbValue::Text(v?.as_string().into_option()?),
-            "blob" => DbValue::Blob(U8Vec::from_vec(unhex(v?.as_string().into_option()?.as_str())?)),
+            "blob" => DbValue::Blob(U8Vec::from_vec(unhex(
+                v?.as_string().into_option()?.as_str(),
+            )?)),
             _ => return None,
         })
     }
 
     fn op_json(seq: u64, op: &Op) -> String {
         format!(
-            "{{\"seq\":{seq},\"store\":\"{}\",\"key\":{},\"value\":{},\"deleted\":{},\"modified\":{}}}",
+            "{{\"seq\":{seq},\"store\":\"{}\",\"key\":{},\"value\":{},\"deleted\":{},\"modified\":\
+             {}}}",
             json_escape(&op.store),
             value_json(Some(&op.key)),
             value_json(op.value.as_ref()),
@@ -1476,9 +1556,17 @@ mod sync {
     }
 
     fn op_from_json(j: &Json) -> Option<Op> {
-        let store = j.get_key("store")?.as_string().into_option()?.as_str().to_string();
+        let store = j
+            .get_key("store")?
+            .as_string()
+            .into_option()?
+            .as_str()
+            .to_string();
         let key = value_from_json(&j.get_key("key")?)?;
-        let deleted = j.get_key("deleted").and_then(|d| d.as_bool().into_option()).unwrap_or(false);
+        let deleted = j
+            .get_key("deleted")
+            .and_then(|d| d.as_bool().into_option())
+            .unwrap_or(false);
         let value = if deleted {
             None
         } else {
@@ -1487,7 +1575,11 @@ mod sync {
                 _ => None,
             }
         };
-        let modified = j.get_key("modified").and_then(|m| m.as_i64().into_option()).unwrap_or(0).max(0) as u64;
+        let modified = j
+            .get_key("modified")
+            .and_then(|m| m.as_i64().into_option())
+            .unwrap_or(0)
+            .max(0) as u64;
         Some(Op {
             store,
             key,
@@ -1513,12 +1605,18 @@ mod sync {
         }
         let url = AzString::from(url.to_string());
         let result = if method_post {
-            cfg.http_post_blocking(url, U8Vec::from_vec(body), AzString::from("application/json"))
+            cfg.http_post_blocking(
+                url,
+                U8Vec::from_vec(body),
+                AzString::from("application/json"),
+            )
         } else {
             cfg.http_get_blocking(url)
         };
         match result {
-            ResultHttpResponseHttpError::Ok(resp) => Transport::Ok(resp.status_code, resp.body.as_ref().to_vec()),
+            ResultHttpResponseHttpError::Ok(resp) => {
+                Transport::Ok(resp.status_code, resp.body.as_ref().to_vec())
+            }
             ResultHttpResponseHttpError::Err(e) => match e {
                 HttpError::ConnectionFailed(m) | HttpError::TlsError(m) | HttpError::IoError(m) => {
                     Transport::Offline(m.as_str().to_string())
@@ -1547,23 +1645,41 @@ mod sync {
             .unwrap_or_default()
     }
 
-    fn fail(state: &mut DbState, st: DbSyncState, msg: String) -> Vec<(AzString, DbValue, Option<DbValue>)> {
+    fn fail(
+        state: &mut DbState,
+        st: DbSyncState,
+        msg: String,
+    ) -> Vec<(AzString, DbValue, Option<DbValue>)> {
         state.sync_state = st;
-        state.sync_error = if st == DbSyncState::Error { Some(AzString::from(msg)) } else { None };
+        state.sync_error = if st == DbSyncState::Error {
+            Some(AzString::from(msg))
+        } else {
+            None
+        };
         Vec::new()
     }
 
     /// Push then pull. Returns the changes applied from the remote so the
     /// caller can notify subscribers once the state lock is released.
-    pub fn run(state: &mut DbState, scope: Option<&DbScope>) -> Vec<(AzString, DbValue, Option<DbValue>)> {
+    pub fn run(
+        state: &mut DbState,
+        scope: Option<&DbScope>,
+    ) -> Vec<(AzString, DbValue, Option<DbValue>)> {
         state.last_sync_attempt_ms = now_ms();
-        let Some(url) = state.config.backup_sync_url.as_ref().map(|u| u.as_str().trim_end_matches('/').to_string()) else {
+        let Some(url) = state
+            .config
+            .backup_sync_url
+            .as_ref()
+            .map(|u| u.as_str().trim_end_matches('/').to_string())
+        else {
             state.sync_state = DbSyncState::Disconnected;
             state.sync_error = None;
             return Vec::new();
         };
         // Own the scope: `apply_remote` needs `state` mutably further down.
-        let scope: Option<DbScope> = scope.cloned().or_else(|| state.config.scope.as_ref().cloned());
+        let scope: Option<DbScope> = scope
+            .cloned()
+            .or_else(|| state.config.scope.as_ref().cloned());
         let scope = scope.as_ref();
 
         // ---- push
@@ -1597,7 +1713,11 @@ mod sync {
                     }
                 }
                 Transport::Ok(status, _) => {
-                    return fail(state, DbSyncState::Error, format!("push rejected with HTTP {status}"))
+                    return fail(
+                        state,
+                        DbSyncState::Error,
+                        format!("push rejected with HTTP {status}"),
+                    )
                 }
                 Transport::Offline(_) => return fail(state, DbSyncState::Queued, String::new()),
                 Transport::Unavailable => {
@@ -1623,7 +1743,11 @@ mod sync {
         let body = match http(state, false, &pull_url, Vec::new()) {
             Transport::Ok(status, body) if (200..300).contains(&status) => body,
             Transport::Ok(status, _) => {
-                return fail(state, DbSyncState::Error, format!("pull rejected with HTTP {status}"))
+                return fail(
+                    state,
+                    DbSyncState::Error,
+                    format!("pull rejected with HTTP {status}"),
+                )
             }
             Transport::Offline(_) => return fail(state, DbSyncState::Queued, String::new()),
             Transport::Unavailable => {
@@ -1636,7 +1760,13 @@ mod sync {
         };
         let json = match Json::parse_bytes(&body) {
             Ok(j) => j,
-            Err(_) => return fail(state, DbSyncState::Error, String::from("pull answered with invalid JSON")),
+            Err(_) => {
+                return fail(
+                    state,
+                    DbSyncState::Error,
+                    String::from("pull answered with invalid JSON"),
+                )
+            }
         };
         let mut applied = Vec::new();
         if let Some(ops) = json.get_key("ops").and_then(|o| o.to_array()) {
@@ -1646,9 +1776,15 @@ mod sync {
                     continue;
                 }
                 match apply_remote(state, &op) {
-                    Ok(true) => applied.push((AzString::from(op.store.clone()), op.key.clone(), op.value.clone())),
+                    Ok(true) => applied.push((
+                        AzString::from(op.store.clone()),
+                        op.key.clone(),
+                        op.value.clone(),
+                    )),
                     Ok(false) => {}
-                    Err(e) => return fail(state, DbSyncState::Error, e.message.as_str().to_string()),
+                    Err(e) => {
+                        return fail(state, DbSyncState::Error, e.message.as_str().to_string())
+                    }
                 }
             }
         }
@@ -1696,7 +1832,10 @@ mod sync {
                         }
                     }
                     DbConflictPolicy::Merge => {
-                        let hook = state.merge_hooks.iter().find(|h| h.store.as_str() == op.store);
+                        let hook = state
+                            .merge_hooks
+                            .iter()
+                            .find(|h| h.store.as_str() == op.store);
                         match hook {
                             Some(h) => {
                                 let conflict = DbConflict {
@@ -1731,14 +1870,23 @@ mod sync {
         if !accept {
             return Ok(false);
         }
-        engine::write_row(state, &op.store, &op.key, value.as_ref(), op.modified, false)?;
+        engine::write_row(
+            state,
+            &op.store,
+            &op.key,
+            value.as_ref(),
+            op.modified,
+            false,
+        )?;
         Ok(true)
     }
 }
 
 #[cfg(all(test, az_db_engine))]
 mod tests {
-    use azul_core::db::{DbIndexSchema, DbIndexSchemaVec, DbSchema, DbStoreSchema, DbStoreSchemaVec};
+    use azul_core::db::{
+        DbIndexSchema, DbIndexSchemaVec, DbSchema, DbStoreSchema, DbStoreSchemaVec,
+    };
 
     use super::*;
 
@@ -1776,7 +1924,11 @@ mod tests {
     fn iterate_orders_by_key_and_honours_range_and_limit() {
         let db = memory_db();
         for i in [3i64, 1, 2, 5, 4] {
-            assert!(db.set(AzString::from("notes"), DbValue::Integer(i), DbValue::Integer(i * 10)));
+            assert!(db.set(
+                AzString::from("notes"),
+                DbValue::Integer(i),
+                DbValue::Integer(i * 10)
+            ));
         }
         let rows = db.iterate_blocking(
             AzString::from("notes"),
@@ -1793,9 +1945,21 @@ mod tests {
     fn index_query_uses_json_field() {
         let db = memory_db();
         let store = AzString::from("notes");
-        assert!(db.set(store.clone(), DbValue::Integer(1), DbValue::Text(AzString::from("{\"tag\":\"work\"}"))));
-        assert!(db.set(store.clone(), DbValue::Integer(2), DbValue::Text(AzString::from("{\"tag\":\"home\"}"))));
-        assert!(db.set(store.clone(), DbValue::Integer(3), DbValue::Text(AzString::from("plain text"))));
+        assert!(db.set(
+            store.clone(),
+            DbValue::Integer(1),
+            DbValue::Text(AzString::from("{\"tag\":\"work\"}"))
+        ));
+        assert!(db.set(
+            store.clone(),
+            DbValue::Integer(2),
+            DbValue::Text(AzString::from("{\"tag\":\"home\"}"))
+        ));
+        assert!(db.set(
+            store.clone(),
+            DbValue::Integer(3),
+            DbValue::Text(AzString::from("plain text"))
+        ));
         let rows = db.query_index_blocking(
             store,
             AzString::from("by_tag"),

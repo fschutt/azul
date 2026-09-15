@@ -22,12 +22,9 @@ use std::{
 
 use azul_core::{icon::SharedIconProvider, refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::super::headless::HeadlessWindow;
-use super::event::PlatformWindow;
-use super::WindowError;
+use super::{super::headless::HeadlessWindow, event::PlatformWindow, WindowError};
 
 // ---------------------------------------------------------------------------
 // JSON schema

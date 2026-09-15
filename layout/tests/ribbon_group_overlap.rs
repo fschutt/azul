@@ -146,8 +146,8 @@ fn ribbon_groups_never_overlap_at_any_width() {
             let a_right = a.origin.x + a.size.width;
             assert!(
                 b.origin.x >= a_right - 1.0,
-                "GROUP OVERLAP at {width}px: node {ia} spans x={}..{} but node {ib} \
-                 starts at x={} (the live-run 'merged divs')",
+                "GROUP OVERLAP at {width}px: node {ia} spans x={}..{} but node {ib} starts at \
+                 x={} (the live-run 'merged divs')",
                 a.origin.x,
                 a_right,
                 b.origin.x
@@ -374,8 +374,8 @@ fn gallery_overflow_is_clipped_at_paint_time() {
     }
     assert!(
         leaks.is_empty(),
-        "gallery paint LEAKS past the overflow:hidden strip (right edge {strip_right}): \
-         {leaks:?} — the live-run 'Styles drawn over Editing'"
+        "gallery paint LEAKS past the overflow:hidden strip (right edge {strip_right}): {leaks:?} \
+         — the live-run 'Styles drawn over Editing'"
     );
 }
 

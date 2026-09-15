@@ -5,14 +5,16 @@
 //! returned the raw previous sibling, so a block could be merged INTO an
 //! XML whitespace text node, across a `<pagebreak/>`, or into an inline.
 
-use azul_core::dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId};
-use azul_core::events::DefaultAction;
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::managers::changeset::DocumentOperation;
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    events::DefaultAction,
+    geom::LogicalSize,
+    resources::RendererResources,
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, managers::changeset::DocumentOperation,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 

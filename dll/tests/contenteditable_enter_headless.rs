@@ -15,28 +15,34 @@
 //! applies the changeset to the app model and acks. Every stage asserts, so
 //! whichever link is broken names itself.
 
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
-
-use azul_core::callbacks::{
-    LayoutCallback, LayoutCallbackInfo, Update, VirtualViewCallback, VirtualViewCallbackInfo,
-    VirtualViewReturn,
+use std::{
+    cell::RefCell,
+    sync::{Arc, Mutex},
 };
-use azul_core::dom::{Dom, DomId, IdOrClass, IdOrClassVec, NodeType, OptionDom};
-use azul_core::events::{EventFilter, FocusEventFilter, ProcessEventResult};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::icon::{IconProviderHandle, SharedIconProvider};
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
-use azul_css::css::{CssPath, CssPathSelector};
-use azul_layout::callbacks::{Callback, CallbackInfo};
-use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::FcFontCache;
 
-use azul::desktop::shell2::common::event::SharedUndoManager;
-use azul::desktop::shell2::common::PlatformWindow;
-use azul::desktop::shell2::headless::HeadlessWindow;
+use azul::desktop::shell2::{
+    common::{event::SharedUndoManager, PlatformWindow},
+    headless::HeadlessWindow,
+};
+use azul_core::{
+    callbacks::{
+        LayoutCallback, LayoutCallbackInfo, Update, VirtualViewCallback, VirtualViewCallbackInfo,
+        VirtualViewReturn,
+    },
+    dom::{Dom, DomId, IdOrClass, IdOrClassVec, NodeType, OptionDom},
+    events::{EventFilter, FocusEventFilter, ProcessEventResult},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::RefAny,
+    resources::AppConfig,
+    window::{OptionVirtualKeyCode, VirtualKeyCode},
+};
+use azul_css::css::{CssPath, CssPathSelector};
+use azul_layout::{
+    callbacks::{Callback, CallbackInfo},
+    window_state::WindowCreateOptions,
+};
+use rust_fontconfig::FcFontCache;
 
 /// The app model, AzWriter-shaped: `content` is a Dom whose children are the
 /// block elements (`<p>` here), and the DocumentEdit callback applies engine
@@ -298,8 +304,8 @@ fn enter_splits_the_paragraph_and_moves_the_caret_through_the_shell_pipeline() {
         );
         assert!(
             lw.text_edit_manager.get_primary_cursor().is_some(),
-            "focusing a contenteditable host must seed a caret \
-             (text_input_v3 'enabled for contenteditable focus' is this exact hook)"
+            "focusing a contenteditable host must seed a caret (text_input_v3 'enabled for \
+             contenteditable focus' is this exact hook)"
         );
     }
     let _ = host;
@@ -316,9 +322,9 @@ fn enter_splits_the_paragraph_and_moves_the_caret_through_the_shell_pipeline() {
         );
         assert_eq!(
             m.edits_applied, 1,
-            "Return must reach the app's DocumentEdit callback exactly once \
-             (0 = the split was never determined/recorded, or the DocumentEdit \
-             event was never dispatched to the Focus callback; result was {result:?})"
+            "Return must reach the app's DocumentEdit callback exactly once (0 = the split was \
+             never determined/recorded, or the DocumentEdit event was never dispatched to the \
+             Focus callback; result was {result:?})"
         );
         assert_eq!(
             m.content.children.as_ref().len(),
@@ -388,9 +394,9 @@ fn enter_splits_the_paragraph_and_moves_the_caret_through_the_shell_pipeline() {
         assert_eq!(
             p_index,
             Some(1),
-            "after Enter the caret must sit in the SECOND paragraph \
-             (caret node {caret_node:?}, its <p> {p_of_caret:?}) — \
-             'the cursor does not reposition' is exactly this assert firing"
+            "after Enter the caret must sit in the SECOND paragraph (caret node {caret_node:?}, \
+             its <p> {p_of_caret:?}) — 'the cursor does not reposition' is exactly this assert \
+             firing"
         );
     }
 
@@ -462,8 +468,8 @@ fn typed_overlay_text_survives_a_virtual_view_rematerialization() {
     let after_typing = glyph_count(&window, nested);
     assert!(
         after_typing > before_typing,
-        "typing must add glyphs to the nested display list \
-         (before {before_typing}, after {after_typing})"
+        "typing must add glyphs to the nested display list (before {before_typing}, after \
+         {after_typing})"
     );
 
     // The scroll-shaped re-invoke: EdgeScrolled queues exactly this.
@@ -478,7 +484,7 @@ fn typed_overlay_text_survives_a_virtual_view_rematerialization() {
     let after_scroll = glyph_count(&window, nested);
     assert_eq!(
         after_scroll, after_typing,
-        "a re-materialization must not lose the typed (overlay) text — \
-         dropping back to {before_typing} is the 'scrolling clears what I typed' bug"
+        "a re-materialization must not lose the typed (overlay) text — dropping back to \
+         {before_typing} is the 'scrolling clears what I typed' bug"
     );
 }

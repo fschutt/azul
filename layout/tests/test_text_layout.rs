@@ -3,8 +3,10 @@
 //! These tests verify that text nodes are properly laid out within their parent's
 //! inline formatting context, matching HTML/CSS behavior.
 
-use azul_core::dom::{Dom, IdOrClass, NodeType};
-use azul_core::styled_dom::StyledDom;
+use azul_core::{
+    dom::{Dom, IdOrClass, NodeType},
+    styled_dom::StyledDom,
+};
 use azul_css::css::Css;
 
 #[test]

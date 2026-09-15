@@ -9,11 +9,6 @@ use alloc::{
 };
 use core::fmt;
 
-use crate::{
-    corety::AzString,
-    css::{BoxOrStatic, CssPropertyValue},
-    props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
-};
 // Import all property types from their new locations.
 // wildcard imports: this is the property aggregator module that pulls in every
 // property type from its sub-modules; enumerating them all explicitly would be
@@ -43,10 +38,15 @@ use crate::{
         },
         style::{
             background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
-            exclusion::*, filter::*, lists::*, scrollbar::*, spatial_nav::*, text::*,
-            transform::*, SelectionBackgroundColor, SelectionColor, SelectionRadius,
+            exclusion::*, filter::*, lists::*, scrollbar::*, spatial_nav::*, text::*, transform::*,
+            SelectionBackgroundColor, SelectionColor, SelectionRadius,
         },
     },
+};
+use crate::{
+    corety::AzString,
+    css::{BoxOrStatic, CssPropertyValue},
+    props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
@@ -125,7 +125,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
     (CssPropertyType::Hyphens, "hyphens"),
     (CssPropertyType::WordBreak, "word-break"),
     (CssPropertyType::OverflowWrap, "overflow-wrap"),
-    (CssPropertyType::OverflowWrap, "word-wrap"), // +spec:line-breaking:45074d - word-wrap is legacy name alias for overflow-wrap
+    (CssPropertyType::OverflowWrap, "word-wrap"), /* +spec:line-breaking:45074d - word-wrap is
+                                                   * legacy name alias for overflow-wrap */
     (CssPropertyType::LineBreak, "line-break"),
     (CssPropertyType::TextOverflow, "text-overflow"),
     (CssPropertyType::ObjectFit, "object-fit"),
@@ -1363,7 +1364,8 @@ impl CssPropertyType {
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub const fn to_str(&self) -> &'static str {
         match self {
@@ -1678,7 +1680,6 @@ impl CssPropertyType {
     pub const fn can_trigger_relayout(&self) -> bool {
         use self::CssPropertyType::{
             Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter, BackfaceVisibility,
-            SpatialNavigationAction, SpatialNavigationContain,
             BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
             BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius, BorderBottomStyle,
             BorderLeftColor, BorderLeftStyle, BorderRightColor, BorderRightStyle, BorderTopColor,
@@ -1686,7 +1687,8 @@ impl CssPropertyType {
             BoxShadowBottom, BoxShadowLeft, BoxShadowRight, BoxShadowTop, Clip, ColumnRuleColor,
             ColumnRuleStyle, Cursor, Filter, MixBlendMode, Opacity, PerspectiveOrigin,
             ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
-            TextColor, TextShadow, Transform, TransformOrigin,
+            SpatialNavigationAction, SpatialNavigationContain, TextColor, TextShadow, Transform,
+            TransformOrigin,
         };
 
         // Since the border can be larger than the content,
@@ -1780,7 +1782,6 @@ impl CssPropertyType {
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
-            SpatialNavigationAction, SpatialNavigationContain,
             BackfaceVisibility, BackgroundContent, BackgroundPosition, BackgroundRepeat,
             BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
             BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
@@ -1797,10 +1798,10 @@ impl CssPropertyType {
             PaddingLeft, PaddingRight, PaddingTop, PerspectiveOrigin, ScrollbarButton,
             ScrollbarCorner, ScrollbarGutter, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
             ScrollbarVisibility, ScrollbarWidth, SelectionBackgroundColor, SelectionColor,
-            SelectionRadius, TabSize, TextAlign, TextAlignLast, TextBoxEdge, TextBoxTrim,
-            TextColor, TextCombineUpright, TextDecoration, TextIndent, TextJustify,
-            TextOrientation, TextOverflow, TextShadow, Transform, TransformOrigin, UnicodeBidi,
-            VerticalAlign, WhiteSpace, Width, WordBreak, WordSpacing,
+            SelectionRadius, SpatialNavigationAction, SpatialNavigationContain, TabSize, TextAlign,
+            TextAlignLast, TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration,
+            TextIndent, TextJustify, TextOrientation, TextOverflow, TextShadow, Transform,
+            TransformOrigin, UnicodeBidi, VerticalAlign, WhiteSpace, Width, WordBreak, WordSpacing,
         };
         match self {
             // Pure paint — never triggers relayout
@@ -2757,7 +2758,8 @@ impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
 
 impl CssParsingError<'_> {
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
@@ -3041,7 +3043,8 @@ impl CssParsingError<'_> {
 
 impl CssParsingErrorOwned {
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub fn to_shared(&self) -> CssParsingError<'_> {
         match self {
@@ -3205,7 +3208,8 @@ impl CssParsingErrorOwned {
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)]
-// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+// property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `css-property` value.
@@ -3677,7 +3681,8 @@ pub fn parse_css_property(
 /// ```
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)]
-// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+// property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `combined-css-property` value.
@@ -3912,7 +3917,8 @@ pub fn parse_combined_css_property(
                 ),
             ])
         }
-        // +spec:overflow:ff5ea4 - overflow shorthand sets overflow-x and overflow-y; second value copied from first if omitted
+        // +spec:overflow:ff5ea4 - overflow shorthand sets overflow-x and overflow-y; second value
+        // copied from first if omitted
         OverscrollBehavior => {
             // Same 1-or-2-value shape as `overflow`: one value applies to both
             // axes, two are `x y`.
@@ -4684,7 +4690,8 @@ impl CssProperty {
     // (mismatched binding types), so clippy::match_same_arms is a false positive here.
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub fn value(&self) -> String {
         match self {
@@ -4887,7 +4894,8 @@ impl CssProperty {
     }
 
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub fn interpolate(
         &self,
@@ -5129,6 +5137,32 @@ impl CssProperty {
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
+            // A single solid colour on both ends is a colour, and a colour
+            // tweens (a switch track fading between its off and on colours).
+            // Gradients, images, layers and unresolved system colours still
+            // take the half-way jump below.
+            (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
+                use crate::props::style::background::StyleBackgroundContent as B;
+                let solid = |v: &StyleBackgroundContentVecValue| match v
+                    .get_property()
+                    .map(StyleBackgroundContentVec::as_slice)
+                {
+                    Some([B::Color(c)]) => Some(*c),
+                    _ => None,
+                };
+                match (solid(start), solid(end)) {
+                    (Some(a), Some(b)) => {
+                        Self::background_content(vec![B::Color(a.interpolate(&b, t))].into())
+                    }
+                    _ => {
+                        if t > 0.5 {
+                            other.clone()
+                        } else {
+                            self.clone()
+                        }
+                    }
+                }
+            }
             /*
             animate transform:
             CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
@@ -5157,7 +5191,8 @@ impl CssProperty {
 
     /// Return the type (key) of this property as a statically typed enum
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
@@ -6505,9 +6540,7 @@ impl CssProperty {
     }
 
     #[must_use]
-    pub const fn as_spatial_navigation_action(
-        &self,
-    ) -> Option<&StyleSpatialNavigationActionValue> {
+    pub const fn as_spatial_navigation_action(&self) -> Option<&StyleSpatialNavigationActionValue> {
         match self {
             Self::SpatialNavigationAction(f) => Some(f),
             _ => None,
@@ -7201,13 +7234,13 @@ impl CssProperty {
     // identical `c.is_initial()` bodies can't merge (clippy::match_same_arms FP).
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub const fn is_initial(&self) -> bool {
         use self::CssProperty::{
             AlignContent, AlignItems, AlignSelf, AlignmentBaseline, Animation, AnimationIn,
             AnimationOut, AppRegion, AspectRatio, BackdropFilter, BackfaceVisibility,
-            SpatialNavigationAction, SpatialNavigationContain,
             BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
             BaselineSource, BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius,
             BorderBottomStyle, BorderBottomWidth, BorderCollapse, BorderLeftColor, BorderLeftStyle,
@@ -7234,11 +7267,12 @@ impl CssProperty {
             ScrollbarCorner, ScrollbarFadeDelay, ScrollbarFadeDuration, ScrollbarGutter,
             ScrollbarResizer, ScrollbarThumb, ScrollbarTrack, ScrollbarVisibility, ScrollbarWidth,
             SelectionBackgroundColor, SelectionColor, SelectionRadius, ShapeImageThreshold,
-            ShapeInside, ShapeMargin, ShapeOutside, StringSet, TabSize, TableLayout, TextAlign,
-            TextAlignLast, TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration,
-            TextIndent, TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top,
-            Transform, TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility,
-            WhiteSpace, Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
+            ShapeInside, ShapeMargin, ShapeOutside, SpatialNavigationAction,
+            SpatialNavigationContain, StringSet, TabSize, TableLayout, TextAlign, TextAlignLast,
+            TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration, TextIndent,
+            TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
+            TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
+            Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7877,7 +7911,8 @@ impl CssProperty {
 // different value types and can't merge (clippy::match_same_arms false positive).
 #[allow(clippy::match_same_arms)]
 #[allow(clippy::too_many_lines)]
-// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+// property/variant)
 #[must_use]
 pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
@@ -8989,8 +9024,8 @@ mod autotest_generated {
             assert_eq!(
                 CssPropertyType::from_str(t.to_str(), &map),
                 Some(*t),
-                "`{}` has a to_str() name and a working value parser, but no key-map \
-                 entry, so parser2 rejects the declaration outright",
+                "`{}` has a to_str() name and a working value parser, but no key-map entry, so \
+                 parser2 rejects the declaration outright",
                 t.to_str()
             );
         }
@@ -9306,6 +9341,46 @@ mod autotest_generated {
             (px - 50.0).abs() < 1.0,
             "linear midpoint of 0px..100px should be ~50px, got {px}"
         );
+    }
+
+    #[test]
+    fn interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps() {
+        use crate::props::style::background::{LinearGradient, StyleBackgroundContent as B};
+        let r = resolver();
+        let solid = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
+        let off = ColorU {
+            r: 200,
+            g: 200,
+            b: 200,
+            a: 255,
+        };
+        let on = ColorU {
+            r: 0,
+            g: 100,
+            b: 255,
+            a: 255,
+        };
+
+        // A switch track fading from its off to its on colour passes through
+        // the colours in between instead of snapping at the half-way mark.
+        let mid = solid(off).interpolate(&solid(on), 0.5, &r);
+        let CssProperty::BackgroundContent(CssPropertyValue::Exact(layers)) = &mid else {
+            panic!("expected an exact background, got {mid:?}");
+        };
+        let [B::Color(c)] = layers.as_slice() else {
+            panic!("expected one solid colour layer, got {layers:?}");
+        };
+        assert!(
+            (99..=101).contains(&c.r) && (149..=151).contains(&c.g) && (227..=228).contains(&c.b),
+            "the half-way colour lies between the ends, got {c:?}"
+        );
+
+        // A gradient has no colour to tween: it keeps the nearer endpoint.
+        let gradient = CssProperty::background_content(
+            vec![B::LinearGradient(LinearGradient::default())].into(),
+        );
+        assert_eq!(solid(off).interpolate(&gradient, 0.25, &r), solid(off));
+        assert_eq!(solid(off).interpolate(&gradient, 0.75, &r), gradient);
     }
 
     #[test]

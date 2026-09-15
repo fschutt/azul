@@ -7,9 +7,9 @@
 //! ## Architecture
 //!
 //! - Textures are stored as `DocumentId -> ExternalImageId -> TextureEntry`.
-//! - Callers compute the `ExternalImageId` from whatever stable identity they have
-//!   (a (DomId, NodeId) pair via `TextureSlotKey::to_external_image_id`, or an
-//!   `ImageRefHash` via `ExternalImageId { inner: hash.inner as u64 }`).
+//! - Callers compute the `ExternalImageId` from whatever stable identity they have (a (DomId,
+//!   NodeId) pair via `TextureSlotKey::to_external_image_id`, or an `ImageRefHash` via
+//!   `ExternalImageId { inner: hash.inner as u64 }`).
 //! - Old textures are cleaned up when their epoch is outdated.
 //!
 //! ## Why Stable IDs Matter
@@ -49,13 +49,13 @@ pub(crate) struct TextureSlotKey {
 }
 
 impl TextureSlotKey {
-    pub fn new(dom_id: DomId, node_id: NodeId) -> Self {
+    pub(crate) fn new(dom_id: DomId, node_id: NodeId) -> Self {
         Self { dom_id, node_id }
     }
 
     /// Generate a deterministic `ExternalImageId` from this key.
     /// The same DOM node always gets the same `ExternalImageId`.
-    pub fn to_external_image_id(&self) -> ExternalImageId {
+    pub(crate) fn to_external_image_id(&self) -> ExternalImageId {
         let dom = self.dom_id.inner as u64;
         let node = self.node_id.index() as u64;
         debug_assert!(dom <= u32::MAX as u64, "DomId exceeds 32-bit range");
@@ -216,8 +216,9 @@ pub fn clear_all() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::resources::IdNamespace;
+
+    use super::*;
 
     fn create_test_document_id(id: u32) -> DocumentId {
         DocumentId {

@@ -1,5 +1,7 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use comrak::options::{Extension, Parse, Plugins, Render, RenderPlugins};
 
@@ -30,14 +32,13 @@ pub struct Guide {
 
 /// Pre-process markdown content:
 /// - Remove mermaid code blocks (not supported in HTML output)
-/// - Strip rustdoc directive suffixes from fence tags so the
-///   syntax highlighter recognises them (`rust,no_run` -> `rust`,
-///   `rust,ignore` -> `rust`). Prism keys highlighting off the
-///   bare language name and would otherwise emit
-///   `class="language-rust,no_run"` which doesn't match any rule.
+/// - Strip rustdoc directive suffixes from fence tags so the syntax highlighter recognises them
+///   (`rust,no_run` -> `rust`, `rust,ignore` -> `rust`). Prism keys highlighting off the bare
+///   language name and would otherwise emit `class="language-rust,no_run"` which doesn't match any
+///   rule.
 /// - Transform straight `"` into German-style „…" quotes outside of code
-/// (Frontmatter is stripped earlier, in `get_guide_list`, so it never
-/// reaches this stage.)
+///   (Frontmatter is stripped earlier, in `get_guide_list`, so it never
+///   reaches this stage.)
 fn preprocess_markdown_content(content: &str) -> String {
     // Remove mermaid code blocks. Normalise rustdoc directive suffixes on
     // any other fence opening so Prism gets the bare language name
@@ -602,7 +603,8 @@ fn render_list_item(
     let title = transform_german_quotes(&g.title);
     let head = if kids.is_empty() {
         format!(
-            "<h3><a class=\"guide-link guide-link-lead\" href=\"{HTML_ROOT}/guide/{}\">{title}</a></h3>\n",
+            "<h3><a class=\"guide-link guide-link-lead\" \
+             href=\"{HTML_ROOT}/guide/{}\">{title}</a></h3>\n",
             g.file_name,
         )
     } else {
@@ -788,8 +790,7 @@ mod guide_contract {
             .collect();
         assert!(
             lonely.is_empty(),
-            "guide pages with no sub-articles (each would be a card with one \
-             link): {lonely:?}"
+            "guide pages with no sub-articles (each would be a card with one link): {lonely:?}"
         );
     }
 }

@@ -9,8 +9,10 @@
 //! - Hit-testing (`hit_test_component`)
 //! - Drag delta conversion (`handle_scrollbar_drag`)
 
-use azul_core::dom::ScrollbarOrientation;
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::{
+    dom::ScrollbarOrientation,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+};
 
 /// Information about scrollbar requirements and dimensions
 // +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
@@ -36,8 +38,8 @@ impl ScrollbarRequirements {
         self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
     }
 
-    // +spec:box-model:20c3c8 - scrollbar space reserved between inner border edge and outer padding edge
-    // +spec:box-model:32cd53 - scrollbar space subtracted from containing block dimensions
+    // +spec:box-model:20c3c8 - scrollbar space reserved between inner border edge and outer padding
+    // edge +spec:box-model:32cd53 - scrollbar space subtracted from containing block dimensions
     // +spec:overflow:30a49c - scrollbar space subtracted from content area
     /// Takes a size (representing a content-box) and returns a new size
     /// reduced by the dimensions of any active scrollbars.
@@ -107,14 +109,15 @@ impl Default for ScrollbarGeometry {
 ///
 /// # Parameters
 /// - `orientation`: Vertical or horizontal scrollbar
-/// - `inner_rect`: The padding-box (border-box minus borders) of the scroll container,
-///   in the container's coordinate space (absolute window coordinates)
+/// - `inner_rect`: The padding-box (border-box minus borders) of the scroll container, in the
+///   container's coordinate space (absolute window coordinates)
 /// - `content_size`: Total content size (from `get_content_size()` or `virtual_scroll_size`)
-/// - `scroll_offset`: Current scroll offset (y for vertical, x for horizontal; positive = scrolled).
-///   A negative value is overscroll past the scroll origin and pins the thumb at the track start.
+/// - `scroll_offset`: Current scroll offset (y for vertical, x for horizontal; positive =
+///   scrolled). A negative value is overscroll past the scroll origin and pins the thumb at the
+///   track start.
 /// - `scrollbar_width_px`: CSS-resolved scrollbar thickness in pixels
-/// - `has_other_scrollbar`: Whether the perpendicular scrollbar is also visible
-///   (reduces track length by one `scrollbar_width_px` for the corner)
+/// - `has_other_scrollbar`: Whether the perpendicular scrollbar is also visible (reduces track
+///   length by one `scrollbar_width_px` for the corner)
 #[must_use]
 pub fn compute_scrollbar_geometry(
     orientation: ScrollbarOrientation,
@@ -247,7 +250,8 @@ pub fn compute_scrollbar_geometry_with_button_size(
     )
 }
 
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
+                                   // keep explicit a*b+c
 fn compute_thumb_geometry(
     orientation: ScrollbarOrientation,
     track_rect: LogicalRect,

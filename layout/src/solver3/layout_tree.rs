@@ -346,10 +346,9 @@ pub struct TextPayload {
 ///
 /// - unset/`0` — the sparse reference walker (production default).
 /// - `1`      — build [`crate::text3::dense::DenseText`] and walk THAT
-///   (`get_glyph_runs_simple_dense`), the compact model's first production
-///   consumer.
-/// - `verify` — dense path PLUS an A/B assert against the reference; the
-///   e2e corpus run with this set is the flip proof over real layouts.
+///   (`get_glyph_runs_simple_dense`), the compact model's first production consumer.
+/// - `verify` — dense path PLUS an A/B assert against the reference; the e2e corpus run with this
+///   set is the flip proof over real layouts.
 ///
 /// Layouts containing combined blocks (tate-chu-yoko) fall back to the
 /// reference under the flag: the dense model keeps atomics on the sparse
@@ -449,10 +448,9 @@ fn compute_glyph_runs_with_mode(
                             && (a.point.x - b.point.x).abs() < 0.01
                             && (a.point.y - b.point.y).abs() < 0.01
                     }),
-                "AZ_DENSE_TEXT=verify: run {i} diverged from the reference\n  \
-                 color {:?}/{:?} bg {:?}/{:?} font_hash {:?}/{:?} size {}/{} \
-                 deco {:?}/{:?} node {:?}/{:?}\n  glyph count {} vs {}\n  \
-                 ref glyphs {:?}\n  our glyphs {:?}",
+                "AZ_DENSE_TEXT=verify: run {i} diverged from the reference\n  color {:?}/{:?} bg \
+                 {:?}/{:?} font_hash {:?}/{:?} size {}/{} deco {:?}/{:?} node {:?}/{:?}\n  glyph \
+                 count {} vs {}\n  ref glyphs {:?}\n  our glyphs {:?}",
                 r.color,
                 o.color,
                 r.background_color,
@@ -796,7 +794,8 @@ impl CachedInlineLayout {
     const LAYOUT_WIDTH_EPSILON: f32 = 0.1;
 
     /// Checks if the width constraint matches.
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input
+                                      // variant (or cross-type bindings that can't merge)
     fn width_constraint_matches(&self, new_width: AvailableSpace) -> bool {
         match (self.available_width, new_width) {
             // Definite widths must match within a small epsilon
@@ -975,9 +974,8 @@ pub struct LayoutNode {
     /// The layout tree index of this node's containing block.
     /// - For abs-pos elements: nearest positioned (non-static) ancestor
     /// - For fixed elements: root / None (viewport)
-    /// - For normal-flow: parent (None = implicit)
-    ///   Used for clip exemption: abs-pos elements whose containing block
-    ///   is above an overflow clipper should not be clipped.
+    /// - For normal-flow: parent (None = implicit) Used for clip exemption: abs-pos elements whose
+    ///   containing block is above an overflow clipper should not be clipped.
     pub containing_block_index: Option<usize>,
 
     // ── COLD tier: construction / reconciliation / debugging only ────────
@@ -1068,7 +1066,8 @@ pub enum PseudoElement {
 
 // +spec:display-property:b7f4bf - anonymous inline/block boxes are both called "anonymous boxes"
 /// Types of anonymous boxes that can be generated
-// +spec:display-property:ae4f16 - anonymous boxes are treated as descendants alongside pseudo-elements
+// +spec:display-property:ae4f16 - anonymous boxes are treated as descendants alongside
+// pseudo-elements
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnonymousBoxType {
     /// Anonymous block box wrapping inline content
@@ -1959,9 +1958,12 @@ pub(crate) fn is_shrink_to_fit_context(
     dom_node_id: Option<NodeId>,
     fc: FormattingContext,
 ) -> bool {
-    use crate::solver3::getters::{get_float, MultiValue};
-    use crate::solver3::positioning::get_position_type;
     use azul_css::props::layout::{LayoutFloat, LayoutPosition};
+
+    use crate::solver3::{
+        getters::{get_float, MultiValue},
+        positioning::get_position_type,
+    };
 
     match fc {
         FormattingContext::Flex
@@ -2048,11 +2050,15 @@ impl LayoutTreeBuilder {
         self.nodes.get_mut(index)
     }
 
-    // +spec:display-property:2188b7 - builds box tree: each element's principal box is child of nearest ancestor's principal box, with anonymous boxes for tables/inline wrapping
+    // +spec:display-property:2188b7 - builds box tree: each element's principal box is child of
+    // nearest ancestor's principal box, with anonymous boxes for tables/inline wrapping
     /// Main entry point for recursively building the layout tree.
     /// This function dispatches to specialized handlers based on the node's
     /// `display` property to correctly generate anonymous boxes.
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // layout/render/parse routine
+                                                                   // (one branch per case)
     fn process_node(
         &mut self,
         styled_dom: &StyledDom,
@@ -2074,10 +2080,10 @@ impl LayoutTreeBuilder {
         };
 
         // +spec:display-property:0b40af - display/position/float interaction per CSS 2.2 §9.7
-        // +spec:display-property:ba53ba - float!=none or position!=static causes display to blockify
-        // +spec:positioning:69468c - absolute/fixed blockifies the box, float computes to none
-        // +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float interaction
-        // Blockification rules (CSS Display 3 §2.7 / §2.8):
+        // +spec:display-property:ba53ba - float!=none or position!=static causes display to
+        // blockify +spec:positioning:69468c - absolute/fixed blockifies the box, float
+        // computes to none +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float
+        // interaction Blockification rules (CSS Display 3 §2.7 / §2.8):
         // 1. Root element → blockify
         // 2. position:absolute or position:fixed → float computes to 'none', blockify
         // 3. float is not 'none' → blockify
@@ -2175,37 +2181,45 @@ impl LayoutTreeBuilder {
             }
         }
 
-        // +spec:display-property:1f4039 - list-item generates ::marker pseudo-element + principal box
-        // +spec:display-property:2bb592 - list-item generates ::marker pseudo-element with list-style content
-        // +spec:display-property:3b507e - list-item generates ::marker pseudo-element
-        // +spec:display-property:a48f00 - additional boxes (marker, table wrapper) placed w.r.t. principal box
-        // +spec:display-property:998063 - list-item generates principal block box + marker box
-        // If this is a list-item, inject a ::marker pseudo-element as its first child
-        // +spec:display-property:a42905 - list-item generates ::marker pseudo-element with list-style content, principal box outer=block inner=flow
+        // +spec:display-property:1f4039 - list-item generates ::marker pseudo-element + principal
+        // box +spec:display-property:2bb592 - list-item generates ::marker pseudo-element
+        // with list-style content +spec:display-property:3b507e - list-item generates
+        // ::marker pseudo-element +spec:display-property:a48f00 - additional boxes (marker,
+        // table wrapper) placed w.r.t. principal box +spec:display-property:998063 -
+        // list-item generates principal block box + marker box If this is a list-item,
+        // inject a ::marker pseudo-element as its first child +spec:display-property:a42905
+        // - list-item generates ::marker pseudo-element with list-style content, principal box
+        // outer=block inner=flow
         if display_type == LayoutDisplay::ListItem {
             self.create_marker_pseudo_element(styled_dom, dom_id, node_idx);
         }
 
-        // +spec:display-contents:376f2e - display:contents removes principal box, children render normally
-        // +spec:display-contents:3c7066 - display:contents strips element from formatting tree, hoists children
-        // +spec:display-contents:3f4884 - replaced elements / form controls not specially handled yet (spec note: use display:none instead)
-        // +spec:display-contents:4f9129 - semantic container role preserved: children promoted but DOM structure unchanged
-        // +spec:display-contents:7558e8 - display:contents is rendering-time only; DOM relationships unaffected
-        // +spec:display-contents:a079e3 - display:contents generates no box; children promoted to nearest non-contents ancestor (writing-mode parent lookup skips these)
-        // +spec:display-contents:e202d5 - display:contents removes principal box, children render as normal
-        // +spec:display-contents:6bbdf4 - display:contents preserves semantic container role (visibility context)
-        // +spec:display-property:d7a8de - display:none/contents elements generate no box; anonymous box generation ignores them
+        // +spec:display-contents:376f2e - display:contents removes principal box, children render
+        // normally +spec:display-contents:3c7066 - display:contents strips element from
+        // formatting tree, hoists children +spec:display-contents:3f4884 - replaced
+        // elements / form controls not specially handled yet (spec note: use display:none instead)
+        // +spec:display-contents:4f9129 - semantic container role preserved: children promoted but
+        // DOM structure unchanged +spec:display-contents:7558e8 - display:contents is
+        // rendering-time only; DOM relationships unaffected +spec:display-contents:a079e3 -
+        // display:contents generates no box; children promoted to nearest non-contents ancestor
+        // (writing-mode parent lookup skips these) +spec:display-contents:e202d5 -
+        // display:contents removes principal box, children render as normal
+        // +spec:display-contents:6bbdf4 - display:contents preserves semantic container role
+        // (visibility context) +spec:display-property:d7a8de - display:none/contents
+        // elements generate no box; anonymous box generation ignores them
         // +spec:display-property:dc2132 - display:none and display:contents control box generation
         // display:contents - element generates no box; promote children to parent
-        // +spec:display-contents:61992e - element itself generates no boxes, children promoted to parent
-        // +spec:display-contents:af8feb - treated as if replaced in element tree by its contents
-        // +spec:display-contents:353e71 - display:contents box generation behavior
-        // +spec:display-contents:b0a76b - display:contents generates no box; children promoted to parent
-        // +spec:display-property:e370af - display:contents generates no box; children promoted to parent
+        // +spec:display-contents:61992e - element itself generates no boxes, children promoted to
+        // parent +spec:display-contents:af8feb - treated as if replaced in element tree by
+        // its contents +spec:display-contents:353e71 - display:contents box generation
+        // behavior +spec:display-contents:b0a76b - display:contents generates no box;
+        // children promoted to parent +spec:display-property:e370af - display:contents
+        // generates no box; children promoted to parent
         //
-        // +spec:display-contents:852a59 - display:contents computes to display:none for replaced elements
-        // +spec:display-contents:4a524e - display:contents computes to display:none on replaced elements
-        // +spec:replaced-elements:af1e68 - display:contents on replaced elements has no effect (element renders normally)
+        // +spec:display-contents:852a59 - display:contents computes to display:none for replaced
+        // elements +spec:display-contents:4a524e - display:contents computes to
+        // display:none on replaced elements +spec:replaced-elements:af1e68 -
+        // display:contents on replaced elements has no effect (element renders normally)
         // Per CSS Display 3 §2.5 / Appendix B: replaced elements (img, canvas, embed, object,
         // audio, iframe, video, input, textarea, select, br, wbr, meter, progress)
         // and similar cannot be "un-boxed" — display:contents becomes display:none.
@@ -2250,8 +2264,9 @@ impl LayoutTreeBuilder {
             | LayoutDisplay::ListItem => {
                 self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?;
             }
-            // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a table element
-            // +spec:table-layout:360da0 - table display values cause table formatting behavior
+            // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a
+            // table element +spec:table-layout:360da0 - table display values cause
+            // table formatting behavior
             LayoutDisplay::Table | LayoutDisplay::InlineTable => {
                 self.process_table_children(styled_dom, dom_id, node_idx, debug_messages)?;
             }
@@ -2269,10 +2284,11 @@ impl LayoutTreeBuilder {
                 self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?;
             }
             LayoutDisplay::TableColumn => {
-                // +spec:table-layout:77974f - Stage 1: all children of table-column treated as display:none
-                // +spec:table-layout:c8dc69 - Stage 1: remove irrelevant boxes from table-column
-                // CSS 2.2 §17.2.1: "All child boxes of a 'table-column' parent are
-                // treated as if they had 'display: none'." - skip all children.
+                // +spec:table-layout:77974f - Stage 1: all children of table-column treated as
+                // display:none +spec:table-layout:c8dc69 - Stage 1: remove
+                // irrelevant boxes from table-column CSS 2.2 §17.2.1: "All child
+                // boxes of a 'table-column' parent are treated as if they had
+                // 'display: none'." - skip all children.
             }
             LayoutDisplay::TableColumnGroup => {
                 // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
@@ -2294,12 +2310,15 @@ impl LayoutTreeBuilder {
             // formatting context layout and don't require anonymous box generation at this stage.
             // of table-internal display values is handled via blockify_flex_item_if_table_internal
             _ => {
-                // +spec:display-contents:34008d - display:none elements generate no boxes; excluded from formatting structure
-                // +spec:display-property:1f38b2 - display:none creates no box at all, filter from layout tree
-                // +spec:display-property:eb53f7 - display:none suppresses box generation; visibility:hidden boxes still affect layout
-                // Filter out display: none children - they don't participate in layout
-                // +spec:display-property:d1600a - display:none suppresses box generation; visibility:hidden boxes still affect layout
-                // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
+                // +spec:display-contents:34008d - display:none elements generate no boxes; excluded
+                // from formatting structure +spec:display-property:1f38b2 -
+                // display:none creates no box at all, filter from layout tree
+                // +spec:display-property:eb53f7 - display:none suppresses box generation;
+                // visibility:hidden boxes still affect layout Filter out display:
+                // none children - they don't participate in layout
+                // +spec:display-property:d1600a - display:none suppresses box generation;
+                // visibility:hidden boxes still affect layout ALSO filter out
+                // whitespace-only text nodes for Flex/Grid/etc containers
                 // to prevent them from becoming unwanted anonymous items.
                 let children: Vec<NodeId> = layout_children(styled_dom, dom_id)
                     .into_iter()
@@ -2328,10 +2347,13 @@ impl LayoutTreeBuilder {
                 );
 
                 for child_dom_id in children {
-                    // +spec:display-property:934c84 - table wrapper box generation: display:table/inline-table generates a principal block container (table wrapper box) that establishes BFC and contains the table box + caption boxes
-                    // +spec:width-calculation:59d456 - table wrapper box is block-level, establishes BFC (CSS 2.2 §17.4)
-                    // the table wrapper box becomes the flex item; align-self applies to the
-                    // wrapper, flex longhands apply to the inner table box, caption contents
+                    // +spec:display-property:934c84 - table wrapper box generation:
+                    // display:table/inline-table generates a principal block container (table
+                    // wrapper box) that establishes BFC and contains the table box + caption boxes
+                    // +spec:width-calculation:59d456 - table wrapper box is block-level,
+                    // establishes BFC (CSS 2.2 §17.4) the table wrapper box
+                    // becomes the flex item; align-self applies to the wrapper,
+                    // flex longhands apply to the inner table box, caption contents
                     // contribute to wrapper min/max-content sizes
                     let child_display = get_display_type(styled_dom, child_dom_id);
                     if is_flex_or_grid && child_display.creates_table_context() {
@@ -2368,16 +2390,21 @@ impl LayoutTreeBuilder {
         Ok(node_idx)
     }
 
-    // +spec:display-property:5572e7 - Anonymous block boxes: wrap inline runs when block container has mixed block/inline children
-    // +spec:display-property:090043 - Anonymous block box properties inherited from enclosing non-anonymous box; non-inherited props get initial values
-    // +spec:display-property:7b9f7a - Block-level vs inline-level classification and anonymous block box creation
-    // +spec:display-property:078fe5 - Anonymous block boxes wrapping inline content in mixed block/inline contexts
-    // +spec:display-property:8d8ef3 - block container anonymous box generation: wraps inline runs in anonymous block boxes to ensure block containers contain only block-level or only inline-level boxes
-    // +spec:display-property:1fe2be - inline box construction with anonymous text interspersed with inline elements
-    // +spec:display-property:be80e3 - Anonymous inline boxes: text in block containers treated as anonymous inlines, whitespace-only runs collapsed
+    // +spec:display-property:5572e7 - Anonymous block boxes: wrap inline runs when block container
+    // has mixed block/inline children +spec:display-property:090043 - Anonymous block box
+    // properties inherited from enclosing non-anonymous box; non-inherited props get initial values
+    // +spec:display-property:7b9f7a - Block-level vs inline-level classification and anonymous
+    // block box creation +spec:display-property:078fe5 - Anonymous block boxes wrapping inline
+    // content in mixed block/inline contexts +spec:display-property:8d8ef3 - block container
+    // anonymous box generation: wraps inline runs in anonymous block boxes to ensure block
+    // containers contain only block-level or only inline-level boxes +spec:display-property:
+    // 1fe2be - inline box construction with anonymous text interspersed with inline elements
+    // +spec:display-property:be80e3 - Anonymous inline boxes: text in block containers treated as
+    // anonymous inlines, whitespace-only runs collapsed
     /// Handles children of a block-level element, creating anonymous block
     /// wrappers for consecutive runs of inline-level children if necessary.
-    // +spec:display-property:b73c50 - blockify inline content by wrapping in anonymous block containers
+    // +spec:display-property:b73c50 - blockify inline content by wrapping in anonymous block
+    // containers
     fn process_block_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -2437,10 +2464,12 @@ impl LayoutTreeBuilder {
 
         for child_id in children {
             if is_block_level(styled_dom, child_id) {
-                // +spec:display-contents:02a534 - contiguous text sequences with no text don't generate boxes
-                // End the current inline run — but skip if all nodes are whitespace-only text.
-                // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
-                // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
+                // +spec:display-contents:02a534 - contiguous text sequences with no text don't
+                // generate boxes End the current inline run — but skip if all nodes
+                // are whitespace-only text. +spec:display-property:7d1570 -
+                // whitespace-only text that would be collapsed does not generate anonymous inline
+                // boxes +spec:white-space-processing:b32f69 - whitespace-only
+                // inline runs between blocks don't generate anonymous inline boxes
                 // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
                 // away according to the 'white-space' property does not generate any anonymous
                 // inline boxes."
@@ -2467,10 +2496,12 @@ impl LayoutTreeBuilder {
         Ok(())
     }
 
-    // +spec:table-layout:6bb84e - Anonymous table object generation (stages 1-3: remove irrelevant boxes, generate missing child wrappers, generate missing parents)
-    // +spec:table-layout:77974f - Stage 2: generate missing child wrappers for table/inline-table
+    // +spec:table-layout:6bb84e - Anonymous table object generation (stages 1-3: remove irrelevant
+    // boxes, generate missing child wrappers, generate missing parents) +spec:table-layout:
+    // 77974f - Stage 2: generate missing child wrappers for table/inline-table
     // +spec:table-layout:c8dc69 - Stage 2: wrap non-proper children in anonymous table-row
-    // +spec:display-property:6f8f13 - anonymous table object generation (§17.2.1): suppress table-column/table-column-group children, wrap non-proper children in anonymous rows/cells
+    // +spec:display-property:6f8f13 - anonymous table object generation (§17.2.1): suppress
+    // table-column/table-column-group children, wrap non-proper children in anonymous rows/cells
     fn process_table_level_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -2495,7 +2526,8 @@ impl LayoutTreeBuilder {
                 if !non_matching_children.is_empty() {
                     let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
                     #[allow(clippy::iter_with_drain)]
-                    // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
+                    // accumulator Vec reused across runs; drain(..) empties it while retaining the
+                    // allocation
                     for np_id in non_matching_children.drain(..) {
                         self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
                     }
@@ -2571,8 +2603,9 @@ impl LayoutTreeBuilder {
             debug_messages,
         )
     }
-    // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
-    // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
+    // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not
+    // generate anonymous inline boxes +spec:white-space-processing:b32f69 - whitespace-only
+    // inline runs between blocks don't generate anonymous inline boxes
     fn flush_inline_run(
         &mut self,
         styled_dom: &StyledDom,
@@ -2624,17 +2657,20 @@ impl LayoutTreeBuilder {
         Ok(())
     }
 
-    // +spec:display-property:52f497 - anonymous inline boxes inherit inheritable properties from block parent; non-inherited properties use initial values (dom_node_id: None + BoxProps::default())
+    // +spec:display-property:52f497 - anonymous inline boxes inherit inheritable properties from
+    // block parent; non-inherited properties use initial values (dom_node_id: None +
+    // BoxProps::default())
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
     /// "In this process, inline-level boxes are wrapped in anonymous boxes as needed
     /// to satisfy the constraints of the table model."
-    ///
-    // +spec:display-property:ee83bf - Anonymous box generation: boxes not associated with elements, inheriting through box tree parentage
+    // +spec:display-property:ee83bf - Anonymous box generation: boxes not associated with elements,
+    // inheriting through box tree parentage
     /// Helper to create an anonymous node in the tree.
     /// Anonymous boxes don't have a corresponding DOM node and are used to enforce
     /// the CSS box model structure (e.g., wrapping inline content in blocks,
     /// or creating missing table structural elements).
-    // +spec:display-property:6ff51a - anonymous block boxes have no styles (box_props default), so parent element properties still apply to its content
+    // +spec:display-property:6ff51a - anonymous block boxes have no styles (box_props default), so
+    // parent element properties still apply to its content
     pub fn create_anonymous_node(
         &mut self,
         parent: usize,
@@ -2643,7 +2679,8 @@ impl LayoutTreeBuilder {
     ) -> usize {
         let index = self.nodes.len();
 
-        // +spec:display-property:e67146 - Anonymous boxes inherit from enclosing non-anonymous box; non-inherited props use initial values
+        // +spec:display-property:e67146 - Anonymous boxes inherit from enclosing non-anonymous box;
+        // non-inherited props use initial values
         let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context);
 
         self.nodes.push(LayoutNode {
@@ -3463,9 +3500,11 @@ fn ordinal_map(
     ordinal_of
 }
 
-// +spec:display-property:697082 - outer display type determines principal box's role in flow layout (block vs inline)
-// +spec:display-property:0d251b - Block-level elements: display 'block', 'list-item', 'table' generate block-level boxes
-// +spec:display-property:9464be - block-level vs block container distinction: not all block-level boxes are block containers (e.g. replaced elements, flex containers)
+// +spec:display-property:697082 - outer display type determines principal box's role in flow layout
+// (block vs inline) +spec:display-property:0d251b - Block-level elements: display 'block',
+// 'list-item', 'table' generate block-level boxes +spec:display-property:9464be - block-level vs
+// block container distinction: not all block-level boxes are block containers (e.g. replaced
+// elements, flex containers)
 #[must_use]
 pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
@@ -3485,7 +3524,8 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     )
 }
 
-// +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table, inline-flex, inline-grid
+// +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table,
+// inline-flex, inline-grid
 /// Checks if a node is inline-level (including text nodes).
 /// According to CSS spec, inline-level content includes:
 ///
@@ -3510,12 +3550,14 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     )
 }
 
-// +spec:display-property:c2520b - Block containers with only inline-level children establish IFC; mixed content gets anonymous block wrappers
+// +spec:display-property:c2520b - Block containers with only inline-level children establish IFC;
+// mixed content gets anonymous block wrappers
 /// Checks if a block container has only inline-level children.
 /// According to CSS 2.2 Section 9.4.2: "An inline formatting context is established
 /// by a block container box that contains no block-level boxes."
 // +spec:display-property:75d642 - block container with only inline-level content establishes IFC
-// +spec:display-property:c188d6 - IFC: all inline content within a containing block flows together as continuous text
+// +spec:display-property:c188d6 - IFC: all inline content within a containing block flows together
+// as continuous text
 pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let Some(node_hier) = hierarchy.get(node_id) else {
@@ -3748,7 +3790,8 @@ fn create_resolution_context(
         element_font_size,
         parent_font_size,
         root_font_size,
-        // +spec:box-model:ec6466 - percentage margins/padding resolve to 0 when containing block is unknown (intrinsic sizing), breaking cyclic dependencies per css-sizing-3 §5.2.1
+        // +spec:box-model:ec6466 - percentage margins/padding resolve to 0 when containing block is
+        // unknown (intrinsic sizing), breaking cyclic dependencies per css-sizing-3 §5.2.1
         containing_block_size: containing_block_size.unwrap_or(PhysicalSize::new(0.0, 0.0)),
         element_size: None, // Not yet laid out
         viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
@@ -3766,18 +3809,20 @@ struct CollectedBoxProps {
 /// The unresolved form stores the raw CSS values for later re-resolution when
 /// the containing block size is known. The resolved form is an initial resolution
 /// using `viewport_size` for viewport-relative units.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn collect_box_props(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     viewport_size: LogicalSize,
 ) -> CollectedBoxProps {
+    use azul_css::props::style::border::BorderStyle;
+
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
     #[allow(clippy::wildcard_imports)]
     // widget/render module pulls in the css property/value types it builds with
     use crate::solver3::getters::*;
-    use azul_css::props::style::border::BorderStyle;
     // before create_node step A is the diverging call.
     {
         let _ = (0xC0_000001u32);
@@ -3859,16 +3904,17 @@ fn collect_box_props(
         let _ = (0xC0_000056u32);
     } // after padding getters+values, before get_display_type
 
-    // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
-    // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
-    // 0xC0_57<dt> the CALL returned (dt = LayoutDisplay discriminant) and the MATCH below
-    // diverges; if it stays 0x56, get_display_type (the enum extraction) itself diverges.
-    // M12.7 NOTE: get_display_type RETURNS a valid dt here (captured =2), but the code
-    // immediately after diverges — and replacing the `match` below with a branchless
-    // bitmask test did NOT help (so it's NOT the multi-way-branch codegen). So the
-    // get_display_type CALL corrupts the caller frame / control flow (same class as
-    // create_node's return 0→48704), specific to ENUM-returning getters (pixel getters
-    // like get_css_margin_* lift fine). Remill-level. The match is kept (original).
+    // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group,
+    // table-footer-group, table-row, table-column-group, table-column Non-cell internal table
+    // elements (rows, row groups, columns, column groups) do not have padding. 0xC0_57<dt> the
+    // CALL returned (dt = LayoutDisplay discriminant) and the MATCH below diverges; if it stays
+    // 0x56, get_display_type (the enum extraction) itself diverges. M12.7 NOTE:
+    // get_display_type RETURNS a valid dt here (captured =2), but the code immediately after
+    // diverges — and replacing the `match` below with a branchless bitmask test did NOT help
+    // (so it's NOT the multi-way-branch codegen). So the get_display_type CALL corrupts the
+    // caller frame / control flow (same class as create_node's return 0→48704), specific to
+    // ENUM-returning getters (pixel getters like get_css_margin_* lift fine). Remill-level. The
+    // match is kept (original).
     let unresolved_padding = match get_display_type(styled_dom, dom_id) {
         LayoutDisplay::TableRow
         | LayoutDisplay::TableRowGroup
@@ -3895,7 +3941,8 @@ fn collect_box_props(
 
     // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
     // +spec:box-model:5d2b66 - border-style none/hidden means no border
-    // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or 'hidden'"
+    // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or
+    // 'hidden'"
     let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
 
     // Read border styles to check if widths should be zeroed.
@@ -4003,10 +4050,10 @@ fn collect_box_props(
             bottom: UnresolvedMargin::Zero,
             left: UnresolvedMargin::Zero,
         },
-        // +spec:box-model:1197a5 - height property does not apply to non-replaced inline elements; vertical margins zeroed
-        // +spec:replaced-elements:f07118 - non-replaced elements have rendering dictated by CSS model
-        // "These properties apply to all elements, but vertical margins will not have
-        //  any effect on non-replaced inline elements."
+        // +spec:box-model:1197a5 - height property does not apply to non-replaced inline elements;
+        // vertical margins zeroed +spec:replaced-elements:f07118 - non-replaced elements
+        // have rendering dictated by CSS model "These properties apply to all elements, but
+        // vertical margins will not have  any effect on non-replaced inline elements."
         LayoutDisplay::Inline => {
             let is_replaced = matches!(
                 node_data.get_node_type(),
@@ -4053,11 +4100,22 @@ fn collect_box_props(
 
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::box_props(format!(
-            "[BOX] node[{}] {:?} pad=[{:.1} {:.1} {:.1} {:.1}] mar=[{:.1} {:.1} {:.1} {:.1}] bor=[{:.1} {:.1} {:.1} {:.1}]",
-            dom_id.index(), node_data.node_type,
-            resolved.padding.top, resolved.padding.right, resolved.padding.bottom, resolved.padding.left,
-            resolved.margin.top, resolved.margin.right, resolved.margin.bottom, resolved.margin.left,
-            resolved.border.top, resolved.border.right, resolved.border.bottom, resolved.border.left,
+            "[BOX] node[{}] {:?} pad=[{:.1} {:.1} {:.1} {:.1}] mar=[{:.1} {:.1} {:.1} {:.1}] \
+             bor=[{:.1} {:.1} {:.1} {:.1}]",
+            dom_id.index(),
+            node_data.node_type,
+            resolved.padding.top,
+            resolved.padding.right,
+            resolved.padding.bottom,
+            resolved.padding.left,
+            resolved.margin.top,
+            resolved.margin.right,
+            resolved.margin.bottom,
+            resolved.margin.left,
+            resolved.border.top,
+            resolved.border.right,
+            resolved.border.bottom,
+            resolved.border.left,
         )));
 
         let has_vh = match &unresolved_margin.top {
@@ -4066,8 +4124,10 @@ fn collect_box_props(
         };
         if has_vh || resolved.margin.top > 0.0 || resolved.margin.left > 0.0 {
             msgs.push(LayoutDebugMessage::box_props(format!(
-                "NodeId {:?} ({:?}): unresolved_margin_top={:?}, resolved_margin_top={:.2}, viewport_size={:?}",
-                dom_id, node_data.node_type,
+                "NodeId {:?} ({:?}): unresolved_margin_top={:?}, resolved_margin_top={:.2}, \
+                 viewport_size={:?}",
+                dom_id,
+                node_data.node_type,
                 unresolved_margin.top,
                 resolved.margin.top,
                 viewport_size
@@ -4075,10 +4135,14 @@ fn collect_box_props(
         }
 
         msgs.push(LayoutDebugMessage::box_props(format!(
-            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left={:?}",
-            dom_id, node_data.node_type,
-            resolved.margin_auto.left, resolved.margin_auto.right,
-            resolved.margin_auto.top, resolved.margin_auto.bottom,
+            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | \
+             margin_left={:?}",
+            dom_id,
+            node_data.node_type,
+            resolved.margin_auto.left,
+            resolved.margin_auto.right,
+            resolved.margin_auto.top,
+            resolved.margin_auto.bottom,
             unresolved_margin.left
         )));
 
@@ -4108,7 +4172,8 @@ fn collect_box_props(
 /// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
 /// Returns true if the node is a text node containing only whitespace characters
 /// that would be collapsed away by the white-space property.
-// according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
+// according to the 'white-space' property does not generate any anonymous inline boxes
+// (CSS2§9.2.2.1)
 #[must_use]
 pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let binding = styled_dom.node_data.as_container();
@@ -4154,10 +4219,10 @@ pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool 
 /// Anonymous box generation: is this node a whitespace-only text child that
 /// must NOT generate a box for this kind of parent?
 ///
-/// - CSS 2.2 section 17.2.1 (tables): whitespace between table structural
-///   elements is "irrelevant" and generates nothing.
-/// - css-flexbox-1 section 4: "an anonymous flex item that contains only
-///   white space is not rendered".
+/// - CSS 2.2 section 17.2.1 (tables): whitespace between table structural elements is "irrelevant"
+///   and generates nothing.
+/// - css-flexbox-1 section 4: "an anonymous flex item that contains only white space is not
+///   rendered".
 /// - css-grid-1 section 6: same rule for grid items.
 ///
 /// Without the flex/grid arms, every newline between `<div>` children of a
@@ -4314,11 +4379,13 @@ pub fn layout_children(styled_dom: &StyledDom, parent: NodeId) -> Vec<NodeId> {
 }
 
 // +spec:display-contents:95faa5 - blockification has no effect on none/contents (other => other)
-// +spec:display-property:f68848 - Automatic box type transformations: blockification of computed display values
+// +spec:display-property:f68848 - Automatic box type transformations: blockification of computed
+// display values
 /// Blockify a display type per CSS Display 3 §2.7.
 // +spec:display-property:760c5f - blockification sets computed outer display type to block
-/// +spec:display-property:d50f70 - blockification affects computed values, determining principal box type only
-/// // +spec:inline-block:692e44 - blockification of inline-block per CSS2 compatibility
+/// +spec:display-property:d50f70 - blockification affects computed values, determining principal
+/// box type only // +spec:inline-block:692e44 - blockification of inline-block per CSS2
+/// compatibility
 // +spec:display-property:c3aca2 - inline-block blockifies to block, not flow-root
 // +spec:display-property:ee2d65 - blockification of inline-level display types (CSS Display 3 §2.7)
 // +spec:display-property:e4a8b7 - layout-internal boxes blockified to flow (block container)
@@ -4370,7 +4437,8 @@ pub(crate) const fn is_replaced_element(node_data: &NodeData) -> bool {
     )
 }
 
-// +spec:display-property:285fe7 - block box establishing a BFC (block-level block container with new BFC)
+// +spec:display-property:285fe7 - block box establishing a BFC (block-level block container with
+// new BFC)
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
 /// A BFC contains floats and prevents margin collapse.
 fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
@@ -4408,7 +4476,8 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
         }
     }
 
-    // CSS Writing Modes 4 § 3.2: block container with different writing-mode than parent establishes BFC
+    // CSS Writing Modes 4 § 3.2: block container with different writing-mode than parent
+    // establishes BFC
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         let hierarchy = styled_dom.node_hierarchy.as_container();
         if let Some(parent_dom_id) = hierarchy[node_id].parent_id() {
@@ -4424,7 +4493,8 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
         }
     }
 
-    // +spec:replaced-elements:4f494d - replaced elements always establish an independent formatting context
+    // +spec:replaced-elements:4f494d - replaced elements always establish an independent formatting
+    // context
     let node_data = &styled_dom.node_data.as_container()[node_id];
     if is_replaced_element(node_data) {
         return true;
@@ -4438,14 +4508,17 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     false
 }
 
-// +spec:display-property:0d93f1 - maps display value to box generation (principal box, none, or contents)
+// +spec:display-property:0d93f1 - maps display value to box generation (principal box, none, or
+// contents)
 /// Like `determine_formatting_context`, but uses an explicit (possibly blockified) display type
 /// instead of reading it from the DOM. Used when blockification changes the display.
-// +spec:display-property:80f43f - inner display type defines formatting context for non-replaced elements
-// +spec:display-property:46e71c - Maps outer display (block/inline) and inner display (flow/flow-root/table/flex/grid) to FormattingContext
-// +spec:display-property:aa582d - maps display types to formatting contexts (inline-level, block-level, atomic inline, block container)
+// +spec:display-property:80f43f - inner display type defines formatting context for non-replaced
+// elements +spec:display-property:46e71c - Maps outer display (block/inline) and inner display
+// (flow/flow-root/table/flex/grid) to FormattingContext +spec:display-property:aa582d - maps
+// display types to formatting contexts (inline-level, block-level, atomic inline, block container)
 #[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
+// merge)
 /// A CHILDLESS block that is (or sits inside) a `contenteditable` editing host
 /// still establishes an inline formatting context.
 ///
@@ -4479,10 +4552,11 @@ fn determine_formatting_context_for_display(
 ) -> FormattingContext {
     let node_data = &styled_dom.node_data.as_container()[node_id];
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-        // [g147h az-web-lift DIAG] CONSTANT marker of the COMPUTED FC per DOM node_id (0x60B60+slot),
-        // written WITHOUT reading the stored field. 1=text→Inline, 2=block-with-inline→Inline, 4=Block.
-        // For the divs (node_id 1,3): 2 ⇒ computed Inline correctly (bug is store/clone/read); 4 ⇒
-        // has_only_inline_children mis-lifted to false (computed Block).
+        // [g147h az-web-lift DIAG] CONSTANT marker of the COMPUTED FC per DOM node_id
+        // (0x60B60+slot), written WITHOUT reading the stored field. 1=text→Inline,
+        // 2=block-with-inline→Inline, 4=Block. For the divs (node_id 1,3): 2 ⇒ computed
+        // Inline correctly (bug is store/clone/read); 4 ⇒ has_only_inline_children
+        // mis-lifted to false (computed Block).
         #[cfg(feature = "web_lift")]
         unsafe {
             crate::az_mark(
@@ -4495,13 +4569,16 @@ fn determine_formatting_context_for_display(
     // +spec:display-property:2a8d62 - block containers with inline-level content establish an IFC
     match display_type {
         // +spec:display-property:37bcf3 - inline outer display type generates an inline box
-        // +spec:display-property:30a935 - outer display without inner defaults to flow (block/inline both use flow context)
+        // +spec:display-property:30a935 - outer display without inner defaults to flow
+        // (block/inline both use flow context)
         LayoutDisplay::Inline => FormattingContext::Inline,
-        // +spec:block-formatting-context:97b03b - flow-root always establishes a new BFC; block/list-item may establish one based on other conditions
-        // +spec:display-property:0bac26 - list-item limited to flow layout inner types (block/flow-root)
-        // +spec:display-property:0beffc - block container with only inline children establishes IFC
-        // +spec:display-property:7c49c1 - block container with only inline children establishes an IFC
-        // +spec:display-property:90ba2a - flow-root always establishes a new BFC
+        // +spec:block-formatting-context:97b03b - flow-root always establishes a new BFC;
+        // block/list-item may establish one based on other conditions
+        // +spec:display-property:0bac26 - list-item limited to flow layout inner types
+        // (block/flow-root) +spec:display-property:0beffc - block container with only
+        // inline children establishes IFC +spec:display-property:7c49c1 - block container
+        // with only inline children establishes an IFC +spec:display-property:90ba2a -
+        // flow-root always establishes a new BFC
         LayoutDisplay::FlowRoot => FormattingContext::Block {
             establishes_new_context: true,
         },
@@ -4549,11 +4626,13 @@ fn determine_formatting_context_for_display(
             }
         }
         LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
-        // +spec:display-property:723fe8 - CSS 2.2 §17.2 table model: display types map to formatting contexts, table-column/column-group not rendered, anonymous table objects generated
-        // +spec:table-layout:023714 - map display values to table formatting contexts per CSS 2.2 §17.2
-        // +spec:table-layout:6c5039 - row-primary table model: rows/cells/captions/columns mapped here
-        // +spec:table-layout:75eea9 - display property values for table elements (table, tr, td, etc.)
-        // +spec:table-layout:3ee121 - layout-internal display types map to table formatting context
+        // +spec:display-property:723fe8 - CSS 2.2 §17.2 table model: display types map to
+        // formatting contexts, table-column/column-group not rendered, anonymous table objects
+        // generated +spec:table-layout:023714 - map display values to table formatting
+        // contexts per CSS 2.2 §17.2 +spec:table-layout:6c5039 - row-primary table model:
+        // rows/cells/captions/columns mapped here +spec:table-layout:75eea9 - display
+        // property values for table elements (table, tr, td, etc.) +spec:table-layout:
+        // 3ee121 - layout-internal display types map to table formatting context
         // +spec:display-property:b02b7f - table display types map to table formatting contexts;
         // table-column/table-column-group not rendered (treated as display:none for box generation)
         LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
@@ -4562,8 +4641,9 @@ fn determine_formatting_context_for_display(
         | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
         LayoutDisplay::TableRow => FormattingContext::TableRow,
         LayoutDisplay::TableCell => FormattingContext::TableCell,
-        // +spec:display-property:da3fc7 - display:none/contents generate no boxes (no inner/outer display types)
-        // +spec:display-property:e370af - display:none generates no boxes or text sequences
+        // +spec:display-property:da3fc7 - display:none/contents generate no boxes (no inner/outer
+        // display types) +spec:display-property:e370af - display:none generates no boxes or
+        // text sequences
         LayoutDisplay::None => FormattingContext::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
@@ -4571,15 +4651,18 @@ fn determine_formatting_context_for_display(
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
         // table-column elements are used only for column styling, not for generating boxes
         LayoutDisplay::TableColumn => FormattingContext::None,
-        // +spec:display-contents:584072 - no special behavior for legend/HTML elements; contents handled normally
-        // display:contents - element generates no box, children are promoted to parent
+        // +spec:display-contents:584072 - no special behavior for legend/HTML elements; contents
+        // handled normally display:contents - element generates no box, children are
+        // promoted to parent
         LayoutDisplay::Contents => FormattingContext::Contents,
-        // +spec:display-property:b89b80 - run-in box falls back to block (merging into next block not implemented)
-        // +spec:display-property:ccd4e6 - run-in falls back to block; reparenting not implemented
-        // These less common display types default to block behavior
-        // +spec:display-property:7d77f5 - run-in treated as block (run-in sequencing fixup not yet implemented)
-        // +spec:display-property:0c30c4 - run-in boxes fall back to block (run-in reparenting not implemented, matches browser behavior)
-        // +spec:display-property:2f5c52 - run-in treated as block (full run-in merging not implemented)
+        // +spec:display-property:b89b80 - run-in box falls back to block (merging into next block
+        // not implemented) +spec:display-property:ccd4e6 - run-in falls back to block;
+        // reparenting not implemented These less common display types default to block
+        // behavior +spec:display-property:7d77f5 - run-in treated as block (run-in
+        // sequencing fixup not yet implemented) +spec:display-property:0c30c4 - run-in
+        // boxes fall back to block (run-in reparenting not implemented, matches browser behavior)
+        // +spec:display-property:2f5c52 - run-in treated as block (full run-in merging not
+        // implemented)
         LayoutDisplay::RunIn | LayoutDisplay::Marker => FormattingContext::Block {
             establishes_new_context: true,
         },
@@ -5294,10 +5377,9 @@ mod autotest_generated {
         assert_eq!(
             Arc::strong_count(&arc),
             4,
-            "the original + the cache's + the clone + the DL payload (d5: \
-             the payload is built ONCE at store time and holds the layout \
-             Arc so TextLayout damage ptr_eq stays stable; 3 -> 4 on \
-             2026-08-11)"
+            "the original + the cache's + the clone + the DL payload (d5: the payload is built \
+             ONCE at store time and holds the layout Arc so TextLayout damage ptr_eq stays \
+             stable; 3 -> 4 on 2026-08-11)"
         );
         assert_eq!(c.get_layout().items.len(), 1);
     }
@@ -5914,8 +5996,7 @@ mod autotest_generated {
         assert_eq!(r1.glyph_instance_count, 3);
         assert!(
             r1.glyph_run_bytes >= size_of::<CompactGlyphRun>() + 3 * size_of::<(u32, f32)>(),
-            "bytes must cover the run header and all three compact entries \
-             (got {}, header {})",
+            "bytes must cover the run header and all three compact entries (got {}, header {})",
             r1.glyph_run_bytes,
             size_of::<CompactGlyphRun>(),
         );
@@ -6515,9 +6596,8 @@ mod autotest_generated {
         );
         assert!(
             !b.dom_to_layout.contains_key(&old_id),
-            "the identity it was copied from must leave no mapping behind - a \
-             stale entry here is what hands a later lookup a different node's \
-             rect"
+            "the identity it was copied from must leave no mapping behind - a stale entry here is \
+             what hands a later lookup a different node's rect"
         );
     }
 

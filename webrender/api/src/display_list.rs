@@ -79,7 +79,7 @@ impl<'a, T> ItemRange<'a, T> {
     }
 
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        self.bytes
     }
 }
 
@@ -200,17 +200,14 @@ pub struct BuiltDisplayList {
 
 #[repr(C)]
 #[derive(Copy, Clone, Deserialize, Serialize)]
+#[derive(Default)]
 pub enum GeckoDisplayListType {
+    #[default]
     None,
     Partial(f64),
     Full(f64),
 }
 
-impl Default for GeckoDisplayListType {
-    fn default() -> Self {
-        GeckoDisplayListType::None
-    }
-}
 
 /// Describes the memory layout of a display list.
 ///
@@ -912,7 +909,8 @@ impl<'a> BuiltDisplayListIter<'a> {
                 self.clip_chain_item_index = end;
             }
             Text(ref text_item) => {
-                // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this text
+                // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this
+                // text
                 let count = text_item.glyph_count;
                 let end = (self.glyph_index + count).min(self.payload.glyphs.len());
                 self.cur_glyphs = &self.payload.glyphs[self.glyph_index..end];
@@ -1183,7 +1181,7 @@ impl DisplayListBuilder {
             cache.update(&temp);
             let mut iter = temp.iter_with_cache(&cache);
             while let Some(item) = iter.next_raw() {
-                if index >= range.start.unwrap_or(0) && range.end.map_or(true, |e| index < e) {
+                if index >= range.start.unwrap_or(0) && range.end.is_none_or(|e| index < e) {
                     writeln!(sink, "{}{:?}", "  ".repeat(indent), item.item()).unwrap();
                 }
                 index += 1;
@@ -1203,7 +1201,7 @@ impl DisplayListBuilder {
     fn add_to_display_list_dump<T: std::fmt::Debug>(&mut self, item: T) {
         if let Some(ref mut content) = self.serialized_content_buffer {
             use std::fmt::Write;
-            write!(content, "{:?}\n", item).expect("DL dump write failed.");
+            writeln!(content, "{:?}", item).expect("DL dump write failed.");
         }
     }
 
@@ -1244,7 +1242,7 @@ impl DisplayListBuilder {
         self.payload.spatial_items.push(*item);
     }
 
-    fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
+    fn push_iter_impl<I>(data: &mut [u8], iter_source: I)
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,

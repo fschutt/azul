@@ -81,8 +81,8 @@ pub const HEAP_BYTES: &str = "app_heap_bytes";
 /// measured). Bounds now bracket the 8/12/16.7/20/25/33ms rates a frame
 /// debugger actually distinguishes; the tail keeps decade coverage.
 pub const SECONDS_BUCKETS: &[f64] = &[
-    0.000_25, 0.000_5, 0.001, 0.002, 0.004, 0.008, 0.012_5, 0.016_7, 0.02, 0.025, 0.033, 0.05,
-    0.1, 0.25, 1.0, 5.0,
+    0.000_25, 0.000_5, 0.001, 0.002, 0.004, 0.008, 0.012_5, 0.016_7, 0.02, 0.025, 0.033, 0.05, 0.1,
+    0.25, 1.0, 5.0,
 ];
 
 /// Histogram bounds for MICRO-scale spans (probe phases), in seconds.
@@ -113,8 +113,16 @@ pub const PAINT_DAMAGE_PIXELS: &str = "app_paint_damage_pixels";
 
 /// Histogram bounds for pixel areas (1k px .. ~8M px, a 4K frame).
 pub const PIXELS_BUCKETS: &[f64] = &[
-    1_000.0, 4_000.0, 16_000.0, 64_000.0, 250_000.0, 500_000.0, 1_000_000.0, 2_000_000.0,
-    4_000_000.0, 8_000_000.0,
+    1_000.0,
+    4_000.0,
+    16_000.0,
+    64_000.0,
+    250_000.0,
+    500_000.0,
+    1_000_000.0,
+    2_000_000.0,
+    4_000_000.0,
+    8_000_000.0,
 ];
 
 /// Hard ceiling on distinct series. A bug that turns a bounded dimension into
@@ -564,9 +572,9 @@ fn admit(reg: &mut Registry, key: &InstrumentKey) -> bool {
     if !reg.warned_about_cardinality {
         reg.warned_about_cardinality = true;
         eprintln!(
-            "[azul][telemetry] metric cardinality ceiling ({MAX_SERIES} series) reached at \
-             {:?} — further new series are dropped. A dimension is unbounded; metric labels \
-             must come from a fixed set.",
+            "[azul][telemetry] metric cardinality ceiling ({MAX_SERIES} series) reached at {:?} — \
+             further new series are dropped. A dimension is unbounded; metric labels must come \
+             from a fixed set.",
             key.name
         );
     }

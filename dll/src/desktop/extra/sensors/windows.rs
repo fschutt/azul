@@ -29,8 +29,10 @@
 //! instead - which suits it anyway, since a hinge angle changes when someone
 //! folds the machine and not at 60 Hz.
 
-use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::OnceLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
@@ -128,7 +130,10 @@ pub fn start() {
             let _ = mg.SetReportInterval(m);
         }
     }
-    for a in [s.gravity.as_ref(), s.linear.as_ref()].into_iter().flatten() {
+    for a in [s.gravity.as_ref(), s.linear.as_ref()]
+        .into_iter()
+        .flatten()
+    {
         if let Ok(m) = a.MinimumReportInterval() {
             let _ = a.SetReportInterval(m);
         }
@@ -172,8 +177,8 @@ fn start_async_sensors() {
                 let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             }
 
-            if let Ok(p) = Pedometer::GetDefaultAsync()
-                .and_then(|op| pollster::block_on(op.into_future()))
+            if let Ok(p) =
+                Pedometer::GetDefaultAsync().and_then(|op| pollster::block_on(op.into_future()))
             {
                 if let Ok(m) = p.MinimumReportInterval() {
                     let _ = p.SetReportInterval(m);
@@ -250,10 +255,7 @@ pub fn poll() {
     if let Some(p) = PROXIMITY.get() {
         if let Ok(r) = p.0.GetCurrentReading() {
             use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
-            let ranged = r
-                .DistanceInMillimeters()
-                .ok()
-                .and_then(|d| d.Value().ok());
+            let ranged = r.DistanceInMillimeters().ok().and_then(|d| d.Value().ok());
             let proximity = match ranged {
                 Some(mm) => Proximity::Distance(ProximityDistance {
                     value: mm as f32,

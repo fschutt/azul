@@ -28,7 +28,7 @@ use azul_core::{
     refany::RefAny,
     task::OptionTimerId,
 };
-use azul_css::css::BoxOrStatic;
+use azul_css::{css::BoxOrStatic, dynamic_selector::OptionCssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -50,25 +50,12 @@ const BACKGROUND_COLOR: ColorU = ColorU {
     b: 255,
     a: 255,
 }; // white
-const BLACK: ColorU = ColorU {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 255,
-};
-const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: BLACK }; // black
 const COLOR_9B9B9B: ColorU = ColorU {
     r: 155,
     g: 155,
     b: 155,
     a: 255,
 }; // #9b9b9b
-const COLOR_4286F4: ColorU = ColorU {
-    r: 66,
-    g: 134,
-    b: 244,
-    a: 255,
-}; // #4286f4
 const COLOR_4C4C4C: ColorU = ColorU {
     r: 76,
     g: 76,
@@ -97,7 +84,7 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 const TEXT_INPUT_MIN_HEIGHT_PX: isize = 22;
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -193,48 +180,21 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    // Hover(border-color: #4c4c4c;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4C4C4C,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
+    //
+    // The Windows-only grey hover ring (#4c4c4c) went with them: which colour
+    // rings the field is the theme's decision now, and neither theme draws a
+    // platform distinction.
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -324,50 +284,19 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
         LayoutJustifyContent::Center,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    // Hover(border-color: #4286f4;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
 ];
 
 // Mobile (Android / iOS) inherit the macOS-style container — same flex
 // box-sizing and background; touch-target padding is the user's concern.
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -455,44 +384,13 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    // Hover(border-color: #4286f4;)
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    // Focus(border-color: #4286f4;)
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: COLOR_4286F4,
-    })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor {
-            inner: COLOR_4286F4,
-        },
-    )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor {
-            inner: COLOR_4286F4,
-        },
-    )),
+    // Hover and focus border states are NOT here. They live in the theme
+    // modules (`flat::FIELD_BORDER_STATES`, `flora::FIELD_BORDER_STATES`) and
+    // are appended by `flat::text_input` / `flora::text_input`, because the
+    // dark half of each pair needs the theme's `DARK_ACC` — a colour this file
+    // cannot see. Declared here, they could only ever name the light-mode
+    // colours, which is why a hovered field kept its light ring on a dark
+    // surface.
 ];
 
 // -- label style
@@ -503,7 +401,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 // spaces the user typed.
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -542,7 +440,7 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -581,7 +479,7 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -619,9 +517,6 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-
-
-
 /// Single-line text input widget with platform-native styling.
 ///
 /// Use [`TextInput::create()`] to build an instance, configure it with the
@@ -631,13 +526,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 #[repr(C)]
 pub struct TextInput {
     pub text_input_state: TextInputStateWrapper,
-    pub container_style: CssPropertyWithConditionsVec,
-    pub label_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    pub label_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
@@ -749,7 +645,8 @@ azul_core::impl_managed_callback! {
     extra_args:     [ state: TextInputState ],
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 #[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {
@@ -775,11 +672,10 @@ impl Default for TextInput {
     fn default() -> Self {
         Self {
             text_input_state: TextInputStateWrapper::default(),
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                TEXT_INPUT_CONTAINER_PROPS,
-            ),
-            label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: None.into(),
         }
     }
 }
@@ -825,6 +721,31 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
+    /// The container style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| {
+                CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_CONTAINER_PROPS)
+            })
+    }
+
+    /// The label style this widget renders with.
+    ///
+    /// `None` means no opinion, so the widget's default applies — the same
+    /// answer both themes give, asked in one place.
+    #[must_use]
+    pub fn resolved_label_style(&self) -> CssPropertyWithConditionsVec {
+        self.label_style.clone().into_option().unwrap_or_else(|| {
+            CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS)
+        })
+    }
+
     /// Name this control for assistive technology.
     #[must_use]
     pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
@@ -852,6 +773,19 @@ impl TextInput {
             .map(|c| c as u32)
             .collect::<Vec<_>>()
             .into();
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     pub fn set_placeholder(&mut self, placeholder: AzString) {
@@ -929,10 +863,8 @@ impl TextInput {
         self
     }
 
-
-
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.container_style = style;
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -942,7 +874,7 @@ impl TextInput {
     }
 
     pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.label_style = style;
+        self.label_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -967,130 +899,25 @@ impl TextInput {
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
     #[must_use]
-    pub fn dom(mut self) -> Dom {
-        // Read before the state is moved into the DOM/callbacks below.
-        let a11y_name: Option<AzString> = self.text_input_state.inner.placeholder.as_ref().cloned();
-        let a11y_value: String = self
-            .text_input_state
-            .inner
-            .text
-            .as_ref()
-            .iter()
-            .filter_map(|c| char::from_u32(*c))
-            .collect();
-
-        use azul_core::{
-            callbacks::CoreCallbackData,
-            dom::{
-                AttributeType, DomVec, EventFilter, FocusEventFilter, HoverEventFilter,
-                IdOrClass::Class, TabIndex,
-            },
-        };
-
-        self.text_input_state.inner.cursor_pos = self.text_input_state.inner.text.len();
-
-        let label_text: String = self
-            .text_input_state
-            .inner
-            .text
-            .iter()
-            .filter_map(|s| core::char::from_u32(*s))
-            .collect();
-
-        let placeholder = self
-            .text_input_state
-            .inner
-            .placeholder
-            .as_ref()
-            .map(|s| s.as_str().to_string())
-            .unwrap_or_default();
-
-        let state_ref = RefAny::new(self.text_input_state);
-
-        Dom::create_div()
-            .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
-            .with_css_props(self.container_style)
-            .with_tab_index(TabIndex::Auto)
-            // A text field with no name is the classic unusable form control: a
-            // reader announces "edit" and the user has no idea what to type.
-            // The PLACEHOLDER is the best name available here — it is what a
-            // sighted user reads for the same purpose — but a caller with a
-            // real label should point `labelled_by` at it instead, which keeps
-            // the two from drifting apart.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Text,
-                accessibility_name: a11y_name.into(),
-                accessibility_value: Some(AzString::from(a11y_value)).into(),
-                ..Default::default()
-            })
-            .with_contenteditable(true)
-            .with_dataset(Some(state_ref.clone()).into())
-            .with_callbacks(
-                vec![
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_received as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_focus_lost as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::TextInput),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_text_input as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        refany: state_ref.clone(),
-                        callback: CoreCallback {
-                            cb: default_on_virtual_key_down as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                    CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                        refany: state_ref,
-                        callback: CoreCallback {
-                            cb: default_on_mouse_hover as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                    },
-                ]
-                .into(),
-            )
-            .with_children(
-                vec![
-                    // ONE child: the value <p>. The prompt is an ATTRIBUTE on
-                    // it, painted by the engine while the line is empty and
-                    // unfocused - it is not a node, so it cannot swallow a
-                    // click meant for the editable, own clusters, or carry a
-                    // visibility override that latches.
-                    crate::widgets::widget_p()
-                        .with_ids_and_classes(
-                            vec![Class("__azul-native-text-input-label".into())].into(),
-                        )
-                        .with_css_props(self.label_style)
-                        // appended, never `with_attributes`: that one replaces
-                        // the whole vector, classes included
-                        .with_attribute(AttributeType::Placeholder(placeholder.into()))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
-                ]
-                .into(),
-            )
+    pub fn dom(self) -> Dom {
+        // `UiTheme::default()` is Flat, and so is every other widget's fallback:
+        // an unset theme here used to reach FLORA, which is why an unthemed
+        // TextInput rendered skeuomorphic next to a flat Button.
+        let theme = self
+            .theme
+            .into_option()
+            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+        match theme {
+            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
+            crate::widgets::themes::UiTheme::Flora => {
+                crate::widgets::themes::flora::text_input(self)
+            }
+        }
     }
 }
+
+pub const TEXT_INPUT_CONTAINER_CLASS: &str = "__azul-native-text-input-container";
+pub const TEXT_INPUT_LABEL_CLASS: &str = "__azul-native-text-input-label";
 
 /// The value `<p>` - the editable line the engine paints the `placeholder`
 /// attribute's prompt into while it is empty and unfocused.
@@ -1180,7 +1007,11 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
-extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
+#[must_use]
+pub extern "C" fn default_on_focus_received(
+    mut text_input: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1210,7 +1041,8 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
     Update::DoNothing
 }
 
-extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
+#[must_use]
+pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1240,7 +1072,8 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
     }
 }
 
-extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
+#[must_use]
+pub extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
@@ -1370,7 +1203,8 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     Some(result.update)
 }
 
-extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
+#[must_use]
+pub extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
@@ -1427,7 +1261,8 @@ fn default_on_virtual_key_down_inner(
     Some(result.update)
 }
 
-extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
+#[must_use]
+pub extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
     let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -1456,6 +1291,7 @@ mod autotest_generated {
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition};
     use rust_fontconfig::FcFontCache;
 
     use super::*;
@@ -1465,6 +1301,7 @@ mod autotest_generated {
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         managers::text_input::PendingTextEdit,
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::theme_probe,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1797,10 +1634,7 @@ mod autotest_generated {
         );
         let label = probe.get_first_child(dom_node(CONTAINER));
         let label_text = label.and_then(|l| probe.get_first_child(l));
-        let nodes = Nodes {
-            label,
-            label_text,
-        };
+        let nodes = Nodes { label, label_text };
 
         let info = CallbackInfo::new(
             &ref_data,
@@ -1926,8 +1760,10 @@ mod autotest_generated {
     /// `n` properties lifted off the default container style — an easy way to mint
     /// pairwise-distinct style vectors without hard-coding any CSS.
     fn style(n: usize) -> CssPropertyWithConditionsVec {
-        let all: Vec<CssPropertyWithConditions> =
-            TextInput::default().container_style.as_ref().to_vec();
+        let all: Vec<CssPropertyWithConditions> = TextInput::default()
+            .resolved_container_style()
+            .as_slice()
+            .to_vec();
         assert!(n <= all.len(), "not enough default properties to slice");
         CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
     }
@@ -2156,8 +1992,11 @@ mod autotest_generated {
                 .map(|s| s.as_str().to_string()),
             Some("type here".to_string()),
         );
-        assert_eq!(input.container_style, before.container_style);
-        assert_eq!(input.label_style, before.label_style);
+        assert_eq!(
+            input.resolved_container_style(),
+            before.resolved_container_style()
+        );
+        assert_eq!(input.resolved_label_style(), before.resolved_label_style());
         assert_eq!(
             input.text_input_state.inner.max_len,
             before.text_input_state.inner.max_len
@@ -2254,13 +2093,19 @@ mod autotest_generated {
 
         let mut b = TextInput::create();
         b.set_container_style(marker.clone());
-        assert_eq!(b.container_style, marker);
-        assert_eq!(b.label_style, TextInput::create().label_style);
+        assert_eq!(b.resolved_container_style(), marker);
+        assert_eq!(
+            b.resolved_label_style(),
+            TextInput::create().resolved_label_style()
+        );
 
         let mut c = TextInput::create();
         c.set_label_style(marker.clone());
-        assert_eq!(c.label_style, marker);
-        assert_eq!(c.container_style, TextInput::create().container_style);
+        assert_eq!(c.resolved_label_style(), marker);
+        assert_eq!(
+            c.resolved_container_style(),
+            TextInput::create().resolved_container_style()
+        );
     }
 
     #[test]
@@ -2282,7 +2127,7 @@ mod autotest_generated {
         let input = TextInput::create()
             .with_container_style(empty.clone())
             .with_label_style(empty.clone());
-        assert!(input.container_style.is_empty());
+        assert!(input.resolved_container_style().is_empty());
 
         // Stripping every declared property must not stop the widget from rendering.
         let dom = input.dom();
@@ -2294,7 +2139,7 @@ mod autotest_generated {
         let mut input = TextInput::create();
         input.set_container_style(style(4));
         input.set_container_style(style(1));
-        assert_eq!(input.container_style.len(), 1);
+        assert_eq!(input.resolved_container_style().len(), 1);
     }
 
     // ==================================================================
@@ -2503,7 +2348,7 @@ mod autotest_generated {
                 .text_input_state
                 .update_text_input_before_calling_vk_down_fn
         );
-        assert!(!input.container_style.is_empty());
+        assert!(!input.resolved_container_style().is_empty());
     }
 
     #[test]
@@ -2677,9 +2522,7 @@ mod autotest_generated {
             "the value line's css must not depend on whether it has text",
         );
         assert_eq!(
-            filled.children.as_ref()[LABEL_CHILD]
-                .root
-                .get_placeholder(),
+            filled.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
             empty.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
             "and neither must the prompt attribute",
         );
@@ -2814,22 +2657,112 @@ mod autotest_generated {
             .with_container_style(container_style.clone())
             .dom();
 
-        let inline = |node: &Dom| -> Vec<CssProperty> {
-            node.root
-                .style
-                .iter_inline_properties()
-                .map(|(p, _)| p.clone())
-                .collect()
-        };
         let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
             v.as_ref().iter().map(|p| p.property.clone()).collect()
         };
 
-        assert_eq!(inline(&dom), declared(&container_style));
+        // The theme appends its dark twins AND the field's hover/focus border
+        // states on top of what the caller set, so only the resting,
+        // unconditional half of the container's style is the caller's verbatim.
+        // The label carries no state rules, so the stricter probe still holds
+        // there.
+        assert_eq!(theme_probe::unconditional(&dom), declared(&container_style));
         assert_eq!(
-            inline(&dom.children.as_ref()[LABEL_CHILD]),
+            theme_probe::unthemed(&dom.children.as_ref()[LABEL_CHILD]),
             declared(&label_style)
         );
+    }
+
+    #[test]
+    fn dom_gives_the_container_and_the_label_a_dark_mode_twin() {
+        // A caller-supplied style replaces the widget's own, but it must not
+        // disable the theme's dark half — otherwise setting any style at all
+        // leaves the field painting a light fill on a dark surface.
+        let dom = TextInput::create()
+            .with_container_style(style(3))
+            .with_label_style(style(2))
+            .dom();
+
+        assert!(
+            theme_probe::dark(&dom)
+                .iter()
+                .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+            "the container keeps its light fill in dark mode",
+        );
+        assert!(
+            theme_probe::dark(&dom.children.as_ref()[LABEL_CHILD])
+                .iter()
+                .any(|p| matches!(p, CssProperty::TextColor(_))),
+            "the label keeps its light ink in dark mode",
+        );
+    }
+
+    #[test]
+    fn dom_carries_the_themes_hover_and_focus_border_states_with_dark_twins() {
+        // The rules moved OUT of `TEXT_INPUT_CONTAINER_PROPS` and into the theme
+        // modules, which is a move nothing else in this suite would notice: no
+        // compiler error, and every other assertion here still passes if a
+        // theme silently forgets to append them. Hence this test — and hence it
+        // asks BOTH themes, since each `text_input()` appends the array itself.
+        use crate::widgets::themes::{OptionUiTheme, UiTheme};
+
+        for (name, theme) in [("flat", UiTheme::Flat), ("flora", UiTheme::Flora)] {
+            let mut input = TextInput::create();
+            input.theme = OptionUiTheme::Some(theme);
+            let dom = input.dom();
+
+            let conditioned = |want_dark: bool, want_focus: bool| -> usize {
+                dom.root
+                    .style
+                    .iter_inline_properties()
+                    .filter(|(p, conds)| {
+                        let is_border = matches!(
+                            p,
+                            CssProperty::BorderTopColor(_)
+                                | CssProperty::BorderBottomColor(_)
+                                | CssProperty::BorderLeftColor(_)
+                                | CssProperty::BorderRightColor(_)
+                        );
+                        let mut dark = false;
+                        let mut state_matches = false;
+                        for c in conds.as_ref() {
+                            match c {
+                                DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                                DynamicSelector::PseudoState(PseudoStateType::Focus) => {
+                                    state_matches = want_focus;
+                                }
+                                DynamicSelector::PseudoState(PseudoStateType::Hover) => {
+                                    state_matches = !want_focus;
+                                }
+                                _ => {}
+                            }
+                        }
+                        is_border && state_matches && dark == want_dark
+                    })
+                    .count()
+            };
+
+            for (state, want_focus) in [("hover", false), ("focus", true)] {
+                assert_eq!(
+                    conditioned(false, want_focus),
+                    4,
+                    "{name} {state}: all four border edges must take the accent, or the ring is \
+                     drawn on some sides only",
+                );
+                assert_eq!(
+                    conditioned(true, want_focus),
+                    4,
+                    "{name} {state}: the dark twin is missing, so the field keeps its light-mode \
+                     ring on a dark surface",
+                );
+            }
+
+            // And the dark declarations really are gated, not unconditional.
+            assert!(
+                !theme_probe::dark(&dom).is_empty(),
+                "{name}: the theme contributed no dark-mode declarations at all"
+            );
+        }
     }
 
     #[test]
@@ -2908,9 +2841,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(
             changes.is_empty(),
-            "focus must write NO css: the engine paints the prompt only while \
-             the line is empty AND unfocused, so there is no state to toggle \
-             and nothing that can latch: {changes:?}",
+            "focus must write NO css: the engine paints the prompt only while the line is empty \
+             AND unfocused, so there is no state to toggle and nothing that can latch: {changes:?}",
         );
         let _ = nodes;
 
@@ -2950,8 +2882,8 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(
             changes.is_empty(),
-            "blur must write NO css either — the prompt reappears because the \
-             next display list sees empty+unfocused: {changes:?}",
+            "blur must write NO css either — the prompt reappears because the next display list \
+             sees empty+unfocused: {changes:?}",
         );
         let _ = nodes;
 

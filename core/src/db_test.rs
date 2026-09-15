@@ -320,7 +320,8 @@ mod autotest_generated {
     fn get_out_of_range_column_is_none() {
         let g = grid_2x2();
         assert!(g.get(0, 2).is_none()); // col == num_columns
-                                        // col == usize::MAX hits the `col >= cols` guard before any arithmetic.
+                                        // col == usize::MAX hits the `col >= cols` guard before any
+                                        // arithmetic.
         assert!(g.get(0, usize::MAX).is_none());
         // Both extreme: the column guard short-circuits before `row * cols`.
         assert!(g.get(usize::MAX, usize::MAX).is_none());

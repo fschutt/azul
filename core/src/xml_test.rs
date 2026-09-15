@@ -99,8 +99,10 @@ mod tests {
         // `NodeType::Image` whose `NullImage` carries the `src` string as its
         // `tag` (so a renderer can resolve the bytes later), plus the declared
         // intrinsic size.
-        use crate::resources::DecodedImage;
-        use crate::window::{AzStringPair, StringPairVec};
+        use crate::{
+            resources::DecodedImage,
+            window::{AzStringPair, StringPairVec},
+        };
 
         let img_node = XmlNode {
             node_type: "img".into(),
@@ -269,8 +271,7 @@ mod tests {
                 assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
 
                 let mut builder = CompactDomBuilder::new();
-                let fast =
-                    xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
+                let fast = xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
                 assert!(
                     fast.is_ok(),
                     "deep FastDom build must not overflow the stack"
@@ -317,9 +318,10 @@ mod tests {
 #[cfg(test)]
 #[allow(clippy::all, clippy::pedantic, clippy::nursery)]
 mod autotest_generated {
+    use azul_css::css::{CssNthChildPattern, CssNthChildSelector};
+
     use super::*;
     use crate::dom::{NodeData, NodeType};
-    use azul_css::css::{CssNthChildPattern, CssNthChildSelector};
 
     // ----------------------------------------------------------------- helpers
 
@@ -1687,13 +1689,19 @@ mod autotest_generated {
         assert_eq!(body_of(&[]).children.as_ref().len(), 0, "an empty document");
         assert_eq!(body_of(&[txt("just text")]).children.as_ref().len(), 1);
         assert_eq!(
-            body_of(&[elem(XmlNode::create("div"))]).children.as_ref().len(),
+            body_of(&[elem(XmlNode::create("div"))])
+                .children
+                .as_ref()
+                .len(),
             1,
             "a bare fragment becomes the body's content"
         );
         // An `<svg>` root is a fragment like any other.
         assert_eq!(
-            body_of(&[elem(XmlNode::create("svg"))]).children.as_ref().len(),
+            body_of(&[elem(XmlNode::create("svg"))])
+                .children
+                .as_ref()
+                .len(),
             1
         );
     }
@@ -2539,8 +2547,8 @@ mod autotest_generated {
             assert_ne!(
                 safe_container_tag(&dbg),
                 "Div",
-                "<{tag}> (NodeType debug name {dbg:?}) is a pure container and must keep \
-                 its own creator instead of degrading to a div"
+                "<{tag}> (NodeType debug name {dbg:?}) is a pure container and must keep its own \
+                 creator instead of degrading to a div"
             );
         }
     }

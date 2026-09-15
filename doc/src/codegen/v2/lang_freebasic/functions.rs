@@ -14,11 +14,15 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::types::ptr_type_for_arg;
-use super::{map_type_to_fb, sanitize_comment, sanitize_identifier};
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
+    },
+    map_type_to_fb, sanitize_comment, sanitize_identifier,
+    types::ptr_type_for_arg,
+};
 
 pub fn generate_externals(
     builder: &mut CodeBuilder,

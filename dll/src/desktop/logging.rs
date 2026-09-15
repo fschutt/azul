@@ -5,7 +5,19 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use log::LevelFilter;
 
 /// Whether to show a message box to the user when a panic occurs.
-pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
+pub(super) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
+
+/// Set while [`set_up_panic_hooks`]'s hook runs, so a panic raised inside it (the modal pumps
+/// messages, which re-enters application code) only logs.
+static HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct ResetOnDrop;
+
+impl Drop for ResetOnDrop {
+    fn drop(&mut self) {
+        HOOK_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Escape `<` and `>` so the panic dialog text renders as literal characters
 /// in `tinyfiledialogs` on Linux, which interprets the body as Pango markup.
@@ -14,6 +26,47 @@ pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 #[cfg(any(target_os = "linux", test))]
 fn escape_dialog_html(s: &str) -> String {
     s.replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// Most lines the fatal-error dialog shows before it summarises the rest.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+const DIALOG_MAX_LINES: usize = 30;
+/// Longest line the fatal-error dialog shows; longer ones are cut.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+const DIALOG_MAX_LINE_CHARS: usize = 160;
+
+/// Bound the fatal-error report to a dialog that fits on the screen.
+///
+/// The message box has no scrolling and grows with its text. A long panic
+/// message (an `AZ_PATCH_VERIFY` mismatch dump: a dozen lines of several
+/// hundred characters each, wrapped) plus a full backtrace pushed the
+/// dialog's button below the bottom of a 1080p screen, so it could not be
+/// dismissed. The complete report still goes to the log; the dialog keeps
+/// the head of it, cuts each line, and says how much it left out.
+#[cfg(any(not(any(target_os = "android", target_os = "ios")), test))]
+fn bounded_dialog_text(report: &str) -> String {
+    let lines: Vec<&str> = report.lines().collect();
+    let mut out: Vec<String> = lines
+        .iter()
+        .take(DIALOG_MAX_LINES)
+        .map(|line| {
+            if line.chars().count() > DIALOG_MAX_LINE_CHARS {
+                let cut: String = line.chars().take(DIALOG_MAX_LINE_CHARS).collect();
+                format!("{cut}…")
+            } else {
+                (*line).to_string()
+            }
+        })
+        .collect();
+    if lines.len() > DIALOG_MAX_LINES {
+        out.push(String::new());
+        out.push(format!(
+            "… {} more line(s). The complete report was written to the log (stderr, or the \
+             file named by AZ_LOG_FILE).",
+            lines.len() - DIALOG_MAX_LINES
+        ));
+    }
+    out.join("\r\n")
 }
 
 /// Configures the global logger using `fern` to write to stdout at the given level.
@@ -59,7 +112,7 @@ pub fn set_up_logging(log_level: LevelFilter) {
 
 /// In the (rare) case of a panic, print it to the stdout, log it to the file and
 /// prompt the user with a message box.
-pub fn set_up_panic_hooks() {
+pub(super) fn set_up_panic_hooks() {
     use std::panic::{self, PanicInfo};
 
     use backtrace::{Backtrace, BacktraceFrame};
@@ -93,11 +146,33 @@ pub fn set_up_panic_hooks() {
              and attach the log file found in the directory of the executable.\r\n\r\nThe error \
              occurred in: {} in thread {}\r\n\r\nError \
              information:\r\n{}\r\n\r\nBacktrace:\r\n\r\n{}\r\n",
-            location_str.unwrap_or("<unknown location>".to_string()),
+            location_str.clone().unwrap_or("<unknown location>".to_string()),
             thread_name,
             panic_str,
             backtrace_str
         );
+
+        // A panic the caller catches (`recoverable_panic::catch`) is not fatal, and a panic raised
+        // while this hook already runs must not reach the modal below a second time: that modal
+        // pumps the message queue, so it re-enters the callback the panic came from, and a second
+        // panic inside the first aborts the process.
+        let recovered = crate::desktop::recoverable_panic::in_progress();
+        let nested = HOOK_RUNNING.swap(true, Ordering::SeqCst);
+        let _reset = ResetOnDrop;
+        if recovered || nested {
+            log::error!(
+                "A panic in {} in thread {} was {}: {}",
+                location_str.unwrap_or("<unknown location>".to_string()),
+                thread_name,
+                if recovered {
+                    "caught by the caller, which carries on"
+                } else {
+                    "raised while reporting another panic and is only logged"
+                },
+                panic_str
+            );
+            return;
+        }
 
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
@@ -121,11 +196,13 @@ pub fn set_up_panic_hooks() {
             // logcat/console will pick it up.
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
+                let bounded = bounded_dialog_text(&error_str);
+
                 #[cfg(not(target_os = "linux"))]
-                let dialog_str = &error_str;
+                let dialog_str = &bounded;
 
                 #[cfg(target_os = "linux")]
-                let dialog_str = escape_dialog_html(&error_str);
+                let dialog_str = escape_dialog_html(&bounded);
 
                 tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
                     .with_icon(tfd::MessageBoxIcon::Info)
@@ -234,7 +311,7 @@ pub fn set_up_panic_hooks() {
 /// Parse `AZ_LOG` into a max level filter. `None` means "logging disabled".
 /// Unset (or any unrecognized truthy value) defaults to `Debug` — verbose but
 /// not the per-frame `Trace` firehose; pass `AZ_LOG=trace` for everything.
-pub fn az_log_level() -> Option<LevelFilter> {
+pub(super) fn az_log_level() -> Option<LevelFilter> {
     let raw = std::env::var("AZ_LOG").unwrap_or_default();
     match raw.trim().to_ascii_lowercase().as_str() {
         "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => None,
@@ -252,7 +329,7 @@ pub fn az_log_level() -> Option<LevelFilter> {
 // `&'static dyn Log`. State that the install computes (color, start time) lives
 // in module statics; the level filter is `log::max_level()` (set via
 // `set_max_level`), which the `log` macros also consult to skip work early.
-static LOG_COLOR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static LOG_COLOR: AtomicBool = AtomicBool::new(false);
 static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 /// True once [`StderrLogger`] is THE installed `log` sink for this process.
 ///
@@ -270,8 +347,8 @@ static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock:
 /// A HOST logger (android_logger, pyo3-log, env_logger) is a DIFFERENT sink and
 /// must keep receiving records, which is why this tracks specifically "is the
 /// installed logger ours" rather than "is any logger installed".
-static BUILTIN_LOGGER_INSTALLED: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
+static BUILTIN_LOGGER_INSTALLED: AtomicBool =
+    AtomicBool::new(false);
 
 struct StderrLogger;
 static STDERR_LOGGER: StderrLogger = StderrLogger;
@@ -290,7 +367,7 @@ impl log::Log for StderrLogger {
             .get()
             .map(|s| s.elapsed().as_micros())
             .unwrap_or(0);
-        let color = LOG_COLOR.load(core::sync::atomic::Ordering::Relaxed);
+        let color = LOG_COLOR.load(Ordering::Relaxed);
         let lvl = record.level();
         let (col, reset) = if color {
             let c = match lvl {
@@ -336,7 +413,7 @@ impl log::Log for StderrLogger {
 /// Install azul's built-in stderr logger unless `AZ_LOG` disables it (default
 /// ON). Idempotent and safe to call from every `App::create`: if a logger is
 /// already installed (by the host or a previous call) this is a no-op.
-pub fn init_default_logger() {
+pub(super) fn init_default_logger() {
     use std::sync::atomic::{AtomicBool, Ordering};
     // Only attempt the install once per process.
     static TRIED: AtomicBool = AtomicBool::new(false);
@@ -377,13 +454,38 @@ pub fn init_default_logger() {
 /// own logger (their sink is not this stderr), when `AZ_LOG=off` kept any
 /// logger from being installed, or when the level is below `log::max_level()`.
 #[must_use]
-pub fn builtin_stderr_logger_prints(level: log::Level) -> bool {
-    BUILTIN_LOGGER_INSTALLED.load(core::sync::atomic::Ordering::SeqCst) && level <= log::max_level()
+pub(super) fn builtin_stderr_logger_prints(level: log::Level) -> bool {
+    BUILTIN_LOGGER_INSTALLED.load(Ordering::SeqCst) && level <= log::max_level()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::escape_dialog_html;
+    use super::{
+        bounded_dialog_text, escape_dialog_html, DIALOG_MAX_LINES, DIALOG_MAX_LINE_CHARS,
+    };
+
+    #[test]
+    fn a_short_report_reaches_the_dialog_unchanged() {
+        let report = "An unexpected panic occurred\r\n\r\nat file.rs line 42";
+        assert_eq!(bounded_dialog_text(report), report);
+    }
+
+    /// A patch-verify dump plus a backtrace ran the dialog off a 1080p screen.
+    #[test]
+    fn a_long_report_is_cut_to_a_dialog_that_fits_on_screen() {
+        let long_line = "x".repeat(600);
+        let report = (0..90)
+            .map(|i| if i % 3 == 0 { long_line.clone() } else { format!("frame {i}") })
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        let text = bounded_dialog_text(&report);
+        let lines: Vec<&str> = text.split("\r\n").collect();
+        assert!(lines.len() <= DIALOG_MAX_LINES + 2, "{} lines", lines.len());
+        assert!(lines
+            .iter()
+            .all(|l| l.chars().count() <= DIALOG_MAX_LINE_CHARS + 1));
+        assert!(text.contains("60 more line(s)"), "{text}");
+    }
 
     #[test]
     fn escapes_lt() {

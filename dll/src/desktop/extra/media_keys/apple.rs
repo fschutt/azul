@@ -78,7 +78,7 @@ unsafe impl objc2::encode::Encode for CgSize {
 static CURRENT_ARTWORK_IMAGE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_control};
+use azul_layout::managers::media_keys::{push_media_control, push_media_key};
 
 /// `MPRemoteCommandHandlerStatus.success`.
 const HANDLER_STATUS_SUCCESS: isize = 0;
@@ -98,9 +98,7 @@ fn library() -> Option<&'static libloading::Library> {
     static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
     LIB.get_or_init(|| {
         unsafe {
-            libloading::Library::new(
-                "/System/Library/Frameworks/MediaPlayer.framework/MediaPlayer",
-            )
+            libloading::Library::new("/System/Library/Frameworks/MediaPlayer.framework/MediaPlayer")
         }
         .ok()
     })
@@ -256,10 +254,7 @@ pub fn start() {
         // session the way it is on iOS. Firefox does the same thing for the
         // same reason.
         let info_name = std::ffi::CString::new("MPNowPlayingInfoCenter").ok();
-        if let Some(info_cls) = info_name
-            .as_deref()
-            .and_then(objc2::runtime::AnyClass::get)
-        {
+        if let Some(info_cls) = info_name.as_deref().and_then(objc2::runtime::AnyClass::get) {
             let info: *mut AnyObject = msg_send![info_cls, defaultCenter];
             if !info.is_null() {
                 let _: () = msg_send![info, setPlaybackState: PLAYBACK_STATE_PLAYING];
@@ -367,10 +362,7 @@ pub fn publish(info: &NowPlayingInfo) {
         } else {
             0.0
         };
-        put(
-            b"MPNowPlayingInfoPropertyPlaybackRate\0",
-            nsnumber(rate),
-        );
+        put(b"MPNowPlayingInfoPropertyPlaybackRate\0", nsnumber(rate));
         if !info.artwork_url.as_str().is_empty() {
             put(
                 b"MPMediaItemPropertyArtwork\0",
@@ -444,9 +436,8 @@ fn artwork_bytes(uri: &str) -> Option<Vec<u8>> {
 }
 
 /// Fetched remote artwork, by URL. `None` = in flight, or failed.
-static ARTWORK_CACHE: std::sync::Mutex<
-    std::collections::BTreeMap<String, Option<Vec<u8>>>,
-> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+static ARTWORK_CACHE: std::sync::Mutex<std::collections::BTreeMap<String, Option<Vec<u8>>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// Build an `MPMediaItemArtwork` from an artwork URI, or null.
 ///
@@ -535,9 +526,8 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
     // `initWithImage:` is iPhone-only and deprecated - so there is no simpler
     // route to weigh up. The handler ignores the requested size and returns the
     // full image; the system scales.
-    let handler = block2::RcBlock::new(
-        move |_size: CgSize| -> *mut objc2::runtime::AnyObject { retained },
-    );
+    let handler =
+        block2::RcBlock::new(move |_size: CgSize| -> *mut objc2::runtime::AnyObject { retained });
     let alloc: *mut objc2::runtime::AnyObject = objc2::msg_send![artwork_cls, alloc];
     // The block is COPIED by the initialiser, so `handler` may drop here; the
     // image it returns is what needed the retain above.
@@ -651,9 +641,8 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
         if session.is_null() {
             return AVF_ABSENT;
         }
-        let responds = |sel: objc2::runtime::Sel| -> bool {
-            msg_send![session, respondsToSelector: sel]
-        };
+        let responds =
+            |sel: objc2::runtime::Sel| -> bool { msg_send![session, respondsToSelector: sel] };
         if active {
             if !responds(objc2::sel!(setCategory:error:))
                 || !responds(objc2::sel!(setActive:error:))

@@ -1,19 +1,23 @@
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
-use azul_layout::solver3::pagination::FakePageConfig;
+use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
 /// Regression: the MapWidget must FILL its container. The widget's outer div had
 /// no size, so it collapsed to zero height → the VirtualView got zero bounds →
 /// no tiles rendered (the azul-maps demo showed only the container background).
 /// build_dom now gives the outer div + VirtualView `width/height:100%`.
 use azul_layout::solver3::LayoutNodeId;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::Solver3LayoutCache;
-use std::collections::{BTreeMap, HashMap};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+    text3::default::PathLoader,
+    Solver3LayoutCache,
+};
 
 fn fresh_layout_cache() -> Solver3LayoutCache {
     Solver3LayoutCache {
@@ -137,7 +141,8 @@ fn test_map_widget_fills_flex_container() {
     );
     assert!(
         vview_h > 400.0,
-        "VirtualView collapsed to {vview_h:.1}px — %-height did not resolve against the abs-inset parent"
+        "VirtualView collapsed to {vview_h:.1}px — %-height did not resolve against the abs-inset \
+         parent"
     );
 }
 
@@ -152,7 +157,10 @@ fn test_map_widget_fills_container() {
     // width/height:100% must resolve to fill this 600x400 box, not collapse to 0.
     let map = MapWidget::create(MapTileLayer::default()).dom();
     let map_area = Dom::create_div()
-        .with_css("width: 600px; height: 400px; position: relative; background: #cbd2d8; overflow: hidden;")
+        .with_css(
+            "width: 600px; height: 400px; position: relative; background: #cbd2d8; overflow: \
+             hidden;",
+        )
         .with_child(map);
     let body = Dom::create_div()
         .with_css("width: 800px; height: 600px;")
@@ -234,6 +242,7 @@ fn test_map_widget_fills_container() {
     // The map widget div + VirtualView must fill the 400px map area, not collapse to 0.
     assert!(
         max_inner_h > 350.0,
-        "map widget collapsed (max inner height {max_inner_h:.1}); expected it to fill the 400px container"
+        "map widget collapsed (max inner height {max_inner_h:.1}); expected it to fill the 400px \
+         container"
     );
 }

@@ -1,11 +1,10 @@
 //! Generic-HID plumbing: the channel a platform backend parks reports in.
 //!
-//! - The **platform backend** (`dll/src/desktop/extra/hid/<plat>.rs`) opens the
-//!   raw HID devices and calls [`push_hid_report`] / [`set_hid_devices`].
-//! - The dll **capability pump** drains both via [`drain_hid_reports`] and
-//!   [`take_hid_devices`] and folds them into `HidManager`.
-//! - **Callbacks** read them through `CallbackInfo::get_hid_reports()` /
-//!   `get_hid_devices()`.
+//! - The **platform backend** (`dll/src/desktop/extra/hid/<plat>.rs`) opens the raw HID devices and
+//!   calls [`push_hid_report`] / [`set_hid_devices`].
+//! - The dll **capability pump** drains both via [`drain_hid_reports`] and [`take_hid_devices`] and
+//!   folds them into `HidManager`.
+//! - **Callbacks** read them through `CallbackInfo::get_hid_reports()` / `get_hid_devices()`.
 //!
 //! `HidManager` itself lives in azul-core and is pure data; this is only the
 //! cross-thread channel, mirroring `sensors.rs` verbatim so the two behave the

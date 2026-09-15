@@ -313,10 +313,16 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub fn build(project_root: &Path, api: &ApiData) -> Option<Self> {
+    /// Fails when there are no generated bindings to check against. That used
+    /// to pass silently, and CI's check job never had `target/codegen`, so the
+    /// lint reported `[ok]` there without looking at a single example.
+    pub fn build(project_root: &Path, api: &ApiData) -> Result<Self, String> {
         let codegen = project_root.join("target").join("codegen");
         if !codegen.is_dir() {
-            return None; // nothing to check against; stay silent
+            return Err(format!(
+                "{} does not exist; run `azul-doc codegen all` first",
+                codegen.display()
+            ));
         }
         let mut exact = HashSet::new();
         for entry in walkdir::WalkDir::new(&codegen)
@@ -337,7 +343,10 @@ impl Surface {
             }
         }
         if exact.is_empty() {
-            return None;
+            return Err(format!(
+                "{} holds no generated bindings; run `azul-doc codegen all` first",
+                codegen.display()
+            ));
         }
         let loose = exact.iter().map(|s| norm(s)).collect();
 
@@ -352,7 +361,7 @@ impl Surface {
             }
         }
 
-        Some(Self {
+        Ok(Self {
             exact,
             loose,
             classes,
@@ -549,22 +558,23 @@ fn scannable(path: &Path) -> bool {
 /// The build drops generated bindings into the example trees
 /// (examples/c/azul.h, examples/lua/azul.lua). Those are outputs, not written
 /// examples. Git already knows which files a human wrote, so ask it.
-fn tracked_files(project_root: &Path) -> Option<HashSet<String>> {
+fn tracked_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let out = std::process::Command::new("git")
         .args(["ls-files", "-z"])
         .current_dir(project_root)
         .output()
-        .ok()?;
+        .map_err(|e| format!("could not run `git ls-files`: {e}"))?;
     if !out.status.success() {
-        return None;
+        return Err(format!(
+            "`git ls-files` failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .split('\0')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect(),
-    )
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// Run the lint over the example, e2e and guide trees.
@@ -572,13 +582,14 @@ fn tracked_files(project_root: &Path) -> Option<HashSet<String>> {
 /// `doc/guide/en/internals/**` is excluded: it documents Rust-internal APIs
 /// and deliberate placeholder names (`AzMyType_do_thing`), neither of which is
 /// an exported binding symbol.
-pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
-    let (Some(surface), Some(tracked)) = (
-        Surface::build(project_root, api),
-        tracked_files(project_root),
-    ) else {
-        return Vec::new();
-    };
+///
+/// # Errors
+///
+/// When the lint cannot run at all (no generated bindings, no git). That is a
+/// failure, not a pass: a lint that cannot look must not report `[ok]`.
+pub fn run(project_root: &Path, api: &ApiData) -> Result<Vec<Finding>, String> {
+    let surface = Surface::build(project_root, api)?;
+    let tracked = tracked_files(project_root)?;
 
     let mut findings = Vec::new();
     for root in ["examples", "tests/e2e", "doc/guide"] {
@@ -633,5 +644,5 @@ pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
     // One report per (file, token): a name called ten times is one mistake.
     let mut seen = BTreeSet::new();
     findings.retain(|f| seen.insert((f.file.clone(), f.token.clone())));
-    findings
+    Ok(findings)
 }

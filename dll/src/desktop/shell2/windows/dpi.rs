@@ -18,13 +18,10 @@ use winapi::{
         },
         winerror::S_OK,
     },
-    um::{
-        wingdi::{GetDeviceCaps, LOGPIXELSX},
-        winuser::{
-            GetDC, IsProcessDPIAware, MonitorFromWindow, ReleaseDC, MONITOR_DEFAULTTONEAREST,
-        },
-    },
+    um::{wingdi::LOGPIXELSX, winuser::MONITOR_DEFAULTTONEAREST},
 };
+
+use super::dlopen::Win32Libraries;
 
 #[repr(C)]
 pub enum ProcessDpiAwareness {
@@ -229,7 +226,10 @@ impl DpiFunctions {
             }
         } else if let Some(GetDpiForMonitor) = self.get_dpi_for_monitor.clone() {
             // We are on Windows 8.1 or later.
-            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let Some(win32) = Win32Libraries::shared() else {
+                return BASE_DPI;
+            };
+            let monitor = (win32.user32.MonitorFromWindow)(hwnd.cast(), MONITOR_DEFAULTTONEAREST);
             if monitor.is_null() {
                 return BASE_DPI;
             }
@@ -237,7 +237,7 @@ impl DpiFunctions {
             let mut dpi_x = 0;
             let mut dpi_y = 0;
             if GetDpiForMonitor(
-                monitor,
+                monitor.cast(),
                 MonitorDpiType::MDT_EFFECTIVE_DPI,
                 &mut dpi_x,
                 &mut dpi_y,
@@ -250,21 +250,24 @@ impl DpiFunctions {
         } else {
             // We are on Vista or later.
             // Only this fallback branch needs a device context.
-            let hdc = GetDC(hwnd);
+            let Some(win32) = Win32Libraries::shared() else {
+                return BASE_DPI;
+            };
+            let hdc = (win32.user32.GetDC)(hwnd.cast());
             if hdc.is_null() {
                 return BASE_DPI;
             }
-            let dpi = if IsProcessDPIAware() != 0 {
+            let dpi = if win32.user32.IsProcessDPIAware.is_some_and(|aware| aware() != 0) {
                 // If the process is DPI aware, then scaling must be handled by the application
                 // using this DPI value.
-                GetDeviceCaps(hdc, LOGPIXELSX) as u32
+                (win32.gdi32.GetDeviceCaps)(hdc, LOGPIXELSX) as u32
             } else {
                 // If the process is DPI unaware, then scaling is performed by the OS; we thus
                 // return 96 (scale factor 1.0) to prevent the window from being
                 // re-scaled by both the application and the WM.
                 BASE_DPI
             };
-            ReleaseDC(hwnd, hdc);
+            (win32.user32.ReleaseDC)(hwnd.cast(), hdc);
             dpi
         }
     }

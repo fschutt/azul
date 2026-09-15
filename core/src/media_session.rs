@@ -37,23 +37,18 @@ use azul_css::AzString;
 /// macOS's `MPNowPlayingPlaybackState` adds `unknown` and `interrupted` which
 /// no app can meaningfully assert about itself - `interrupted` is something the
 /// SYSTEM does to you (a phone call), not something you declare.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum MediaPlaybackState {
     /// Nothing is loaded, or playback finished. The desktop widget shows no
     /// track.
+    #[default]
     Stopped = 0,
     /// Advancing. A desktop extrapolates the position from here, which is why
     /// this must be honest even when the position is not being republished.
     Playing = 1,
     /// Loaded and holding position.
     Paused = 2,
-}
-
-impl Default for MediaPlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 /// What the app is playing, as the system media widget should show it.
@@ -138,7 +133,7 @@ impl Default for NowPlayingInfo {
 impl NowPlayingInfo {
     /// A stopped player with no track - what an app that has published nothing
     /// looks like.
-    #[must_use] 
+    #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
@@ -147,7 +142,7 @@ impl NowPlayingInfo {
     /// as opposed to one it will read for itself.
     ///
     /// Everything except the position. See [`MediaSessionManager::set`].
-    #[must_use] 
+    #[must_use]
     pub fn differs_in_announced_fields(&self, other: &Self) -> bool {
         self.state != other.state
             || self.title != other.title
@@ -169,7 +164,7 @@ impl NowPlayingInfo {
     ///
     /// The duration counts as identity because two tracks with the same title
     /// and artist but different lengths are a live version and a studio one.
-    #[must_use] 
+    #[must_use]
     pub fn is_different_track(&self, other: &Self) -> bool {
         self.title != other.title
             || self.artist != other.artist
@@ -183,13 +178,13 @@ impl NowPlayingInfo {
     /// Saturating and `i64`, because D-Bus types this signed: a nonsense
     /// duration from an app must clamp rather than wrap into a negative
     /// length, which some clients render as a progress bar running backwards.
-    #[must_use] 
+    #[must_use]
     pub fn duration_us(&self) -> i64 {
         Self::ms_to_us(self.duration_ms)
     }
 
     /// The playback position in MICROSECONDS. See [`Self::duration_us`].
-    #[must_use] 
+    #[must_use]
     pub fn position_us(&self) -> i64 {
         Self::ms_to_us(self.position_ms)
     }
@@ -351,7 +346,7 @@ pub struct MediaSessionManager {
 }
 
 impl MediaSessionManager {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -391,7 +386,7 @@ impl MediaSessionManager {
     /// This is what a property GETTER answers with, which is why it is
     /// unconditional: a desktop reading `Position` must get the current value
     /// even though no announcement was made for it.
-    #[must_use] 
+    #[must_use]
     pub const fn current(&self) -> &NowPlayingInfo {
         &self.info
     }
@@ -534,14 +529,21 @@ mod seek_tests {
             track_id: AzString::from_const_str("/org/mpris/MediaPlayer2/Track/1"),
             volume: 0.0,
         });
-        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        let events =
+            m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, crate::events::EventType::MediaControl);
         assert_eq!(m.current_request().map(|r| r.position_us), Some(30_000_000));
         m.clear_pending_requests();
         assert!(!m.has_pending_requests());
-        assert!(m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0))).is_empty());
-        assert_eq!(m.current_request().map(|r| r.position_us), Some(30_000_000), "still readable");
+        assert!(m
+            .get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)))
+            .is_empty());
+        assert_eq!(
+            m.current_request().map(|r| r.position_us),
+            Some(30_000_000),
+            "still readable"
+        );
     }
 
     #[test]
@@ -551,7 +553,10 @@ mod seek_tests {
         let mut i = NowPlayingInfo::empty();
         i.volume = azul_css::OptionF32::Some(0.5);
         m.set(i.clone());
-        assert!(m.take_if_dirty().is_some(), "a volume is an announced field (MPRIS Volume)");
+        assert!(
+            m.take_if_dirty().is_some(),
+            "a volume is an announced field (MPRIS Volume)"
+        );
         i.volume = azul_css::OptionF32::Some(0.25);
         m.set(i.clone());
         assert!(m.take_if_dirty().is_some(), "and so is a change to it");
@@ -564,7 +569,8 @@ mod seek_tests {
             track_id: AzString::from_const_str(""),
             volume: 0.75,
         });
-        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        let events =
+            m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
         assert_eq!(events.len(), 1);
         match &events[0].data {
             EventData::MediaControl(d) => {
@@ -583,18 +589,27 @@ mod seek_tests {
         let mut m = MediaSessionManager::new();
         m.set_system_audio_active(true);
         m.push_system_audio_change(SystemAudioChange::Interrupted);
-        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        let events =
+            m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, crate::events::EventType::SystemAudioChange);
+        assert_eq!(
+            events[0].event_type,
+            crate::events::EventType::SystemAudioChange
+        );
         assert!(matches!(
             events[0].data,
             EventData::SystemAudio(SystemAudioEventData {
                 change: SystemAudioChange::Interrupted
             })
         ));
-        assert!(m.is_system_audio_active(), "an interruption does not end the claim");
+        assert!(
+            m.is_system_audio_active(),
+            "an interruption does not end the claim"
+        );
         m.clear_pending_requests();
-        assert!(m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0))).is_empty());
+        assert!(m
+            .get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)))
+            .is_empty());
         assert_eq!(
             m.current_system_audio_change(),
             Some(SystemAudioChange::Interrupted),

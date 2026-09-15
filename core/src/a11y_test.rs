@@ -1,15 +1,16 @@
+use proptest::{prelude::*, proptest};
+
 #[allow(unused_imports)]
 pub use super::*;
-use proptest::prelude::*;
-use proptest::proptest;
 #[cfg(test)]
 mod assign_tests {
+    use alloc::vec::Vec;
+
+    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+    use proptest::{prelude::*, proptest};
+
     use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
-    use alloc::vec::Vec;
-    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
-    use proptest::prelude::*;
-    use proptest::proptest;
 
     /// Partial updates must leave unset fields intact.
     #[test]
@@ -75,13 +76,13 @@ mod assign_tests {
 
 #[cfg(test)]
 mod autotest_generated {
+    use alloc::{string::String, vec::Vec};
+
+    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+    use proptest::{prelude::*, proptest};
+
     use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
-    use alloc::string::String;
-    use alloc::vec::Vec;
-    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
-    use proptest::prelude::*;
-    use proptest::proptest;
 
     fn name_str(o: &OptionString) -> Option<&str> {
         o.as_ref().map(|s| s.as_str())

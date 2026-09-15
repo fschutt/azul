@@ -322,8 +322,8 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
             // The dlopen layer already logged the loader error; name the
             // consequence at the capability level.
             crate::plog_warn!(
-                "[camera] libv4l2 is not loadable — camera capture unavailable, the \
-                 widget will show its test pattern"
+                "[camera] libv4l2 is not loadable — camera capture unavailable, the widget will \
+                 show its test pattern"
             );
             return 0;
         }
@@ -338,9 +338,8 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
         if fd < 0 {
             let err = std::io::Error::last_os_error();
             crate::plog_warn!(
-                "[camera] open /dev/video{} failed: {} (device absent, busy, or the \
-                 user lacks `video`-group permission) — the widget will show its test \
-                 pattern",
+                "[camera] open /dev/video{} failed: {} (device absent, busy, or the user lacks \
+                 `video`-group permission) — the widget will show its test pattern",
                 index,
                 err
             );
@@ -352,8 +351,7 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
         // cause — these exits were previously fully silent.
         let fail = |fd: c_int, stage: &str| -> u64 {
             crate::plog_warn!(
-                "[camera] /dev/video{}: {} failed ({}) — the widget will show its \
-                 test pattern",
+                "[camera] /dev/video{}: {} failed ({}) — the widget will show its test pattern",
                 index,
                 stage,
                 std::io::Error::last_os_error()
@@ -416,7 +414,8 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
             };
             if (f.ioctl)(fd, vidioc_s_parm(), &mut parm as *mut _ as *mut c_void) < 0 {
                 crate::plog_info!(
-                    "[camera] /dev/video{}: VIDIOC_S_PARM ({} fps) not honoured — keeping the driver's rate",
+                    "[camera] /dev/video{}: VIDIOC_S_PARM ({} fps) not honoured — keeping the \
+                     driver's rate",
                     index,
                     fps
                 );

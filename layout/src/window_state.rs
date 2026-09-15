@@ -25,18 +25,14 @@ use crate::callbacks::OptionCallback;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowCreateOptions {
+    // Field order is by DECREASING alignment (8, 4, 1) so the struct carries no
+    // interior padding: `azul-doc autofix` flags any other order as an FFI
+    // layout issue. It is `#[repr(C)]`, so api.json lists the fields in this
+    // same order and every binding lays them out the same way.
     /// Initial state for the new window
     pub window_state: FullWindowState,
     /// Optional callback invoked after the window is created
     pub create_callback: OptionCallback,
-    /// Optional renderer configuration (e.g., `VSync`, SRGB)
-    pub renderer: azul_core::window::OptionRendererOptions,
-    /// Optional window theme override (light/dark)
-    pub theme: azul_core::window::OptionWindowTheme,
-    /// If true, the window is resized to fit its content after the first layout
-    pub size_to_content: bool,
-    /// If true, enables hot-reloading of CSS and resources
-    pub hot_reload: bool,
     /// Parent window's platform id (the window-registry key: X Window id on X11,
     /// `wl_surface` ptr on Wayland, HWND on Windows, `NSWindow` ptr on macOS), or 0
     /// for a top-level window with no parent. Child windows (menus, dropdowns,
@@ -44,6 +40,24 @@ pub struct WindowCreateOptions {
     /// and, on X11, reuse the parent's display connection for the single shared
     /// event pump. 0 = no parent.
     pub parent_window_id: u64,
+    /// Optional renderer configuration (e.g., `VSync`, SRGB)
+    pub renderer: azul_core::window::OptionRendererOptions,
+    /// The window's initial theme, when the app wants to choose it: `Some`
+    /// seeds `FullWindowState::theme` at creation (over the OS probe; under
+    /// an `AZ_THEME` pin), `None` follows the system. See
+    /// `CommonWindowState::initial_window_theme`. The OS theme watchers keep
+    /// following the system afterwards either way.
+    pub theme: azul_core::window::OptionWindowTheme,
+    /// Explicitly defined background color for light theme. If set, overrides the system light
+    /// window background.
+    pub background_color_light: OptionColorU,
+    /// Explicitly defined background color for dark theme. If set, overrides the system dark
+    /// window background.
+    pub background_color_dark: OptionColorU,
+    /// If true, the window is resized to fit its content after the first layout
+    pub size_to_content: bool,
+    /// If true, enables hot-reloading of CSS and resources
+    pub hot_reload: bool,
 }
 
 impl Default for WindowCreateOptions {
@@ -56,6 +70,8 @@ impl Default for WindowCreateOptions {
             size_to_content: false,
             hot_reload: false,
             parent_window_id: 0,
+            background_color_light: OptionColorU::None,
+            background_color_dark: OptionColorU::None,
         }
     }
 }
@@ -215,7 +231,12 @@ impl FullWindowState {
             return false;
         }
         let before = self.pointer_seats.len();
-        if !self.pointer_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+        if !self
+            .pointer_seats
+            .as_ref()
+            .iter()
+            .any(|s| s.seat_id == seat_id)
+        {
             return false;
         }
         let mut v = self.pointer_seats.clone().into_library_owned_vec();
@@ -281,7 +302,12 @@ impl FullWindowState {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             return false;
         }
-        if !self.keyboard_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+        if !self
+            .keyboard_seats
+            .as_ref()
+            .iter()
+            .any(|s| s.seat_id == seat_id)
+        {
             return false;
         }
         let mut v = self.keyboard_seats.clone().into_library_owned_vec();
@@ -291,10 +317,12 @@ impl FullWindowState {
     }
 
     /// Every keyboard, the primary's first.
-    pub fn keyboard_seats_with_primary(
-        &self,
-    ) -> impl Iterator<Item = (u64, &KeyboardState)> {
-        core::iter::once((azul_core::window::PRIMARY_POINTER_SEAT, &self.keyboard_state)).chain(
+    pub fn keyboard_seats_with_primary(&self) -> impl Iterator<Item = (u64, &KeyboardState)> {
+        core::iter::once((
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            &self.keyboard_state,
+        ))
+        .chain(
             self.keyboard_seats
                 .as_ref()
                 .iter()
@@ -381,9 +409,15 @@ mod autotest_generated {
         let mut s = FullWindowState::default();
         s.pointer_seat_mut(PRIMARY_POINTER_SEAT).left_down = true;
         assert!(s.mouse_state.left_down, "seat 0 IS mouse_state");
-        assert!(s.pointer_seats.is_empty(), "and is never duplicated into the vec");
+        assert!(
+            s.pointer_seats.is_empty(),
+            "and is never duplicated into the vec"
+        );
         assert!(!s.remove_pointer_seat(PRIMARY_POINTER_SEAT));
-        assert_eq!(s.pointer_seat(PRIMARY_POINTER_SEAT).map(|m| m.left_down), Some(true));
+        assert_eq!(
+            s.pointer_seat(PRIMARY_POINTER_SEAT).map(|m| m.left_down),
+            Some(true)
+        );
     }
 
     #[test]

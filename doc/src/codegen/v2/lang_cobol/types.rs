@@ -2,15 +2,13 @@
 //!
 //! Three top-level entry points:
 //!
-//! - [`generate_enum_constants`] emits one level-78 entry per variant of
-//!   every unit-only enum (`78 AZ-BUTTON-TYPE-PRIMARY VALUE 0.`).
-//! - [`generate_records`] emits one level-01 record per surviving struct
-//!   (POD) and one level-01 variant record per surviving tagged-union
-//!   enum (using REDEFINES to overlay the payloads).
-//! - [`generate_callback_typedefs`] emits a comment block describing each
-//!   callback function-pointer typedef plus a level-01 alias declared
-//!   `USAGE PROGRAM-POINTER`. Callers store function pointers in fields
-//!   of that USAGE.
+//! - [`generate_enum_constants`] emits one level-78 entry per variant of every unit-only enum (`78
+//!   AZ-BUTTON-TYPE-PRIMARY VALUE 0.`).
+//! - [`generate_records`] emits one level-01 record per surviving struct (POD) and one level-01
+//!   variant record per surviving tagged-union enum (using REDEFINES to overlay the payloads).
+//! - [`generate_callback_typedefs`] emits a comment block describing each callback function-pointer
+//!   typedef plus a level-01 alias declared `USAGE PROGRAM-POINTER`. Callers store function
+//!   pointers in fields of that USAGE.
 //!
 //! Categories Recursive / VecRef / DestructorOrClone / GenericTemplate
 //! are skipped with `* SKIPPED: <reason>` comments because COBOL has no
@@ -19,13 +17,16 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
-};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef,
+            FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef,
+            TypeCategory,
+        },
+    },
     cobol_identifier, emit_doc_comment, sanitize_cobol_identifier, sanitize_doc, to_cobol_case,
 };
 
@@ -492,12 +493,11 @@ pub fn pic_for_field(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -
 /// Map a Rust/IR type name to a COBOL PICTURE/USAGE clause.
 ///
 /// - Pointer-shaped Rust types resolve to `USAGE POINTER`.
-/// - Fixed-width integers map to the matching `BINARY-CHAR` /
-///   `BINARY-SHORT` / `BINARY-LONG` / `BINARY-DOUBLE` (these are
-///   COMP-5 / native-binary aliases in GnuCOBOL).
+/// - Fixed-width integers map to the matching `BINARY-CHAR` / `BINARY-SHORT` / `BINARY-LONG` /
+///   `BINARY-DOUBLE` (these are COMP-5 / native-binary aliases in GnuCOBOL).
 /// - Floats map to COMP-1 (single) and COMP-2 (double).
-/// - Other named types are assumed to be IR types and resolve to
-///   `USAGE TYAZ-<NAME>` so the field inlines the matching record.
+/// - Other named types are assumed to be IR types and resolve to `USAGE TYAZ-<NAME>` so the field
+///   inlines the matching record.
 pub fn pic_for_type(rust_type: &str, ir: &CodegenIR) -> String {
     let trimmed = rust_type.trim();
 

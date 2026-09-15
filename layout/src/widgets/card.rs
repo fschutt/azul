@@ -10,8 +10,8 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
-use azul_css::css::BoxOrStatic;
 use azul_css::{
+    css::BoxOrStatic,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
     props::{
@@ -851,7 +851,8 @@ mod autotest_generated {
                 .unwrap_or_else(|| panic!("flex-grow disappeared for input {v}"));
             assert!(
                 got.is_finite(),
-                "input {v} produced a non-finite flex-grow ({got}) — the layout solver would NaN out",
+                "input {v} produced a non-finite flex-grow ({got}) — the layout solver would NaN \
+                 out",
             );
         }
     }
@@ -1037,7 +1038,8 @@ mod autotest_generated {
         assert_eq!(
             dom.estimated_total_children,
             count_descendants(&dom),
-            "the cached child count is inconsistent — compact-DOM conversion would over/under-allocate",
+            "the cached child count is inconsistent — compact-DOM conversion would \
+             over/under-allocate",
         );
     }
 

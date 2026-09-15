@@ -1,25 +1,17 @@
-// Chart with SVG Clip Masks - C
-// Demonstrates using R8 image masks to clip DOM elements into chart shapes.
-// cc -o chart chart.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
-// DYLD_LIBRARY_PATH=../../target/release ./chart
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-// Helper to create AzString from C string
 static AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-// Minimal app state (required by AZ_REFLECT)
 typedef struct { uint8_t _unused; } ChartState;
 void ChartState_destructor(void* s) { (void)s; }
 AZ_REFLECT(ChartState, ChartState_destructor);
 
-// Bar chart data
 #define NUM_BARS 6
 static const float bar_values[NUM_BARS] = { 0.7f, 0.45f, 0.9f, 0.3f, 0.6f, 0.85f };
 static const char* bar_labels[NUM_BARS] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun" };
@@ -32,28 +24,22 @@ static const char* bar_colors[NUM_BARS] = {
     "background: linear-gradient(to top, #1dd1a1, #10ac84);",
 };
 
-// Create an R8 mask image with a rounded rectangle for a single bar.
-// The mask is white (255) where the bar is, black (0) elsewhere.
 static AzImageRef create_bar_mask(float bar_height_pct, int width, int height) {
     int pixel_count = width * height;
-    uint8_t* pixels = (uint8_t*)calloc(pixel_count, 1); // All black (clipped)
+    uint8_t* pixels = (uint8_t*)calloc(pixel_count, 1);
 
-    // Bar occupies the bottom bar_height_pct of the mask
     int bar_top = (int)((1.0f - bar_height_pct) * height);
-    int radius = 8; // rounded top corners
+    int radius = 8;
 
     for (int y = bar_top; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            // Check if inside rounded rect (only top corners are rounded)
             int inside = 1;
             if (y < bar_top + radius) {
-                // Top-left corner
                 if (x < radius) {
                     int dx = radius - x;
                     int dy = radius - (y - bar_top);
                     if (dx * dx + dy * dy > radius * radius) inside = 0;
                 }
-                // Top-right corner
                 if (x >= width - radius) {
                     int dx = x - (width - radius - 1);
                     int dy = radius - (y - bar_top);
@@ -61,7 +47,7 @@ static AzImageRef create_bar_mask(float bar_height_pct, int width, int height) {
                 }
             }
             if (inside) {
-                pixels[y * width + x] = 255; // White = visible
+                pixels[y * width + x] = 255;
             }
         }
     }
@@ -78,25 +64,23 @@ static AzImageRef create_bar_mask(float bar_height_pct, int width, int height) {
         .tag = AzU8Vec_create(),
     };
 
-    AzOptionImageRef opt = AzImageRef_newRawimage(raw);
+    AzOptionImageRef opt = AzImageRef_createRawimage(raw);
     if (opt.Some.tag == AzOptionImageRef_Tag_Some) {
         return opt.Some.payload;
     }
 
-    // Fallback: null image
     static uint8_t dummy = 0;
     AzU8VecRef empty = { .ptr = &dummy, .len = 0 };
     return AzImageRef_nullImage(width, height, AzRawImageFormat_R8, empty);
 }
 
-// Create a pie chart mask (circle with a wedge for a given percentage)
 static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
     int pixel_count = size * size;
     uint8_t* pixels = (uint8_t*)calloc(pixel_count, 1);
 
     float cx = size / 2.0f;
     float cy = size / 2.0f;
-    float r = (size / 2.0f) - 2.0f; // slight inset
+    float r = (size / 2.0f) - 2.0f;
 
     float start_angle = start_pct * 2.0f * 3.14159265f - 3.14159265f / 2.0f;
     float end_angle = end_pct * 2.0f * 3.14159265f - 3.14159265f / 2.0f;
@@ -109,7 +93,6 @@ static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
             if (dist > r) continue;
 
             float angle = atan2f(dy, dx);
-            // Normalize angle check
             int in_wedge = 0;
             if (start_angle <= end_angle) {
                 in_wedge = (angle >= start_angle && angle <= end_angle);
@@ -135,7 +118,7 @@ static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
         .tag = AzU8Vec_create(),
     };
 
-    AzOptionImageRef opt = AzImageRef_newRawimage(raw);
+    AzOptionImageRef opt = AzImageRef_createRawimage(raw);
     if (opt.Some.tag == AzOptionImageRef_Tag_Some) {
         return opt.Some.payload;
     }
@@ -145,7 +128,6 @@ static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
     return AzImageRef_nullImage(size, size, AzRawImageFormat_R8, empty);
 }
 
-// Layout callback
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
     AzDom_setCss(&body, az_str(
@@ -156,7 +138,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "font-family: sans-serif;"
     ));
 
-    // === Title ===
     AzDom title = AzDom_createPWithText(az_str("Chart Demo - SVG Clip Masks"));
     AzDom_setCss(&title, az_str(
         "font-size: 24px;"
@@ -166,7 +147,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&body, title);
 
-    // === BAR CHART SECTION ===
     AzDom bar_section = AzDom_createDiv();
     AzDom_setCss(&bar_section, az_str(
         "flex-direction: column;"
@@ -183,7 +163,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&bar_section, bar_title);
 
-    // Bar container
     AzDom bar_container = AzDom_createDiv();
     AzDom_setCss(&bar_container, az_str(
         "flex-direction: row;"
@@ -197,10 +176,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int mask_h = 250;
 
     for (int i = 0; i < NUM_BARS; i++) {
-        // Each bar is a div with:
-        // 1. A gradient background (the "fill")
-        // 2. An R8 clip mask shaped as a rounded bar
-
         AzDom bar_col = AzDom_createDiv();
         AzDom_setCss(&bar_col, az_str(
             "flex-direction: column;"
@@ -208,10 +183,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             "flex-grow: 1;"
         ));
 
-        // The clipped gradient div
         AzDom bar = AzDom_createDiv();
 
-        // Build inline style with gradient
         char style_buf[512];
         snprintf(style_buf, sizeof(style_buf),
             "width: %dpx;"
@@ -221,7 +194,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         );
         AzDom_setCss(&bar, az_str(style_buf));
 
-        // Create the clip mask for this bar
         AzImageRef mask = create_bar_mask(bar_values[i], mask_w, mask_h);
         AzImageMask image_mask = {
             .image = mask,
@@ -234,7 +206,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         bar = AzDom_withClipMask(bar, image_mask);
         AzDom_addChild(&bar_col, bar);
 
-        // Label below bar
         AzDom label = AzDom_createPWithText(az_str(bar_labels[i]));
         AzDom_setCss(&label, az_str(
             "color: #aaa;"
@@ -243,7 +214,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ));
         AzDom_addChild(&bar_col, label);
 
-        // Value label
         char val_buf[32];
         snprintf(val_buf, sizeof(val_buf), "%d%%", (int)(bar_values[i] * 100));
         AzDom val_label = AzDom_createPWithText(az_str(val_buf));
@@ -260,7 +230,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&bar_section, bar_container);
     AzDom_addChild(&body, bar_section);
 
-    // === PIE CHART SECTION ===
     AzDom pie_section = AzDom_createDiv();
     AzDom_setCss(&pie_section, az_str(
         "flex-direction: column;"
@@ -278,7 +247,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     AzDom_addChild(&pie_section, pie_title);
 
-    // Pie chart container (overlapping divs)
     AzDom pie_container = AzDom_createDiv();
     AzDom_setCss(&pie_container, az_str(
         "width: 200px;"

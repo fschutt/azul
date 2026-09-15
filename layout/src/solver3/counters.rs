@@ -59,7 +59,8 @@ fn decimal_fallback(value: i32, formatted: String) -> String {
 ///
 /// Avoids the lossy `value as u32` cast: a negative counter such as `-3` in
 /// `lower-roman` formats as `-iii` instead of wrapping to a huge unsigned value.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                   // counter/fixed-point cast
 fn with_sign<F: Fn(usize) -> String>(value: i32, format: F) -> String {
     if value < 0 {
         let magnitude = i64::from(value).unsigned_abs() as usize;

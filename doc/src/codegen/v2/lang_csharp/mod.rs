@@ -8,8 +8,8 @@
 //! 3. Plain C-style enums (`enum : uint`) for unit-only enums
 //! 4. Cdecl callback delegates for every callback typedef
 //! 5. P/Invoke `[DllImport]` extern declarations in a private `NativeMethods`
-//! 6. `IDisposable` wrapper classes around opaque/disposable types with
-//!    idiomatic, namespaced static method names (no `Az` prefix)
+//! 6. `IDisposable` wrapper classes around opaque/disposable types with idiomatic, namespaced
+//!    static method names (no `Az` prefix)
 //! 7. A discriminator class hierarchy for tagged-union enums
 //!
 //! The output is a single `String` for the user to write to disk; this
@@ -29,9 +29,7 @@ pub mod wrappers;
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 /// DLL name used in `[DllImport]`. Matches the prebuilt artifact's name
 /// without extension; .NET resolves `azul` to `azul.dll` / `libazul.so`
@@ -76,8 +74,8 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 5. Tagged-union public class hierarchy (sealed subclasses + Match())
     wrappers::generate_union_hierarchies(&mut builder, ir, config)?;
 
-    // 6. Public `HostInvoker` class — RegisterCallback per kind +
-    //    RefanyCreate / RefanyGet for user data.
+    // 6. Public `HostInvoker` class — RegisterCallback per kind + RefanyCreate / RefanyGet for user
+    //    data.
     managed::emit_host_invoker_class(&mut builder, ir);
 
     // Close namespace

@@ -4,17 +4,17 @@
 //! (concrete color or runtime system-theme reference). The parser supports hex,
 //! `rgb()`/`rgba()`, `hsl()`/`hsla()`, CSS named colors, and `system:*` syntax.
 
-use crate::corety::AzString;
-use crate::props::basic::error::{ParseFloatError, ParseIntError};
 use alloc::string::{String, ToString};
 use core::fmt;
 
 use crate::{
+    corety::AzString,
     impl_option,
     props::basic::{
         direction::{
             parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
         },
+        error::{ParseFloatError, ParseIntError},
         length::{PercentageParseError, PercentageValue},
     },
 };
@@ -1973,7 +1973,8 @@ fn parse_alpha_component<'a>(
 }
 
 #[cfg(feature = "parser")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch
+                                 // table (one branch per property/variant)
 fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let (r, g, b, a) = match input.to_lowercase().as_str() {
         "aliceblue" => (240, 248, 255, 255),
@@ -2195,7 +2196,8 @@ mod tests {
         assert!(parse_css_color("rgb(255, 0)").is_err()); // Missing component
         assert!(parse_css_color("rgba(255, 0, 0, 2)").is_err()); // Alpha out of range
         assert!(parse_css_color("rgb(256, 0, 0)").is_err()); // Value out of range
-                                                             // Modern CSS allows both hsl(0, 100%, 50%) and hsl(0 100 50)
+                                                             // Modern CSS allows both hsl(0, 100%,
+                                                             // 50%) and hsl(0 100 50)
         assert!(parse_css_color("hsl(0, 100, 50%)").is_ok()); // Valid in modern CSS
         assert!(parse_css_color("rgb(255 0 0)").is_err()); // Missing commas (this implementation
                                                            // requires commas)
@@ -3702,7 +3704,9 @@ mod autotest_generated {
         assert!(parse_css_color("rgba(0,0,0,1,1)").is_err()); // extra arg to rgba()
         assert!(parse_css_color("hsl(0,100%)").is_err()); // missing lightness
         assert!(parse_css_color("hsla(0,100%,50%)").is_err()); // missing alpha
-                                                               // This implementation requires commas; space-separated CSS4 syntax is not supported.
+                                                               // This implementation requires
+                                                               // commas; space-separated CSS4
+                                                               // syntax is not supported.
         assert!(parse_css_color("rgb(255 0 0)").is_err());
     }
 

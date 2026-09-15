@@ -24,17 +24,15 @@ mod cpp14;
 mod cpp17;
 mod cpp20;
 
-pub use common::generate_module_partition;
-pub use common::*;
+use anyhow::Result;
+pub use common::{generate_module_partition, *};
 pub use cpp03::Cpp03Generator;
 pub use cpp11::Cpp11Generator;
 pub use cpp14::Cpp14Generator;
 pub use cpp17::Cpp17Generator;
 pub use cpp20::{Cpp20Generator, Cpp23Generator};
 
-use super::config::*;
-use super::ir::*;
-use anyhow::Result;
+use super::{config::*, ir::*};
 
 // ============================================================================
 // Trait Definitions

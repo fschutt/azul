@@ -14,8 +14,6 @@ function Convert-AzulString {
         [System.Runtime.InteropServices.GCHandleType]::Pinned)
     try {
         $ptr = $handle.AddrOfPinnedObject()
-        # AzString_fromUtf8 copies internally, so the pinned bytes can
-        # be released immediately after the call returns.
         return [Azul.String]::FromUtf8($ptr, [System.UIntPtr]$bytes.Length)
     } finally {
         $handle.Free()
@@ -27,9 +25,9 @@ $onClick = {
     $m = [Azul.HostInvoker]::RefanyGet($dataPtr)
     if ($m -is [PSCustomObject]) {
         $m.Counter = $m.Counter + 1
-        return 1   # AzUpdate.RefreshDom
+        return 1
     }
-    return 0       # AzUpdate.DoNothing
+    return 0
 }.GetNewClosure()
 
 $layout = {
@@ -53,10 +51,6 @@ $layout = {
     return $body.Raw
 }.GetNewClosure()
 
-# `WindowCreateOptions::Create(layout_callback)` discards host-invoker
-# ctx (takes a raw AzLayoutCallbackType fn pointer). Use the default
-# value then assign the layout_callback via reflection on Raw.
-
 Write-Host "[ps] converting layout to delegate"
 $layoutDelegate = $layout -as [System.Func[IntPtr, IntPtr, object]]
 if (-not $layoutDelegate) { Write-Error "layout delegate conversion failed"; exit 1 }
@@ -70,8 +64,6 @@ Write-Host "[ps] WCO created: type=$($wco.GetType().FullName)"
 $wcoRaw = $wco.Raw
 Write-Host "[ps] wcoRaw type=$($wcoRaw.GetType().FullName)"
 
-# Boxed structs need mutation through a temp copy then write-back:
-# PowerShell unboxes on field access.
 $ws = $wcoRaw.window_state
 Write-Host "[ps] ws type=$($ws.GetType().FullName)"
 $ws.layout_callback = $layoutCb

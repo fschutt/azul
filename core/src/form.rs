@@ -162,7 +162,11 @@ mod tests {
         let mut seen = 0u32;
         for r in all {
             assert_ne!(r.bit(), 0, "{r:?} has no bit");
-            assert_eq!(seen & r.bit(), 0, "{r:?} shares a bit with an earlier reason");
+            assert_eq!(
+                seen & r.bit(),
+                0,
+                "{r:?} shares a bit with an earlier reason"
+            );
             seen |= r.bit();
         }
         // Pinned so that APPENDING a reason is the only edit that passes:

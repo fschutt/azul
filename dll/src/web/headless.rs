@@ -9,10 +9,9 @@
 
 use std::sync::Arc;
 
-use azul_core::callbacks::LayoutCallback;
-use azul_core::refany::RefAny;
-use azul_core::resources::AppConfig;
-use azul_core::styled_dom::StyledDom;
+use azul_core::{
+    callbacks::LayoutCallback, refany::RefAny, resources::AppConfig, styled_dom::StyledDom,
+};
 use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 
@@ -112,10 +111,9 @@ impl HeadlessApp {
         let sym = super::resolve_fn_ptr(self.layout_callback.cb as usize);
         if sym.name.starts_with("cb_") {
             eprintln!(
-                "[azul-web] WARN: layout callback fn-ptr 0x{:016x} resolves to \
-                 fallback `{}` (not a real symbol). The wasm client will still \
-                 fetch /az/layout/{}.<hash>.wasm but the name is opaque — \
-                 consider linking with `-rdynamic` or making the layout fn \
+                "[azul-web] WARN: layout callback fn-ptr 0x{:016x} resolves to fallback `{}` (not \
+                 a real symbol). The wasm client will still fetch /az/layout/{}.<hash>.wasm but \
+                 the name is opaque — consider linking with `-rdynamic` or making the layout fn \
                  `pub extern \"C\"` so dladdr can recover its name.",
                 self.layout_callback.cb as usize, sym.name, sym.name,
             );

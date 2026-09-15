@@ -9,8 +9,10 @@
     feature = "font_loading"
 ))]
 mod tests {
-    use azul_core::dom::{Dom, IdOrClass};
-    use azul_core::path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path};
+    use azul_core::{
+        dom::{Dom, IdOrClass},
+        path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path},
+    };
     use azul_css::css::Css;
     use azul_layout::cpurender::render_dom_to_image;
 

@@ -12,17 +12,17 @@ use std::{
 };
 
 /// CVDisplayLink opaque pointer
-pub type CVDisplayLinkRef = *mut c_void;
+pub(super) type CVDisplayLinkRef = *mut c_void;
 
 /// CVReturn type (result code)
-pub type CVReturn = i32;
+pub(super) type CVReturn = i32;
 
 /// Success return code
-pub const K_CV_RETURN_SUCCESS: CVReturn = 0;
+pub(super) const K_CV_RETURN_SUCCESS: CVReturn = 0;
 
 /// CVTimeStamp structure (simplified - we only need the minimal fields)
 #[repr(C)]
-pub struct CVTimeStamp {
+pub(super) struct CVTimeStamp {
     pub version: u32,
     pub video_time_scale: i32,
     pub video_time: i64,
@@ -35,7 +35,7 @@ pub struct CVTimeStamp {
 }
 
 #[repr(C)]
-pub struct CVSMPTETime {
+pub(super) struct CVSMPTETime {
     pub subframes: i16,
     pub subframe_divisor: i16,
     pub counter: u32,
@@ -48,7 +48,7 @@ pub struct CVSMPTETime {
 }
 
 /// Display link output callback
-pub type CVDisplayLinkOutputCallback = extern "C" fn(
+pub(super) type CVDisplayLinkOutputCallback = extern "C" fn(
     display_link: CVDisplayLinkRef,
     in_now: *const CVTimeStamp,
     in_output_time: *const CVTimeStamp,
@@ -58,7 +58,7 @@ pub type CVDisplayLinkOutputCallback = extern "C" fn(
 ) -> CVReturn;
 
 /// CoreVideo function pointers loaded via dlopen
-pub struct CoreVideoFunctions {
+pub(super) struct CoreVideoFunctions {
     // CVDisplayLink functions
     // Note: CVDisplayLinkCreateWithCGDisplays takes an array of display IDs and count
     cv_display_link_create_with_cg_displays: unsafe extern "C" fn(
@@ -85,11 +85,11 @@ impl CoreVideoFunctions {
     /// Load CoreVideo functions via dlopen
     ///
     /// Returns None if CoreVideo framework is not available (older macOS versions)
-    pub fn load() -> Result<Arc<Self>, String> {
+    pub(super) fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Try to load CoreVideo framework
             let lib = crate::desktop::open_first_lib(&[
-                "/System/Library/Frameworks/CoreVideo.framework/CoreVideo",
+                "/System/Library/Frameworks/CoreVideo.framework/CoreVideo"
             ])
             .ok_or_else(|| "Failed to load CoreVideo framework".to_string())?;
 
@@ -131,7 +131,7 @@ impl CoreVideoFunctions {
     }
 
     /// Create a CVDisplayLink for a specific display
-    pub fn create_display_link(&self, display_id: u32) -> Result<CVDisplayLinkRef, CVReturn> {
+    pub(super) fn create_display_link(&self, display_id: u32) -> Result<CVDisplayLinkRef, CVReturn> {
         unsafe {
             let mut display_link: CVDisplayLinkRef = std::ptr::null_mut();
             let display_array = [display_id];
@@ -154,7 +154,7 @@ impl CoreVideoFunctions {
     }
 
     /// Set output callback for CVDisplayLink
-    pub fn set_output_callback(
+    pub(super) fn set_output_callback(
         &self,
         display_link: CVDisplayLinkRef,
         callback: CVDisplayLinkOutputCallback,
@@ -164,35 +164,35 @@ impl CoreVideoFunctions {
     }
 
     /// Start the CVDisplayLink
-    pub fn start(&self, display_link: CVDisplayLinkRef) -> CVReturn {
+    pub(super) fn start(&self, display_link: CVDisplayLinkRef) -> CVReturn {
         unsafe { (self.cv_display_link_start)(display_link) }
     }
 
     /// Stop the CVDisplayLink
-    pub fn stop(&self, display_link: CVDisplayLinkRef) -> CVReturn {
+    pub(super) fn stop(&self, display_link: CVDisplayLinkRef) -> CVReturn {
         unsafe { (self.cv_display_link_stop)(display_link) }
     }
 
     /// Release the CVDisplayLink
-    pub fn release(&self, display_link: CVDisplayLinkRef) {
+    pub(super) fn release(&self, display_link: CVDisplayLinkRef) {
         unsafe { (self.cv_display_link_release)(display_link) }
     }
 
     /// Check if the CVDisplayLink is running
-    pub fn is_running(&self, display_link: CVDisplayLinkRef) -> bool {
+    pub(super) fn is_running(&self, display_link: CVDisplayLinkRef) -> bool {
         unsafe { (self.cv_display_link_is_running)(display_link) != 0 }
     }
 }
 
 /// RAII wrapper for CVDisplayLink
-pub struct DisplayLink {
+pub(super) struct DisplayLink {
     display_link: CVDisplayLinkRef,
     cv_functions: Arc<CoreVideoFunctions>,
 }
 
 impl DisplayLink {
     /// Create a new DisplayLink for a specific display
-    pub fn new(display_id: u32, cv_functions: Arc<CoreVideoFunctions>) -> Result<Self, CVReturn> {
+    pub(super) fn new(display_id: u32, cv_functions: Arc<CoreVideoFunctions>) -> Result<Self, CVReturn> {
         let display_link = cv_functions.create_display_link(display_id)?;
         Ok(Self {
             display_link,
@@ -201,7 +201,7 @@ impl DisplayLink {
     }
 
     /// Set the output callback
-    pub fn set_output_callback(
+    pub(super) fn set_output_callback(
         &self,
         callback: CVDisplayLinkOutputCallback,
         user_info: *mut c_void,
@@ -211,17 +211,17 @@ impl DisplayLink {
     }
 
     /// Start the display link
-    pub fn start(&self) -> CVReturn {
+    pub(super) fn start(&self) -> CVReturn {
         self.cv_functions.start(self.display_link)
     }
 
     /// Stop the display link
-    pub fn stop(&self) -> CVReturn {
+    pub(super) fn stop(&self) -> CVReturn {
         self.cv_functions.stop(self.display_link)
     }
 
     /// Check if the display link is running
-    pub fn is_running(&self) -> bool {
+    pub(super) fn is_running(&self) -> bool {
         self.cv_functions.is_running(self.display_link)
     }
 }

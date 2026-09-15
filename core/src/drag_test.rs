@@ -91,12 +91,13 @@ mod audit_tests {
 
 #[cfg(test)]
 mod autotest_generated {
-    use alloc::collections::BTreeMap;
-    use alloc::string::{String, ToString};
+    use alloc::{
+        collections::BTreeMap,
+        string::{String, ToString},
+    };
 
     use super::*;
-    use crate::geom::PhysicalPosition;
-    use crate::styled_dom::NodeHierarchyItemId;
+    use crate::{geom::PhysicalPosition, styled_dom::NodeHierarchyItemId};
 
     // ---------------------------------------------------------------- helpers
 

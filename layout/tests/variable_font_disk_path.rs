@@ -45,9 +45,9 @@ fn variable_font_path() -> Option<std::path::PathBuf> {
 fn missing_font(what: &str) {
     assert!(
         std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_none(),
-        "AZ_REQUIRE_TEST_FONTS=1 but {what}. This job is supposed to have the \
-         fonts installed (apt: fonts-ubuntu); either install them or unset \
-         AZ_REQUIRE_TEST_FONTS. Silently skipping is NOT a pass."
+        "AZ_REQUIRE_TEST_FONTS=1 but {what}. This job is supposed to have the fonts installed \
+         (apt: fonts-ubuntu); either install them or unset AZ_REQUIRE_TEST_FONTS. Silently \
+         skipping is NOT a pass."
     );
     eprintln!("SKIP: {what} (set AZ_REQUIRE_TEST_FONTS=1 to make this a failure)");
 }

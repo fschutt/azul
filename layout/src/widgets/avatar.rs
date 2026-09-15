@@ -18,8 +18,10 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     resources::{ImageRef, OptionImageRef},
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -36,11 +38,13 @@ use azul_css::{
     AzString,
 };
 
-static AVATAR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-avatar"))];
-static AVATAR_IMAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+use crate::widgets::themes::{OptionUiTheme, UiTheme};
+
+pub static AVATAR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-avatar"))];
+pub static AVATAR_IMAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-avatar-image",
 ))];
-static AVATAR_INITIALS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub static AVATAR_INITIALS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-avatar-initials",
 ))];
 
@@ -79,7 +83,9 @@ pub enum AvatarSize {
 
 impl AvatarSize {
     /// Diameter of the circle in logical pixels.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn diameter(&self) -> isize {
         match self {
             Self::Small => 24,
@@ -89,13 +95,17 @@ impl AvatarSize {
     }
 
     /// Corner radius for a full circle = diameter / 2.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn radius(&self) -> isize {
         self.diameter() / 2
     }
 
     /// Initials font size in logical pixels.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                                 // pixel/coord path or to avoid churning call sites
+                                                 // for a perf-neutral change)
     const fn font_size(&self) -> isize {
         match self {
             Self::Small => 11,
@@ -116,13 +126,15 @@ pub struct Avatar {
     /// The size variant.
     pub size: AvatarSize,
     /// The computed inline style for the circular container.
-    pub avatar_style: CssPropertyWithConditionsVec,
+    pub theme: OptionUiTheme,
+    pub avatar_style: OptionCssPropertyWithConditionsVec,
 }
 
 /// Builds the circular container style for a given size. Diameter, corner radius
 /// and font size are size-dependent, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
+#[must_use]
+pub fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -170,7 +182,8 @@ fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 
 /// Builds the inner image style: fills the circle and is itself rounded so the
 /// image reads as a circle even if `overflow: hidden` clipping is unavailable.
-fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
+#[must_use]
+pub fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -195,6 +208,18 @@ fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 }
 
 impl Avatar {
+    /// The avatar CSS this widget renders with.
+    ///
+    /// `None` means no opinion, so the size's default applies — the same
+    /// answer both themes give, asked in one place so they cannot drift.
+    #[must_use]
+    pub fn resolved_avatar_style(&self) -> CssPropertyWithConditionsVec {
+        self.avatar_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| build_avatar_style(self.size))
+    }
+
     /// Creates a medium initials avatar with the given text.
     #[inline]
     #[must_use]
@@ -203,7 +228,8 @@ impl Avatar {
             image: None.into(),
             initials,
             size: AvatarSize::Medium,
-            avatar_style: build_avatar_style(AvatarSize::Medium),
+            theme: OptionUiTheme::None,
+            avatar_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -215,7 +241,8 @@ impl Avatar {
             image: Some(image).into(),
             initials: AzString::from_const_str(""),
             size: AvatarSize::Medium,
-            avatar_style: build_avatar_style(AvatarSize::Medium),
+            theme: OptionUiTheme::None,
+            avatar_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -233,17 +260,27 @@ impl Avatar {
         self
     }
 
-    /// Sets the size variant, recomputing the style.
+    /// Sets the theme this avatar renders with.
     #[inline]
-    pub fn set_size(&mut self, size: AvatarSize) {
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    #[inline]
+    pub const fn set_size(&mut self, size: AvatarSize) {
         self.size = size;
-        self.avatar_style = build_avatar_style(size);
     }
 
     /// Builder-style setter for the size variant.
     #[inline]
     #[must_use]
-    pub fn with_size(mut self, size: AvatarSize) -> Self {
+    pub const fn with_size(mut self, size: AvatarSize) -> Self {
         self.set_size(size);
         self
     }
@@ -261,22 +298,14 @@ impl Avatar {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        let size = self.size;
-        let child = match self.image.into_option() {
-            Some(image) => Dom::create_image(image)
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_IMAGE_CLASS))
-                .with_css_props(build_image_style(size)),
-            // The initials are a `<p>` for the same reason the image branch is a
-            // replaced node: a raw text child would be a rect-less anonymous box,
-            // so the initials class could never be styled by the author.
-            None => crate::widgets::widget_p_with_text(self.initials)
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_INITIALS_CLASS)),
+        let theme = match self.theme {
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => UiTheme::Flat,
         };
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_CLASS))
-            .with_css_props(self.avatar_style)
-            .with_children(alloc::vec![child].into())
+        match theme {
+            UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
+            UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
+        }
     }
 }
 
@@ -300,6 +329,7 @@ mod autotest_generated {
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
 
     use super::*;
+    use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
     // ------------------------------------------------------------------
     // Helpers
@@ -467,7 +497,8 @@ mod autotest_generated {
             assert_eq!(
                 d % 2,
                 0,
-                "{size:?}: diameter {d} is odd, so radius() truncates and the avatar is not a circle"
+                "{size:?}: diameter {d} is odd, so radius() truncates and the avatar is not a \
+                 circle"
             );
             assert_eq!(size.radius() * 2, d, "{size:?}: radius must be exactly d/2");
         }
@@ -791,7 +822,7 @@ mod autotest_generated {
             assert!(a.image.is_none(), "create() must not set an image");
             assert_eq!(a.size, AvatarSize::Medium);
             assert_eq!(
-                properties(&a.avatar_style),
+                properties(&a.resolved_avatar_style()),
                 properties(&build_avatar_style(AvatarSize::Medium))
             );
         }
@@ -852,7 +883,10 @@ mod autotest_generated {
                 "AB",
                 "set_image must keep the fallback initials"
             );
-            assert_eq!(properties(&a.avatar_style), properties(&base.avatar_style));
+            assert_eq!(
+                properties(&a.resolved_avatar_style()),
+                properties(&base.resolved_avatar_style())
+            );
         }
     }
 
@@ -887,12 +921,12 @@ mod autotest_generated {
 
             assert_eq!(a.size, size, "round {round}: size field not updated");
             assert_eq!(
-                a.avatar_style.as_ref().len(),
+                a.resolved_avatar_style().as_slice().len(),
                 expected_len,
                 "round {round}: style vec changed length — stale declarations?"
             );
             assert_eq!(
-                properties(&a.avatar_style),
+                properties(&a.resolved_avatar_style()),
                 properties(&build_avatar_style(size)),
                 "round {round}: style does not match the freshly built one"
             );
@@ -909,7 +943,7 @@ mod autotest_generated {
         let mut a = Avatar::create_with_image(test_image());
         a.set_size(AvatarSize::Small);
         assert!(a.image.is_some(), "set_size must not drop the image");
-        assert_eq!(width_px(&a.avatar_style), Some(24.0));
+        assert_eq!(width_px(&a.resolved_avatar_style()), Some(24.0));
     }
 
     #[test]
@@ -927,7 +961,7 @@ mod autotest_generated {
         assert_eq!(chained, mutated, "builder and mutator must agree");
         assert_eq!(chained.size, AvatarSize::Medium);
         assert_eq!(
-            properties(&chained.avatar_style),
+            properties(&chained.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Medium))
         );
     }
@@ -949,7 +983,7 @@ mod autotest_generated {
         assert_eq!(taken.size, AvatarSize::Large);
         assert!(taken.image.is_some());
         assert_eq!(
-            properties(&taken.avatar_style),
+            properties(&taken.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Large))
         );
 
@@ -963,7 +997,7 @@ mod autotest_generated {
         assert_eq!(a.initials.as_str(), "");
         assert_eq!(a.size, AvatarSize::Medium);
         assert_eq!(
-            properties(&a.avatar_style),
+            properties(&a.resolved_avatar_style()),
             properties(&build_avatar_style(AvatarSize::Medium))
         );
     }
@@ -986,7 +1020,7 @@ mod autotest_generated {
     fn dom_of_an_initials_avatar_is_a_circle_wrapping_the_text() {
         for size in ALL_SIZES {
             let avatar = Avatar::create(AzString::from_const_str("AB")).with_size(size);
-            let expected = properties(&avatar.avatar_style);
+            let expected = properties(&avatar.resolved_avatar_style());
             let dom = avatar.dom();
 
             assert!(
@@ -1097,23 +1131,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn assigning_the_size_field_directly_desyncs_the_container_from_the_image() {
-        // `size` and `avatar_style` are both public, and `dom()` reads the image
-        // geometry from `size` while the container keeps the *stored* style. So a
-        // direct field write (bypassing `set_size`) silently produces an avatar
-        // whose image is a different diameter than its circle. Pinned here as the
-        // current behaviour — `set_size` is the only correct path.
-        let mut a = Avatar::create_with_image(test_image());
-        a.size = AvatarSize::Large; // NOT set_size: the style is not recomputed
-        let dom = a.dom();
+    fn assigning_the_size_field_directly_keeps_the_container_and_the_image_in_step() {
+        // `size` and `avatar_style` are both public, and a direct field write
+        // used to desync them: `dom()` read the image geometry from `size`
+        // while the container kept whatever style the constructor had stored,
+        // so bypassing `set_size` rendered a Large image inside a Medium
+        // circle. There is no stored style left to go stale —
+        // `resolved_avatar_style` derives it from `size` — so the bypass and
+        // `set_size` now reach the same DOM.
+        let mut assigned = Avatar::create_with_image(test_image());
+        assigned.size = AvatarSize::Large; // the bypass the old desync needed
+        let mut via_setter = Avatar::create_with_image(test_image());
+        via_setter.set_size(AvatarSize::Large);
 
+        let dom = assigned.dom();
         assert_eq!(
-            width_px(&build_avatar_style(AvatarSize::Medium)),
-            Some(40.0),
-            "fixture assumption: the stored style is still Medium's"
+            inline_properties(&dom),
+            inline_properties(&via_setter.dom()),
+            "a direct `size` write must render like `set_size`"
         );
-        let container = inline_properties(&dom);
-        let container_width = container.iter().find_map(|p| match p {
+
+        let container_width = inline_properties(&dom).iter().find_map(|p| match p {
             CssProperty::Width(w) => match w.get_property()? {
                 LayoutWidth::Px(pv) => Some(px(pv)),
                 _ => None,
@@ -1122,13 +1160,18 @@ mod autotest_generated {
         });
         assert_eq!(
             container_width,
-            Some(40.0),
-            "container still uses the stored Medium style"
+            width_px(&build_avatar_style(AvatarSize::Large)),
+            "the circle follows the freshly assigned `size` field"
+        );
+        assert_ne!(
+            width_px(&build_avatar_style(AvatarSize::Large)),
+            width_px(&build_avatar_style(AvatarSize::Medium)),
+            "fixture: the two sizes have to differ for this to prove anything"
         );
         assert_eq!(
             inline_properties(only_child(&dom)),
             properties(&build_image_style(AvatarSize::Large)),
-            "the image, however, follows the freshly assigned `size` field"
+            "and so does the image inside it"
         );
     }
 }

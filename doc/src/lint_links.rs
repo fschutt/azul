@@ -9,13 +9,11 @@
 //! where a contributor meets it before pushing. The two overlap deliberately
 //! on stale source paths and diverge either side of that:
 //!
-//!   - docproof proves DRIFT from history: a path that once existed and moved.
-//!     A path that never existed is not a finding there, because there is no
-//!     deletion to point at.
-//!   - this lint proves RESOLUTION against the tree: a `[text](../dom.md)`
-//!     whose page is not there, an image that is not on disk, a `#anchor` with
-//!     no heading behind it, a typo'd source path. No history involved, so a
-//!     path invented yesterday is caught just as well as one that rotted.
+//!   - docproof proves DRIFT from history: a path that once existed and moved. A path that never
+//!     existed is not a finding there, because there is no deletion to point at.
+//!   - this lint proves RESOLUTION against the tree: a `[text](../dom.md)` whose page is not there,
+//!     an image that is not on disk, a `#anchor` with no heading behind it, a typo'd source path.
+//!     No history involved, so a path invented yesterday is caught just as well as one that rotted.
 //!
 //! What it deliberately does NOT check: external `http(s)` links. That would
 //! put the network in the build, and a rate-limited host would fail a run for
@@ -232,7 +230,7 @@ fn page_anchors<'a>(
         let html = comrak::markdown_to_html(
             &body,
             &comrak::Options {
-                extension: comrak::ExtensionOptions {
+                extension: comrak::options::Extension {
                     header_ids: Some(String::new()),
                     ..Default::default()
                 },
@@ -359,7 +357,7 @@ fn path_claims(line: &str, top_level: &BTreeSet<String>) -> Vec<String> {
         // `path/to/thing.rs:83` — a line number is a pointer at the file, not
         // part of its name. Ranges too.
         let token = token
-            .trim_end_matches(|c: char| c == '.' || c == ',' || c == ';' || c == ')')
+            .trim_end_matches(['.', ',', ';', ')'])
             .split(':')
             .next()
             .unwrap_or("");

@@ -1,14 +1,14 @@
 //! Unified `Pdf` handle. See [`crate::unified`].
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
-pub use crate::desktop::extra::pdf::*;
-
 #[cfg(target_arch = "wasm32")]
 use azul_core::dom::Dom;
 #[cfg(target_arch = "wasm32")]
 use azul_core::json::Json;
 #[cfg(target_arch = "wasm32")]
 use azul_css::U8Vec;
+
+#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+pub use crate::desktop::extra::pdf::*;
 
 /// wasm stub of the desktop `Pdf` handle (stateless; no printpdf backend).
 /// Identical `#[repr(C)]` layout to the real type (a single reserved byte).

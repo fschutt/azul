@@ -11,22 +11,28 @@
 //!
 //! The `AZ_RICING` env var has three modes (case-insensitive):
 //!
-//! - unset (default): load the user CSS if present; on Linux, the
-//!   detection chain is `KDE > GNOME > riced > defaults`.
-//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip the user
-//!   CSS file and the riced-desktop sources (Hyprland config, pywal
-//!   cache). Use for kiosk builds or CI runs that mustn't pick up local
-//!   customization.
-//! - `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`): on Linux,
-//!   reorder the detection chain so riced-desktop sources win over
-//!   GNOME/KDE — useful for tiling-WM users whose `XDG_CURRENT_DESKTOP`
-//!   still says `gnome`. The user CSS file still loads.
+//! - unset (default): load the user CSS if present; on Linux, the detection chain is `KDE > GNOME >
+//!   riced > defaults`.
+//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip the user CSS file and the
+//!   riced-desktop sources (Hyprland config, pywal cache). Use for kiosk builds or CI runs that
+//!   mustn't pick up local customization.
+//! - `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`): on Linux, reorder the detection
+//!   chain so riced-desktop sources win over GNOME/KDE — useful for tiling-WM users whose
+//!   `XDG_CURRENT_DESKTOP` still says `gnome`. The user CSS file still loads.
 
 #![cfg(feature = "parser")]
+
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::fmt::Write;
 
 use crate::{
     corety::{AzString, OptionF32, OptionString, OptionU16},
     css::Css,
+    dynamic_selector::{BoolCondition, OsVersion},
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
         basic::{
@@ -38,14 +44,6 @@ use crate::{
         },
     },
 };
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    vec::Vec,
-};
-
-use crate::dynamic_selector::{BoolCondition, OsVersion};
-use core::fmt::Write;
 
 // --- End-user customization mode ---
 
@@ -89,9 +87,84 @@ pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
 }
 
+/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_THEME`
+/// pins, swapping in `light` / `dark` as the replacement palette.
+///
+/// `AZ_THEME=light|dark` exists so a screenshot or a reftest renders the same
+/// on any machine. It used to pin only the CASCADE (`@theme` blocks, via
+/// `dynamic_selector::theme_pinned_by_env`) and the WINDOW theme — but the
+/// window BACKGROUND, the "is this a full regeneration" decision and the
+/// display list's no-context fallback all read `SystemStyle` instead. On a
+/// dark desktop `AZ_THEME=light` therefore rendered light-theme TEXT on the
+/// desktop's DARK background: unreadable, and shipped to the website as the
+/// "light" screenshot of the Linux build. A pin that does not reach here is
+/// not a pin.
+///
+/// Only the polarity-dependent visuals move — the palette, the focus ring and
+/// the scrollbar. The desktop's fonts, metrics, icon and cursor themes are
+/// what make a capture look like the platform it was taken on, and none of
+/// them have a light/dark polarity to disagree about. `light` and `dark` are
+/// closures so the caller picks the palette family that matches what it just
+/// discovered — Breeze on a KDE session, Adwaita on GNOME — and so neither is
+/// built when nothing is pinned, which is every normal run.
+pub fn apply_env_theme_pin(
+    style: &mut SystemStyle,
+    light: impl FnOnce() -> SystemStyle,
+    dark: impl FnOnce() -> SystemStyle,
+) {
+    use crate::dynamic_selector::ThemeCondition;
+
+    let Some(pin) = crate::dynamic_selector::theme_pinned_by_env() else {
+        return;
+    };
+    let wanted = match pin {
+        ThemeCondition::Dark => Theme::Dark,
+        _ => Theme::Light,
+    };
+    if style.theme == wanted {
+        return;
+    }
+    adopt_theme_palette(style, wanted, light, dark);
+}
+
+/// Gives `style` the palette of `wanted`, keeping non-polar fields and the accent, even if `style.theme` already matches.
+pub fn adopt_theme_palette(
+    style: &mut SystemStyle,
+    wanted: Theme,
+    light: impl FnOnce() -> SystemStyle,
+    dark: impl FnOnce() -> SystemStyle,
+) {
+    let mut replacement = match wanted {
+        Theme::Dark => dark(),
+        Theme::Light => light(),
+    };
+
+    // An EXPLICIT list of what has a polarity, not "replace the struct and put
+    // a few things back". These callers run the pin at the END of discovery,
+    // after `platform`, `language`, `os_version`, the accessibility flags and
+    // the user's ricing stylesheet have all been filled in, and a wholesale
+    // replacement would quietly reset every one of them to whatever the
+    // built-in palette carries.
+    style.theme = replacement.theme;
+    style.focus_visuals = replacement.focus_visuals;
+    // `SystemStyle` implements `Drop` (the FFI double-drop guard), so the one
+    // boxed field here has to be TAKEN rather than moved out of `replacement`.
+    style.scrollbar = core::mem::take(&mut replacement.scrollbar);
+
+    // The ACCENT survives: it is the one colour the user picked themselves,
+    // it is a hue rather than a polarity, and both desktops that report one
+    // (KDE, the XDG portal) report it independently of light/dark.
+    let accent = style.colors.accent;
+    style.colors = replacement.colors;
+    if accent.is_some() {
+        style.colors.accent = accent;
+    }
+}
+
 // --- Public Data Structures ---
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents the detected platform.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -145,7 +218,8 @@ impl Platform {
     }
 }
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -196,7 +270,8 @@ pub struct SystemStyle {
     pub prefers_reduced_motion: BoolCondition,
     /// User prefers high contrast (accessibility setting)
     pub prefers_high_contrast: BoolCondition,
-    /// Detailed accessibility settings (superset of `prefers_reduced_motion` / `prefers_high_contrast`)
+    /// Detailed accessibility settings (superset of `prefers_reduced_motion` /
+    /// `prefers_high_contrast`)
     pub accessibility: AccessibilitySettings,
     /// Which hand the user operates the device with. Touch UIs put their
     /// primary controls on that side so the thumb reaches them.
@@ -271,12 +346,11 @@ impl Drop for SystemStyle {
         // Gate the heap frees on `run_destructor` to defuse the codegen
         // double-drop (see the `run_destructor` field docs). drop_in_place
         // runs THIS method, then the field drop-glue; so:
-        //  * FIRST drop (flag set): disarm the flag, then let the field
-        //    drop-glue free the two Boxes exactly once.
-        //  * SECOND drop on the same bytes (flag cleared by the first): the
-        //    Boxes are already freed but the fields still hold dangling
-        //    `Some(ptr)`. Take them out (-> None) and forget the dangling
-        //    values so the trailing drop-glue is a no-op (never derefs/frees).
+        //  * FIRST drop (flag set): disarm the flag, then let the field drop-glue free the two
+        //    Boxes exactly once.
+        //  * SECOND drop on the same bytes (flag cleared by the first): the Boxes are already freed
+        //    but the fields still hold dangling `Some(ptr)`. Take them out (-> None) and forget the
+        //    dangling values so the trailing drop-glue is a no-op (never derefs/frees).
         if self.run_destructor {
             self.run_destructor = false;
         } else {
@@ -500,8 +574,9 @@ pub struct SystemColors {
     pub selection_background: OptionColorU,
     /// Selection text color when window is focused
     pub selection_text: OptionColorU,
-    /// Selection background when window is NOT focused (NSColor.unemphasizedSelectedContentBackgroundColor)
-    /// This is used for :backdrop state styling
+    /// Selection background when window is NOT focused
+    /// (NSColor.unemphasizedSelectedContentBackgroundColor) This is used for :backdrop state
+    /// styling
     pub selection_background_inactive: OptionColorU,
     /// Selection text color when window is NOT focused
     pub selection_text_inactive: OptionColorU,
@@ -1120,11 +1195,9 @@ pub enum FocusBehavior {
 /// play and at what speed.
 ///
 /// # Platform APIs
-/// - **Windows:** `SystemParametersInfo(SPI_GETCLIENTAREAANIMATION)`,
-///   `SPI_GETKEYBOARDCUES`
+/// - **Windows:** `SystemParametersInfo(SPI_GETCLIENTAREAANIMATION)`, `SPI_GETKEYBOARDCUES`
 /// - **macOS:** `NSWorkspace.accessibilityDisplayShouldReduceMotion`
-/// - **Linux:** `org.gnome.desktop.interface enable-animations`,
-///   KDE `AnimationDurationFactor`
+/// - **Linux:** `org.gnome.desktop.interface enable-animations`, KDE `AnimationDurationFactor`
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct AnimationMetrics {
@@ -1157,8 +1230,8 @@ impl Default for AnimationMetrics {
 /// # Platform APIs
 /// - **Windows:** `SystemParametersInfo(SPI_GETBEEP)`
 /// - **macOS:** `NSSound.soundEffectAudioVolume`
-/// - **Linux:** `org.gnome.desktop.sound event-sounds`,
-///   `org.gnome.desktop.sound input-feedback-sounds`
+/// - **Linux:** `org.gnome.desktop.sound event-sounds`, `org.gnome.desktop.sound
+///   input-feedback-sounds`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct AudioMetrics {
@@ -1410,7 +1483,8 @@ impl SystemStyle {
     /// This does NOT use serde — it manually formats the most important fields
     /// so that they can be verified against OS-reported values in a test script.
     #[allow(clippy::too_many_lines)]
-    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
+    // property/variant)
     #[must_use]
     pub fn to_json_string(&self) -> AzString {
         use alloc::format;
@@ -1759,8 +1833,8 @@ impl SystemStyle {
             css,
             ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
-             align-items: center; justify-content: space-between; padding: 0 8px; \
-             cursor: grab; user-select: none; }} ",
+             align-items: center; justify-content: space-between; padding: 0 8px; cursor: grab; \
+             user-select: none; }} ",
             bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
         );
 
@@ -1768,8 +1842,8 @@ impl SystemStyle {
         let _ = write!(
             css,
             ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
-             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \
-             user-select: none; }} ",
+             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: \
+             none; }} ",
             text_color.r, text_color.g, text_color.b,
         );
 
@@ -2785,7 +2859,9 @@ pub mod defaults {
             // thumb #b1b1b1): correct for Breeze Light, glaring on a dark
             // desktop. The dark preset takes the dark classic bar, exactly as
             // `gnome_adwaita_dark` does.
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_CLASSIC_DARK,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),

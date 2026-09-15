@@ -13,21 +13,21 @@
 //! neither bump the text revision (that made an acked entry "unsynced" again
 //! and unretirable) nor re-announce `TextChanged`.
 
-use azul_core::dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
-use azul_layout::solver3::display_list::DisplayListItem;
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
-const CSS: &str = "* { margin: 0; padding: 0; } \
-                   body { font-size: 14px; width: 600px; } \
-                   .host { display: block; } \
-                   p { display: block; }";
+const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } .host { \
+                   display: block; } p { display: block; }";
 
 /// body(0) > div.host(1, contenteditable) > p(2) > text(3) "hello".
 const HOST: NodeId = NodeId::new(1);
@@ -148,7 +148,10 @@ fn overlay_entry(lw: &LayoutWindow) -> Option<(NodeId, String)> {
     let mut it = lw.content_overlay.iter_text();
     let (&(_, node), dirty) = it.next()?;
     assert!(it.next().is_none(), "exactly one edited IFC root");
-    Some((node, azul_layout::overlay::flatten_inline_content(&dirty.content)))
+    Some((
+        node,
+        azul_layout::overlay::flatten_inline_content(&dirty.content),
+    ))
 }
 
 #[test]
@@ -171,7 +174,10 @@ fn acked_text_keeps_painting_until_the_app_re_renders() {
     let revision = unsynced[0].2;
     assert_eq!(revision, lw.document_text_revision);
     lw.mark_text_revision_synced(revision);
-    assert!(lw.unsynced_text_edits().is_empty(), "acked = nothing unsynced");
+    assert!(
+        lw.unsynced_text_edits().is_empty(),
+        "acked = nothing unsynced"
+    );
 
     // A relayout of the DOM the app already rendered: the acked entry is
     // still the only source of the typed text, so it stays and paints.
@@ -223,7 +229,11 @@ fn a_relayout_re_lands_overlay_text_without_re_committing_it() {
 
     // The commit announced itself exactly once ...
     let changed = lw.take_text_changed_notifications();
-    assert_eq!(changed.len(), 1, "one TextChanged per commit, got {changed:?}");
+    assert_eq!(
+        changed.len(),
+        1,
+        "one TextChanged per commit, got {changed:?}"
+    );
     let revision = lw.document_text_revision;
     assert!(revision > 0);
 
@@ -236,7 +246,11 @@ fn a_relayout_re_lands_overlay_text_without_re_committing_it() {
         "a relayout is not an edit: the text revision does not move"
     );
     assert_eq!(
-        overlay_entry(&lw).map(|(n, _)| lw.content_overlay.text_for_node(DomId::ROOT_ID, n).unwrap().revision),
+        overlay_entry(&lw).map(|(n, _)| lw
+            .content_overlay
+            .text_for_node(DomId::ROOT_ID, n)
+            .unwrap()
+            .revision),
         Some(revision),
         "the entry keeps the revision of the commit that wrote it"
     );

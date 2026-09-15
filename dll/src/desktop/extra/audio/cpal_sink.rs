@@ -3,8 +3,10 @@
 //! pulls them from a shared queue. macOS/Windows only - linux uses the dlopen
 //! ALSA backend (cpal's ALSA backend would build-time-link libasound).
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 

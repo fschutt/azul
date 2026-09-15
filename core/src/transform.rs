@@ -121,7 +121,8 @@ impl ComputedTransform3D {
     ///
     /// NOTE: This is a relatively expensive operation.
     #[must_use]
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                       // +fma; keep explicit a*b+c
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
@@ -223,7 +224,8 @@ impl ComputedTransform3D {
         m.multiply_scalar(1.0 / det)
     }
 
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                       // +fma; keep explicit a*b+c
     fn determinant(&self) -> f32 {
         // Accumulate in f64. Individual f32 products (e.g. m[0][0]*m[1][1] on a
         // diag(1e20) matrix = 1e40) overflow to ±inf BEFORE the legitimately-zero
@@ -303,21 +305,17 @@ impl ComputedTransform3D {
         // migrating the `gpu.rs` probe to `is_x86_feature_detected!`.
         // CSS Transforms Level 1 §9 ("The Transform Rendering Model"):
         //
-        //   1. The functions are MULTIPLIED left to right, so the LAST listed
-        //      function is the first one applied to a point: `translate(100px)
-        //      scale(2)` scales first, then translates - a point at (1, 0)
-        //      lands at (102, 0), not (202, 0). `a.then(b)` applies `a` first,
-        //      so each function is composed BEFORE the accumulated rest.
-        //      (This used to fold left to right - the reverse - so every
-        //      multi-function transform rendered differently than in a
-        //      browser, and `perspective() rotateX()` projected the
-        //      un-rotated plane, i.e. did nothing.)
-        //   2. The WHOLE product is applied about `transform-origin`:
-        //      `translate(origin) * M * translate(-origin)`. Wrapping happens
-        //      ONCE, here - not per component - so `scale()` and `skew()`
-        //      pivot at the origin exactly like `rotate()` does.
-        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-        use azul_css::props::basic::PixelValue;
+        //   1. The functions are MULTIPLIED left to right, so the LAST listed function is the first
+        //      one applied to a point: `translate(100px) scale(2)` scales first, then translates -
+        //      a point at (1, 0) lands at (102, 0), not (202, 0). `a.then(b)` applies `a` first, so
+        //      each function is composed BEFORE the accumulated rest. (This used to fold left to
+        //      right - the reverse - so every multi-function transform rendered differently than in
+        //      a browser, and `perspective() rotateX()` projected the un-rotated plane, i.e. did
+        //      nothing.)
+        //   2. The WHOLE product is applied about `transform-origin`: `translate(origin) * M *
+        //      translate(-origin)`. Wrapping happens ONCE, here - not per component - so `scale()`
+        //      and `skew()` pivot at the origin exactly like `rotate()` does.
+        use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, PixelValue};
         let no_origin = StyleTransformOrigin {
             x: PixelValue::const_px(0),
             y: PixelValue::const_px(0),
@@ -400,7 +398,8 @@ impl ComputedTransform3D {
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
     #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     fn from_style_transform(
         t: &StyleTransform,
         transform_origin: &StyleTransformOrigin,
@@ -408,11 +407,13 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
-        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-        use azul_css::props::style::StyleTransform::{
-            Matrix, Matrix3D, Perspective, Rotate, Rotate3D, RotateX, RotateY, RotateZ, Scale,
-            Scale3D, ScaleX, ScaleY, ScaleZ, Skew, SkewX, SkewY, Translate, Translate3D,
-            TranslateX, TranslateY, TranslateZ,
+        use azul_css::props::{
+            basic::pixel::DEFAULT_FONT_SIZE,
+            style::StyleTransform::{
+                Matrix, Matrix3D, Perspective, Rotate, Rotate3D, RotateX, RotateY, RotateZ, Scale,
+                Scale3D, ScaleX, ScaleY, ScaleZ, Skew, SkewX, SkewY, Translate, Translate3D,
+                TranslateX, TranslateY, TranslateZ,
+            },
         };
         match t {
             Matrix(mat2d) => {
@@ -690,7 +691,8 @@ impl ComputedTransform3D {
     /// The supplied axis must be normalized.
     #[must_use]
     #[inline]
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                       // +fma; keep explicit a*b+c
     fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
         let xx = x * x;
         let yy = y * y;
@@ -782,7 +784,8 @@ impl ComputedTransform3D {
     /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
     #[must_use]
     #[inline]
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
     pub fn then(&self, other: &Self) -> Self {
         Self::new(
             self.m[0][0].mul_add(
@@ -1058,7 +1061,8 @@ impl ComputedTransform3D {
     /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
     #[must_use]
     #[inline]
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
+                                       // +fma; keep explicit a*b+c
     fn make_rotation(
         rotation_origin: (f32, f32),
         mut degrees: f32,

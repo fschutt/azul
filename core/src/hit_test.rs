@@ -239,7 +239,8 @@ pub struct HitTestItem {
     pub point_relative_to_item: crate::spaces::ContentBoxLocal,
     /// Necessary to easily get the nearest `VirtualView` node
     pub is_focusable: bool,
-    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
+    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the
+    /// `VirtualView`
     pub is_virtual_view_hit: Option<(DomId, LogicalPosition)>,
     /// Z-order depth from `WebRender` hit test (0 = frontmost/topmost in z-order).
     /// Lower values are closer to the user. This preserves the ordering from
@@ -263,7 +264,8 @@ pub struct ScrollHitTestItem {
     /// near, is it over the scrollbar gutter), not about its text content, and
     /// scroll geometry is measured against the border box everywhere else.
     pub point_relative_to_item: crate::spaces::BorderBoxLocal,
-    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
+    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the
+    /// `VirtualView`
     pub scroll_node: OverflowingScrollNode,
 }
 
@@ -748,11 +750,12 @@ impl HitTestTag {
                 container_node_id,
                 text_run_index,
             } => {
-                // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower 16 bits)
-                // AUDIT: mask each field to its bit width so an out-of-range DomId /
-                // NodeId can never bleed into an adjacent field (silent cross-field
-                // corruption). Masking clamps consistently in debug and release —
-                // a >16-bit DomId is absurd but must degrade gracefully, not panic.
+                // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower
+                // 16 bits) AUDIT: mask each field to its bit width so an
+                // out-of-range DomId / NodeId can never bleed into an adjacent
+                // field (silent cross-field corruption). Masking clamps
+                // consistently in debug and release — a >16-bit DomId is absurd but
+                // must degrade gracefully, not panic.
                 let dom_bits = (dom_id.inner as u64) & 0xFFFF;
                 let node_bits = (container_node_id.index() as u64) & 0xFFFF_FFFF;
                 let tag_value = (dom_bits << 48) | (node_bits << 16) | u64::from(*text_run_index);

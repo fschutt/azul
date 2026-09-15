@@ -18,23 +18,18 @@
 //!
 //! The single emitted file has four conceptual sections, top to bottom:
 //!
-//! 1. **MODE forward declarations** — `MODE AZAPP = STRUCT (...);`
-//!    Algol 68 is single-pass; types must be declared before use. We
-//!    emit unit enums (as INT constants) first, then plain-record
-//!    MODEs, then tagged-union MODEs (which use Algol 68's native
-//!    `UNION` plus a discriminator INT field).
-//! 2. **Enum constants** — Algol 68 has no native enum keyword; we
-//!    emit named INT constants (`INT azbuttontype primary = 0;`).
-//! 3. **ALIEN PROC declarations** — every C-ABI symbol becomes a
-//!    `PROC name = (...) RETURN: ALIEN "az_..." ! "azul";`. The C
-//!    symbol literal is preserved verbatim; only the Algol-side
-//!    identifier is renamed to lowercase-with-spaces (a68g identifier
-//!    convention).
-//! 4. **Convention helpers** (wrappers.rs) — Algol 68 has no
-//!    destructors and no reference-counted GC. We emit a paired
-//!    `delete <type> = (REF <TYPE> x) VOID: ...` PROC for every type
-//!    that owns native memory and document the manual-cleanup
-//!    convention.
+//! 1. **MODE forward declarations** — `MODE AZAPP = STRUCT (...);` Algol 68 is single-pass; types
+//!    must be declared before use. We emit unit enums (as INT constants) first, then plain-record
+//!    MODEs, then tagged-union MODEs (which use Algol 68's native `UNION` plus a discriminator INT
+//!    field).
+//! 2. **Enum constants** — Algol 68 has no native enum keyword; we emit named INT constants (`INT
+//!    azbuttontype primary = 0;`).
+//! 3. **ALIEN PROC declarations** — every C-ABI symbol becomes a `PROC name = (...) RETURN: ALIEN
+//!    "az_..." ! "azul";`. The C symbol literal is preserved verbatim; only the Algol-side
+//!    identifier is renamed to lowercase-with-spaces (a68g identifier convention).
+//! 4. **Convention helpers** (wrappers.rs) — Algol 68 has no destructors and no reference-counted
+//!    GC. We emit a paired `delete <type> = (REF <TYPE> x) VOID: ...` PROC for every type that owns
+//!    native memory and document the manual-cleanup convention.
 //!
 //! # Comment syntax
 //!
@@ -52,9 +47,7 @@
 
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
 pub mod types;
@@ -219,7 +212,7 @@ fn camel_or_snake_to_spaced_lower(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     let mut chars = s.chars().peekable();
     let mut first = true;
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '_' {
             if !out.ends_with(' ') && !first {
                 out.push(' ');
@@ -424,5 +417,5 @@ pub fn ptr_type(inner: &str, ir: &CodegenIR) -> String {
 /// comment delimiters: an embedded `#` would close the comment, so we
 /// replace it with a `?` and collapse newlines to spaces.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('#', "?").replace('\n', " ").replace('\r', " ")
+    s.replace('#', "?").replace(['\n', '\r'], " ")
 }

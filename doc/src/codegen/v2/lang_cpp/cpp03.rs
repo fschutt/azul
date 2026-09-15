@@ -8,10 +8,13 @@
 //! - No noexcept, no enum class, no move semantics
 //! - Uses memset/strlen instead of std::memset/std::strlen
 
-use super::super::config::*;
-use super::super::ir::*;
-use super::{common::*, CppDialect};
 use anyhow::Result;
+
+use super::{
+    super::{config::*, ir::*},
+    common::*,
+    CppDialect,
+};
 
 /// C++03 dialect generator
 pub struct Cpp03Generator;
@@ -28,7 +31,11 @@ impl CppDialect for Cpp03Generator {
         // Header comment
         code.push_str(&generate_header_comment(std));
         code.push_str(&generate_cpp03_move_docs());
-        code.push_str("// =============================================================================\r\n\r\n");
+        // The closing banner and its blank line, BUILT rather than written out: a
+        // literal this wide gets wrapped by rustfmt (`format_strings = true`), and the
+        // wrap used to land inside the CR-LF escape, emitting a bare backslash and an
+        // `r` into every generated header (the bindings job failed on exactly that).
+        code.push_str(&format!("// {}\r\n\r\n", "=".repeat(77)));
 
         // Include guards
         code.push_str(&generate_include_guards_begin(std));
@@ -41,6 +48,7 @@ impl CppDialect for Cpp03Generator {
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
+        code.push_str(&generate_moved_from_helper());
 
         // Synthesize struct entries for Option/Result tagged-union enums.
         let synthesized = synthesize_option_result_structs(ir);
@@ -88,7 +96,10 @@ impl CppDialect for Cpp03Generator {
 
         // Method implementations
         code.push_str("// Method implementations\r\n");
-        code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
+        code.push_str(
+            "// (Implemented after all classes are declared to avoid incomplete type \
+             errors)\r\n\r\n",
+        );
 
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -196,7 +207,8 @@ impl CppDialect for Cpp03Generator {
 
         // release() - C++03 version uses memset
         code.push_str(&format!(
-            "    {} release() {{ {} result = inner_; memset(&inner_, 0, sizeof(inner_)); return result; }}\r\n",
+            "    {} release() {{ {} result = inner_; memset(&inner_, 0, sizeof(inner_)); return \
+             result; }}\r\n",
             c_type_name, c_type_name
         ));
 
@@ -392,7 +404,7 @@ impl CppDialect for Cpp03Generator {
     ) {
         if needs_destructor {
             code.push_str(&format!(
-                "    ~{}() {{ {}_delete(&inner_); }}\r\n",
+                "    ~{}() {{ if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_); }}\r\n",
                 class_name, c_type_name
             ));
         } else {
@@ -421,7 +433,8 @@ impl CppDialect for Cpp03Generator {
         } else {
             // Non-copy types use Colvin-Gibbons trick (destructive copy like std::auto_ptr)
             code.push_str(&format!(
-                "    {}(const {}& other) : inner_(other.inner_) {{ memset(const_cast<{}*>(&other.inner_), 0, sizeof(other.inner_)); }}\r\n",
+                "    {}(const {}& other) : inner_(other.inner_) {{ \
+                 memset(const_cast<{}*>(&other.inner_), 0, sizeof(other.inner_)); }}\r\n",
                 class_name, class_name, c_type_name
             ));
             code.push_str(&format!(
@@ -429,7 +442,10 @@ impl CppDialect for Cpp03Generator {
                 class_name, class_name
             ));
             if needs_destructor {
-                code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+                code.push_str(&format!(
+                    "        if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_);\r\n",
+                    c_type_name
+                ));
             }
             code.push_str("        inner_ = other.inner_;\r\n");
             code.push_str(&format!(
@@ -451,7 +467,10 @@ impl CppDialect for Cpp03Generator {
             code.push_str("    }\r\n");
             code.push_str(&format!("    {}& operator=(Proxy p) {{\r\n", class_name));
             if needs_destructor {
-                code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+                code.push_str(&format!(
+                    "        if (!detail::is_moved_from(&inner_, sizeof(inner_))) {}_delete(&inner_);\r\n",
+                    c_type_name
+                ));
             }
             code.push_str("        inner_ = p.inner;\r\n");
             code.push_str("        return *this;\r\n");
@@ -512,7 +531,10 @@ impl CppDialect for Cpp03Generator {
         _config: &CodegenConfig,
     ) {
         code.push_str("\r\n    // String methods\r\n");
-        code.push_str("    explicit String(const char* s) : inner_(AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s))) {}\r\n");
+        code.push_str(
+            "    explicit String(const char* s) : inner_(AzString_copyFromBytes((const \
+             uint8_t*)s, 0, strlen(s))) {}\r\n",
+        );
         code.push_str(
             "    const char* c_str() const { return (const char*)(inner_.vec.ptr); }\r\n",
         );
@@ -553,7 +575,8 @@ impl CppDialect for Cpp03Generator {
             c_inner_type
         ));
         code.push_str(&format!(
-            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
+            "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; \
+             }}\r\n",
             c_inner_type, c_inner_type
         ));
     }
@@ -685,5 +708,19 @@ impl Cpp03Generator {
             }
         }
     }
+}
 
+/// C++03 wrappers transfer on copy by zeroing the source; a zeroed value owns nothing.
+fn generate_moved_from_helper() -> String {
+    let mut code = String::new();
+    code.push_str("namespace detail {\r\n");
+    code.push_str("inline bool is_moved_from(const void* value, size_t size) {\r\n");
+    code.push_str("    const unsigned char* bytes = static_cast<const unsigned char*>(value);\r\n");
+    code.push_str("    for (size_t i = 0; i < size; ++i) {\r\n");
+    code.push_str("        if (bytes[i] != 0) return false;\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("    return true;\r\n");
+    code.push_str("}\r\n");
+    code.push_str("} // namespace detail\r\n\r\n");
+    code
 }

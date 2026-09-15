@@ -86,8 +86,8 @@ fn node_mapping_survives_the_resize_fast_path() {
         .collect();
     assert_eq!(
         cold_mapped, warm_mapped,
-        "a same-DOM resize must not change which node any item belongs to \
-         (item ORDER and ATTRIBUTION are structural; only geometry may move)"
+        "a same-DOM resize must not change which node any item belongs to (item ORDER and \
+         ATTRIBUTION are structural; only geometry may move)"
     );
 }
 

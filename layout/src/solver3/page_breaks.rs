@@ -7,17 +7,16 @@
 //!
 //! Three latent defects were fixed in the extraction (each pinned by a test):
 //!
-//! 1. the sort now uses `f32::total_cmp` — the old `partial_cmp().unwrap()`
-//!    was a panic path if a NaN ever survived the input filter;
-//! 2. when a forced break and an interval break land within the 1px merge
-//!    window, the FORCED break survives (CSS Fragmentation: forced breaks
-//!    win). The old positional dedup kept whichever sorted first, so an
-//!    author's `break-before: always` could be silently replaced by the
+//! 1. the sort now uses `f32::total_cmp` — the old `partial_cmp().unwrap()` was a panic path if a
+//!    NaN ever survived the input filter;
+//! 2. when a forced break and an interval break land within the 1px merge window, the FORCED break
+//!    survives (CSS Fragmentation: forced breaks win). The old positional dedup kept whichever
+//!    sorted first, so an author's `break-before: always` could be silently replaced by the
 //!    interval break up to 1px above it;
-//! 3. `normal_page_content_height <= 0` (header + footer at least as tall as
-//!    the page, with `skip_first_page` making the first page valid) made the
-//!    old interval loop `y += normal` never terminate. Interval generation now
-//!    stops after the first-page break when the normal height is not positive.
+//! 3. `normal_page_content_height <= 0` (header + footer at least as tall as the page, with
+//!    `skip_first_page` making the first page valid) made the old interval loop `y += normal` never
+//!    terminate. Interval generation now stops after the first-page break when the normal height is
+//!    not positive.
 
 use azul_core::{dom::NodeId, id::OptionNodeId};
 use azul_css::impl_option_inner;
@@ -41,7 +40,7 @@ pub enum BreakKind {
 /// One page boundary in document space.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)] // in the C API through `PaginationInfo` (9g-ii-f-i); the 8-aligned
-// option first so it is not padded after two 4-byte fields
+           // option first so it is not padded after two 4-byte fields
 pub struct PageBreakPosition {
     /// For [`BreakKind::Forced`]: the node whose break property caused it,
     /// when known. `None` in the display-list-only path - the display list
@@ -261,7 +260,8 @@ pub fn compute_page_breaks_with_sequence(
     compute_page_breaks_impl(input, constraints, policy, Some(sequence), None)
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
 fn compute_page_breaks_impl(
     input: &PageBreakInput<'_>,
     constraints: PageConstraints,
@@ -454,8 +454,9 @@ fn collect_avoid_ranges(
     policy: &BreakPolicy,
     mut monolith_report: Option<&mut Vec<MonolithWarning>>,
 ) -> Vec<AvoidRange> {
-    use crate::solver3::getters::get_break_inside;
     use azul_css::props::layout::fragmentation::BreakInside;
+
+    use crate::solver3::getters::get_break_inside;
 
     let mut ranges: Vec<AvoidRange> = Vec::new();
     let page_height = constraints.normal_page_content_height.max(1.0);
@@ -689,8 +690,8 @@ pub fn recompute_page_breaks_from(
             _ => {
                 debug_assert!(
                     fb.y >= dirty_y_start - MERGE_WINDOW_PX,
-                    "a break above dirty_y_start changed ({} < {dirty_y_start}) — \
-                     the caller under-reported the dirty region",
+                    "a break above dirty_y_start changed ({} < {dirty_y_start}) — the caller \
+                     under-reported the dirty region",
                     fb.y
                 );
                 out.push(fb);
@@ -734,7 +735,11 @@ azul_css::impl_vec!(
     PageBreakPositionVecSlice,
     OptionPageBreakPosition
 );
-azul_css::impl_vec_clone!(PageBreakPosition, PageBreakPositionVec, PageBreakPositionVecDestructor);
+azul_css::impl_vec_clone!(
+    PageBreakPosition,
+    PageBreakPositionVec,
+    PageBreakPositionVecDestructor
+);
 azul_css::impl_vec_partialeq!(PageBreakPosition, PageBreakPositionVec);
 azul_css::impl_vec_debug!(PageBreakPosition, PageBreakPositionVec);
 
@@ -1062,11 +1067,15 @@ mod tests {
     // B3: break-awareness (policy-gated)
     // ==================================================================
 
-    use crate::solver3::display_list::BorderRadius as DlBorderRadius;
-    use crate::solver3::display_list::{DisplayList, DisplayListItem};
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-    use azul_core::styled_dom::StyledDom;
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        styled_dom::StyledDom,
+    };
     use azul_css::props::basic::ColorU;
+
+    use crate::solver3::display_list::{
+        BorderRadius as DlBorderRadius, DisplayList, DisplayListItem,
+    };
 
     fn rect(y: f32, h: f32) -> LogicalRect {
         LogicalRect {
@@ -1494,8 +1503,9 @@ mod tests {
 
     #[test]
     fn page_sequence_heights_flow_into_break_positions() {
-        use crate::solver3::pagination::{PageMargins, PageSequence, PageSetup};
         use azul_core::geom::LogicalSize;
+
+        use crate::solver3::pagination::{PageMargins, PageSequence, PageSetup};
 
         let setup = |h: f32| PageSetup {
             page_size: LogicalSize::new(200.0, h),
@@ -1549,8 +1559,9 @@ mod tests {
 
     #[test]
     fn page_setup_content_height_subtracts_margins_and_decoration() {
-        use crate::solver3::pagination::{HeaderFooterConfig, PageMargins, PageSetup};
         use azul_core::geom::LogicalSize;
+
+        use crate::solver3::pagination::{HeaderFooterConfig, PageMargins, PageSetup};
         let setup = PageSetup {
             page_size: LogicalSize::new(210.0, 297.0),
             margins: PageMargins {

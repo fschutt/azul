@@ -6,11 +6,10 @@
 //! independent ways, and on 2026-08-07 both of them silently deleted the one
 //! diagnosis that was needed:
 //!
-//! * `log_*!` reached the `log` facade only under `feature = "logging"`. An app
-//!   linking azul-dll with `default-features = false` (the documented lean
-//!   `link-static` recipe) got a no-op sink.
-//! * In a `debug-server` build the same macros route into the debug server's
-//!   in-memory queue instead, which never reaches stderr at all.
+//! * `log_*!` reached the `log` facade only under `feature = "logging"`. An app linking azul-dll
+//!   with `default-features = false` (the documented lean `link-static` recipe) got a no-op sink.
+//! * In a `debug-server` build the same macros route into the debug server's in-memory queue
+//!   instead, which never reaches stderr at all.
 //!
 //! The result: a Wayland compositor disconnected the client mid-run, azul's
 //! dead-connection detector fired correctly, and the user saw nothing but

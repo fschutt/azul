@@ -78,8 +78,7 @@ fn map_kind(code: i32) -> Option<SensorKind> {
 /// backend attach sequence.
 #[cfg(target_os = "android")]
 fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
-    use jni::objects::JObject;
-    use jni::JavaVM;
+    use jni::{objects::JObject, JavaVM};
 
     let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
     let activity_ptr = crate::desktop::shell2::android::activity_ptr();

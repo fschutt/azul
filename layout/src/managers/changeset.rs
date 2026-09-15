@@ -174,7 +174,6 @@ pub enum TextOperation {
 
 /// Re-export from events module
 pub use azul_core::events::SelectionDirection;
-
 // ============================================================================
 // Structural document changesets (`DocumentOperation`)
 // ============================================================================
@@ -186,7 +185,6 @@ pub use azul_core::events::SelectionDirection;
 // (`crate::document_edit::apply_document_operation`) on its XML tree. The
 // existing remap machinery (`NodeIdRemap` + `calculate_contenteditable_key`)
 // preserves caret/selection/undo across the resulting generation swap.
-
 use azul_css::corety::U32Vec;
 
 /// A position INSIDE a node, expressed structurally: before direct child

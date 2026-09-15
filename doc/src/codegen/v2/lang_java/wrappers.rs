@@ -6,9 +6,8 @@
 //!
 //! - Holds the underlying JNA `Pointer` in a private field
 //! - Provides `close()` calling `AzulNative.INSTANCE.Az<Type>_delete(ptr)`
-//! - Surfaces every non-trait method on the IR class as either an
-//!   instance method (`fn(self, ...)`) or a `public static` factory
-//!   (`fn() -> Self`)
+//! - Surfaces every non-trait method on the IR class as either an instance method (`fn(self, ...)`)
+//!   or a `public static` factory (`fn() -> Self`)
 //!
 //! Tagged-union enums get a separate, very minimal helper class with
 //! static factories per unit variant. (Payload-bearing variants are
@@ -18,16 +17,18 @@
 
 use anyhow::Result;
 
-use super::super::config::CodegenConfig;
-use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
-    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
-};
-use super::types::{java_boxed, ref_kind_field_type};
 use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
+        },
+    },
     emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier,
     snake_to_lower_camel,
+    types::{java_boxed, ref_kind_field_type},
 };
 
 // ============================================================================
@@ -290,8 +291,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     //     AzLayoutCallback.ByValue cb = AzulHostInvoker.registerLayoutCallback(fn);
     //     AzWindowCreateOptions.ByValue wco = AzulNativeWindow.AzWindowCreateOptions_default();
     //     cb.write(); wco.write();
-    //     wco.window_state.layout_callback.getPointer().write(0, cb.getPointer().getByteArray(0, cb.size()), 0, cb.size());
-    //     wco.read();
+    //     wco.window_state.layout_callback.getPointer().write(0, cb.getPointer().getByteArray(0,
+    // cb.size()), 0, cb.size());     wco.read();
     //
     // boilerplate every JVM hello-world has today.
     if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
@@ -310,11 +311,13 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         for (sam_type, doc_note) in [
             (
                 sam_raw.as_str(),
-                "Smart factory: pass a layout-callback lambda; the host-invoker registration and bytes-copy plumbing happen internally.",
+                "Smart factory: pass a layout-callback lambda; the host-invoker registration and \
+                 bytes-copy plumbing happen internally.",
             ),
             (
                 sam_typed.as_str(),
-                "Smart factory (typed): pass a typed callback that returns a wrapper struct directly; the bridge splices the bytes into the embedded callback field.",
+                "Smart factory (typed): pass a typed callback that returns a wrapper struct \
+                 directly; the bridge splices the bytes into the embedded callback field.",
             ),
         ] {
             builder.line("/**");
@@ -370,7 +373,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // flags `is_debug`. Existing AzString toString override is left in
     // place since it accesses the underlying U8Vec directly (no helper
     // round-trip).
-    emit_toString_if_supported(builder, s, ir);
+    emit_to_string_if_supported(builder, s, ir);
 
     // Phase I.1.2 (Java): emit Iterable<T>.iterator() when the Vec
     // shape was detected AND the element has a wrapper class. The
@@ -471,7 +474,7 @@ fn emit_equals_hashcode_if_supported(
 /// codegen-emitted `Az<X>_toDbgString` C export when TypeTraits.is_debug
 /// is set and the helper actually exists. Skips when this is the String
 /// wrapper class — that already has a vec-direct toString.
-fn emit_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
@@ -503,7 +506,10 @@ fn emit_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &Cod
     builder.line("long __vecLen = __sp.getLong(8);");
     builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\";");
     builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
-    builder.line("java.lang.String __out = new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);");
+    builder.line(
+        "java.lang.String __out = new java.lang.String(__bytes, \
+         java.nio.charset.StandardCharsets.UTF_8);",
+    );
     // Free the freshly-allocated AzString to avoid leaking the U8Vec.
     builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp);");
     builder.line("return __out;");
@@ -723,7 +729,10 @@ fn emit_close_method(
     // methods, owned-by-value wrapper args, CC-2 typed-SAM byte
     // splice). Without this, the wrapper's deferred finalizer
     // double-drops the now-Rust-owned struct.
-    builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
+    builder.line(
+        "/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership \
+         to the C ABI by-value). */",
+    );
     builder.line("void __consume() {");
     builder.indent();
     builder.line("closed = true;");
@@ -781,7 +790,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref payload_ty) = sv.payload_type {
                             return ReturnIdiom::Option {
                                 payload_ty: payload_ty.clone(),
-                                ref_kind: sv.payload_ref_kind.clone(),
+                                ref_kind: sv.payload_ref_kind,
                             };
                         }
                     }
@@ -791,7 +800,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref payload_ty) = ov.payload_type {
                             return ReturnIdiom::Result {
                                 payload_ty: payload_ty.clone(),
-                                ref_kind: ov.payload_ref_kind.clone(),
+                                ref_kind: ov.payload_ref_kind,
                             };
                         }
                     }
@@ -810,7 +819,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Option {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -822,7 +831,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Result {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -838,9 +847,8 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
 ///
 /// - `AzString` → `java.lang.String` (UTF-8 decode inline)
 /// - `AzX` with a wrapper class → `X` (the wrapper)
-/// - Anything else → the raw type itself (primitives stay primitives;
-///   `Pointer` stays `Pointer`; raw FFI structs without a wrapper stay
-///   `AzY`)
+/// - Anything else → the raw type itself (primitives stay primitives; `Pointer` stays `Pointer`;
+///   raw FFI structs without a wrapper stay `AzY`)
 fn payload_display_type(raw: &str, ir: &CodegenIR) -> String {
     if let Some(unprefixed) = raw.strip_prefix("Az") {
         // TypeCategory-driven (J.3 pattern): any struct flagged as
@@ -910,11 +918,10 @@ fn emit_wrapper_method(
     // Auto-conversion rules (both type-driven; no method-name allow-
     // list, no per-class hardcoding):
     //
-    // 1. AzString Owned: parameter takes `java.lang.String`; emit a
-    //    UTF-8-bytes → AzString_fromUtf8 conversion pre-call line.
-    // 2. Wrapper-class Owned: parameter takes the wrapper class (e.g.
-    //    `Dom child` instead of `AzDom.ByValue child`); emit a
-    //    Structure.newInstance + .read() splice pre-call line.
+    // 1. AzString Owned: parameter takes `java.lang.String`; emit a UTF-8-bytes → AzString_fromUtf8
+    //    conversion pre-call line.
+    // 2. Wrapper-class Owned: parameter takes the wrapper class (e.g. `Dom child` instead of
+    //    `AzDom.ByValue child`); emit a Structure.newInstance + .read() splice pre-call line.
     //
     // Both apply uniformly to every emitted wrapper method.
     let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
@@ -1056,7 +1063,8 @@ fn emit_wrapper_method(
                 bytes = bytes_name,
             ));
             pre_call_lines.push(format!(
-                "AzString.ByValue {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, {bytes}.length);",
+                "AzString.ByValue {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, \
+                 {bytes}.length);",
                 az = az_name,
                 mem = mem_name,
                 bytes = bytes_name,
@@ -1069,7 +1077,8 @@ fn emit_wrapper_method(
             let ffi = ffi_type_name(a.type_name.trim());
             let raw_local = format!("__{}_raw", raw_name);
             pre_call_lines.push(format!(
-                "{ffi}.ByValue {raw_local} = Structure.newInstance({ffi}.ByValue.class, {arg}.rawPointer());",
+                "{ffi}.ByValue {raw_local} = Structure.newInstance({ffi}.ByValue.class, \
+                 {arg}.rawPointer());",
                 ffi = ffi,
                 raw_local = raw_local,
                 arg = raw_name,
@@ -1117,7 +1126,7 @@ fn emit_wrapper_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_wrapper_class(r, ir))
-            .map(|r| wrapper_class_name(r))
+            .map(wrapper_class_name)
     } else {
         None
     };
@@ -1266,9 +1275,8 @@ fn emit_wrapper_method(
 /// Three paths based on the raw FFI payload type:
 /// 1. `AzString` — decode UTF-8 bytes into `java.lang.String` inline.
 /// 2. `AzX` with a wrapper class — construct `new X(__nv.getPointer())`.
-/// 3. Anything else (primitives, raw FFI structs without wrappers,
-///    `Pointer`) — return `Optional.ofNullable(__ret.toNullable())`
-///    directly.
+/// 3. Anything else (primitives, raw FFI structs without wrappers, `Pointer`) — return
+///    `Optional.ofNullable(__ret.toNullable())` directly.
 fn emit_option_return_body(
     builder: &mut CodeBuilder,
     raw_payload_jvm: &str,

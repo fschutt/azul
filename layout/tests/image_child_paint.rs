@@ -109,8 +109,8 @@ fn a_child_of_an_image_is_painted_once_at_its_margin_offset() {
     assert_eq!(
         boxes.len(),
         1,
-        "the image's child was painted {} time(s), at {:?} — a replaced element's \
-         children must be emitted by exactly one paint path",
+        "the image's child was painted {} time(s), at {:?} — a replaced element's children must \
+         be emitted by exactly one paint path",
         boxes.len(),
         boxes
     );
@@ -118,9 +118,9 @@ fn a_child_of_an_image_is_painted_once_at_its_margin_offset() {
     let (x, y, _, _) = boxes[0];
     assert!(
         (x - 55.0).abs() < 0.5 && (y - 55.0).abs() < 0.5,
-        "the image's child painted at ({x}, {y}); the image's 5px border plus the \
-         child's 50px margins put it at (55, 55). Painting it at the image's content \
-         origin means its `relative_position` was never written."
+        "the image's child painted at ({x}, {y}); the image's 5px border plus the child's 50px \
+         margins put it at (55, 55). Painting it at the image's content origin means its \
+         `relative_position` was never written."
     );
 }
 
@@ -197,7 +197,10 @@ fn a_button_over_an_image_is_painted_once_and_maps_to_its_own_node() {
     // The DL ↔ DOM identity invariant: a stale or shifted mapping does not
     // fail loudly, it describes the WRONG node (see `validate_node_mapping`).
     for result in lw.layout_results.values() {
-        if let Err(e) = result.display_list.validate_node_mapping(&result.styled_dom) {
+        if let Err(e) = result
+            .display_list
+            .validate_node_mapping(&result.styled_dom)
+        {
             panic!("display list ↔ DOM mapping broken: {e}");
         }
     }

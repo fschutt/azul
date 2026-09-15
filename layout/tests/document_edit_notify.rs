@@ -1,25 +1,25 @@
 //! C11: push notification for pending structural edits + the documented
 //! drop-unacked promise.
 //!
-//! - `LayoutWindow::document_edit_event_provider` emits ONE
-//!   `EventType::DocumentEdit` per recorded changeset (the app's apply loop
-//!   is prompt and race-free instead of polling on its next callback).
-//! - Once the notification is DELIVERED (`mark_document_edit_notified`), an
-//!   app re-render without an ack REJECTS the edit: the next
-//!   `layout_new_generation` drops it with a warning — honoring the promise
-//!   documented on `pending_document_edit` since day one.
-//! - The preview-materializing relayout right after `record_document_edit`
-//!   must NOT drop (notification not yet delivered at that point), and
-//!   neither may ANY relayout of the DOM the app already rendered
-//!   (`layout_and_generate_display_list`): only a DOM the app built after
+//! - `LayoutWindow::document_edit_event_provider` emits ONE `EventType::DocumentEdit` per recorded
+//!   changeset (the app's apply loop is prompt and race-free instead of polling on its next
+//!   callback).
+//! - Once the notification is DELIVERED (`mark_document_edit_notified`), an app re-render without
+//!   an ack REJECTS the edit: the next `layout_new_generation` drops it with a warning — honoring
+//!   the promise documented on `pending_document_edit` since day one.
+//! - The preview-materializing relayout right after `record_document_edit` must NOT drop
+//!   (notification not yet delivered at that point), and neither may ANY relayout of the DOM the
+//!   app already rendered (`layout_and_generate_display_list`): only a DOM the app built after
 //!   hearing about the edit can be its answer.
 
-use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
-use azul_core::events::{EventData, EventProvider, EventType};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::StyledDom;
+use azul_core::{
+    dom::{Dom, DomId, IdOrClass, NodeId},
+    events::{EventData, EventProvider, EventType},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::StyledDom,
+};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -223,8 +223,8 @@ fn notified_pending_edit_is_dropped_at_the_next_re_render() {
     re_render(&mut lw);
     assert!(
         lw.get_pending_document_edit().is_none(),
-        "the app was notified and re-rendered without acking: the edit is \
-         rejected and dropped (the documented promise)"
+        "the app was notified and re-rendered without acking: the edit is rejected and dropped \
+         (the documented promise)"
     );
 }
 

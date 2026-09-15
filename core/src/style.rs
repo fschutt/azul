@@ -522,21 +522,22 @@ fn match_single_selector(
         // inherited from its `p { color: red }` parent. The one exception is
         // a rule scoped to EXACTLY this node (`node_scoped_to_self`) — that
         // is a bare-declaration `with_css` ON the text node itself, i.e.
-        // inline-style semantics: `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
+        // inline-style semantics:
+        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
         // must apply. Subtree-scoped and unscoped `*` rules keep refusing
         // text nodes.
         Global => !node_data.is_text_node() || node_scoped_to_self,
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
         // (`CssPath::push_front_scope`):
-        //  - a bare-decl `with_css` rule (`* { … }`) is scoped node-only (`[start,
-        //    start]`) → inline-style semantics: it applies to the OWNER only, so a
-        //    non-root `background` can't leak to descendants/siblings (#47 leak fix).
-        //  - a component rule with a real selector (`.menu-item`, from
-        //    `add_component_css`) is scoped to the whole subtree (`[start, end]`) so
-        //    its selector matches descendants of the owner (a menu container styling
-        //    its `.menu-item` children). Compounded with the rest of the path,
-        //    `[Root(range), Class(x)]` means "a node in range that also matches `.x`".
+        //  - a bare-decl `with_css` rule (`* { … }`) is scoped node-only (`[start, start]`) →
+        //    inline-style semantics: it applies to the OWNER only, so a non-root `background` can't
+        //    leak to descendants/siblings (#47 leak fix).
+        //  - a component rule with a real selector (`.menu-item`, from `add_component_css`) is
+        //    scoped to the whole subtree (`[start, end]`) so its selector matches descendants of
+        //    the owner (a menu container styling its `.menu-item` children). Compounded with the
+        //    rest of the path, `[Root(range), Class(x)]` means "a node in range that also matches
+        //    `.x`".
         Root(range) => range.contains(node_id.index()),
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),

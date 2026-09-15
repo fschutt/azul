@@ -57,7 +57,8 @@ enum CalcOp {
 /// Evaluate a `CalcResolveContext` using the given `basis` (the "100 %" reference value,
 /// e.g. containing-block width for `width: calc(…)`).
 #[inline(never)]
-// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
+// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill
+// PC-dispatch loop that mis-delivers auto_w
 #[must_use]
 pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
     evaluate_calc_ast(ctx.items.as_slice(), basis, ctx.em_size, ctx.rem_size)
@@ -73,7 +74,8 @@ pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
 ///   Pass 1: evaluate `*` and `/`
 ///   Pass 2: evaluate `+` and `-`
 /// Parenthesised sub-expressions are resolved recursively.
-#[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
+#[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn
+                 // forces a remill PC-dispatch loop that mis-delivers auto_w
 fn evaluate_calc_ast(items: &[CalcAstItem], basis: f32, em_size: f32, rem_size: f32) -> f32 {
     // Convert into a working vec of resolved numbers and operators.
     let mut flat: Vec<CalcFlatItem> = Vec::with_capacity(items.len());
@@ -196,7 +198,8 @@ pub fn resolve_pixel_value(pv: &PixelValue, basis: f32, em_size: f32, rem_size: 
 
 /// Like `resolve_pixel_value`, but with proper viewport unit resolution.
 #[inline(never)]
-// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
+// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill
+// PC-dispatch loop that mis-delivers auto_w
 #[must_use]
 pub fn resolve_pixel_value_with_viewport(
     pv: &PixelValue,

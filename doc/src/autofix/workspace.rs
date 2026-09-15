@@ -101,16 +101,14 @@ fn normalize_type_name_for_api(type_name: &str) -> String {
 pub fn collect_all_api_types(api_data: &ApiData) -> Vec<(String, String, String)> {
     let mut types = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Include callback_typedefs - they need patches for FFI
                 // (e.g. FooDestructorType is callback_typedef but needs patch)
 
                 let type_path = class_data
-                    .external
-                    .as_ref()
-                    .map(|s| s.as_str())
+                    .external.as_deref()
                     .unwrap_or(class_name.as_str())
                     .to_string();
 
@@ -888,7 +886,7 @@ pub fn generate_patches<T: TypeLookup>(
                 let key = (module_name.clone(), class_name.clone());
                 all_patches
                     .entry(key)
-                    .or_insert_with(|| ClassPatch::default())
+                    .or_insert_with(ClassPatch::default)
                     .move_to_module = Some(correct_module);
             }
         }
@@ -1027,7 +1025,8 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
-    // Generate standard Vec functions (without known_types check since this is for initial structure generation)
+    // Generate standard Vec functions (without known_types check since this is for initial
+    // structure generation)
     let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name, None);
 
     ClassPatch {
@@ -1056,8 +1055,9 @@ pub fn generate_vec_functions(
     lowercase_type_name: &str,
     known_types: Option<&std::collections::HashSet<String>>,
 ) -> indexmap::IndexMap<String, crate::api::FunctionData> {
-    use crate::api::{FunctionData, ReturnTypeData};
     use indexmap::IndexMap;
+
+    use crate::api::{FunctionData, ReturnTypeData};
 
     let mut functions = IndexMap::new();
 
@@ -1183,7 +1183,10 @@ pub fn generate_vec_functions(
         functions.insert(
             "c_get".to_string(),
             FunctionData {
-                doc: Some(vec![format!("Returns a copy of the element at the given index, or None if out of bounds. C-API compatible.")]),
+                doc: Some(vec![format!(
+                    "Returns a copy of the element at the given index, or None if out of bounds. \
+                     C-API compatible."
+                )]),
                 fn_args: get_args,
                 returns: Some(ReturnTypeData {
                     r#type: option_element_type,
@@ -1235,13 +1238,19 @@ pub fn generate_vec_functions(
         functions.insert(
             "as_c_slice_range".to_string(),
             FunctionData {
-                doc: Some(vec![format!("Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds.")]),
+                doc: Some(vec![format!(
+                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to \
+                     valid bounds."
+                )]),
                 fn_args: as_c_slice_range_args,
                 returns: Some(ReturnTypeData {
                     r#type: slice_type,
                     doc: None,
                 }),
-                fn_body: Some(format!("{}.as_c_slice_range(start, end)", lowercase_type_name)),
+                fn_body: Some(format!(
+                    "{}.as_c_slice_range(start, end)",
+                    lowercase_type_name
+                )),
                 ..Default::default()
             },
         );
@@ -1282,7 +1291,11 @@ pub fn generate_vec_functions(
     functions.insert(
         "copy_from_ptr".to_string(),
         FunctionData {
-            doc: Some(vec![format!("Copies elements from a C array into a `{}`. The array must be valid for `len` elements.", type_name)]),
+            doc: Some(vec![format!(
+                "Copies elements from a C array into a `{}`. The array must be valid for `len` \
+                 elements.",
+                type_name
+            )]),
             fn_args: copy_from_ptr_args,
             returns: Some(ReturnTypeData {
                 r#type: type_name.to_string(),
@@ -2004,7 +2017,7 @@ pub fn virtual_patch_application<T: TypeLookup>(
                 newly_discovered.push(type_info);
             } else {
                 // Only report TypeNotFound if it's not a suppressed type
-                if !crate::autofix::should_suppress_type_not_found(&type_name) {
+                if !crate::autofix::should_suppress_type_not_found(type_name) {
                     messages.push(AutofixMessage::TypeNotFound {
                         type_name: type_name.clone(),
                     });

@@ -8,7 +8,11 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{api::ApiData, dllgen::{bundles, license::License}, docgen::HTML_ROOT};
+use crate::{
+    api::ApiData,
+    dllgen::{bundles, license::License},
+    docgen::HTML_ROOT,
+};
 
 /// Verifies that all example files referenced in api.json exist on the filesystem.
 ///
@@ -47,11 +51,14 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
                 }
                 for (lang, rel) in example.code.all_paths() {
                     let path = examples_dir.join(&rel);
-                    let Ok(src) = fs::read_to_string(&path) else { continue };
+                    let Ok(src) = fs::read_to_string(&path) else {
+                        continue;
+                    };
                     for tok in FILLER_TOKENS {
                         if src.contains(tok) {
                             filler.push(format!(
-                                "[{}] {} ({}): demo filler `{}` in {} — a hello-world is model/layout/on_click/main, nothing else",
+                                "[{}] {} ({}): demo filler `{}` in {} — a hello-world is \
+                                 model/layout/on_click/main, nothing else",
                                 version, example.name, lang, tok, rel
                             ));
                         }
@@ -884,17 +891,11 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "cobol/hello-world.cob",
         source: BindingSource::Examples,
     },
-    // --- fortran (codegen emits Makefile.fortran; curl asks for `Makefile`) ---
-    BindingFile {
-        dst: "azul.f90",
-        src: "azul.f90",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Makefile",
-        src: "Makefile.fortran",
-        source: BindingSource::Codegen,
-    },
+    // --- fortran: the generated binding is one module per api.json module,
+    //     so it ships as a DIRECTORY (`azul-fortran/`: every `*.f90` + the
+    //     generated `Makefile` + `sources.txt`) copied by
+    //     `copy_generated_package` below; the tarball flattens it next to
+    //     `hello_world.f90`. ---
     // --- freebasic ---
     BindingFile {
         dst: "azul.bi",
@@ -906,32 +907,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "freebasic/hello-world.bas",
         source: BindingSource::Examples,
     },
-    // --- go ---
-    BindingFile {
-        dst: "azul.go",
-        src: "go/azul.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "types.go",
-        src: "go/types.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "functions.go",
-        src: "go/functions.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "wrappers.go",
-        src: "go/wrappers.go",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "go.mod",
-        src: "go/go.mod",
-        source: BindingSource::Codegen,
-    },
+    // --- go: the generated package is a DIRECTORY (`azul-go/`, every
+    //     `target/codegen/go/*.go` + its `go.mod` + `azul.h`) copied by
+    //     `copy_go_package` below, never a hand-kept file list: the list here
+    //     used to name 5 of the 7 generated files, and the two it missed
+    //     (`callbacks.go`, `callbacks_export.go`) are what `main.go` imports.
+    //     The hello-world's own `go.mod` (with the `replace` onto `./azul-go`)
+    //     is written by the same function. ---
     // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
     BindingFile {
         dst: "azul.cabal",
@@ -1087,10 +1069,15 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "vb6/HelloWorld.vbp",
         source: BindingSource::Examples,
     },
-    // --- zig ---
+    // --- zig (azul.zig `@import`s azul_c.zig, the pre-translated C ABI) ---
     BindingFile {
         dst: "azul.zig",
         src: "azul.zig",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul_c.zig",
+        src: "azul_c.zig",
         source: BindingSource::Codegen,
     },
     BindingFile {
@@ -1142,7 +1129,9 @@ const BINDING_FILES: &[BindingFile] = &[
         source: BindingSource::Examples,
     },
     // --- more candidate archetype-A bindings (d/crystal/v/swift/julia) ---
-    // d: `module azul`, compiled alongside the driver (top-level, no subdir).
+    // d: the example does `import azul;`; azul.d is that module in one file,
+    // compiled with the driver (`dmd hello-world.d azul.d -L-L. -L-lazul`, the
+    // command heading hello-world.d). The dub package is target/codegen/d/.
     BindingFile {
         dst: "azul.d",
         src: "azul.d",
@@ -1153,9 +1142,11 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "d/hello-world.d",
         source: BindingSource::Examples,
     },
-    // crystal: single `lib LibAzul`, required as a sibling `./azul`.
+    // crystal: the example does `require "azul"`, which Crystal resolves
+    // through `lib/` (where `shards install` puts dependencies), so the
+    // single-file binding ships as `lib/azul.cr` next to the example.
     BindingFile {
-        dst: "azul.cr",
+        dst: "lib/azul.cr",
         src: "azul.cr",
         source: BindingSource::Codegen,
     },
@@ -1175,7 +1166,10 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "v/hello-world.v",
         source: BindingSource::Examples,
     },
-    // swift: thin layer over azul.h via a Clang module map (needs azul.h + modulemap).
+    // swift: the example does `import Azul`; azul.swift is that module in one
+    // file, built next to azul.h and the module map that exposes it as CAzul
+    // (the build commands head hello-world.swift). The SwiftPM package is
+    // target/codegen/swift/.
     BindingFile {
         dst: "azul.swift",
         src: "azul.swift",
@@ -1250,20 +1244,12 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "node/package.json",
         source: BindingSource::Codegen,
     },
-    // --- ocaml ---
-    BindingFile {
-        dst: "azul.ml",
-        src: "azul.ml",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "azul.mli",
-        src: "azul.mli",
-        source: BindingSource::Codegen,
-    },
-    // The example's dune, not the codegen's: the generated one is the
-    // library manifest with the `(executable ...)` stanza commented out, so
-    // the documented `dune exec ./hello_world.exe` had nothing to build.
+    // --- ocaml: the generated units (`azul.ml` facade + one `azul_*.ml` per
+    //     api.json module) ship as the DIRECTORY `azul-ocaml/`, copied by
+    //     `copy_generated_package` below. The dune files are the example's,
+    //     not the codegen's: the generated dune is the library manifest with
+    //     the `(executable ...)` stanza commented out, so the documented
+    //     `dune exec ./hello_world.exe` had nothing to build. ---
     BindingFile {
         dst: "dune",
         src: "ocaml/dune",
@@ -1271,8 +1257,8 @@ const BINDING_FILES: &[BindingFile] = &[
     },
     BindingFile {
         dst: "dune-project",
-        src: "dune-project",
-        source: BindingSource::Codegen,
+        src: "ocaml/dune-project",
+        source: BindingSource::Examples,
     },
     // --- kotlin ---
     BindingFile {
@@ -1303,6 +1289,41 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile {
         dst: "hello-world.rs",
         src: "rust/src/hello-world.rs",
+        source: BindingSource::Examples,
+    },
+    // C++: one driver per dialect, named after it, so the file says which
+    // `-std=` it needs (the unnamed `hello-world.cpp` was the C++20 variant and
+    // the C++17 tabs compiled it with `-std=c++17` against `azul17.hpp`). The
+    // dialect tabs and `scripts/verify_install_commands.sh` fetch these; the
+    // bare `hello-world.cpp` stays for existing links and is C++20.
+    BindingFile {
+        dst: "hello-world-cpp03.cpp",
+        src: "cpp/cpp03/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp11.cpp",
+        src: "cpp/cpp11/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp14.cpp",
+        src: "cpp/cpp14/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp17.cpp",
+        src: "cpp/cpp17/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp20.cpp",
+        src: "cpp/cpp20/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-cpp23.cpp",
+        src: "cpp/cpp23/hello-world.cpp",
         source: BindingSource::Examples,
     },
     BindingFile {
@@ -1440,6 +1461,26 @@ pub fn copy_language_bindings(
         copied += 1;
     }
 
+    match copy_go_package(version_dir, codegen_dir) {
+        Ok(n) if n > 0 => copied += n,
+        Ok(_) => missing.push(format!(
+            "azul-go/ (from {})",
+            codegen_dir.join("go").display()
+        )),
+        Err(e) => missing.push(format!("azul-go/ ({e})")),
+    }
+
+    for (package, sub, keep) in GENERATED_PACKAGES {
+        match copy_generated_package(version_dir, codegen_dir, package, sub, *keep) {
+            Ok(n) if n > 0 => copied += n,
+            Ok(_) => missing.push(format!(
+                "{package}/ (from {})",
+                codegen_dir.join(sub).display()
+            )),
+            Err(e) => missing.push(format!("{package}/ ({e})")),
+        }
+    }
+
     // LuaRocks rockspec: filename embeds the release version
     // (`azul-<version>-1.rockspec`, must match the `version = "..."` inside),
     // so it can't live in the const BINDING_FILES list.
@@ -1467,6 +1508,109 @@ pub fn copy_language_bindings(
     }
 
     Ok(())
+}
+
+/// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
+/// `main.go`: `main.go` imports `github.com/azul/azul-go`, and this `replace`
+/// resolves it to the `azul-go/` directory shipped alongside — no `go mod
+/// init`, no `go mod edit`, no registry.
+pub fn go_example_mod() -> String {
+    "// go.mod for the azul hello-world. `main.go` imports the generated\n\
+     // github.com/azul/azul-go package; the replace below points at the copy\n\
+     // shipped in ./azul-go (from the same release), so `go build .` works\n\
+     // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
+     // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
+     \n\
+     module hello-world\n\
+     \n\
+     go 1.21\n\
+     \n\
+     require github.com/azul/azul-go v0.0.0\n\
+     \n\
+     replace github.com/azul/azul-go => ./azul-go\n"
+        .to_string()
+}
+
+/// Bindings the generator splits into one file per api.json module, shipped
+/// as `release/<v>/<package>/` (every matching file of `codegen_dir/<sub>/`)
+/// and flattened into their tarball by a `"<package>/": "./"` bundle entry.
+/// A glob, not a file list: the lists these replaced still named the old
+/// single-file `azul.f90` / `azul.ml` after the split, so both downloads
+/// shipped without a binding.
+const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
+    ("azul-fortran", "fortran", |name| {
+        name.ends_with(".f90") || name == "Makefile" || name == "sources.txt"
+    }),
+    ("azul-ocaml", "ocaml", |name| {
+        name.ends_with(".ml") || name.ends_with(".mli")
+    }),
+];
+
+/// Copy every file of `codegen_dir/<sub>/` that `keep` accepts into
+/// `version_dir/<package>/`. Returns the number of files written; 0 when the
+/// codegen output is absent (a warning for the caller, never an abort).
+pub fn copy_generated_package(
+    version_dir: &Path,
+    codegen_dir: &Path,
+    package: &str,
+    sub: &str,
+    keep: fn(&str) -> bool,
+) -> Result<usize> {
+    let src_dir = codegen_dir.join(sub);
+    if !src_dir.is_dir() {
+        return Ok(0);
+    }
+    let dst_dir = version_dir.join(package);
+    fs::create_dir_all(&dst_dir)?;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&src_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.file_name().and_then(|f| f.to_str()).is_some_and(keep))
+        .collect();
+    entries.sort();
+    for src in &entries {
+        fs::copy(src, dst_dir.join(src.file_name().unwrap()))?;
+    }
+    Ok(entries.len())
+}
+
+/// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
+/// `codegen_dir/go/` plus its `go.mod` (a glob, so the generator adding or
+/// renaming a file can never leave the release incomplete again) plus
+/// `azul.h`, because the package's cgo preamble `#include "azul.h"`s it and
+/// cgo resolves `-I.` against the package directory. Also writes the
+/// hello-world's `go.mod` ([`go_example_mod`]). Returns the number of files
+/// written; 0 when the codegen output is absent (a warning for the caller,
+/// never an abort).
+pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> {
+    let go_dir = codegen_dir.join("go");
+    if !go_dir.is_dir() {
+        return Ok(0);
+    }
+    let dst_dir = version_dir.join("azul-go");
+    fs::create_dir_all(&dst_dir)?;
+    let mut n = 0usize;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&go_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.is_file()
+                && (p.extension().is_some_and(|x| x == "go")
+                    || p.file_name().is_some_and(|f| f == "go.mod"))
+        })
+        .collect();
+    entries.sort();
+    for src in entries {
+        let name = src.file_name().unwrap();
+        fs::copy(&src, dst_dir.join(name))?;
+        n += 1;
+    }
+    let header = codegen_dir.join("azul.h");
+    if header.is_file() {
+        fs::copy(&header, dst_dir.join("azul.h"))?;
+        n += 1;
+    }
+    fs::write(version_dir.join("go.mod"), go_example_mod())?;
+    n += 1;
+    Ok(n)
 }
 
 /// Creates examples.zip by reading example paths from api.json and loading files from disk.
@@ -1596,15 +1740,14 @@ pub fn create_examples(
     source_zip.start_file("README.md", options)?;
     source_zip.write_all(
         format!(
-            "# Azul GUI Framework v{version}\n\n\
-             Cross-platform GUI framework with bindings for Rust, C, C++, Python and \
-             20+ other languages (all per-language `hello-world` / `widgets` sources are \
-             bundled here, one directory per language).\n\n\
-             This archive demonstrates the \"one dll, many small binaries\" model: a single \
-             shared library (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled \
-             demo apps under `demos/` (added by CI) — every app links the same one library \
-             instead of bundling its own runtime. Build any example against the bundled lib; \
-             headers are in `include/`.\n",
+            "# Azul GUI Framework v{version}\n\nCross-platform GUI framework with bindings for \
+             Rust, C, C++, Python and 20+ other languages (all per-language `hello-world` / \
+             `widgets` sources are bundled here, one directory per language).\n\nThis archive \
+             demonstrates the \"one dll, many small binaries\" model: a single shared library \
+             (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled demo apps under \
+             `demos/` (added by CI) — every app links the same one library instead of bundling \
+             its own runtime. Build any example against the bundled lib; headers are in \
+             `include/`.\n",
         )
         .as_bytes(),
     )?;
@@ -1631,7 +1774,8 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
     let java_dir = codegen_dir.join("java");
     if !java_dir.is_dir() {
         eprintln!(
-            "  [WARN] Java bindings dir {} missing — skipping azul-java.zip (run `azul-doc codegen all`?)",
+            "  [WARN] Java bindings dir {} missing — skipping azul-java.zip (run `azul-doc \
+             codegen all`?)",
             java_dir.display()
         );
         return Ok(());
@@ -1682,14 +1826,14 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
 /// URL and would break if the link moved to the GitHub Release:
 ///
 /// * `libazul.so`   — api.json install steps (×34 `curl`s)
-/// * `libazul.dylib` — api.json (×34) **and** the Homebrew formula's `url` +
-///   `sha256` (`build_registry_mirrors.sh` `build_homebrew`)
+/// * `libazul.dylib` — api.json (×34) **and** the Homebrew formula's `url` + `sha256`
+///   (`build_registry_mirrors.sh` `build_homebrew`)
 /// * `libazul.x86_64.dylib` — the same formula's `on_intel` block
-/// * `azul.dll`     — api.json (×43) **and** the Chocolatey package's
-///   `chocolateyInstall.ps1` `-Url64bit` + `-Checksum64` (`build_choco`)
+/// * `azul.dll`     — api.json (×43) **and** the Chocolatey package's `chocolateyInstall.ps1`
+///   `-Url64bit` + `-Checksum64` (`build_choco`)
 /// * `azul.i686.dll` — api.json (×1)
-/// * `azul.dll.lib` — api.json (×10); this is the ~4 MB *import* lib, not the
-///   ~300 MB static `azul.lib`
+/// * `azul.dll.lib` — api.json (×10); this is the ~4 MB *import* lib, not the ~300 MB static
+///   `azul.lib`
 ///
 /// Moving any of these trades a size problem for a dead-link problem. If one
 /// ever has to move, update every reference above in the same commit.
@@ -1900,6 +2044,20 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // C header tile
     let c_header_link = generate_asset_card(version, &assets.c_header);
 
+    // The debug libraries are shared libraries like any other: LARGE, so the
+    // deploy uploads them to the GitHub Release and trims them from Pages.
+    // These cards used to hardcode the Pages path, which the dead-link pruner
+    // then (correctly) found missing and greyed out on every release.
+    let debug_library_links: String = [
+        ("libazuldbg.so", "Debug library (Linux)"),
+        ("libazuldbg.dylib", "Debug library (macOS)"),
+        ("azuldbg.dll", "Debug library (Windows)"),
+    ]
+    .iter()
+    .map(|(filename, description)| release_card(version, filename, description))
+    .collect::<Vec<_>>()
+    .join(card_join);
+
     // C++ header tiles (same present/missing handling + URLs as the asset
     // tiles: .hpp files are SMALL assets, so asset_url yields the identical
     // {HTML_ROOT}/release/{version}/{filename} href as before)
@@ -2015,11 +2173,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // the azul-css/azul-core/azul-layout test suites and uploads `coverage/`
     // (an HTML report whose entry point is index.html) as the `coverage-report`
     // artifact. The deploy lays it out at release/{version}/coverage/.
-    let coverage_link = release_link_li(
-        version,
-        "coverage",
-        "Code coverage report",
-    );
+    let coverage_link = release_link_li(version, "coverage", "Code coverage report");
 
     // ---- Statistics / CI reports ----------------------------------------
     // Reports each CI job produces, laid out under release/{version}/statistics/
@@ -2090,26 +2244,11 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // generate_license_files writes the bundled third-party license text per
     // platform into release/{version}/. The project itself is MIT-licensed.
     const LICENSE_FILES: &[(&str, &str)] = &[
-        (
-            "LICENSE-LINUX.txt",
-            "Third-party licenses (Linux)",
-        ),
-        (
-            "LICENSE-MACOS.txt",
-            "Third-party licenses (macOS)",
-        ),
-        (
-            "LICENSE-WINDOWS.txt",
-            "Third-party licenses (Windows)",
-        ),
-        (
-            "LICENSE-IOS.txt",
-            "Third-party licenses (iOS)",
-        ),
-        (
-            "LICENSE-ANDROID.txt",
-            "Third-party licenses (Android)",
-        ),
+        ("LICENSE-LINUX.txt", "Third-party licenses (Linux)"),
+        ("LICENSE-MACOS.txt", "Third-party licenses (macOS)"),
+        ("LICENSE-WINDOWS.txt", "Third-party licenses (Windows)"),
+        ("LICENSE-IOS.txt", "Third-party licenses (iOS)"),
+        ("LICENSE-ANDROID.txt", "Third-party licenses (Android)"),
     ];
     let license_links: String = LICENSE_FILES
         .iter()
@@ -2208,11 +2347,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "mobile-apps/{c}-ios.ipa",
             |_| true,
         ),
-        (
-            "iOS device (.app)",
-            "mobile-apps/{c}-ios.app.zip",
-            |_| true,
-        ),
+        ("iOS device (.app)", "mobile-apps/{c}-ios.app.zip", |_| true),
         (
             "iOS Simulator (.app)",
             "mobile-apps/{c}-ios-sim.app.zip",
@@ -2261,9 +2396,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             // crate it happens to be built from.
             let tag = friendly.to_lowercase();
             format!(
-                "<li><strong>{friendly}</strong>\n                      \
-                 <pre>\
-                 <code class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 {tag}</code></pre></li>",
+                "<li><strong>{friendly}</strong>\n                      <pre><code \
+                 class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 \
+                 {tag}</code></pre></li>",
                 friendly = friendly,
                 url = url,
                 tag = tag
@@ -2339,9 +2474,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <h2 id='debug-libraries'>Debug libraries</h2>
               <p class='release-note'>For debugging desktop applications, see the <a href='{HTML_ROOT}/guide/debugging'>Debugging guide</a>.</p>
               <div class='docs-card-grid'>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/libazuldbg.so'><h4>Debug library (Linux)</h4><p class='docs-card-file'>libazuldbg.so</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/libazuldbg.dylib'><h4>Debug library (macOS)</h4><p class='docs-card-file'>libazuldbg.dylib</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/azuldbg.dll'><h4>Debug library (Windows)</h4><p class='docs-card-file'>azuldbg.dll</p></a>
+                {debug_library_links}
               </div>
 
               <h3>Mobile (iOS &amp; Android): drop-in libraries</h3>
@@ -2550,15 +2683,13 @@ pub fn generate_releases_index(versions: &[String]) -> String {
 /// (e.g. `/ui/guide/dom`).
 fn redirect_stub_html(target: &str) -> String {
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-         <title>Redirecting\u{2026}</title>\n\
-         <link rel=\"canonical\" href=\"{target}\">\n\
-         <meta name=\"robots\" content=\"noindex\">\n\
-         <meta http-equiv=\"refresh\" content=\"0; url={target}\">\n\
-         <script>location.replace(\"{target}\" + location.search + location.hash);</script>\n\
-         </head><body>\n\
-         <p>This page has moved to <a href=\"{target}\">{target}</a>.</p>\n\
-         </body></html>\n"
+        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta \
+         charset=\"utf-8\">\n<title>Redirecting\u{2026}</title>\n<link rel=\"canonical\" \
+         href=\"{target}\">\n<meta name=\"robots\" content=\"noindex\">\n<meta \
+         http-equiv=\"refresh\" content=\"0; \
+         url={target}\">\n<script>location.replace(\"{target}\" + location.search + \
+         location.hash);</script>\n</head><body>\n<p>This page has moved to <a \
+         href=\"{target}\">{target}</a>.</p>\n</body></html>\n"
     )
 }
 
@@ -2919,4 +3050,108 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
     }
 
     yaml
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Go package ships as a directory copied by glob — every `*.go` the
+    /// generator wrote plus its `go.mod` and `azul.h` — and the hello-world's
+    /// `go.mod` (with the `replace` onto `./azul-go`) is written next to it.
+    /// A hand-kept file list is what shipped 5 of 7 files before.
+    #[test]
+    fn copy_go_package_globs_the_generated_package_and_writes_the_example_go_mod() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codegen = tmp.path().join("codegen");
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(codegen.join("go")).unwrap();
+        fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod"] {
+            fs::write(codegen.join("go").join(f), b"x").unwrap();
+        }
+        // Not part of the package: a generator scratch file.
+        fs::write(codegen.join("go/NOTES.txt"), b"x").unwrap();
+        fs::write(codegen.join("azul.h"), b"/* header */").unwrap();
+
+        let n = copy_go_package(&version_dir, &codegen).unwrap();
+        assert_eq!(n, 6, "4 package files + azul.h + the example go.mod");
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "azul.h"] {
+            assert!(version_dir.join("azul-go").join(f).is_file(), "{f}");
+        }
+        assert!(!version_dir.join("azul-go/NOTES.txt").exists());
+        let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
+        assert!(gomod.contains("module hello-world\n"), "{gomod}");
+        assert!(gomod.contains("require github.com/azul/azul-go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("replace github.com/azul/azul-go => ./azul-go\n"), "{gomod}");
+    }
+
+    /// No codegen output → nothing written, `Ok(0)` (the caller warns).
+    #[test]
+    fn copy_go_package_without_codegen_output_is_a_warning_not_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(&version_dir).unwrap();
+        assert_eq!(copy_go_package(&version_dir, &tmp.path().join("nope")).unwrap(), 0);
+        assert!(!version_dir.join("azul-go").exists());
+        assert!(!version_dir.join("go.mod").exists());
+    }
+
+    /// Fortran and OCaml ship every per-module file the generator wrote, by
+    /// glob: the hand-kept lists still named the pre-split `azul.f90` and
+    /// `azul.ml`, so both tarballs came out without a binding.
+    #[test]
+    fn generated_packages_ship_every_per_module_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codegen = tmp.path().join("codegen");
+        let version_dir = tmp.path().join("release");
+        fs::create_dir_all(codegen.join("fortran")).unwrap();
+        fs::create_dir_all(codegen.join("ocaml")).unwrap();
+        fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.f90", "azul_types_css.f90", "azul_ffi_dom.f90", "Makefile", "sources.txt"] {
+            fs::write(codegen.join("fortran").join(f), b"x").unwrap();
+        }
+        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project"] {
+            fs::write(codegen.join("ocaml").join(f), b"x").unwrap();
+        }
+
+        let copied: Vec<usize> = GENERATED_PACKAGES
+            .iter()
+            .map(|(package, sub, keep)| {
+                copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
+            })
+            .collect();
+        assert_eq!(copied, [5, 3]);
+        assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
+        assert!(version_dir.join("azul-fortran/Makefile").is_file());
+        assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
+        // The example's dune files go into the tarball, never the library-only ones.
+        assert!(!version_dir.join("azul-ocaml/dune").exists());
+        assert!(!version_dir.join("azul-ocaml/dune-project").exists());
+        assert_eq!(
+            copy_generated_package(&version_dir, &tmp.path().join("nope"), "x", "fortran", |_| true)
+                .unwrap(),
+            0
+        );
+    }
+
+    /// One C++ driver per dialect, named after it, next to the unnamed
+    /// (C++20) one — the tabs and the verify script fetch the named ones.
+    #[test]
+    fn every_cpp_dialect_ships_its_own_named_hello_world() {
+        for d in ["03", "11", "14", "17", "20", "23"] {
+            let dst = format!("hello-world-cpp{d}.cpp");
+            let src = format!("cpp/cpp{d}/hello-world.cpp");
+            assert!(
+                BINDING_FILES.iter().any(|b| b.dst == dst && b.src == src),
+                "{dst} <- {src} missing from BINDING_FILES"
+            );
+        }
+        assert!(BINDING_FILES
+            .iter()
+            .any(|b| b.dst == "hello-world.cpp" && b.src == "cpp/cpp20/hello-world.cpp"));
+        // The Go package is a directory now; no flat `package azul` files.
+        assert!(!BINDING_FILES.iter().any(|b| b.src.starts_with("go/") && b.src != "go/main.go"));
+        assert!(BINDING_FILES.iter().any(|b| b.dst == "azul_c.zig"));
+    }
 }

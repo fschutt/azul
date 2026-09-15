@@ -26,7 +26,8 @@ use crate::{
 
 // -- Calc AST --
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// A single item in a `calc()` expression, stored as a flat stack-machine representation.
 ///
 /// The expression `calc(33.333% - 10px)` is stored as:
@@ -90,12 +91,13 @@ impl_option!(
 ///
 /// Examples:
 /// - `"100% - 20px"` → `[Value(100%), Sub, Value(20px)]`
-/// - `"(100% - 20px) / 3"` → `[BraceOpen, Value(100%), Sub, Value(20px), BraceClose, Div, Value(3)]`
+/// - `"(100% - 20px) / 3"` → `[BraceOpen, Value(100%), Sub, Value(20px), BraceClose, Div,
+///   Value(3)]`
 ///
 /// **Tokenisation rules**:
 ///  - Whitespace is skipped between tokens.
-///  - `+`, `-`, `*`, `/` are operators (but `-` at the start of a number is
-///    part of the number literal, e.g. `-10px`).
+///  - `+`, `-`, `*`, `/` are operators (but `-` at the start of a number is part of the number
+///    literal, e.g. `-10px`).
 ///  - `(` / `)` produce `BraceOpen` / `BraceClose`.
 ///  - Anything else is parsed as a `PixelValue` via `parse_pixel_value`.
 #[cfg(feature = "parser")]
@@ -275,7 +277,8 @@ macro_rules! define_sizing_enum {
             Px(PixelValue),
             MinContent,
             MaxContent,
-            /// `fit-content(<length-percentage>)` = `min(max-content, max(min-content, <length-percentage>))`
+            /// `fit-content(<length-percentage>)` = `min(max-content, max(min-content,
+            /// <length-percentage>))`
             FitContent(PixelValue),
             /// `calc()` expression stored as a flat stack-machine AST
             Calc(CalcAstItemVec),
@@ -379,13 +382,12 @@ impl PrintAsCssValue for LayoutBoxSizing {
 #[cfg(feature = "parser")]
 pub mod parser {
 
-    use crate::corety::AzString;
     use alloc::string::ToString;
 
     #[allow(clippy::wildcard_imports)]
     // parser submodule reuses the parent module's value types
     use super::*;
-    use crate::props::basic::pixel::parse_pixel_value;
+    use crate::{corety::AzString, props::basic::pixel::parse_pixel_value};
 
     macro_rules! define_pixel_dimension_parser {
         ($fn_name:ident, $struct_name:ident, $error_name:ident, $error_owned_name:ident) => {
@@ -439,7 +441,13 @@ pub mod parser {
     }
 
     macro_rules! define_sizing_parser {
-        ($fn_name:ident, $enum_name:ident, $error_name:ident, $error_owned_name:ident, $keyword_label:expr) => {
+        (
+            $fn_name:ident,
+            $enum_name:ident,
+            $error_name:ident,
+            $error_owned_name:ident,
+            $keyword_label:expr
+        ) => {
             #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 PixelValue(CssPixelValueParseError<'a>),
@@ -687,14 +695,15 @@ mod tests {
 
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
-    #[allow(clippy::wildcard_imports)]
-    use super::*;
     use alloc::{
         format,
         string::{String, ToString},
         vec,
         vec::Vec,
     };
+
+    #[allow(clippy::wildcard_imports)]
+    use super::*;
 
     /// Maps a `CalcAstItem` to a discriminant tag, so tests can compare the *shape*
     /// of two ASTs without depending on `FloatValue`'s 1/1000 quantisation.

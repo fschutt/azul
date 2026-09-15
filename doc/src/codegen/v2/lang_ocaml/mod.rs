@@ -1,64 +1,62 @@
 //! OCaml binding generator.
 //!
-//! Produces two OCaml compilation units:
+//! Produces a dune library of many small compilation units behind one
+//! facade, `Azul`: user code keeps writing `Azul.Dom.create_body ()` and
+//! `Azul.azul_refany_get`, but `ocamlopt` no longer sees one 8 MB /
+//! 120k-line `azul.ml` (which overflowed an 8 MB stack and took minutes).
 //!
-//! 1. `azul.mli` — the module interface: type declarations, opaque
-//!    abstract record types for wrappers, FFI value signatures (the
-//!    `foreign` declarations), and the public surface of the idiomatic
-//!    `Azul` module nest.
-//! 2. `azul.ml` — the module implementation: `open Ctypes`, `open
-//!    Foreign`, library load, struct definitions (with `field` / `seal`),
-//!    function bindings via `foreign`, and the wrapper-record
-//!    constructors that attach a `Gc.finalise` hook to call the matching
-//!    `_delete` C function.
+//! The split follows [`super::module_plan::ModulePlan`] and is layered so
+//! every unit only depends on units below it (OCaml compilation units
+//! cannot be mutually recursive):
+//!
+//! 1. `azul_loader.ml` — the `Dl.dlopen` of libazul, forced before any `foreign` lookup by every
+//!    FFI unit.
+//! 2. `azul_types_<unit>.ml` — one unit per plan chunk (`azul_types_css`, `azul_types_dom`,
+//!    `azul_types_css_2`, ...): the Ctypes `structure` stubs, fields + `seal`, unit-enum constants
+//!    and tagged-union blobs of that chunk's types. A chunk `open`s the chunks it references.
+//!    `azul_types.ml` `include`s them all. See `types.rs`.
+//! 3. `azul_ffi_<module>.ml` — the `foreign "<C symbol>" (...)` bindings of one api.json module's
+//!    classes; `azul_ffi.ml` includes them all. See `functions.rs`.
+//! 4. `azul_managed.ml` — the host-invoker runtime (handle table, per-kind invokers,
+//!    `azul_refany_create` / `azul_refany_get`). See `managed.rs`.
+//! 5. `azul_records_<module>.ml` — the wrapper records with their `Gc.finalise` finalisers (`type
+//!    app = { mutable raw; mutable disposed }`, `make_app`, `dispose_app`, `raw_app`) of one
+//!    api.json module; `azul_records.ml` includes them all.
+//! 6. `azul_api_<module>.ml` / `.mli` — the idiomatic per-class submodules (`module Dom : sig ...
+//!    end`, `module Update : sig ... end`) and the polymorphic-variant views of one api.json
+//!    module. The `.mli` seals them exactly as the old `azul.mli` did. See `wrappers.rs`.
+//! 7. `azul.ml` — the facade: `include`s every layer and adds the Dom.t-returning layout sugar.
+//!
+//! dune wraps the library, so only `Azul` is visible to consumers; the
+//! internal units are reachable as `Azul.<name>` through the includes.
 //!
 //! ## Surface
 //!
-//! - All FFI-level identifiers are emitted in `lower_snake_case`
-//!   (OCaml's value/type-name convention) — e.g. `az_app`, `az_app_create`.
-//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C
-//!   symbol from the IR (`AzApp_create`), never the OCaml-snake form.
-//! - Idiomatic surface lives inside nested modules: `Azul.App.create`,
-//!   `Azul.App.run`, etc. The `Az_` / `Az` prefix is dropped.
-//! - Tagged-union enums are surfaced as polymorphic variants
-//!   (`[ \`None | \`Some of int64 ]`) with `to_ffi` / `of_ffi`
-//!   conversion functions.
-//! - Wrapper records:
-//!
-//!   ```ocaml
-//!   type app = { raw : <ffi_struct>; mutable disposed : bool }
-//!   let make_app raw =
-//!     let r = { raw; disposed = false } in
-//!     Gc.finalise
-//!       (fun a -> if not a.disposed then begin
-//!          az_app_delete (Ctypes.addr a.raw); a.disposed <- true
-//!        end)
-//!       r;
-//!     r
-//!   ```
+//! - All FFI-level identifiers are emitted in `lower_snake_case` (OCaml's value/type-name
+//!   convention) — e.g. `az_app`, `ffi_az_app_create`.
+//! - The `foreign "<C symbol>" (...)` link name uses the **exact** C symbol from the IR
+//!   (`AzApp_create`), never the OCaml-snake form.
+//! - Idiomatic surface lives inside nested modules: `Azul.App.create`, `Azul.App.run`, etc. The
+//!   `Az_` / `Az` prefix is dropped.
+//! - Tagged-union enums are surfaced as polymorphic variants (`[ \`None | \`Some of int64 ]`) with
+//!   `to_ffi` / `of_ffi` conversion functions.
 //!
 //! ## Output protocol
 //!
-//! `generate(ir, config)` returns a single `String` containing BOTH
-//! files separated by [`SPLIT_MARKER`] on its own line:
+//! `generate(ir, config)` returns a single `String` with multiple files
+//! separated by [`FILE_MARKER`] / [`END_MARKER`] header lines:
 //!
 //! ```text
-//! <azul.mli contents>
-//! (*==SPLIT==*)
-//! <azul.ml contents>
+//! (*==FILE: azul_types_css.ml ==*)
+//! <contents>
+//! (*==FILE: azul_api_dom.mli ==*)
+//! <contents>
 //! ```
 //!
-//! The marker is itself a syntactically valid OCaml block comment, so
-//! even if a downstream tool fails to split the file, the combined text
-//! still parses (the marker becomes a no-op comment line). The
-//! orchestrator splits on the marker and writes each half to its
-//! respective file.
-//!
-//! Returning a single `String` matches the signature shape used by every
-//! other v2 language entry point (Python, C#, Ruby, Lua, Ada).
-//!
-//! Keep [`SPLIT_MARKER`] stable; it is part of the contract with the
-//! orchestrator.
+//! The marker is a valid OCaml block comment so the combined text still
+//! parses if it is not split. The orchestrator splits on the marker and
+//! writes each part next to the others (they must share a directory for
+//! dune).
 
 pub mod dune;
 pub mod functions;
@@ -66,141 +64,260 @@ pub mod managed;
 pub mod types;
 pub mod wrappers;
 
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 
-use super::config::CodegenConfig;
-use super::generator::CodeBuilder;
-use super::ir::CodegenIR;
+use super::{
+    config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR, module_plan::ModulePlan,
+};
 
 /// Library link name passed to `Dl.dlopen` and used by `foreign` to
 /// resolve the prebuilt artifact at runtime.
 pub const LIB_NAME: &str = "azul";
 
-/// Separator between `azul.mli` and `azul.ml` contents in the single
-/// returned `String`. The marker is a valid OCaml block comment so
-/// the combined file remains parseable if accidentally not split.
-pub const SPLIT_MARKER: &str = "(*==SPLIT==*)";
+/// File-marker header introducing each per-file section of the output.
+pub const FILE_MARKER: &str = "(*==FILE: ";
 
-/// Public entry point. Generates the full `azul.mli` and `azul.ml` text
-/// concatenated with [`SPLIT_MARKER`] between them.
-pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let interface = generate_interface(ir, config)?;
-    let implementation = generate_implementation(ir, config)?;
+/// Trailing marker closing the file-marker header line.
+pub const END_MARKER: &str = " ==*)";
 
-    let mut out =
-        String::with_capacity(interface.len() + implementation.len() + SPLIT_MARKER.len() + 2);
-    out.push_str(&interface);
-    if !interface.ends_with('\n') {
-        out.push('\n');
+/// The api.json module a class the plan does not know (a function-only
+/// class) is filed under.
+const FALLBACK_MODULE: &str = "misc";
+
+/// The split, shared by the per-unit emitters.
+pub struct Split {
+    pub plan: ModulePlan,
+}
+
+impl Split {
+    pub fn new(ir: &CodegenIR) -> Self {
+        Split {
+            plan: ModulePlan::build(ir),
+        }
     }
-    out.push_str(SPLIT_MARKER);
-    out.push('\n');
-    out.push_str(&implementation);
+
+    /// The api.json module a class / type / callback typedef belongs to.
+    pub fn module_of(&self, type_or_class: &str) -> String {
+        self.plan
+            .api_module_of(type_or_class)
+            .unwrap_or(FALLBACK_MODULE)
+            .to_string()
+    }
+
+    /// Every api.json module the per-class surface is split over.
+    pub fn api_modules(&self, ir: &CodegenIR) -> Vec<String> {
+        let mut mods: BTreeSet<String> = self.plan.api_modules().into_iter().collect();
+        for f in &ir.functions {
+            mods.insert(self.module_of(&f.class_name));
+        }
+        mods.into_iter().collect()
+    }
+
+    /// Unit (file stem) of a types chunk: `azul_types_css_2`.
+    pub fn types_unit(&self, chunk_idx: usize) -> String {
+        format!("azul_types_{}", self.plan.chunks[chunk_idx].name)
+    }
+}
+
+/// `azul_types_css` -> `Azul_types_css`: the OCaml module name of a unit.
+pub fn unit_module(unit: &str) -> String {
+    let mut c = unit.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Public entry point. Generates every unit of the OCaml binding,
+/// concatenated with file markers.
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let split = Split::new(ir);
+    let mut files: Vec<(String, String)> = Vec::new();
+
+    // 1. Loader.
+    files.push(("azul_loader.ml".to_string(), generate_loader(config)));
+
+    // 2. Types, one unit per plan chunk, then the facade.
+    let mut type_units = Vec::new();
+    for idx in 0..split.plan.chunks.len() {
+        let unit = split.types_unit(idx);
+        files.push((
+            format!("{}.ml", unit),
+            generate_types_unit(ir, config, &split, idx)?,
+        ));
+        type_units.push(unit);
+    }
+    files.push((
+        "azul_types.ml".to_string(),
+        generate_include_facade(
+            config,
+            "Every FFI type of the binding: the union of the per-module chunks.",
+            &type_units,
+        ),
+    ));
+
+    // 3. FFI bindings per api.json module, then the facade.
+    let api_modules = split.api_modules(ir);
+    let mut ffi_units = Vec::new();
+    for m in &api_modules {
+        let unit = format!("azul_ffi_{}", m);
+        files.push((
+            format!("{}.ml", unit),
+            generate_ffi_unit(ir, config, &split, m)?,
+        ));
+        ffi_units.push(unit);
+    }
+    files.push((
+        "azul_ffi.ml".to_string(),
+        generate_include_facade(
+            config,
+            "Every raw `foreign` binding of the binding: the union of the per-module units.",
+            &ffi_units,
+        ),
+    ));
+
+    // 4. Managed runtime.
+    files.push((
+        "azul_managed.ml".to_string(),
+        generate_managed_unit(ir, config),
+    ));
+
+    // 5. Wrapper records per api.json module, then the facade.
+    let mut record_units = Vec::new();
+    for m in &api_modules {
+        let unit = format!("azul_records_{}", m);
+        files.push((
+            format!("{}.ml", unit),
+            generate_records_unit(ir, config, &split, m)?,
+        ));
+        record_units.push(unit);
+    }
+    files.push((
+        "azul_records.ml".to_string(),
+        generate_include_facade(
+            config,
+            "Every wrapper record of the binding: the union of the per-module units.",
+            &record_units,
+        ),
+    ));
+
+    // 6. Idiomatic per-class modules per api.json module (.ml + .mli).
+    let mut api_units = Vec::new();
+    for m in &api_modules {
+        let unit = format!("azul_api_{}", m);
+        let (ml, mli) = generate_api_unit(ir, config, &split, m)?;
+        files.push((format!("{}.ml", unit), ml));
+        files.push((format!("{}.mli", unit), mli));
+        api_units.push(unit);
+    }
+
+    // 7. The facade.
+    files.push((
+        "azul.ml".to_string(),
+        generate_facade(
+            ir,
+            config,
+            &type_units,
+            &ffi_units,
+            &record_units,
+            &api_units,
+        ),
+    ));
+
+    let total: usize = files.iter().map(|(_, s)| s.len()).sum();
+    let mut out = String::with_capacity(total + 64 * files.len());
+    for (path, src) in &files {
+        out.push_str(FILE_MARKER);
+        out.push_str(path);
+        out.push_str(END_MARKER);
+        out.push('\n');
+        out.push_str(src);
+        if !src.ends_with('\n') {
+            out.push('\n');
+        }
+    }
     Ok(out)
 }
 
-/// Build the module interface (`azul.mli`).
-fn generate_interface(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new(&config.indent);
-
-    interface_header(&mut builder);
-
-    // Types section: opaque type stubs for FFI structs/enums plus
-    // polymorphic-variant signatures for tagged unions.
-    types::emit_interface_types(&mut builder, ir, config)?;
-
-    // Managed-FFI public helper signatures. Must come BEFORE wrappers
-    // so the wrappers can reference azul_refany_create etc.
-    managed::emit_managed_interface(&mut builder, ir);
-
-    // Wrapper record types declared as abstract: the consumer never sees
-    // the field shape (the `mutable disposed` flag is implementation
-    // detail); they get a `make_t` smart constructor signature.
-    wrappers::emit_wrapper_interface(&mut builder, ir, config)?;
-
-    // Idiomatic Azul module surface: nested submodules per class.
-    wrappers::emit_idiomatic_module_interface(&mut builder, ir, config)?;
-
-    // Dom.t-returning layout registration sugar (needs `dom` +
-    // `az_window_create_options` + `az_layout_callback` declared above).
-    wrappers::emit_layout_dom_sugar_interface(&mut builder, ir, config);
-
-    Ok(builder.finish())
+/// The unit names (file stems) `generate` emits, in dependency order —
+/// what the dune `(modules ...)` field and the release bundle list.
+pub fn unit_names(ir: &CodegenIR) -> Vec<String> {
+    let split = Split::new(ir);
+    let mut out = vec!["azul_loader".to_string()];
+    for idx in 0..split.plan.chunks.len() {
+        out.push(split.types_unit(idx));
+    }
+    out.push("azul_types".to_string());
+    let api_modules = split.api_modules(ir);
+    for m in &api_modules {
+        out.push(format!("azul_ffi_{}", m));
+    }
+    out.push("azul_ffi".to_string());
+    out.push("azul_managed".to_string());
+    for m in &api_modules {
+        out.push(format!("azul_records_{}", m));
+    }
+    out.push("azul_records".to_string());
+    for m in &api_modules {
+        out.push(format!("azul_api_{}", m));
+    }
+    out.push("azul".to_string());
+    out
 }
 
-/// Build the module implementation (`azul.ml`).
-fn generate_implementation(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let mut builder = CodeBuilder::new(&config.indent);
+// ============================================================================
+// Per-unit builders
+// ============================================================================
 
-    implementation_header(&mut builder);
-    implementation_preamble(&mut builder);
-
-    // 1. Forward struct typ declarations so mutually-recursive references
-    //    resolve. Each struct emits an opaque `type` plus a `structure`
-    //    typ value; fields are added in the next pass.
-    types::emit_forward_struct_decls(&mut builder, ir, config);
-
-    // 2. Field definitions + seal for each struct, plus enum constants
-    //    and tagged-union accessor scaffolding.
-    types::emit_struct_fields_and_enums(&mut builder, ir, config)?;
-
-    // 3. Raw `foreign` bindings, one per IR FunctionDef.
-    functions::emit_foreign_bindings(&mut builder, ir, config)?;
-
-    // 3b. Managed-FFI runtime helpers (host-invoker prelude). Lands
-    //     before the wrapper records so wrappers may call
-    //     azul_refany_create / register_callback.
-    managed::emit_managed_prelude(&mut builder, ir);
-
-    // 4. Wrapper records + Gc.finalise smart constructors.
-    wrappers::emit_wrapper_records(&mut builder, ir, config)?;
-
-    // 5. Idiomatic Azul module surface implementation.
-    wrappers::emit_idiomatic_module_implementation(&mut builder, ir, config)?;
-
-    // 6. Dom.t-returning layout registration sugar (needs the wrapper
-    //    records' `dom` / `raw_dom` and the managed prelude's
-    //    `azul_*_with_layout` / `azul_register_layout_callback`).
-    wrappers::emit_layout_dom_sugar_implementation(&mut builder, ir, config);
-
-    Ok(builder.finish())
-}
-
-fn interface_header(builder: &mut CodeBuilder) {
+fn unit_header(builder: &mut CodeBuilder, what: &str) {
     builder.line("(* ============================================================================");
-    builder.line(" * Auto-generated OCaml bindings for the Azul GUI framework (interface).");
+    builder.line(&format!(" * {}", what));
+    builder.line(" * Auto-generated OCaml bindings for the Azul GUI framework.");
     builder.line(" * Generated by azul-doc codegen v2 (lang_ocaml). DO NOT EDIT MANUALLY.");
     builder
         .line(" * ============================================================================ *)");
     builder.blank();
 }
 
-fn implementation_header(builder: &mut CodeBuilder) {
-    builder.line("(* ============================================================================");
-    builder.line(" * Auto-generated OCaml bindings for the Azul GUI framework (implementation).");
-    builder.line(" * Generated by azul-doc codegen v2 (lang_ocaml). DO NOT EDIT MANUALLY.");
-    builder
-        .line(" * ============================================================================ *)");
-    builder.blank();
+/// A unit that only `include`s other units.
+fn generate_include_facade(config: &CodegenConfig, what: &str, units: &[String]) -> String {
+    let mut b = CodeBuilder::new(&config.indent);
+    unit_header(&mut b, what);
+    for u in units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
+    b.finish()
 }
 
-fn implementation_preamble(builder: &mut CodeBuilder) {
-    builder.line("open Ctypes");
-    builder.line("open Foreign");
-    builder.blank();
+/// `azul_loader.ml`: the dlopen every FFI unit forces first.
+fn generate_loader(config: &CodegenConfig) -> String {
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(&mut builder, "Native library loader.");
     builder.line("(* Force the dynamic loader to bring in libazul up-front so all `foreign`");
-    builder.line("   lookups below resolve from the same handle. RTLD_GLOBAL lets the");
+    builder.line("   lookups resolve from the same handle. RTLD_GLOBAL lets the");
     builder.line("   library's transitive dependencies (e.g. system OpenGL) link too.");
     builder.line("   Try each platform-conventional filename in turn so the binding");
     builder.line("   loads on Linux, macOS, and Windows without manual configuration.");
     builder.line("   The first match wins; failures are silenced (logged via stderr).");
-    builder.line("   Users can override the search by setting AZ_DYLIB. *)");
-    builder.line("let () =");
+    builder.line("   Users can override the search by setting AZ_DYLIB.");
+    builder.line("   Every FFI unit calls [ensure] at its top so the load happens before");
+    builder.line("   its first `foreign` lookup, whatever the link order. *)");
+    builder.line("let loaded = ref false");
+    builder.blank();
+    builder.line("let ensure () =");
     builder.indent();
+    builder.line("if not !loaded then begin");
+    builder.indent();
+    builder.line("loaded := true;");
     builder.line("let candidates = match Sys.getenv_opt \"AZ_DYLIB\" with");
     builder.indent();
     builder.line("| Some p when String.length p > 0 -> [p]");
-    builder.line("| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \"./libazul.so\"]");
+    builder.line(
+        "| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \
+         \"./libazul.so\"]",
+    );
     builder.dedent();
     builder.line("in");
     builder.line("let rec try_load = function");
@@ -215,9 +332,190 @@ fn implementation_preamble(builder: &mut CodeBuilder) {
     builder.dedent();
     builder.line("in try_load candidates");
     builder.dedent();
+    builder.line("end");
+    builder.dedent();
     builder.blank();
+    builder.line("let () = ensure ()");
+    builder.finish()
 }
 
+/// `azul_types_<unit>.ml`: one plan chunk's types.
+fn generate_types_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    idx: usize,
+) -> Result<String> {
+    let chunk = &split.plan.chunks[idx];
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut builder,
+        &format!(
+            "FFI types of the api.json module `{}` (unit {} of the split).",
+            chunk.api_module, chunk.ordinal
+        ),
+    );
+    builder.line("open Ctypes");
+    for dep in &chunk.deps {
+        builder.line(&format!("open {}", unit_module(&split.types_unit(*dep))));
+    }
+    builder.blank();
+    let members: BTreeSet<&str> = chunk.types.iter().map(|s| s.as_str()).collect();
+    let belongs = |t: &str| members.contains(t);
+    types::emit_types_chunk(&mut builder, ir, config, &belongs)?;
+    Ok(builder.finish())
+}
+
+/// `azul_ffi_<module>.ml`: the `foreign` bindings of one api.json module.
+fn generate_ffi_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut builder,
+        &format!(
+            "Raw `foreign` bindings of the api.json module `{}`.",
+            api_module
+        ),
+    );
+    builder.line("open Ctypes");
+    builder.line("open Foreign");
+    builder.line("open Azul_types");
+    builder.blank();
+    builder.line("let () = Azul_loader.ensure ()");
+    builder.blank();
+    let belongs = |c: &str| split.module_of(c) == api_module;
+    functions::emit_foreign_bindings_for(&mut builder, ir, config, &belongs)?;
+    Ok(builder.finish())
+}
+
+/// `azul_managed.ml`: the host-invoker runtime.
+fn generate_managed_unit(ir: &CodegenIR, config: &CodegenConfig) -> String {
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(&mut builder, "Managed-FFI runtime (host-invoker pattern).");
+    builder.line("open Ctypes");
+    builder.line("open Foreign");
+    builder.line("open Azul_types");
+    builder.line("open Azul_ffi");
+    builder.blank();
+    builder.line("let () = Azul_loader.ensure ()");
+    managed::emit_managed_prelude(&mut builder, ir);
+    builder.finish()
+}
+
+/// `azul_records_<module>.ml`: the wrapper records of one api.json module.
+fn generate_records_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut builder,
+        &format!(
+            "Wrapper records (Gc.finalise-managed) of the api.json module `{}`.",
+            api_module
+        ),
+    );
+    builder.line("open Ctypes");
+    builder.line("open Azul_types");
+    builder.line("open Azul_ffi");
+    builder.blank();
+    let belongs = |c: &str| split.module_of(c) == api_module;
+    wrappers::emit_wrapper_records_for(&mut builder, ir, config, &belongs)?;
+    Ok(builder.finish())
+}
+
+/// `azul_api_<module>.ml` + `.mli`: the idiomatic per-class modules of one
+/// api.json module.
+fn generate_api_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<(String, String)> {
+    let belongs = |c: &str| split.module_of(c) == api_module;
+    let opens = |b: &mut CodeBuilder| {
+        b.line("open Ctypes");
+        b.line("open Azul_types");
+        b.line("open Azul_ffi");
+        b.line("open Azul_managed");
+        b.line("open Azul_records");
+        b.blank();
+    };
+
+    let mut ml = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut ml,
+        &format!(
+            "Idiomatic per-class modules of the api.json module `{}` (implementation).",
+            api_module
+        ),
+    );
+    opens(&mut ml);
+    wrappers::emit_idiomatic_module_implementation_for(&mut ml, ir, config, &belongs)?;
+
+    let mut mli = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut mli,
+        &format!(
+            "Idiomatic per-class modules of the api.json module `{}` (interface).",
+            api_module
+        ),
+    );
+    opens(&mut mli);
+    wrappers::emit_idiomatic_module_interface_for(&mut mli, ir, config, &belongs)?;
+
+    Ok((ml.finish(), mli.finish()))
+}
+
+/// `azul.ml`: the facade every consumer opens.
+fn generate_facade(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    type_units: &[String],
+    ffi_units: &[String],
+    record_units: &[String],
+    api_units: &[String],
+) -> String {
+    let mut b = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut b,
+        "The `Azul` module: every unit of the binding, included in dependency order.",
+    );
+    b.line("(* The binding is split into one unit per api.json module (and per");
+    b.line("   dependency slice of it for the types). This facade includes them all,");
+    b.line("   so `Azul.Dom.create_body ()`, `Azul.az_dom`, `Azul.ffi_az_dom_delete`");
+    b.line("   and `Azul.azul_refany_get` resolve exactly as they did when the binding");
+    b.line("   was one file. *)");
+    b.blank();
+    b.line("include Azul_loader");
+    for u in type_units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
+    for u in ffi_units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
+    b.line("include Azul_managed");
+    for u in record_units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
+    for u in api_units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
+    b.blank();
+    // Dom.t-returning layout registration sugar (needs the wrapper
+    // records' `dom` / `raw_dom` and the managed runtime's
+    // `azul_*_with_layout` / `azul_register_layout_callback`).
+    wrappers::emit_layout_dom_sugar_implementation(&mut b, ir, config);
+    b.finish()
+}
+
+// ============================================================================
 // ============================================================================
 // Shared helpers (used by submodules)
 // ============================================================================
@@ -656,4 +954,115 @@ fn is_ocaml_reserved(s: &str) -> bool {
 /// terminate the surrounding OCaml block comment.
 pub fn sanitize_doc(s: &str) -> String {
     s.replace('\n', " ").replace("*)", "* )").trim().to_string()
+}
+
+#[cfg(test)]
+mod split_tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        super::{config::CodegenConfig, module_plan::test_fixture_ir},
+        *,
+    };
+
+    fn generated() -> BTreeMap<String, String> {
+        let ir = test_fixture_ir();
+        let out = generate(&ir, &CodegenConfig::c_header()).expect("ocaml codegen");
+        let mut files = BTreeMap::new();
+        let mut cur: Option<String> = None;
+        for line in out.lines() {
+            if let Some(rest) = line.strip_prefix(FILE_MARKER) {
+                cur = Some(rest.trim_end_matches(END_MARKER).trim().to_string());
+                files.insert(cur.clone().unwrap(), String::new());
+            } else if let Some(p) = &cur {
+                let f = files.get_mut(p).unwrap();
+                f.push_str(line);
+                f.push('\n');
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn types_split_per_module_with_opens() {
+        let files = generated();
+        let css = &files["azul_types_css.ml"];
+        let dom = &files["azul_types_dom.ml"];
+        assert!(css.contains("structure \"AzColor0\""), "{}", css);
+        assert!(dom.contains("structure \"AzDom\""), "{}", dom);
+        assert!(dom.contains("structure \"AzDomVec\""), "DomVec follows Dom");
+        assert!(
+            dom.contains("open Azul_types_css"),
+            "dom embeds Color0:\n{}",
+            dom
+        );
+        assert!(!css.contains("open Azul_types_dom"));
+        assert!(
+            dom.contains("let az_dom_field_color = field az_dom \"color\" az_color0"),
+            "{}",
+            dom
+        );
+    }
+
+    #[test]
+    fn facade_includes_every_unit() {
+        let files = generated();
+        let ir = test_fixture_ir();
+        let azul = &files["azul.ml"];
+        for unit in unit_names(&ir) {
+            assert!(
+                files.contains_key(&format!("{}.ml", unit)),
+                "unit {} not written",
+                unit
+            );
+            if unit == "azul"
+                || unit == "azul_types"
+                || unit == "azul_ffi"
+                || unit == "azul_records"
+            {
+                // facades-of-facades are included as their parts
+                continue;
+            }
+            let needle = format!("include {}", unit_module(&unit));
+            assert!(azul.contains(&needle), "azul.ml lacks {}", needle);
+        }
+        assert_eq!(azul.matches("include Azul_types_dom").count(), 1);
+        assert!(
+            azul.find("include Azul_types_dom").unwrap()
+                < azul.find("include Azul_ffi_dom").unwrap()
+        );
+        assert!(
+            azul.find("include Azul_managed").unwrap() < azul.find("include Azul_api_dom").unwrap()
+        );
+    }
+
+    #[test]
+    fn per_class_surface_is_grouped_by_module_and_sealed() {
+        let files = generated();
+        assert!(files["azul_ffi_widgets.ml"].contains("foreign \"AzButton_dom\""));
+        assert!(!files["azul_ffi_dom.ml"].contains("AzButton_"));
+        assert!(files["azul_records_dom.ml"].contains("type dom = { mutable raw"));
+        assert!(files["azul_api_widgets.mli"].contains("module Button : sig"));
+        // A method returning its OWN class comes back as the managed record
+        // (`make_<class>`, finaliser armed); a CROSS-class return stays the
+        // raw ctypes structure. Wrapping `Button.dom` would need
+        // `Azul_records_dom.make_dom` in scope of the widgets API unit — an
+        // edge from every api unit to every record unit, which is what the
+        // chunk plan exists to avoid. Callers wrap explicitly when they want
+        // a managed handle.
+        assert!(
+            files["azul_api_widgets.mli"].contains("val dom : t -> az_dom Ctypes.structure"),
+            "{}",
+            files["azul_api_widgets.mli"]
+        );
+        assert!(files["azul_api_dom.mli"].contains("module Update : sig"));
+        assert!(files["azul_api_dom.ml"].contains("open Azul_records"));
+        for unit in ["azul_ffi_dom.ml", "azul_managed.ml"] {
+            assert!(
+                files[unit].contains("Azul_loader.ensure ()"),
+                "{} must load libazul first",
+                unit
+            );
+        }
+    }
 }

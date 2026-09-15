@@ -1,39 +1,12 @@
-/**
- * HTTP Client Demo for Azul GUI Framework
- *
- * This example demonstrates:
- * - Simple HTTP GET requests
- * - HTTP requests with custom configuration
- * - URL parsing and manipulation
- * - Error handling for HTTP operations
- *
- * HTTP is asynchronous: AzHttpRequestConfig_httpGet / _downloadBytes /
- * _isUrlReachable only REQUEST the transfer and deliver the result later,
- * through the event loop, to a resume callback (a browser can only answer
- * these asynchronously). So this demo is a tiny azul app: main() runs the
- * synchronous URL parsing, then starts an app whose layout callback issues
- * the first request exactly once; every resume prints its result and issues
- * the next request, and the last one exits the process so the demo still
- * behaves like a CLI tool.
- *
- * Compile with:
- *   gcc -o http http.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
- *
- * Note: The azul-dll must be compiled with the 'http' feature:
- *   cargo build -p azul-dll --features http,build-dll --release
- */
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Helper to create AzString from C string
 AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-// Helper struct for managing null-terminated C strings from AzString
 typedef struct {
     AzU8Vec vec;
 } CStr;
@@ -59,19 +32,14 @@ void cstr_free(CStr* c) {
     AzU8Vec_delete(&c->vec);
 }
 
-// ============================================================================
-// Demo State
-// ============================================================================
-
 typedef struct {
-    bool started;       // the layout callback issued the first request
-    int reach_index;    // next URL of the reachability demo to check
+    bool started;
+    int reach_index;
 } HttpDemo;
 
 void HttpDemo_destructor(void* p) { (void)p; }
 AZ_REFLECT(HttpDemo, HttpDemo_destructor);
 
-// The steps of the chain, in the order they run
 void demo_http_get(AzRefAny data);
 AzUpdate on_http_get(AzRefAny data, AzCallbackInfo info, AzRefAny result);
 void demo_http_with_config(AzRefAny data);
@@ -83,16 +51,11 @@ static void check_next_url(AzRefAny data);
 AzUpdate on_url_checked(AzRefAny data, AzCallbackInfo info, AzRefAny result);
 static void finish_demo(void);
 
-// ============================================================================
-// URL Parsing Demo
-// ============================================================================
-
 void demo_url_parsing(void) {
     printf("\n============================================================\n");
     printf("URL Parsing Demo\n");
     printf("============================================================\n\n");
 
-    // Parse a full URL
     AzResultUrlUrlParseError result = AzUrl_parse(az_str("https://api.example.com:8080/v1/data?format=json#results"));
 
     if (result.Err.tag == AzResultUrlUrlParseError_Tag_Err) {
@@ -128,12 +91,10 @@ void demo_url_parsing(void) {
     cstr_free(&query);
     cstr_free(&fragment);
 
-    // Test URL methods
     printf("\n  is_https:  %s\n", AzUrl_isHttps(&url) ? "true" : "false");
     printf("  is_http:   %s\n", AzUrl_isHttp(&url) ? "true" : "false");
     printf("  eff. port: %u\n", AzUrl_effectivePort(&url));
 
-    // Join a relative path
     printf("\nJoining relative path '/v2/users':\n");
     AzResultUrlUrlParseError join_result = AzUrl_join(&url, az_str("/v2/users"));
     if (join_result.Ok.tag == AzResultUrlUrlParseError_Tag_Ok) {
@@ -145,7 +106,6 @@ void demo_url_parsing(void) {
 
     AzUrl_delete(&url);
 
-    // Create URL from parts
     printf("\nCreating URL from parts:\n");
     AzUrl built = AzUrl_fromParts(az_str("https"), az_str("example.com"), 443, az_str("/api/data"));
     CStr built_href = cstr_new(AzString_clone(&built.href));
@@ -154,11 +114,6 @@ void demo_url_parsing(void) {
     AzUrl_delete(&built);
 }
 
-// ============================================================================
-// HTTP Request Demo
-// ============================================================================
-
-// Issue the GET; the response arrives in on_http_get
 void demo_http_get(AzRefAny data) {
     printf("\n============================================================\n");
     printf("HTTP GET Request Demo\n");
@@ -166,7 +121,6 @@ void demo_http_get(AzRefAny data) {
 
     printf("Fetching https://httpbin.org/get ...\n\n");
 
-    // A default configuration is enough for a plain GET
     AzHttpRequestConfig config = AzHttpRequestConfig_create();
     AzHttpRequestConfig_httpGet(&config, az_str("https://httpbin.org/get"), AzRefAny_clone(&data), on_http_get);
     AzHttpRequestConfig_delete(&config);
@@ -195,7 +149,6 @@ AzUpdate on_http_get(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
         printf("  Is success:     %s\n", AzHttpResponse_isSuccess(&response) ? "true" : "false");
         printf("  Is redirect:    %s\n", AzHttpResponse_isRedirect(&response) ? "true" : "false");
 
-        // Print headers
         printf("\n  Headers (%zu):\n", response.headers.len);
         for (size_t i = 0; i < response.headers.len && i < 5; i++) {
             AzHttpHeader* hdr = &((AzHttpHeader*)response.headers.ptr)[i];
@@ -206,7 +159,6 @@ AzUpdate on_http_get(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
             cstr_free(&value);
         }
 
-        // Print body preview
         AzOptionString body_str = AzHttpResponse_bodyAsString(&response);
         if (body_str.Some.tag == AzOptionString_Tag_Some) {
             CStr body = cstr_new(body_str.Some.payload);
@@ -227,13 +179,11 @@ AzUpdate on_http_get(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
     return AzUpdate_DoNothing;
 }
 
-// Issue the GET with a custom configuration; the response arrives in on_http_with_config
 void demo_http_with_config(AzRefAny data) {
     printf("\n============================================================\n");
     printf("HTTP Request with Custom Configuration\n");
     printf("============================================================\n\n");
 
-    // Create custom configuration using builder pattern (by-value)
     AzHttpRequestConfig config = AzHttpRequestConfig_create();
     config = AzHttpRequestConfig_withTimeout(config, 10);
     config = AzHttpRequestConfig_withMaxSize(config, 1024 * 1024);
@@ -281,7 +231,6 @@ AzUpdate on_http_with_config(AzRefAny data, AzCallbackInfo info, AzRefAny result
     return AzUpdate_DoNothing;
 }
 
-// Issue the download; the bytes arrive in on_download_bytes
 void demo_download_bytes(AzRefAny data) {
     printf("\n============================================================\n");
     printf("Download Bytes Demo\n");
@@ -307,7 +256,6 @@ AzUpdate on_download_bytes(AzRefAny data, AzCallbackInfo info, AzRefAny result) 
         AzU8Vec bytes = r.Some.payload.result.Ok.payload;
         printf("Downloaded %zu bytes\n", bytes.len);
 
-        // Check PNG magic bytes
         if (bytes.len >= 8 &&
             bytes.ptr[0] == 0x89 && bytes.ptr[1] == 'P' &&
             bytes.ptr[2] == 'N' && bytes.ptr[3] == 'G') {
@@ -321,7 +269,6 @@ AzUpdate on_download_bytes(AzRefAny data, AzCallbackInfo info, AzRefAny result) 
     return AzUpdate_DoNothing;
 }
 
-// The reachability checks run one after the other: each resume issues the next
 static const char* REACH_URLS[] = {
     "https://httpbin.org/status/200",
     "https://httpbin.org/status/404",
@@ -350,7 +297,6 @@ void demo_url_reachability(AzRefAny data) {
     check_next_url(data);
 }
 
-// Issue the check for the current URL, or finish once all were checked
 static void check_next_url(AzRefAny data) {
     int i = REACH_COUNT;
     HttpDemoRef d = HttpDemoRef_create(&data);
@@ -399,7 +345,6 @@ AzUpdate on_url_checked(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
     return AzUpdate_DoNothing;
 }
 
-// The whole chain ran: leave the event loop the way a CLI tool would
 static void finish_demo(void) {
     printf("\n============================================================\n");
     printf("Demo complete!\n");
@@ -407,12 +352,6 @@ static void finish_demo(void) {
     exit(0);
 }
 
-// ============================================================================
-// Layout Callback
-// ============================================================================
-
-// Issues the first request exactly once; every later step is issued by the
-// resume callback of the step before it.
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     (void)info;
 
@@ -431,18 +370,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     return body;
 }
 
-// ============================================================================
-// Main
-// ============================================================================
-
 int main(void) {
     printf("Azul HTTP Client Demo\n");
     printf("======================\n");
 
-    // URL parsing is pure and synchronous: run it before the app starts
     demo_url_parsing();
 
-    // The requests need the event loop: run the rest as an app
     HttpDemo state = { .started = false, .reach_index = 0 };
     AzRefAny data = HttpDemo_upcast(state);
 
@@ -452,7 +385,7 @@ int main(void) {
     window.window_state.size.dimensions.height = 120.0;
 
     AzApp app = AzApp_create(data, AzAppConfig_create());
-    AzApp_run(&app, window);   // the last resume calls exit(0)
+    AzApp_run(&app, window);
     AzApp_delete(&app);
 
     return 0;

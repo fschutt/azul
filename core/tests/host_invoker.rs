@@ -2,20 +2,17 @@
 //!
 //! These cover the C-ABI surface managed-FFI bindings hit at runtime:
 //!
-//! 1. `host_handle_to_refany(id)` round-trips back to `Some(id)` via
-//!    `refany_to_host_handle`, and tags the RefAny with the
-//!    `AZ_HOST_HANDLE_RTTI_ID` so the destructor can identify its own
+//! 1. `host_handle_to_refany(id)` round-trips back to `Some(id)` via `refany_to_host_handle`, and
+//!    tags the RefAny with the `AZ_HOST_HANDLE_RTTI_ID` so the destructor can identify its own
 //!    payload.
-//! 2. The destructor stamped into host-handle RefAnys forwards the id to
-//!    the releaser registered via `AzApp_setHostHandleReleaser` exactly
-//!    once, when the *last* clone drops.
-//! 3. `refany_to_host_handle` returns `None` for unrelated RefAnys (so a
-//!    user-data RefAny accidentally fed into a callback's ctx slot
-//!    can't be misidentified as a host handle and free a foreign id).
-//! 4. The macro-generated thunks short-circuit safely when no invoker has
-//!    been registered yet — the `cb` returned by
-//!    `LayoutCallback::create_from_host_handle` is callable and returns
-//!    the kind's default rather than transmuting `0` into a fn pointer.
+//! 2. The destructor stamped into host-handle RefAnys forwards the id to the releaser registered
+//!    via `AzApp_setHostHandleReleaser` exactly once, when the *last* clone drops.
+//! 3. `refany_to_host_handle` returns `None` for unrelated RefAnys (so a user-data RefAny
+//!    accidentally fed into a callback's ctx slot can't be misidentified as a host handle and free
+//!    a foreign id).
+//! 4. The macro-generated thunks short-circuit safely when no invoker has been registered yet — the
+//!    `cb` returned by `LayoutCallback::create_from_host_handle` is callable and returns the kind's
+//!    default rather than transmuting `0` into a fn pointer.
 //!
 //! The end-to-end "thunk fires invoker with the right by-value args" path
 //! is exercised through the Lua / Ruby / etc. integration tests in
@@ -29,15 +26,19 @@
 //! `Mutex` to serialize. Real bindings register once at module load and
 //! never set again, so this isn't a concern in production.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
-
-use azul_core::callbacks::LayoutCallback;
-use azul_core::host_invoker::{
-    host_handle_to_refany, refany_to_host_handle, AzApp_setGenericInvoker,
-    AzApp_setHostHandleReleaser, AZ_HOST_HANDLE_RTTI_ID, GENERIC_INVOKER,
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex, OnceLock,
 };
-use azul_core::refany::RefAny;
+
+use azul_core::{
+    callbacks::LayoutCallback,
+    host_invoker::{
+        host_handle_to_refany, refany_to_host_handle, AzApp_setGenericInvoker,
+        AzApp_setHostHandleReleaser, AZ_HOST_HANDLE_RTTI_ID, GENERIC_INVOKER,
+    },
+    refany::RefAny,
+};
 
 /// Serialize tests that touch process-global invoker slots.
 fn invoker_lock() -> &'static Mutex<()> {
@@ -161,8 +162,8 @@ fn create_from_host_handle_produces_callable_with_host_handle_ctx() {
     let default_addr = default_cb.cb as usize;
     assert_ne!(
         cb_addr, default_addr,
-        "create_from_host_handle should install the macro's static thunk, \
-         not fall back to default_layout_callback"
+        "create_from_host_handle should install the macro's static thunk, not fall back to \
+         default_layout_callback"
     );
 }
 

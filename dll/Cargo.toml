@@ -210,6 +210,16 @@ turso = { package = "turso-azul", version = "0.7.2", optional = true, default-fe
 # directly so feature-unification enables it wherever turso is used.
 aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 
+# The iroh transport (azul.iroh), gated by `iroh`. Declared for the architectures its crypto
+# provider (ring, via `tls-ring` — aws-lc-rs would need cmake and nasm) ships assembly or portable
+# code for AND the cross-compile checks have a C toolchain for; build.rs turns the same target set
+# into `cfg(az_iroh_engine)`. Elsewhere the feature stays on, the engine is out, and
+# `IrohEndpoint::bind` reports an Error event exactly as it does without the feature.
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64", target_arch = "arm"), not(target_family = "wasm")))'.dependencies]
+iroh = { version = "1.2", default-features = false, features = ["tls-ring"], optional = true }
+iroh-tickets = { version = "1.0", optional = true }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "sync", "macros", "time", "net"], optional = true }
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
 # Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
@@ -427,9 +437,6 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = [
     "Devices_Sensors",
-    # The precision touchpad's scroll-direction preference
-    # (extra/natural_scroll.rs, 9b-ii-b-i-a).
-    "Win32_System_Registry",
     # Proximity sensor discovery (extra/sensors/windows.rs, 8e-i-a-ii):
     # `ProximitySensor` has no GetDefault(), only a device selector.
     "Devices_Enumeration",
@@ -462,11 +469,13 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
-    # extra/window_activation.rs: IsIconic / SetForegroundWindow / ShowWindow.
-    # Declared here because azul-dll uses it DIRECTLY; it used to compile only
-    # by feature unification from another crate, which the i686-msvc
-    # link-static check does not pull in.
-    "Win32_UI_WindowsAndMessaging",
+    # Camera capture through a Media Foundation source reader (extra/camera/windows.rs).
+    "Win32_Media_MediaFoundation",
+    # Screen capture through DXGI desktop duplication (extra/screencap/windows.rs).
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54
@@ -721,6 +730,8 @@ build-dll = [
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
     "azul-layout/probe",
+    # Peer-to-peer QUIC behind the azul.iroh module (IrohEndpoint).
+    "iroh",
     # AZ_E2E SCRIPTING, in every shipped dylib. The execution engine only:
     # `debug-server` (the HTTP port + the bundled debugger JS) stays OUT, so
     # there is no listening socket and no 2-4 MB of JS in the binary. A script
@@ -741,6 +752,9 @@ db-sqlite = ["dep:turso", "dep:aegis"]
 # db-sqlite; the export API is always present (stub when off), so it flows
 # through codegen with no feature-gating.
 pdf = ["dep:printpdf", "serde_json"]
+# The iroh engine behind `IrohEndpoint`. The handle is always present; without the
+# feature `bind` reports an `Error` event instead of binding.
+iroh = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)

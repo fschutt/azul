@@ -204,8 +204,9 @@ fn spec_resolves(spec: &str, provider: &SharedIconProvider) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+
+    use super::*;
 
     // `render_icon_to_rgba` itself is not unit-tested: it needs a real
     // `FontManager`, and building one scans the system font directories, which
@@ -281,8 +282,8 @@ mod tests {
         );
         assert!(
             !collected.font_refs.is_empty(),
-            "the resolved icon's FontRef must reach font-stack collection; \
-             an empty set is the tofu-box bug (stale compact cache)"
+            "the resolved icon's FontRef must reach font-stack collection; an empty set is the \
+             tofu-box bug (stale compact cache)"
         );
     }
 

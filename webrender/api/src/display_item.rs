@@ -477,10 +477,7 @@ impl NormalBorder {
 
         #[inline]
         fn renders_small_border_solid(style: BorderStyle) -> bool {
-            match style {
-                BorderStyle::Groove | BorderStyle::Ridge => true,
-                _ => false,
-            }
+            matches!(style, BorderStyle::Groove | BorderStyle::Ridge)
         }
 
         let normalize_side = |side: &mut BorderSide, width: f32| {
@@ -1086,6 +1083,12 @@ pub struct FloodPrimitive {
 
 impl FloodPrimitive {
     pub fn sanitize(&mut self) {
+        // `min().max()` rather than `clamp()`, deliberately: this function's
+        // whole job is to hand the compositor a value it can use, and NaN is
+        // exactly the input it exists to absorb. f32 `min`/`max` return the
+        // non-NaN operand, so NaN lands on 1.0; `clamp` passes NaN straight
+        // through and the primitive renders wrong or trips an assert
+        // downstream. A `0.0/0.0` in an animated colour reaches here.
         self.color.r = self.color.r.min(1.0).max(0.0);
         self.color.g = self.color.g.min(1.0).max(0.0);
         self.color.b = self.color.b.min(1.0).max(0.0);
@@ -1110,6 +1113,8 @@ pub struct OpacityPrimitive {
 
 impl OpacityPrimitive {
     pub fn sanitize(&mut self) {
+        // See `FloodPrimitive::sanitize`: `min().max()` maps NaN to 1.0,
+        // `clamp()` would let it through.
         self.opacity = self.opacity.min(1.0).max(0.0);
     }
 }

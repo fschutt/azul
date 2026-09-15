@@ -1,21 +1,21 @@
 //! AZUL-STILL-TODO C9/C10: selection spanning multiple sibling blocks and
 //! the selection-spanning delete.
 //!
-//! - `set_cross_block_selection` precomputes the per-IFC ranges (anchor
-//!   node from its cursor to its end, middles fully, focus node from its
-//!   start to its cursor) and stores them render-ready; the display-list
-//!   pass consumes them through `build_text_selections_map`.
-//! - `delete_cross_block_selection` trims the two end nodes through the
-//!   text overlay and emits ONE `RemoveChildren` structural changeset for
-//!   the fully-covered middles; the caret collapses to the selection
-//!   start. (Word-style paragraph MERGE of the two remaining part-blocks
-//!   is the separate merge gap, not part of this slice.)
+//! - `set_cross_block_selection` precomputes the per-IFC ranges (anchor node from its cursor to its
+//!   end, middles fully, focus node from its start to its cursor) and stores them render-ready; the
+//!   display-list pass consumes them through `build_text_selections_map`.
+//! - `delete_cross_block_selection` trims the two end nodes through the text overlay and emits ONE
+//!   `RemoveChildren` structural changeset for the fully-covered middles; the caret collapses to
+//!   the selection start. (Word-style paragraph MERGE of the two remaining part-blocks is the
+//!   separate merge gap, not part of this slice.)
 
-use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
-use azul_core::geom::LogicalSize;
-use azul_core::resources::RendererResources;
-use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_core::styled_dom::StyledDom;
+use azul_core::{
+    dom::{Dom, DomId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::StyledDom,
+};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };

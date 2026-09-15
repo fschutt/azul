@@ -13,21 +13,26 @@
 //! 0.75px. Inline (mid-paragraph) tokens are K31+ — text fixtures here
 //! keep paragraphs page-atomic.
 
-use azul_core::dom::{Dom, DomId};
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_layout::font::loading::build_font_cache;
-use azul_layout::font_traits::{FontManager, TextLayoutCache};
-use azul_layout::paged::FragmentationContext;
-use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
-use azul_layout::solver3::paged_layout::{
-    layout_document_paged_with_config, layout_document_tokenized,
-};
-use azul_layout::solver3::pagination::FakePageConfig;
-use azul_layout::text3::default::PathLoader;
-use azul_layout::xml::DomXmlExt;
-use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
+
+use azul_core::{
+    dom::{Dom, DomId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::RendererResources,
+};
+use azul_layout::{
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
+    solver3::{
+        display_list::{DisplayList, DisplayListItem},
+        paged_layout::{layout_document_paged_with_config, layout_document_tokenized},
+        pagination::FakePageConfig,
+    },
+    text3::default::PathLoader,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
+};
 
 fn fresh_cache() -> Solver3LayoutCache {
     Solver3LayoutCache {

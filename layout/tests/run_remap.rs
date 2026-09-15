@@ -5,8 +5,10 @@
 use std::sync::Arc;
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
-use azul_layout::text3::edit::run_text_diff;
+use azul_layout::text3::{
+    cache::{InlineContent, StyleProperties, StyledRun},
+    edit::run_text_diff,
+};
 
 fn runs(texts: &[&str]) -> Vec<InlineContent> {
     let style = Arc::new(StyleProperties::default());
@@ -42,7 +44,10 @@ fn a_delete_spanning_two_runs_merges_them_and_the_caret_follows_its_text() {
     let old = runs(&["hello", "world"]);
     let new = runs(&["heorld"]);
     let diff = run_text_diff(&old, &new);
-    let remap = diff.remap.as_ref().expect("a run-count change yields a remap");
+    let remap = diff
+        .remap
+        .as_ref()
+        .expect("a run-count change yields a remap");
     assert_eq!(remap.first, 0);
     assert_eq!(remap.old_lens, vec![5, 5]);
     assert_eq!(remap.new_lens, vec![6]);
@@ -57,9 +62,21 @@ fn a_split_and_a_merge_keep_carets_in_untouched_runs_by_shifting_their_index() {
     let old = runs(&["intro", "abcd", "outro"]);
     let new = runs(&["intro", "ab", "cd", "outro"]);
     let diff = run_text_diff(&old, &new);
-    assert_eq!(diff.map_cursor(at(0, 2)), at(0, 2), "before the change: untouched");
-    assert_eq!(diff.map_cursor(at(1, 3)), at(2, 1), "'d' moved into the second piece");
-    assert_eq!(diff.map_cursor(at(2, 4)), at(3, 4), "after the change: index up by one");
+    assert_eq!(
+        diff.map_cursor(at(0, 2)),
+        at(0, 2),
+        "before the change: untouched"
+    );
+    assert_eq!(
+        diff.map_cursor(at(1, 3)),
+        at(2, 1),
+        "'d' moved into the second piece"
+    );
+    assert_eq!(
+        diff.map_cursor(at(2, 4)),
+        at(3, 4),
+        "after the change: index up by one"
+    );
     let back = run_text_diff(&new, &old);
     assert_eq!(back.map_cursor(at(2, 1)), at(1, 3));
     assert_eq!(back.map_cursor(at(3, 4)), at(2, 4));
@@ -72,5 +89,9 @@ fn an_equal_run_count_still_yields_the_byte_changes_only() {
     let diff = run_text_diff(&old, &new);
     assert!(diff.remap.is_none());
     assert_eq!(diff.changes.len(), 1);
-    assert_eq!(diff.map_cursor(at(1, 1)), at(1, 6), "'o' of world after the 5 inserted bytes");
+    assert_eq!(
+        diff.map_cursor(at(1, 1)),
+        at(1, 6),
+        "'o' of world after the 5 inserted bytes"
+    );
 }

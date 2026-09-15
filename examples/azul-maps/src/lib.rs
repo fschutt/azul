@@ -1,59 +1,23 @@
-//! `MapWidget` composed into a real application. The widget computes
-//! the visible-tile XYZ grid via Web Mercator math, builds one `<div>`
-//! per tile and holds a `MapTileCache` `RefAny` dataset that
-//! survives relayout via a `DatasetMergeCallback`.
-//!
-//! Compose a `Dom::create_geolocation_probe(...)` anywhere in the
-//! subtree to opt into "this app needs GPS" — the widget itself is
-//! agnostic of location; the framework's permission-as-DOM plumbing
-//! routes the prompt automatically.
-
-use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
-use azul::option::OptionRefAny;
-use azul::prelude::*;
-use azul::sensor::SensorKind;
-use azul::task::TerminateTimer;
-use azul::widgets::MapViewportChangedCallback;
-use azul::widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget};
+use azul::{
+    dom::{GeolocationProbeConfig, MapPinTapCallback},
+    option::OptionRefAny,
+    prelude::*,
+    sensor::SensorKind,
+    task::TerminateTimer,
+    widgets::{MapLatLon, MapTileLayer, MapViewport, MapViewportChangedCallback, MapWidget},
+};
 
 struct MapState {
     viewport: MapViewport,
-    /// Layer configuration is stable across the demo's lifetime;
-    /// kept in state so the layout callback can rebuild the widget
-    /// each frame with the same parameters.
     layer: MapTileLayer,
-    /// When `true`, the layout composes an invisible
-    /// `Dom::create_geolocation_probe(...)` into the map subtree. The
-    /// framework's permission-as-DOM diff then requests location and
-    /// (once a platform backend delivers a fix) the "you are here" dot
-    /// can be placed. Toggled by the "Locate" button.
     locating: bool,
-    /// Last geolocation fix `(lat, lon)` read from `CallbackInfo::
-    /// get_location_fix()`, captured on the Locate toggle. `None` until a
-    /// backend delivers one. (Refreshes on toggle; a live readout would
-    /// poll via a Timer — out of scope for the demo.)
     last_fix: Option<(f64, f64)>,
-    /// Pins dropped by tapping the map, stored as `(lat, lon)` so they
-    /// track the viewport across pan/zoom (re-projected each layout).
     pins: Vec<(f64, f64)>,
-    /// Map container pixel size, cached from the tap callback (layout()
-    /// can't measure it). Used to project pins lat/lon → screen px. `None`
-    /// until the first tap.
     view_px: Option<(f32, f32)>,
-    /// Smoothed horizontal magnetometer vector (µT) for the compass rose,
-    /// kept live by a Timer reading `get_sensor_reading(Magnetometer)`. The
-    /// vector (not the angle) is low-pass-filtered so smoothing doesn't
-    /// break across the 0°/360° wrap. `has_mag` is `false` until the first
-    /// sample, which keeps the rose hidden where there's no magnetometer.
     mag_x: f32,
     mag_y: f32,
     has_mag: bool,
-    /// `true` after a Locate attempt timed out with no fix (geolocation
-    /// unavailable on this system) — surfaced in the button so "Locating…"
-    /// can't hang forever (bug #8). Cleared when Locate is re-enabled.
     locate_failed: bool,
-    /// Frames elapsed since Locate was enabled without a fix yet; once it
-    /// passes `LOCATE_TIMEOUT_TICKS` the attempt fails. Reset on each toggle.
     locate_ticks: u32,
 }
 
@@ -61,9 +25,6 @@ impl MapState {
     fn new() -> Self {
         Self {
             viewport: MapViewport {
-                // Centre on San Francisco. Pick somewhere recognisable
-                // so the tile-grid math is easy to eyeball. Zoom 2 keeps us in
-                // the MapLibre demo-tiles' coverage (z0–6, the no-API-key default).
                 centre_lat_deg: 37.7749,
                 centre_lon_deg: -122.4194,
                 zoom: 2.0,
@@ -83,11 +44,6 @@ impl MapState {
         }
     }
 
-    /// Compass heading in degrees [0, 360), or `None` until a magnetometer
-    /// sample arrives. Simplified (assumes the device is held flat — no
-    /// tilt compensation, no declination correction), which is plenty to
-    /// demonstrate the live magnetometer; a true heading would fuse the
-    /// accelerometer + local declination.
     fn heading(&self) -> Option<f32> {
         if !self.has_mag {
             return None;
@@ -103,7 +59,6 @@ impl MapState {
         self.viewport.zoom = (self.viewport.zoom - 1.0).max(self.layer.min_zoom as f32);
     }
 
-    /// Recentre the demo on its starting point.
     fn recentre(&mut self) {
         self.viewport.centre_lat_deg = 37.7749;
         self.viewport.centre_lon_deg = -122.4194;
@@ -112,17 +67,12 @@ impl MapState {
 
     fn toggle_locate(&mut self) {
         self.locating = !self.locating;
-        // Fresh attempt: clear the failure flag + restart the timeout clock.
         if self.locating {
             self.locate_failed = false;
             self.locate_ticks = 0;
         }
     }
 
-    /// Nudge the viewport half a tile in TILE space at the current integer
-    /// zoom: `dx` in tile-x (grows east), `dy` in tile-y (grows SOUTH —
-    /// Web-Mercator tile rows start at the north edge). "↑" passes
-    /// `dy = -1`.
     fn pan(&mut self, dx: f64, dy: f64) {
         let z_int = self.viewport.zoom.floor() as i32;
         let tile_count = (1u32 << z_int.max(0) as u32) as f64;
@@ -138,14 +88,6 @@ impl MapState {
     }
 }
 
-/// Move a centre by `(dx, dy)` TILES at a `tile_count`-wide world, through
-/// the projection: lon ↔ tile-x is linear, lat ↔ tile-y is Web Mercator.
-///
-/// The old version stepped LATITUDE by `dy` degrees directly. Tile-y grows
-/// south, latitude grows north, so "↑" (`dy < 0`) moved the map SOUTH — in
-/// both hemispheres — and the linear step overshot by ~2× near 60° because
-/// Mercator rows are not equal in latitude. Stepping in tile space and
-/// projecting back is exact and cannot have a sign convention of its own.
 fn pan_tiles(
     lon_deg: f64,
     lat_deg: f64,
@@ -154,10 +96,8 @@ fn pan_tiles(
     dy_tiles: f64,
 ) -> (f64, f64) {
     use std::f64::consts::PI;
-    // lon → tile-x → step → lon, wrapped into [-180, 180].
     let x = (lon_deg + 180.0) / 360.0 * tile_count + dx_tiles;
     let lon = ((x / tile_count * 360.0 - 180.0) + 540.0).rem_euclid(360.0) - 180.0;
-    // lat → tile-y (Mercator) → step → lat, clamped to the Mercator limits.
     let lat_rad = lat_deg.to_radians();
     let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / PI) / 2.0 * tile_count;
     let y = (y + dy_tiles).clamp(0.0, tile_count);
@@ -174,7 +114,6 @@ mod pan_tests {
 
     #[test]
     fn up_goes_north_in_both_hemispheres() {
-        // "↑" is dy = -0.5 tiles (tile-y grows south) → a HIGHER latitude.
         for lat in [37.7749, -33.8688, 0.0] {
             let (_, north) = pan_tiles(0.0, lat, 4.0, 0.0, -0.5);
             let (_, south) = pan_tiles(0.0, lat, 4.0, 0.0, 0.5);
@@ -185,51 +124,20 @@ mod pan_tests {
 
     #[test]
     fn steps_are_exact_in_tile_space_and_east_is_positive() {
-        // Half a tile east at zoom 2 (4 tiles across) is exactly 45°.
         let (lon, lat) = pan_tiles(0.0, 0.0, 4.0, 0.5, 0.0);
         assert!((lon - 45.0).abs() < 1e-9, "{lon}");
         assert!(lat.abs() < 1e-9, "{lat}");
-        // A full tile south from the equator at zoom 1 lands on the
-        // Mercator latitude of tile row 2 of 2 — i.e. the southern limit.
         let (_, lat) = pan_tiles(0.0, 0.0, 2.0, 0.0, 1.0);
         assert!((lat - -85.0).abs() < 1e-9, "{lat}");
-        // Wrapping past the antimeridian.
         let (lon, _) = pan_tiles(179.0, 0.0, 4.0, 0.5, 0.0);
         assert!((lon - -136.0).abs() < 1e-9, "{lon}");
     }
 }
 
-/// This demo only paints tiles if the engine it links carries `map-tiles`.
-///
-/// `MapWidget::dom()` routes through `azul_dll::unified::map::map_widget_dom`
-/// (pinned by `dll/tests/map_binding_contract.rs`), and that function is split
-/// on the feature: WITH `map-tiles` it hands the widget the MVT fetch worker,
-/// WITHOUT it it returns the bare placeholder DOM and every tile stays
-/// `Pending` forever — a map you can pan over an empty loading grid.
-///
-/// Which half compiles is decided by the features THIS manifest asks azul-dll
-/// for, not by the libazul the binary might load at run time. `link-dynamic`
-/// alone looks sufficient — the dylib is built with `build-dll`, which does
-/// enable `map-tiles` — but the moment anything else in the workspace unifies
-/// `cabi_internal` into azul-dll (`examples/rust` takes azul-dll's DEFAULT
-/// features, and the default set contains `link-static` → `cabi_export` →
-/// `cabi_internal`), `dll/build.rs` stops linking the dylib altogether
-/// ("dynamic linking is unused") and the engine is compiled straight into this
-/// binary out of the unified feature set. `map-tiles` is not in that set unless
-/// this manifest asks for it, so a workspace-wide `cargo build` silently
-/// produced a worker-less AzMaps while a lone `cargo build -p AzMaps` did not.
-///
-/// The desktop dependency lost `map-tiles` in f08458b3c ("demos link the
-/// prebuilt static libazul.a"); iOS and Android kept it, which is why only
-/// desktop regressed. Symptom on the binary:
-/// `AZ_MAP_DEBUG=1 ./target/release/AzMaps` printing
-/// `[map] spawn_pending: ABORT — no fetch_callback on the cache`, forever.
 #[cfg(test)]
 mod engine_feature_tests {
     const MANIFEST: &str = include_str!("../Cargo.toml");
 
-    /// Every `azul-dll` dependency line this manifest declares — one per
-    /// target family (desktop default, android, ios).
     fn azul_dll_dependency_lines() -> Vec<&'static str> {
         MANIFEST
             .lines()
@@ -244,70 +152,51 @@ mod engine_feature_tests {
         let deps = azul_dll_dependency_lines();
         assert!(
             !deps.is_empty(),
-            "this manifest declares no azul-dll dependency at all — the selector \
-             below is stale, not the manifest"
+            "this manifest declares no azul-dll dependency at all — the selector below is stale, \
+             not the manifest"
         );
 
         for dep in &deps {
             assert!(
                 dep.contains("\"map-tiles\""),
-                "an azul-dll dependency of AzMaps does not enable `map-tiles`:\n  \
-                 {dep}\n\
-                 Without it `map_widget_dom` compiles its \
-                 `#[cfg(not(feature = \"map-tiles\"))]` half, which returns the \
-                 placeholder DOM and wires NO tile-fetch worker — the demo pans a \
-                 permanently empty grid. Enabling it here is what makes the demo \
-                 correct in BOTH link modes: it is harmless when the dylib supplies \
-                 the worker, and it is the only thing that supplies it when cargo \
-                 unifies `cabi_internal` in and the engine gets compiled into this \
-                 binary instead."
+                "an azul-dll dependency of AzMaps does not enable `map-tiles`:\n  {dep}\nWithout \
+                 it `map_widget_dom` compiles its `#[cfg(not(feature = \"map-tiles\"))]` half, \
+                 which returns the placeholder DOM and wires NO tile-fetch worker — the demo pans \
+                 a permanently empty grid. Enabling it here is what makes the demo correct in \
+                 BOTH link modes: it is harmless when the dylib supplies the worker, and it is \
+                 the only thing that supplies it when cargo unifies `cabi_internal` in and the \
+                 engine gets compiled into this binary instead."
             );
         }
     }
 }
 
-// ───────── Styles ─────────────────────────────────────────────────────
-
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
-const HEADER: &str = "background: #2b2b2b; color: white; \
-    display: flex; padding: 10px 16px; flex-direction: row; align-items: center; \
-    justify-content: space-between; font-family: sans-serif; \
-    font-size: 14px; flex-shrink: 0;";
-const BTN: &str = "background: #4a90e2; color: white; \
-    padding: 6px 12px; border-radius: 4px; cursor: pointer; \
-    margin-left: 6px; font-size: 13px;";
-const BTN_ON: &str = "background: #d0021b; color: white; \
-    padding: 6px 12px; border-radius: 4px; cursor: pointer; \
-    margin-left: 6px; font-size: 13px;";
-const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
-    background: #cbd2d8; overflow: hidden;";
-// Compass rose badge (top-right) + its two-tone needle (red = north).
-const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; \
-    width: 56px; height: 56px; border-radius: 28px; \
-    background: rgba(20,20,28,0.85); border: 2px solid #6a7080; \
-    display: flex; align-items: center; justify-content: center; \
-    box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
-const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; \
-    border-radius: 4px 4px 0px 0px;";
-const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; \
-    border-radius: 0px 0px 4px 4px;";
-const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; \
-    background: rgba(255,255,255,0.85); padding: 3px 6px; \
-    font-size: 10px; color: #444; border-radius: 3px;";
-// "You are here" marker at the map centre. `on_locate` recentres the
-// viewport on the fix, so the centre dot marks the user's position
-// without needing a per-pixel projection of lat/lon to the container.
-const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; \
-    width: 16px; height: 16px; margin-left: -8px; margin-top: -8px; \
-    background: #4285f4; border-radius: 8px; \
-    box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
-// Coordinate read-out for the live fix, top-centre over the map.
-const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; \
-    margin-left: -90px; width: 180px; text-align: center; \
-    background: rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
-    border-radius: 4px; font-size: 12px; font-family: sans-serif;";
-
-// ───────── Layout ─────────────────────────────────────────────────────
+const HEADER: &str = "background: #2b2b2b; color: white; display: flex; padding: 10px 16px; \
+                      flex-direction: row; align-items: center; justify-content: space-between; \
+                      font-family: sans-serif; font-size: 14px; flex-shrink: 0;";
+const BTN: &str = "background: #4a90e2; color: white; padding: 6px 12px; border-radius: 4px; \
+                   cursor: pointer; margin-left: 6px; font-size: 13px;";
+const BTN_ON: &str = "background: #d0021b; color: white; padding: 6px 12px; border-radius: 4px; \
+                      cursor: pointer; margin-left: 6px; font-size: 13px;";
+const MAP_CONTAINER: &str =
+    "flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;";
+const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; width: 56px; height: \
+                             56px; border-radius: 28px; background: rgba(20,20,28,0.85); border: \
+                             2px solid #6a7080; display: flex; align-items: center; \
+                             justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
+const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
+const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
+const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; background: \
+                      rgba(255,255,255,0.85); padding: 3px 6px; font-size: 10px; color: #444; \
+                      border-radius: 3px;";
+const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; \
+                            margin-left: -8px; margin-top: -8px; background: #4285f4; \
+                            border-radius: 8px; box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
+const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; margin-left: -90px; \
+                                width: 180px; text-align: center; background: \
+                                rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
+                                border-radius: 4px; font-size: 12px; font-family: sans-serif;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let snapshot: Option<(
@@ -334,9 +223,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
 
-    // Live compass heading (P6 magnetometer): `None` until a sample arrives,
-    // so the rose only appears where there's a magnetometer. Read separately
-    // (a second shared borrow) to keep the snapshot tuple untouched.
     let heading = data.downcast_ref::<MapState>().and_then(|s| s.heading());
 
     let attribution_text = layer.attribution.as_str().to_owned();
@@ -454,10 +340,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let map = MapWidget::create(layer)
         .with_viewport(viewport)
-        // Keep MapState.viewport in sync with widget-internal drags/wheel-zooms.
-        // Without this the app state goes stale, and any RefreshDom (the +/−
-        // buttons, Recentre) would rebuild the widget with the OLD viewport —
-        // snapping the map back. Also live-updates the header readout.
         .with_on_viewport_changed(
             data.clone(),
             MapViewportChangedCallback {
@@ -472,23 +354,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 callable: OptionRefAny::None,
             },
         )
-        // `.dom()` wires the built-in tile-fetch worker internally (api.json
-        // routes it through map_widget_dom): it HTTP-GETs
-        // each visible tile's MVT (.pbf), decodes it, renders it to SVG, and writes
-        // the SVG back into the MapTileCache dataset (which the VirtualView then
-        // draws). The fetch starts on mount and is freed when the widget unmounts.
         .dom();
 
     let mut map_container = Dom::create_div().with_css(MAP_CONTAINER).with_child(map);
 
-    // When "Locate" is on, drop an invisible geolocation probe into the
-    // map subtree. The framework treats the probe as a permission-as-DOM
-    // request: mounting it asks the platform for a location fix. Until a
-    // backend delivers one we just draw a placeholder dot at centre so
-    // the composition is visible in the demo.
     if locating {
-        // Read-back of the live fix (P3.1 `get_location_fix`): show the
-        // coordinates once a backend has delivered one, else "acquiring".
         let readout = match last_fix {
             Some((lat, lon)) => format!("You are here: {:.4}, {:.4}", lat, lon),
             None => "Acquiring location…".to_string(),
@@ -508,9 +378,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             );
     }
 
-    // Tapped pins, projected lat/lon → screen px via the cached container
-    // size (set by the tap callback). They track the viewport: pan/zoom
-    // re-projects them each layout.
     if let Some((w, h)) = view_px {
         for (lat, lon) in &pins {
             let p = MapWidget::px_at_latlon(
@@ -523,20 +390,17 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             );
             let (px, py) = (p.x, p.y);
             let style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; \
-                 width: 14px; height: 14px; margin-left: -7px; margin-top: -14px; \
-                 background: #d0021b; border-radius: 7px 7px 7px 0px; \
-                 transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
+                "position: absolute; left: {:.1}px; top: {:.1}px; width: 14px; height: 14px; \
+                 margin-left: -7px; margin-top: -14px; background: #d0021b; border-radius: 7px \
+                 7px 7px 0px; transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
                 px, py,
             );
             map_container = map_container.with_child(Dom::create_div().with_css(style.as_str()));
-            // Callout: the pinned point's coordinates, beside the marker.
             let callout_style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; \
-                 background: rgba(255,255,255,0.95); color: #222; \
-                 padding: 2px 6px; border-radius: 4px; font-size: 11px; \
-                 font-family: sans-serif; white-space: nowrap; \
-                 box-shadow: 0px 1px 2px rgba(0,0,0,0.3);",
+                "position: absolute; left: {:.1}px; top: {:.1}px; background: \
+                 rgba(255,255,255,0.95); color: #222; padding: 2px 6px; border-radius: 4px; \
+                 font-size: 11px; font-family: sans-serif; white-space: nowrap; box-shadow: 0px \
+                 1px 2px rgba(0,0,0,0.3);",
                 px + 10.0,
                 py - 30.0,
             );
@@ -550,14 +414,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         }
     }
 
-    // Compass rose (P6 magnetometer): a corner badge whose needle rotates by
-    // -heading, so the red north tip keeps pointing at magnetic north as the
-    // device turns. Added before the tap overlay so taps still drop pins
-    // through the (non-interactive) badge.
     if let Some(h) = heading {
         let needle = format!(
-            "width: 8px; height: 42px; display: flex; flex-direction: column; \
-             transform: rotate({:.1}deg);",
+            "width: 8px; height: 42px; display: flex; flex-direction: column; transform: \
+             rotate({:.1}deg);",
             -h,
         );
         map_container = map_container.with_child(
@@ -570,8 +430,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         );
     }
 
-    // The MapWidget handles taps itself (via with_on_pin_tap) + pan/pinch via
-    // its own pointer handlers, so no tap overlay is needed.
     map_container = map_container.with_child(
         Dom::create_div()
             .with_css(ATTRIB)
@@ -584,8 +442,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(map_container)
 }
 
-// ───────── Callbacks ──────────────────────────────────────────────────
-
 extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         eprintln!("[map-demo] on_zoom_in FIRED");
@@ -596,9 +452,6 @@ extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Widget-internal pan/zoom (drag, wheel, pinch) → mirror into MapState so the
-// next RefreshDom rebuild passes the CURRENT viewport back to the widget (and
-// the header readout stays live).
 extern "C" fn on_viewport_changed(
     mut data: RefAny,
     _info: CallbackInfo,
@@ -625,9 +478,6 @@ extern "C" fn on_recentre(mut data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
-    // Read the latest fix the geolocation backend delivered (via the
-    // public CallbackInfo accessor that P3.1 exposed). `None` until a
-    // backend has reported one.
     let fix = info
         .get_location_fix()
         .into_option()
@@ -635,12 +485,6 @@ extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.toggle_locate();
         s.last_fix = fix;
-        // Standard "locate me": when enabling Locate with a fix in hand,
-        // recentre the viewport on it so the centre dot marks the user's
-        // position (no per-pixel projection needed). The fix arrives async,
-        // so on a cold first toggle there's none yet — toggling again once
-        // a backend has reported recentres; a Timer-driven live recentre is
-        // the follow-up.
         if s.locating {
             if let Some((lat, lon)) = fix {
                 s.viewport.centre_lat_deg = lat;
@@ -686,10 +530,6 @@ extern "C" fn on_pan_down(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// The map's `on_pin_tap` hook: the widget already detected the tap (no drag)
-/// and projected it, so we just record the lat/lon. We also cache the
-/// container size (from the hit-node rect) so the pin overlay re-projects on
-/// pan/zoom via `MapWidget::px_at_latlon`.
 extern "C" fn on_pin_tap(mut data: RefAny, info: CallbackInfo, coord: MapLatLon) -> Update {
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.pins.push((coord.lat_deg, coord.lon_deg));
@@ -700,22 +540,12 @@ extern "C" fn on_pin_tap(mut data: RefAny, info: CallbackInfo, coord: MapLatLon)
     Update::RefreshDom
 }
 
-// (Projection now lives in the widget: `MapWidget::latlon_at_px` /
-// `px_at_latlon`. The demo's duplicated `tap_to_latlon` / `latlon_to_px` are
-// gone — `on_pin_tap` receives the lat/lon, pin rendering uses `px_at_latlon`.)
-
-/// Eight-point cardinal label for a heading in degrees.
 fn cardinal(deg: f32) -> &'static str {
     const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     DIRS[((((deg + 22.5) % 360.0) / 45.0) as usize) % 8]
 }
 
-/// Timer tick: pull the latest magnetometer sample through the
-/// `TimerCallbackInfo`'s wrapped `CallbackInfo` and low-pass-filter the
-/// horizontal vector (the vector, not the angle, so smoothing survives the
-/// 0°/360° wrap), then relayout so the rose follows.
 extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    /// ~frames a fix-less Locate attempt waits before it's declared failed (#8).
     const LOCATE_TIMEOUT_TICKS: u32 = 200;
     let mag = info
         .callback_info
@@ -735,8 +565,6 @@ extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCa
             }
             changed = true;
         }
-        // Locate: live-recentre on a fix, or time out with feedback so
-        // "Locating…" can't hang forever when geolocation is unavailable (#8).
         if s.locating {
             match fix {
                 Some(f) => {
@@ -767,9 +595,6 @@ extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCa
     }
 }
 
-/// Window-create callback: install the per-frame Timer that keeps the
-/// compass live. (The magnetometer is read from a `CallbackInfo`, not the
-/// layout callback, so the Timer is what makes the rose turn.)
 extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
     info.add_timer(
         TimerId::unique(),
@@ -785,9 +610,6 @@ extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// Start the app. On desktop/iOS this blocks (iOS via UIApplicationMain inside
-/// `App::run`); on Android `App::run` only stashes the window options for
-/// libazul's `android_main` to pick up, then returns.
 pub fn start() {
     let data = RefAny::new(MapState::new());
     let config = AppConfig::create();
@@ -797,11 +619,6 @@ pub fn start() {
     app.run(window);
 }
 
-// Android has no `main()`: the OS loads this cdylib and calls libazul's
-// `android_main` (via the android-activity glue). `android_main` reads the
-// window options that `App::run` stashed, so `start()` must run BEFORE
-// `ANativeActivity_onCreate` — i.e. from a library constructor that fires at
-// `dlopen` / `System.loadLibrary` time. See guide/deploying/mobile.md.
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {

@@ -12,25 +12,28 @@
 //! Saving applies everything IMMEDIATELY at runtime (tier atomic, signal
 //! gates, disabled-metric set) and persists via `telemetry::sharedconfig`.
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
-use azul_core::callbacks::Update;
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
-use azul_core::dom::Dom;
-use azul_core::refany::RefAny;
-
-use crate::callbacks::CallbackInfo;
+use azul_core::{
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
+    dom::Dom,
+    refany::RefAny,
+};
+use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
-use crate::telemetry::{
-    config::{self, TelemetryTier},
-    metrics,
-    sharedconfig::{self, SharedConfig, SignalSet},
+use crate::{
+    callbacks::CallbackInfo,
+    telemetry::{
+        config::{self, TelemetryTier},
+        metrics,
+        sharedconfig::{self, SharedConfig, SignalSet},
+    },
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType},
+        check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
+    },
 };
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use crate::widgets::check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState};
-use azul_css::AzString;
 
 /// One inventory row's dialog state.
 #[derive(Debug, Clone)]
@@ -218,8 +221,8 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     let mut children: Vec<Dom> = vec![Dom::create_h2_with_text("Data collection")];
     children.push(Dom::create_p_with_text(
-        "Choose what this app may send to its developer. Nothing is sent \
-         without your consent; the rows below are the COMPLETE list.",
+        "Choose what this app may send to its developer. Nothing is sent without your consent; \
+         the rows below are the COMPLETE list.",
     ));
 
     children.push(check_row(

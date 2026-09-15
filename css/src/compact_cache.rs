@@ -18,36 +18,40 @@
 // it for this codec module (false positive for the intent here).
 #![allow(clippy::match_same_arms)]
 
-use crate::css::CssPropertyValue;
-use crate::props::basic::color::ColorU;
-use crate::props::basic::font::{StyleFontStyle, StyleFontWeight};
-use crate::props::basic::length::{FloatValue, SizeMetric};
-use crate::props::basic::pixel::PixelValue;
-use crate::props::layout::dimensions::LayoutBoxSizing;
-use crate::props::layout::display::LayoutFloat;
-use crate::props::layout::{
-    dimensions::{
-        LayoutHeight, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth, LayoutWidth,
+use alloc::{boxed::Box, vec::Vec};
+
+use crate::{
+    css::CssPropertyValue,
+    props::{
+        basic::{
+            color::ColorU,
+            font::{StyleFontStyle, StyleFontWeight},
+            length::{FloatValue, SizeMetric},
+            pixel::PixelValue,
+        },
+        layout::{
+            dimensions::{
+                LayoutBoxSizing, LayoutHeight, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight,
+                LayoutMinWidth, LayoutWidth,
+            },
+            display::{LayoutDisplay, LayoutFloat},
+            flex::{
+                LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexDirection,
+                LayoutFlexWrap, LayoutJustifyContent,
+            },
+            grid::{LayoutGridAutoFlow, LayoutJustifyItems, LayoutJustifySelf},
+            overflow::LayoutOverflow,
+            position::LayoutPosition,
+            table::StyleBorderCollapse,
+            wrapping::{LayoutClear, LayoutWritingMode},
+        },
+        property::{CssProperty, CssPropertyType},
+        style::{
+            border::BorderStyle, effects::StyleCursor, StyleDirection, StyleTextAlign,
+            StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
+        },
     },
-    display::LayoutDisplay,
-    flex::{
-        LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexDirection, LayoutFlexWrap,
-        LayoutJustifyContent,
-    },
-    grid::{LayoutGridAutoFlow, LayoutJustifyItems, LayoutJustifySelf},
-    overflow::LayoutOverflow,
-    position::LayoutPosition,
-    table::StyleBorderCollapse,
-    wrapping::{LayoutClear, LayoutWritingMode},
 };
-use crate::props::property::{CssProperty, CssPropertyType};
-use crate::props::style::border::BorderStyle;
-use crate::props::style::effects::StyleCursor;
-use crate::props::style::{
-    StyleDirection, StyleTextAlign, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
-};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
 
 // =============================================================================
 // Sentinel Constants
@@ -891,7 +895,6 @@ pub const fn cursor_from_u8(v: u8) -> StyleCursor {
         _ => StyleCursor::Default,
     }
 }
-
 
 #[inline]
 #[must_use]
@@ -4934,14 +4937,40 @@ mod autotest_generated {
         use crate::props::style::effects::StyleCursor::{
             Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, Default as Def,
             EResize, EwResize, Grab, Grabbing, Help, Move, NResize, NeswResize, NsResize,
-            NwseResize, Pointer, Progress, RowResize, SResize, SeResize, Text, Unset,
-            VerticalText, WResize, Wait, ZoomIn, ZoomOut,
+            NwseResize, Pointer, Progress, RowResize, SResize, SeResize, Text, Unset, VerticalText,
+            WResize, Wait, ZoomIn, ZoomOut,
         };
         let all = [
-            Def, Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, EResize,
-            EwResize, Grab, Grabbing, Help, Move, NResize, NsResize, NeswResize, NwseResize,
-            Pointer, Progress, RowResize, SResize, SeResize, Text, Unset, VerticalText, WResize,
-            Wait, ZoomIn, ZoomOut,
+            Def,
+            Alias,
+            AllScroll,
+            Cell,
+            ColResize,
+            ContextMenu,
+            Copy,
+            Crosshair,
+            EResize,
+            EwResize,
+            Grab,
+            Grabbing,
+            Help,
+            Move,
+            NResize,
+            NsResize,
+            NeswResize,
+            NwseResize,
+            Pointer,
+            Progress,
+            RowResize,
+            SResize,
+            SeResize,
+            Text,
+            Unset,
+            VerticalText,
+            WResize,
+            Wait,
+            ZoomIn,
+            ZoomOut,
         ];
         let mut seen = alloc::collections::BTreeSet::new();
         for c in all {
@@ -4950,11 +4979,21 @@ mod autotest_generated {
                 code <= CURSOR_CODE_MAX,
                 "{c:?} encodes to {code}, past CURSOR_CODE_MAX",
             );
-            assert!(seen.insert(code), "{c:?} shares code {code} with another variant");
-            assert_eq!(cursor_from_u8(code), c, "{c:?} did not survive the round trip");
+            assert!(
+                seen.insert(code),
+                "{c:?} shares code {code} with another variant"
+            );
+            assert_eq!(
+                cursor_from_u8(code),
+                c,
+                "{c:?} did not survive the round trip"
+            );
 
             // And through the byte it is actually stored in.
-            let cold = CompactNodePropsCold { cursor: code, ..Default::default() };
+            let cold = CompactNodePropsCold {
+                cursor: code,
+                ..Default::default()
+            };
             assert_eq!(cursor_from_u8(cold.cursor), c);
         }
         assert_eq!(seen.len(), all.len(), "every variant needs its own code");
@@ -4996,7 +5035,11 @@ mod autotest_generated {
             ("white_space", WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
             ("direction", DIRECTION_SHIFT, DIRECTION_MASK),
             ("vertical_align", VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
-            ("border_collapse", BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+            (
+                "border_collapse",
+                BORDER_COLLAPSE_SHIFT,
+                BORDER_COLLAPSE_MASK,
+            ),
             ("align_self", ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
             ("justify_self", JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
             ("grid_auto_flow", GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
@@ -5024,8 +5067,8 @@ mod autotest_generated {
                 assert_eq!(
                     a & b,
                     0,
-                    "{an} (bit {ash}, mask {am:#x}) and {bn} (bit {bsh}, mask {bm:#x}) \
-                     share bits {:#x} — writing one silently corrupts the other",
+                    "{an} (bit {ash}, mask {am:#x}) and {bn} (bit {bsh}, mask {bm:#x}) share bits \
+                     {:#x} — writing one silently corrupts the other",
                     a & b,
                 );
             }

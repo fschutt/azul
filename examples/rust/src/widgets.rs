@@ -1,6 +1,4 @@
-use azul::css::ColorU;
-use azul::prelude::*;
-use azul::widgets::*;
+use azul::{css::ColorU, prelude::*, widgets::*};
 
 #[derive(Default, Clone)]
 struct WidgetShowcase {
@@ -91,22 +89,22 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 }
 
 fn small(icon: &str, label: &str) -> RibbonItem {
-    RibbonItem::SmallButton(RibbonButton::new(icon, label))
+    RibbonItem::SmallButton(RibbonButton::create(icon, label))
 }
 
 fn menu(icon: &str, label: &str) -> RibbonItem {
-    RibbonItem::SmallButton(RibbonButton::new(icon, label).with_arrow(RibbonArrow::Menu))
+    RibbonItem::SmallButton(RibbonButton::create(icon, label).with_arrow(RibbonArrow::Menu))
 }
 
 fn large(icon: &str, label: &str, arrow: RibbonArrow) -> RibbonItem {
-    RibbonItem::LargeButton(RibbonButton::new(icon, label).with_arrow(arrow))
+    RibbonItem::LargeButton(RibbonButton::create(icon, label).with_arrow(arrow))
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Row(
         items
             .into_iter()
-            .fold(RibbonRow::new(), |r, it| r.with_item(it)),
+            .fold(RibbonRow::create(), |r, it| r.with_item(it)),
     )
 }
 
@@ -114,12 +112,12 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Column(
         items
             .into_iter()
-            .fold(RibbonColumn::new(), |c, it| c.with_item(it)),
+            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
     )
 }
 
 fn home_tab() -> RibbonTab {
-    let clipboard = RibbonGroup::new("Clipboard")
+    let clipboard = RibbonGroup::create("Clipboard")
         .with_item(large("content_paste", "Paste", RibbonArrow::Split))
         .with_item(column(vec![
             small("content_cut", "Cut"),
@@ -127,7 +125,7 @@ fn home_tab() -> RibbonTab {
             small("format_paint", "Format Painter"),
         ]));
 
-    let font = RibbonGroup::new("Font").with_item(column(vec![
+    let font = RibbonGroup::create("Font").with_item(column(vec![
         row(vec![
             small("text_increase", ""),
             small("text_decrease", ""),
@@ -144,7 +142,7 @@ fn home_tab() -> RibbonTab {
         ]),
     ]));
 
-    let paragraph = RibbonGroup::new("Paragraph").with_item(column(vec![
+    let paragraph = RibbonGroup::create("Paragraph").with_item(column(vec![
         row(vec![
             menu("format_list_bulleted", ""),
             menu("format_list_numbered", ""),
@@ -161,13 +159,13 @@ fn home_tab() -> RibbonTab {
         ]),
     ]));
 
-    let editing = RibbonGroup::new("Editing").with_item(column(vec![
+    let editing = RibbonGroup::create("Editing").with_item(column(vec![
         menu("search", "Find"),
         small("find_replace", "Replace"),
         menu("highlight_alt", "Select"),
     ]));
 
-    RibbonTab::new("HOME")
+    RibbonTab::create("HOME")
         .with_group(clipboard)
         .with_group(font)
         .with_group(paragraph)
@@ -175,14 +173,14 @@ fn home_tab() -> RibbonTab {
 }
 
 fn insert_tab() -> RibbonTab {
-    RibbonTab::new("INSERT")
-        .with_group(RibbonGroup::new("Tables").with_item(large(
+    RibbonTab::create("INSERT")
+        .with_group(RibbonGroup::create("Tables").with_item(large(
             "grid_on",
             "Table",
             RibbonArrow::Menu,
         )))
         .with_group(
-            RibbonGroup::new("Illustrations")
+            RibbonGroup::create("Illustrations")
                 .with_item(large("image", "Pictures", RibbonArrow::None))
                 .with_item(large("insert_chart", "Chart", RibbonArrow::None))
                 .with_item(large("category", "Shapes", RibbonArrow::Menu)),
@@ -190,23 +188,23 @@ fn insert_tab() -> RibbonTab {
 }
 
 fn view_tab() -> RibbonTab {
-    RibbonTab::new("VIEW")
+    RibbonTab::create("VIEW")
         .with_group(
-            RibbonGroup::new("Views")
+            RibbonGroup::create("Views")
                 .with_item(large("article", "Read Mode", RibbonArrow::None))
                 .with_item(large("description", "Print Layout", RibbonArrow::None))
                 .with_item(large("public", "Web Layout", RibbonArrow::None)),
         )
         .with_group(
-            RibbonGroup::new("Zoom")
+            RibbonGroup::create("Zoom")
                 .with_item(large("zoom_in", "Zoom", RibbonArrow::None))
                 .with_item(large("fit_screen", "One Page", RibbonArrow::None)),
         )
 }
 
 fn ribbon(data: &RefAny, active_tab: usize) -> Dom {
-    Ribbon::new(vec![home_tab(), insert_tab(), view_tab()])
-        .with_app_button(RibbonAppButton::new("FILE"))
+    Ribbon::create(vec![home_tab(), insert_tab(), view_tab()])
+        .with_app_button(RibbonAppButton::create("FILE"))
         .with_active_tab(active_tab)
         .with_on_tab_click(data.clone(), on_tab_click)
         .dom()

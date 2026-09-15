@@ -1,164 +1,102 @@
 from azul import *
 
-TILE_PX = 256
-CELLS = 8
-CELL_PX = TILE_PX // CELLS
-COLS = 4
-ROWS = 3
+ZOOM_BUTTON = ("width: 30px; height: 30px; line-height: 30px; text-align: center; "
+               "background: white; color: #333333; border: 1px solid #b0b0b0; "
+               "border-radius: 6px; margin-right: 6px; font-size: 18px; cursor: pointer;")
 
-TERRAIN = ["#8fbcd4", "#aad3df", "#efe6c9", "#f2efe9",
-           "#e3ddd5", "#cdebb0", "#a8d18d", "#ffffff"]
-
-CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
 class MapState:
     def __init__(self):
-        self.tile_x = 21
-        self.tile_y = 24
-        self.zoom = 6
+        self.viewport = MapViewport.default()
+        self.viewport.centre_lat_deg = 48.2082
+        self.viewport.centre_lon_deg = 16.3738
+        self.viewport.zoom = 6.0
+        self.viewport.bearing_deg = 0.0
+        self.viewport.pitch_deg = 0.0
+        self.tiles = HttpClient.create(HttpClientConfig.create())
+        self.workers = ThreadPool.create(4)
 
-def lattice(x, y):
-    h = (x * 374761393 + y * 668265263) & 0xFFFFFFFF
-    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
-    h ^= h >> 16
-    return (h & 0xFFFFFF) / float(0xFFFFFF)
 
-def value_noise(x, y):
-    x0 = int(x // 1)
-    y0 = int(y // 1)
-    fx = x - x0
-    fy = y - y0
-    fx = fx * fx * (3.0 - 2.0 * fx)
-    fy = fy * fy * (3.0 - 2.0 * fy)
-    a = lattice(x0, y0)
-    b = lattice(x0 + 1, y0)
-    c = lattice(x0, y0 + 1)
-    d = lattice(x0 + 1, y0 + 1)
-    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
+def label(text, css):
+    return Dom.create_span_with_text(text).with_css(css)
 
-def terrain_at(u, v):
-    t = (0.62 * value_noise(u * 0.18, v * 0.18)
-         + 0.28 * value_noise(u * 0.55, v * 0.55)
-         + 0.10 * value_noise(u * 1.70, v * 1.70))
-    for limit, index in ((0.38, 0), (0.46, 1), (0.49, 2), (0.60, 3), (0.66, 4), (0.76, 5)):
-        if t < limit:
-            return index
-    return 6
 
-def cell_terrain(zoom, tile_x, tile_y, i, j):
-    span = 64.0 / (1 << zoom)
-    t = terrain_at((tile_x + i / float(CELLS)) * span, (tile_y + j / float(CELLS)) * span)
-    if t <= 1:
-        return t
-    if (tile_x * CELLS + i) % 9 == 4 or (tile_y * CELLS + j) % 11 == 6:
-        return 7
-    return t
+def zoom_button(glyph, name, data, callback):
+    return (label(glyph, ZOOM_BUTTON)
+            .with_callback(EventFilter.Hover(HoverEventFilter.MouseUp), data, callback)
+            .with_accessibility_info(AccessibilityInfo.named(name, AccessibilityRole.PushButton)))
 
-def tile_dom(zoom, tile_x, tile_y):
-    tile = Dom.create_div().with_css(
-        "width:%dpx;height:%dpx;overflow:hidden;" % (TILE_PX, TILE_PX))
-    for j in range(CELLS):
-        row = Dom.create_div().with_css(
-            "display:flex;flex-direction:row;height:%dpx;" % CELL_PX)
-        for i in range(CELLS):
-            colour = TERRAIN[cell_terrain(zoom, tile_x, tile_y, i, j)]
-            row = row.with_child(Dom.create_div().with_css(
-                "width:%dpx;height:%dpx;background:%s;" % (CELL_PX, CELL_PX, colour)))
-        tile = tile.with_child(row)
-    return tile
 
-def control(text, data, callback):
-    return (Dom.create_div()
-            .with_css("width:28px;height:28px;line-height:28px;text-align:center;"
-                      "background:white;color:#333333;border:1px solid #b0b0b0;"
-                      "margin-right:4px;font-size:16px;cursor:pointer;")
-            .with_child(Dom.create_p_with_text(text))
-            .with_callback(CLICK, data, callback))
-
-def pan(data, dx, dy):
-    count = 1 << data.zoom
-    data.tile_x = (data.tile_x + dx) % count
-    data.tile_y = max(0, min(count - ROWS, data.tile_y + dy))
+def change_zoom(data, delta):
+    data.viewport.zoom = max(1.0, min(14.0, data.viewport.zoom + delta))
     return Update.RefreshDom
 
-def on_west(data, info):
-    return pan(data, -1, 0)
-
-def on_east(data, info):
-    return pan(data, 1, 0)
-
-def on_north(data, info):
-    return pan(data, 0, -1)
-
-def on_south(data, info):
-    return pan(data, 0, 1)
 
 def on_zoom_in(data, info):
-    if data.zoom >= 12:
-        return Update.DoNothing
-    data.zoom += 1
-    data.tile_x *= 2
-    data.tile_y *= 2
-    return Update.RefreshDom
+    return change_zoom(data, 1.0)
+
 
 def on_zoom_out(data, info):
-    if data.zoom <= 1:
-        return Update.DoNothing
-    data.zoom -= 1
-    data.tile_x //= 2
-    data.tile_y //= 2
-    return Update.RefreshDom
+    return change_zoom(data, -1.0)
+
+
+def on_map_mount(data, info, setup):
+    return (setup.with_http_client(data.tiles)
+                 .with_thread_pool(data.workers)
+                 .with_max_in_flight(8))
+
 
 def layout(data, info):
-    grid = Dom.create_div().with_css("display:flex;flex-direction:column;")
-    count = 1 << data.zoom
-    for row in range(ROWS):
-        strip = Dom.create_div().with_css("display:flex;flex-direction:row;")
-        for col in range(COLS):
-            strip = strip.with_child(
-                tile_dom(data.zoom, (data.tile_x + col) % count, data.tile_y + row))
-        grid = grid.with_child(strip)
+    layer = MapTileLayer.default()
+    credit = layer.attribution
 
-    controls = (Dom.create_div()
-                .with_css("position:absolute;left:12px;top:12px;display:flex;flex-direction:row;")
-                .with_child(control("+", data, on_zoom_in))
-                .with_child(control("-", data, on_zoom_out))
-                .with_child(control("<", data, on_west))
-                .with_child(control(">", data, on_east))
-                .with_child(control("^", data, on_north))
-                .with_child(control("v", data, on_south)))
-
-    stage = (Dom.create_div()
-             .with_css("position:relative;flex-grow:1;overflow:hidden;background:#dfe6ec;")
-             .with_child(grid)
-             .with_child(controls))
+    map_dom = (MapWidget.create(layer)
+               .with_theme(MapTheme.System)
+               .with_viewport(data.viewport)
+               .with_on_mount(data, on_map_mount)
+               .dom()
+               .with_css("width: 100%; height: 100%;"))
 
     header = (Dom.create_div()
-              .with_css("display:flex;flex-direction:row;align-items:center;height:44px;"
-                        "padding-left:14px;background:#24303f;color:white;")
-              .with_child(Dom.create_div()
-                          .with_css("font-size:16px;font-weight:bold;margin-right:16px;")
-                          .with_child(Dom.create_p_with_text(
-                              "Azul Maps")))
-              .with_child(Dom.create_div()
-                          .with_css("font-size:12px;color:#9fb0c4;")
-                          .with_child(Dom.create_p_with_text(
-                              "zoom %d   tile %d/%d" % (data.zoom, data.tile_x, data.tile_y)))))
+              .with_css("display: flex; flex-direction: row; align-items: center; "
+                        "padding: 10px 14px; background: #2f3b4f; color: white;")
+              .with_child(label("Azul Maps", "font-size: 17px; font-weight: bold; margin-right: 14px;"))
+              .with_child(label("vector tiles over HTTPS   -   zoom %.0f" % data.viewport.zoom,
+                                "font-size: 12px; color: #c7d0dc;")))
 
-    footer = (Dom.create_div()
-              .with_css("height:22px;line-height:22px;padding-left:14px;background:#f3f5f7;"
-                        "color:#5b6875;font-size:11px;border-top:1px solid #d3d9df;")
-              .with_child(Dom.create_p_with_text(
-                  "tiles are generated procedurally - no network, no assets")))
+    controls = (Dom.create_div()
+                .with_css("position: absolute; left: 12px; top: 12px; display: flex; flex-direction: row;")
+                .with_child(zoom_button("+", "Zoom in", data, on_zoom_in))
+                .with_child(zoom_button("-", "Zoom out", data, on_zoom_out)))
+
+    frame = (Dom.create_div()
+             .with_css("flex-grow: 1; margin: 12px; border-radius: 14px; overflow: hidden; "
+                       "border: 1px solid #c3cad4; background: #dfe5ec; position: relative;")
+             .with_child(map_dom)
+             .with_child(controls))
+
+    footer = label(credit, "padding: 6px 14px; background: #f7f9fb; border-top: 1px solid #d3d9e2; "
+                           "color: #55606e; font-size: 11px;")
 
     return (Dom.create_body()
-            .with_css("display:flex;flex-direction:column;height:100%;margin:0;padding:0;"
-                      "font-family:sans-serif;")
+            .with_css("display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0; "
+                      "background: #eef1f5; font-family: sans-serif;")
             .with_child(header)
-            .with_child(stage)
+            .with_child(frame)
             .with_child(footer))
 
-state = MapState()
-window = WindowCreateOptions.create(layout)
-app = App.create(state, AppConfig.create())
-app.run(window)
+
+if __name__ == "__main__":
+    window = WindowCreateOptions.create(layout)
+    state = window.window_state
+    state.title = "Azul Maps"
+    size = state.size
+    dimensions = size.dimensions
+    dimensions.width = 900.0
+    dimensions.height = 620.0
+    size.dimensions = dimensions
+    state.size = size
+    window.window_state = state
+
+    app = App.create(MapState(), AppConfig.create())
+    app.run(window)

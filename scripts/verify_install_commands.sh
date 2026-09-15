@@ -256,12 +256,22 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "${CHANNEL:-verify}: '$1' i
 # build of a hello-world through it is the difference between "the files
 # downloaded" and "the documented steps produce a working program".
 E2E_SCRIPT="$REPO_DIR/tests/e2e/hello_world_counter.json"
+# `timeout` is GNU coreutils: the macOS runner has none (brew's coreutils calls
+# it `gtimeout`), and the brew check died with exit 127 AFTER a successful
+# install. Fall back to perl's alarm, which every runner image ships.
+with_timeout() { # $1 seconds, $2.. command
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+  else perl -e 'alarm shift @ARGV; exec @ARGV or die "exec $ARGV[0]: $!\n"' "$secs" "$@"
+  fi
+}
 e2e_run() { # $1 label, $2.. command — runs it headless through the counter script
   local label="$1"; shift
   [ -s "$E2E_SCRIPT" ] || fail "$label: $E2E_SCRIPT is missing (checkout tests/e2e/ next to this script)"
   local log; log="$(mktemp)"
   printf '\n$ AZ_E2E=%s AZ_BACKEND=headless %s\n' "$E2E_SCRIPT" "$*"
-  AZ_E2E="$E2E_SCRIPT" AZ_BACKEND=headless timeout 180 "$@" >"$log" 2>&1
+  AZ_E2E="$E2E_SCRIPT" AZ_BACKEND=headless with_timeout 180 "$@" >"$log" 2>&1
   local rc=$?
   sed 's/\x1b\[[0-9;]*m//g' "$log" | tail -20
   if [ "$rc" -ne 0 ] || ! sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -q "test result: ok" \
@@ -382,10 +392,10 @@ verify_nuget() {
 
   local w; w="$(mktemp -d)"
   cd "$w" || fail "nuget: cannot enter $w"
-  # A project to add the package to; the package targets net10.0
-  # (<TargetFramework> in doc/src/codegen/v2/lang_csharp/csproj.rs), so an
-  # older SDK's default template would fail restore for a framework reason
-  # rather than a channel reason.
+  # A project to add the package to; the package targets net8.0
+  # (<TargetFramework> in doc/src/codegen/v2/lang_csharp/csproj.rs), the
+  # oldest SDK this channel runs in (mcr.microsoft.com/dotnet/sdk:8.0), so a
+  # framework mismatch (NU1202) fails here as the regression it is.
   run dotnet new console -o app --force >/dev/null \
     || fail "nuget: 'dotnet new console' failed — the .NET SDK in this environment is unusable"
   cd "$w/app" || fail "nuget: cannot enter $w/app"
@@ -496,8 +506,12 @@ verify_apt() {
   fetch "$(rel hello-world.c)"
   run gcc hello-world.c -lazul -o hello-world || fail "apt: 'gcc hello-world.c -lazul' — the documented compile line — FAILED"
   e2e_run "apt/c" ./hello-world
-  fetch "$(rel hello-world.cpp)"
-  run g++ -std=c++17 hello-world.cpp -lazul -o hello-world-cpp || fail "apt: 'g++ -std=c++17 hello-world.cpp -lazul' — the documented compile line — FAILED"
+  # One driver per dialect: the C++17 tab fetches hello-world-cpp17.cpp and
+  # compiles it with -std=c++17 (the unnamed hello-world.cpp is the C++20
+  # variant — string_view literals — and used to be what this line built
+  # with -std=c++17, which is exactly the mismatch that failed here).
+  fetch "$(rel hello-world-cpp17.cpp)"
+  run g++ -std=c++17 hello-world-cpp17.cpp -lazul -o hello-world-cpp || fail "apt: 'g++ -std=c++17 hello-world-cpp17.cpp -lazul' — the documented compile line — FAILED"
   e2e_run "apt/c++" ./hello-world-cpp
   log "apt: the documented C and C++ builds against the apt-installed azul run the counter e2e"
 }
@@ -596,6 +610,10 @@ PY
     missing=""
     for p in $(printf '%s' "${line#*	}" | tr '\t' ' '); do
       case "$p" in
+        # "<dir>/": "./" flattens a generated directory into the root: its
+        # names are the generator's, so require files beyond the mapped ones.
+        ./) [ "$(printf '%s\n' "$listing" | wc -l)" -gt "$(printf '%s' "${line#*	}" | tr '\t' '\n' | wc -l)" ] \
+              || missing="$missing ./(generated files)" ;;
         */) printf '%s\n' "$listing" | grep -q "^$p" || missing="$missing $p" ;;
         *)  printf '%s\n' "$listing" | grep -qx "$p" || missing="$missing $p" ;;
       esac

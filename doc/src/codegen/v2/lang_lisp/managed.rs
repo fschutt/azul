@@ -13,22 +13,20 @@
 //!    (`%az-app-set-host-handle-releaser`, `%az-ref-any-new-host-handle`,
 //!    `%az-ref-any-get-host-handle`, plus per-kind setters and
 //!    `%az-<kind>-create-from-host-handle`). Live in `:azul-internal`.
-//! 2. **Per-kind defcallback closures** dispatching through a global
-//!    handle table keyed by `uint64`.
-//! 3. **`(azul:register-callback kind fn)`** that allocates a host
-//!    handle, stashes `fn`, and returns the matching cdata struct
-//!    pointer from `%az-<kind>-create-from-host-handle`.
-//! 4. **`(azul:refany-create value)` / `(azul:refany-get refany)`**
-//!    user-data helpers sharing the same handle table — symmetric with
-//!    Lua's `azul.refany_create` / `azul.refany_get`.
+//! 2. **Per-kind defcallback closures** dispatching through a global handle table keyed by
+//!    `uint64`.
+//! 3. **`(azul:register-callback kind fn)`** that allocates a host handle, stashes `fn`, and
+//!    returns the matching cdata struct pointer from `%az-<kind>-create-from-host-handle`.
+//! 4. **`(azul:refany-create value)` / `(azul:refany-get refany)`** user-data helpers sharing the
+//!    same handle table — symmetric with Lua's `azul.refany_create` / `azul.refany_get`.
 //!
 //! All of this is appended to the existing `azul.lisp` body — no
 //! restructuring of the existing types/functions emitters needed.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
-use super::super::managed_host_invoker::{
-    has_return, host_invoker_kinds, to_kebab_case, wrapper_name,
+use super::super::{
+    generator::CodeBuilder,
+    ir::CodegenIR,
+    managed_host_invoker::{has_return, host_invoker_kinds, to_kebab_case, wrapper_name},
 };
 
 /// Emit the host-invoker plumbing.

@@ -27,8 +27,8 @@ fn probe() -> Option<BiometricKind> {
     let conn = Connection::system()
         .map_err(|e| {
             crate::plog_warn!(
-                "[biometric] no D-Bus system bus ({}) — reporting NotAvailable \
-                 (cached for the process lifetime)",
+                "[biometric] no D-Bus system bus ({}) — reporting NotAvailable (cached for the \
+                 process lifetime)",
                 e
             )
         })
@@ -36,8 +36,8 @@ fn probe() -> Option<BiometricKind> {
     let mgr = Proxy::new(&conn, SVC, MGR_PATH, MGR_IFACE)
         .map_err(|e| {
             crate::plog_warn!(
-                "[biometric] fprintd Manager proxy failed ({}) — is fprintd \
-                 installed? Reporting NotAvailable (cached)",
+                "[biometric] fprintd Manager proxy failed ({}) — is fprintd installed? Reporting \
+                 NotAvailable (cached)",
                 e
             )
         })
@@ -47,8 +47,8 @@ fn probe() -> Option<BiometricKind> {
         .call("GetDefaultDevice", &())
         .map_err(|e| {
             crate::plog_info!(
-                "[biometric] fprintd GetDefaultDevice: {} — no fingerprint reader, \
-                 reporting NotAvailable (cached)",
+                "[biometric] fprintd GetDefaultDevice: {} — no fingerprint reader, reporting \
+                 NotAvailable (cached)",
                 e
             )
         })
@@ -60,8 +60,8 @@ fn probe() -> Option<BiometricKind> {
         Ok(v) => v,
         Err(e) => {
             crate::plog_warn!(
-                "[biometric] ListEnrolledFingers failed ({}) — treating as no \
-                 enrolled fingers, reporting NotAvailable (cached)",
+                "[biometric] ListEnrolledFingers failed ({}) — treating as no enrolled fingers, \
+                 reporting NotAvailable (cached)",
                 e
             );
             Vec::new()
@@ -100,8 +100,8 @@ fn run_verify() -> Option<BiometricResult> {
     let claimed: Result<(), _> = dev.call("Claim", &"");
     if let Err(e) = &claimed {
         crate::plog_warn!(
-            "[biometric] fprintd Claim failed ({}) — reader busy/already claimed, \
-             reporting Unavailable",
+            "[biometric] fprintd Claim failed ({}) — reader busy/already claimed, reporting \
+             Unavailable",
             e
         );
         return Some(BiometricResult::Unavailable); // busy / already claimed
@@ -110,8 +110,7 @@ fn run_verify() -> Option<BiometricResult> {
         Ok(s) => s,
         Err(e) => {
             crate::plog_warn!(
-                "[biometric] subscribing to VerifyStatus failed ({}) — reporting \
-                 Error",
+                "[biometric] subscribing to VerifyStatus failed ({}) — reporting Error",
                 e
             );
             let _: Result<(), _> = dev.call("Release", &());

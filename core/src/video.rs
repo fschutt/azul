@@ -11,17 +11,19 @@
 //! Unlike the camera/screencap configs this carries a `source` string, so
 //! it's `Clone` but not `Copy`.
 
-use crate::resources::RawImageFormat;
-use crate::url::Url;
 use azul_css::{AzString, U8Vec};
+
+use crate::{resources::RawImageFormat, url::Url};
 #[allow(variant_size_differences)]
-// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size
+// disparity accepted
 /// Where a video widget pulls its H.264/MP4 data from — strongly typed so the
 /// decode worker matches on it directly (no `RefAny` downcast). Mirrors
 /// [`crate::screencap::ScreenCaptureSource`].
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
+#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C
+                                     // ABI/api.json
 pub enum VideoSource {
     /// An HTTP(S) URL, fetched on the decode thread via an HTTP range request.
     Url(Url),

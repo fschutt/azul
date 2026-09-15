@@ -48,12 +48,11 @@ fn ffi_map_dom_is_wired_to_the_tile_fetch_worker() {
 
     assert!(
         body.contains("map_widget_dom"),
-        "api.json binds MapWidget::dom() to `{body}`, which does not go through \
-         map_widget_dom. If this is `object.dom()` it is the azul-layout \
-         PLACEHOLDER: the map will pan and never paint a tile, on every desktop \
-         platform, with no error anywhere. Reproduce with:\n  \
-         AZ_MAP_DEBUG=1 AZ_BACKEND=headless ./azul-maps\n  \
-         -> `spawn_pending: ABORT - no fetch_callback on the cache`"
+        "api.json binds MapWidget::dom() to `{body}`, which does not go through map_widget_dom. \
+         If this is `object.dom()` it is the azul-layout PLACEHOLDER: the map will pan and never \
+         paint a tile, on every desktop platform, with no error anywhere. Reproduce with:\n  \
+         AZ_MAP_DEBUG=1 AZ_BACKEND=headless ./azul-maps\n  -> `spawn_pending: ABORT - no \
+         fetch_callback on the cache`"
     );
 
     assert!(
@@ -71,8 +70,7 @@ fn the_wiring_function_still_exists_under_the_name_api_json_calls() {
     let body = map_widget_dom_fn_body();
     assert!(
         body.contains("unified::map::map_widget_dom"),
-        "expected the unified module path so wasm and desktop share one entry \
-         point, got `{body}`"
+        "expected the unified module path so wasm and desktop share one entry point, got `{body}`"
     );
 }
 
@@ -116,10 +114,10 @@ fn every_dll_side_wiring_function_is_reachable_from_api_json() {
 
         assert!(
             body.contains(wiring_fn),
-            "{widget}.dom is bound to `{body}`, which bypasses {wiring_fn}. That \
-             function exists precisely because the worker cannot live in \
-             azul-layout, and binding past it ships a widget that renders but \
-             never receives data — silently, with no error on any platform."
+            "{widget}.dom is bound to `{body}`, which bypasses {wiring_fn}. That function exists \
+             precisely because the worker cannot live in azul-layout, and binding past it ships a \
+             widget that renders but never receives data — silently, with no error on any \
+             platform."
         );
     }
 }

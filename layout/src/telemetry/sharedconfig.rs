@@ -23,22 +23,19 @@
 //! }
 //! ```
 //!
-//! * A channel's value is a SIGNAL LIST: any of `"crashes"`, `"logs"`,
-//!   `"metrics"`, `"appdata"` — or the string `"off"` instead of a list to
-//!   forbid even crash reports. An EMPTY list means crash reports only (the
-//!   "please fix it" baseline); an ABSENT channel means the file says
+//! * A channel's value is a SIGNAL LIST: any of `"crashes"`, `"logs"`, `"metrics"`, `"appdata"` —
+//!   or the string `"off"` instead of a list to forbid even crash reports. An EMPTY list means
+//!   crash reports only (the "please fix it" baseline); an ABSENT channel means the file says
 //!   nothing and the regular consent ladder decides.
-//! * `overrides` are keyed by the app's EXECUTABLE NAME
-//!   (`std::env::current_exe` file stem) and win over the channel default.
-//! * `disabled_metrics` is the per-metric opt-out the consent dialog's
-//!   checkmark list writes: those instrument NAMES are never recorded.
-//! * `updates.autoupdate: false` clamps self-updating apps to notify-only;
-//!   `maintenance_window` is an RRULE(-subset) string gating when unattended
-//!   update work (automatic staging today, unattended apply when it exists)
-//!   may run. Supported: `FREQ=DAILY|WEEKLY`, `BYDAY=MO,..`, `BYHOUR=n`
-//!   (window start, default 0), `BYMINUTE=n`, and the non-standard
-//!   `DURATION=PTnH|PTnM` component (default 4h) — documented here because
-//!   plain RRULE has no duration.
+//! * `overrides` are keyed by the app's EXECUTABLE NAME (`std::env::current_exe` file stem) and win
+//!   over the channel default.
+//! * `disabled_metrics` is the per-metric opt-out the consent dialog's checkmark list writes: those
+//!   instrument NAMES are never recorded.
+//! * `updates.autoupdate: false` clamps self-updating apps to notify-only; `maintenance_window` is
+//!   an RRULE(-subset) string gating when unattended update work (automatic staging today,
+//!   unattended apply when it exists) may run. Supported: `FREQ=DAILY|WEEKLY`, `BYDAY=MO,..`,
+//!   `BYHOUR=n` (window start, default 0), `BYMINUTE=n`, and the non-standard `DURATION=PTnH|PTnM`
+//!   component (default 4h) — documented here because plain RRULE has no duration.
 //!
 //! Precedence within telemetry stays: env > exe-adjacent pin > per-app
 //! `telemetry.json` > THIS FILE (app override, then channel default) > the
@@ -640,7 +637,8 @@ mod tests {
         );
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT + 25 * 3600)); // Sat 01:00
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT + 12 * 3600)); // Fri noon
-                                                                             // Monday is outside BYDAY=FR entirely.
+                                                                             // Monday is outside
+                                                                             // BYDAY=FR entirely.
         let monday_noon = FRI_MIDNIGHT + 3 * 86_400 + 12 * 3600;
         assert!(!within_maintenance_window(rule, monday_noon));
     }

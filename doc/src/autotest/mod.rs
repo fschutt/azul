@@ -3,10 +3,10 @@
 //! This is the test-generation analogue of `autofix`. Instead of syncing api.json, it:
 //!
 //!   1. enumerates every testable function per source file (free `fn`s + impl methods),
-//!   2. categorizes each (parser / serializer / round-trip / constructor / predicate /
-//!      getter / numeric / other) and attaches tailored adversarial test *strategies*,
-//!   3. emits a machine-readable `manifest.json` plus one human-readable task file per
-//!      source file under `tasks/`,
+//!   2. categorizes each (parser / serializer / round-trip / constructor / predicate / getter /
+//!      numeric / other) and attaches tailored adversarial test *strategies*,
+//!   3. emits a machine-readable `manifest.json` plus one human-readable task file per source file
+//!      under `tasks/`,
 //!
 //! so a fleet of LLM coding agents can then write the actual `#[cfg(test)]` bodies
 //! file-by-file, run `cargo test -p <crate>`, and keep only the tests that pass.
@@ -247,7 +247,7 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
         }
         if path.is_dir() {
             collect_rust_files(files, crate_name, &path);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             files.push((crate_name.to_string(), path));
         }
     }
@@ -401,17 +401,16 @@ fn render_task_file(sf: &ScannedFile) -> String {
     // // instructions
     s.push_str("## Your task\n\n");
     s.push_str(
-        "Write adversarial unit tests for the functions listed below. For each function, \
-         turn the suggested adversarial cases into concrete `#[test]` assertions. Aim to \
-         provoke panics, overflow, infinite loops, and incorrect results — then assert the \
-         function behaves safely (returns `Err`/`None`, saturates, or produces the documented \
-         value) instead.\n\n",
+        "Write adversarial unit tests for the functions listed below. For each function, turn the \
+         suggested adversarial cases into concrete `#[test]` assertions. Aim to provoke panics, \
+         overflow, infinite loops, and incorrect results — then assert the function behaves \
+         safely (returns `Err`/`None`, saturates, or produces the documented value) instead.\n\n",
     );
 
     if any_private {
         s.push_str(&format!(
-            "Some functions here are **private**, so you MUST add an inline test module to \
-             `{}` itself (an inline module can test private functions for better coverage):\n\n",
+            "Some functions here are **private**, so you MUST add an inline test module to `{}` \
+             itself (an inline module can test private functions for better coverage):\n\n",
             sf.rel_path
         ));
         s.push_str("```rust\n");
@@ -426,10 +425,10 @@ fn render_task_file(sf: &ScannedFile) -> String {
         s.push_str("```\n\n");
     } else {
         s.push_str(&format!(
-            "All functions here are **public**, so you may EITHER add an inline \
-             `#[cfg(test)] mod autotest_generated {{ use super::*; ... }}` to `{}`, OR create a \
-             new file under that crate's `tests/` directory that imports the crate. Prefer the \
-             inline module unless the crate convention says otherwise.\n\n",
+            "All functions here are **public**, so you may EITHER add an inline `#[cfg(test)] mod \
+             autotest_generated {{ use super::*; ... }}` to `{}`, OR create a new file under that \
+             crate's `tests/` directory that imports the crate. Prefer the inline module unless \
+             the crate convention says otherwise.\n\n",
             sf.rel_path
         ));
         s.push_str("```rust\n");
@@ -446,9 +445,9 @@ fn render_task_file(sf: &ScannedFile) -> String {
         sf.crate_name
     ));
     s.push_str(
-        "Keep ONLY the tests that compile and pass. If an assertion reveals a genuine bug \
-         (a real panic / wrong result), note it in your report rather than weakening the test \
-         to make it pass. Do not modify the functions under test.\n\n",
+        "Keep ONLY the tests that compile and pass. If an assertion reveals a genuine bug (a real \
+         panic / wrong result), note it in your report rather than weakening the test to make it \
+         pass. Do not modify the functions under test.\n\n",
     );
 
     s.push_str("---\n\n");

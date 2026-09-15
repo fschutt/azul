@@ -17,24 +17,24 @@
 //! delegate (routing status into the PermissionManager) is a follow-up;
 //! the permission backend already probes location status synchronously.
 
-use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
-#[cfg(target_os = "ios")]
-use azul_layout::managers::permission::{
-    push_async_result, Capability, PermissionQuality, PermissionState,
-};
-
-#[cfg(target_os = "ios")]
-use objc::declare::ClassDecl;
-#[cfg(target_os = "ios")]
-use objc::runtime::{Class, Object, Sel};
-#[cfg(target_os = "ios")]
-use objc::{class, msg_send, sel, sel_impl, Encode, Encoding};
 #[cfg(target_os = "ios")]
 use std::ptr;
 #[cfg(target_os = "ios")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_os = "ios")]
 use std::sync::Once;
+
+use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
+#[cfg(target_os = "ios")]
+use azul_layout::managers::permission::{
+    push_async_result, Capability, PermissionQuality, PermissionState,
+};
+#[cfg(target_os = "ios")]
+use objc::declare::ClassDecl;
+#[cfg(target_os = "ios")]
+use objc::runtime::{Class, Object, Sel};
+#[cfg(target_os = "ios")]
+use objc::{class, msg_send, sel, sel_impl, Encode, Encoding};
 
 /// `CLLocationCoordinate2D` — `{ latitude: double, longitude: double }`.
 /// Defined locally (like `CGPoint` in the iOS shell) so `msg_send!` can do

@@ -20,7 +20,7 @@ function on_click(int $data): int
     $m = json_decode(azul_refany_get($data), true);
     $m['counter'] = ($m['counter'] ?? 0) + 1;
     azul_refany_set($data, json_encode($m));
-    return 1; // Update::RefreshDom
+    return 1;
 }
 
 function layout(int $data): \Azul\Dom
