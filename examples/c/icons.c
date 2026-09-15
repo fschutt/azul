@@ -136,7 +136,7 @@ AzUpdate on_favicon_read(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
         return favicon_failed(&d);
     }
 
-    AzOptionImageRef opt_image = AzImageRef_newRawimage(*raw_image);
+    AzOptionImageRef opt_image = AzImageRef_createRawimage(*raw_image);
     AzImageRef* favicon_image_ptr = NULL;
     if (!AzOptionImageRef_matchMutSome(&opt_image, &favicon_image_ptr)) {
         printf("Error: Could not create ImageRef from RawImage\n");

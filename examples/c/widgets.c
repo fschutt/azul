@@ -54,21 +54,21 @@ static void sorted_order(const char* rows[FILE_COUNT][3], size_t column, size_t*
 }
 
 static AzRibbonItem small_button(const char* icon, const char* label) {
-    return AzRibbonItem_smallButton(AzRibbonButton_new(str(icon), str(label)));
+    return AzRibbonItem_smallButton(AzRibbonButton_create(str(icon), str(label)));
 }
 
 static AzRibbonItem menu_button(const char* icon, const char* label) {
-    AzRibbonButton b = AzRibbonButton_new(str(icon), str(label));
+    AzRibbonButton b = AzRibbonButton_create(str(icon), str(label));
     return AzRibbonItem_smallButton(AzRibbonButton_withArrow(b, AzRibbonArrow_Menu));
 }
 
 static AzRibbonItem large_button(const char* icon, const char* label, AzRibbonArrow arrow) {
-    AzRibbonButton b = AzRibbonButton_new(str(icon), str(label));
+    AzRibbonButton b = AzRibbonButton_create(str(icon), str(label));
     return AzRibbonItem_largeButton(AzRibbonButton_withArrow(b, arrow));
 }
 
 static AzRibbonItem column_of(const AzRibbonItem* items, size_t count) {
-    AzRibbonColumn col = AzRibbonColumn_new();
+    AzRibbonColumn col = AzRibbonColumn_create();
     for (size_t i = 0; i < count; i++) {
         AzRibbonColumn_addItem(&col, items[i]);
     }
@@ -76,7 +76,7 @@ static AzRibbonItem column_of(const AzRibbonItem* items, size_t count) {
 }
 
 static AzRibbonItem row_of(const AzRibbonItem* items, size_t count) {
-    AzRibbonRow row = AzRibbonRow_new();
+    AzRibbonRow row = AzRibbonRow_create();
     for (size_t i = 0; i < count; i++) {
         AzRibbonRow_addItem(&row, items[i]);
     }
@@ -84,7 +84,7 @@ static AzRibbonItem row_of(const AzRibbonItem* items, size_t count) {
 }
 
 static AzRibbonGroup group_of(const char* label, const AzRibbonItem* items, size_t count) {
-    AzRibbonGroup g = AzRibbonGroup_new(str(label));
+    AzRibbonGroup g = AzRibbonGroup_create(str(label));
     for (size_t i = 0; i < count; i++) {
         AzRibbonGroup_addItem(&g, items[i]);
     }
@@ -150,7 +150,7 @@ static AzRibbonTab home_tab(void) {
         group_of("Editing", editing_items, 1),
     };
 
-    AzRibbonTab tab = AzRibbonTab_new(str("HOME"));
+    AzRibbonTab tab = AzRibbonTab_create(str("HOME"));
     for (size_t i = 0; i < 4; i++) {
         AzRibbonTab_addGroup(&tab, groups[i]);
     }
@@ -168,7 +168,7 @@ static AzRibbonTab insert_tab(void) {
         group_of("Tables", table_items, 1),
         group_of("Illustrations", media_items, 3),
     };
-    AzRibbonTab tab = AzRibbonTab_new(str("INSERT"));
+    AzRibbonTab tab = AzRibbonTab_create(str("INSERT"));
     for (size_t i = 0; i < 2; i++) {
         AzRibbonTab_addGroup(&tab, groups[i]);
     }
@@ -189,7 +189,7 @@ static AzRibbonTab view_tab(void) {
         group_of("Views", views, 3),
         group_of("Zoom", zoom, 2),
     };
-    AzRibbonTab tab = AzRibbonTab_new(str("VIEW"));
+    AzRibbonTab tab = AzRibbonTab_create(str("VIEW"));
     for (size_t i = 0; i < 2; i++) {
         AzRibbonTab_addGroup(&tab, groups[i]);
     }
@@ -198,8 +198,8 @@ static AzRibbonTab view_tab(void) {
 
 static AzDom ribbon_dom(AzRefAny data, size_t active_tab) {
     AzRibbonTab tabs[3] = { home_tab(), insert_tab(), view_tab() };
-    AzRibbon ribbon = AzRibbon_new(AzRibbonTabVec_copyFromPtr(tabs, 3));
-    AzRibbon_setAppButton(&ribbon, AzRibbonAppButton_new(str("FILE")));
+    AzRibbon ribbon = AzRibbon_create(AzRibbonTabVec_copyFromPtr(tabs, 3));
+    AzRibbon_setAppButton(&ribbon, AzRibbonAppButton_create(str("FILE")));
     AzRibbon_setActiveTab(&ribbon, active_tab);
     AzRibbon_setOnTabClick(&ribbon, data, on_tab_click);
     return AzRibbon_dom(ribbon);
@@ -281,7 +281,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     };
     AzTreeViewNode nodes[7];
     for (size_t i = 0; i < 7; i++) {
-        nodes[i] = AzTreeViewNode_new(str(tree_labels[i]));
+        nodes[i] = AzTreeViewNode_create(str(tree_labels[i]));
         nodes[i] = AzTreeViewNode_withExpanded(nodes[i], (expanded & (1u << i)) != 0);
         nodes[i] = AzTreeViewNode_withSelected(nodes[i], i == selected_node);
     }
@@ -293,7 +293,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzTreeViewNode_addChild(&nodes[0], nodes[5]);
     AzTreeViewNode root = nodes[0];
 
-    AzTreeView tv = AzTreeView_new(root);
+    AzTreeView tv = AzTreeView_create(root);
     AzTreeView_setOnNodeClick(&tv, AzRefAny_clone(&data), on_tree_node_click);
     AzDom tree_view = AzTreeView_dom(tv);
     AzDom_setCss(&tree_view, str("width: 200px; margin-right: 10px;"));

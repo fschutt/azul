@@ -135,7 +135,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let self_tile = if cam {
         Dom::create_div().with_css(TILE).with_child(
             CameraWidget::create(CameraConfig::default())
-                .with_consumer(FrameConsumer::new(REMOTE_VIEW_ID, REMOTE_VIEW_W, REMOTE_VIEW_H))
+                .with_consumer(FrameConsumer::create(REMOTE_VIEW_ID, REMOTE_VIEW_W, REMOTE_VIEW_H))
                 .with_on_consumer_frame(
                     data.clone(),
                     OnConsumerFrameCallback {

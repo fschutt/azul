@@ -74,7 +74,7 @@ fn main() {
         clicks: 0,
     });
 
-    let tray = TrayIconData::new("rs.azul.tray-demo", "Azul Tray Demo")
+    let tray = TrayIconData::create("rs.azul.tray-demo", "Azul Tray Demo")
         .with_named_icon("red-heart")
         .with_tooltip("Azul tray demo")
         .with_menu(Menu::create(vec![

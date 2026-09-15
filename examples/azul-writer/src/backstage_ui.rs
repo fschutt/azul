@@ -296,8 +296,8 @@ fn open_pane(data: &RefAny, pal: &Palette) -> Dom {
 pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
 
-    let mut strip = QuickAccessBar::new(AzString::from(title));
-    strip.trailing_actions = vec![QuickAccessAction::new(AzString::from("help_outline"))].into();
+    let mut strip = QuickAccessBar::create(AzString::from(title));
+    strip.trailing_actions = vec![QuickAccessAction::create(AzString::from("help_outline"))].into();
     strip.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
     let strip_bar = strip.style.resolved_bar_style();
     crate::fonts::push_ui_font(&mut strip.style.bar_style, strip_bar);

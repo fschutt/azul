@@ -203,7 +203,7 @@ struct MetaballField {
 }
 
 fn brush_for(color: ColorU, pressure: f32) -> Brush {
-    let mut b = Brush::new(color, BASE_RADIUS * pressure.max(0.05).min(1.0));
+    let mut b = Brush::create(color, BASE_RADIUS * pressure.max(0.05).min(1.0));
     b.hardness = 0.6;
     b.flow = 0.9;
     b.spacing = 0.2;
@@ -881,7 +881,7 @@ fn render_canvas_inner(
         if let Some(path) = export_path.as_ref() {
             export_png(&img, path.as_str());
         }
-        cache.cpu_image = ImageRef::new_rawimage(img).into_option();
+        cache.cpu_image = ImageRef::create_rawimage(img).into_option();
         cache.rendered_rev = rev;
     }
     if export_path.is_some() {

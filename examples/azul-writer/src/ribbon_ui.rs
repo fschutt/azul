@@ -133,7 +133,7 @@ fn s(v: &str) -> AzString {
 }
 
 fn small(icon: &str, label: &str) -> RibbonButton {
-    RibbonButton::new(s(icon), s(label))
+    RibbonButton::create(s(icon), s(label))
 }
 
 fn item(icon: &str, label: &str) -> RibbonItem {
@@ -148,7 +148,7 @@ fn row(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Row(
         items
             .into_iter()
-            .fold(RibbonRow::new(), |r, it| r.with_item(it)),
+            .fold(RibbonRow::create(), |r, it| r.with_item(it)),
     )
 }
 
@@ -156,12 +156,12 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Column(
         items
             .into_iter()
-            .fold(RibbonColumn::new(), |c, it| c.with_item(it)),
+            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
     )
 }
 
 fn cell(preview_css: String, sample: &str, name: &str) -> RibbonGalleryCell {
-    RibbonGalleryCell::new(
+    RibbonGalleryCell::create(
         Dom::create_div_with_text(sample).with_css(preview_css),
         s(name),
     )
@@ -170,9 +170,9 @@ fn cell(preview_css: String, sample: &str, name: &str) -> RibbonGalleryCell {
 fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> RibbonTab {
     let ribbon_style = crate::palette::widgets::ribbon(pal, sys);
 
-    let clipboard = RibbonGroup::new(s("Clipboard"))
+    let clipboard = RibbonGroup::create(s("Clipboard"))
         .with_item(RibbonItem::LargeButton(
-            RibbonButton::new(s("content_paste"), s("Paste")).with_arrow(RibbonArrow::Split),
+            RibbonButton::create(s("content_paste"), s("Paste")).with_arrow(RibbonArrow::Split),
         ))
         .with_item(column(vec![
             item("content_cut", "Cut"),
@@ -222,7 +222,7 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         on_toggle_underline as ButtonOnClickCallbackType,
     );
 
-    let font = RibbonGroup::new(s("Font")).with_item(column(vec![
+    let font = RibbonGroup::create(s("Font")).with_item(column(vec![
         row(vec![
             RibbonItem::Combo(name_combo),
             RibbonItem::Combo(size_combo),
@@ -270,7 +270,7 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     para_row2.push(item_menu("format_color_fill", ""));
     para_row2.push(item_menu("border_all", ""));
 
-    let paragraph = RibbonGroup::new(s("Paragraph")).with_item(column(vec![
+    let paragraph = RibbonGroup::create(s("Paragraph")).with_item(column(vec![
         row(vec![
             item_menu("format_list_bulleted", ""),
             item_menu("format_list_numbered", ""),
@@ -330,7 +330,7 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
             "Emphasis",
         ),
     ];
-    let mut gallery = RibbonGallery::new(cells).with_selected(state.selected_style);
+    let mut gallery = RibbonGallery::create(cells).with_selected(state.selected_style);
     gallery.set_on_select(
         data.clone(),
         RibbonGalleryOnSelectCallback {
@@ -339,17 +339,17 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
         },
     );
 
-    let styles = RibbonGroup::new(s("Styles"))
+    let styles = RibbonGroup::create(s("Styles"))
         .with_item(RibbonItem::Gallery(gallery))
         .with_fills_space(true);
 
-    let editing = RibbonGroup::new(s("Editing")).with_item(column(vec![
+    let editing = RibbonGroup::create(s("Editing")).with_item(column(vec![
         item_menu("search", "Find"),
         item("find_replace", "Replace"),
         item_menu("highlight_alt", "Select"),
     ]));
 
-    RibbonTab::new(s("HOME"))
+    RibbonTab::create(s("HOME"))
         .with_group(clipboard)
         .with_group(font)
         .with_group(paragraph)
@@ -358,8 +358,8 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
 }
 
 fn placeholder_tab(label: &str) -> RibbonTab {
-    RibbonTab::new(s(label)).with_group(RibbonGroup::new(s("Preview")).with_item(
-        RibbonItem::LargeButton(RibbonButton::new(s("layers"), s(label))),
+    RibbonTab::create(s(label)).with_group(RibbonGroup::create(s("Preview")).with_item(
+        RibbonItem::LargeButton(RibbonButton::create(s("layers"), s(label))),
     ))
 }
 
@@ -381,8 +381,8 @@ pub fn build(
         placeholder_tab("VIEW"),
     ];
 
-    let mut ribbon = Ribbon::new(tabs)
-        .with_app_button(RibbonAppButton::new(s("FILE")).with_on_click(
+    let mut ribbon = Ribbon::create(tabs)
+        .with_app_button(RibbonAppButton::create(s("FILE")).with_on_click(
             data.clone(),
             crate::on_file_button as ButtonOnClickCallbackType,
         ))

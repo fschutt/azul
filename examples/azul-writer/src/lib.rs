@@ -653,7 +653,7 @@ fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
     );
     doc.add_child(content.clone());
 
-    let pdf = Pdf::new();
+    let pdf = Pdf::create();
     pdf.from_dom_in_callback(reborrow_info(info), doc, A4_W_PX, A4_H_PX)
         .as_ref()
         .to_vec()

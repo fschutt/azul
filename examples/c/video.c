@@ -108,7 +108,7 @@ static void decode_and_build(VideoApp* m, AzOptionDecodedVideo opt, bool hw_read
             raw.data_format = AzRawImageFormat_RGBA8;
             raw.tag = AzU8Vec_copyFromBytes((const uint8_t*)"bbb-frame", 0, 9);
 
-            AzOptionImageRef oimg = AzImageRef_newRawimage(raw);
+            AzOptionImageRef oimg = AzImageRef_createRawimage(raw);
             if (AzOptionImageRef_isSome(&oimg)) {
                 m->frames[m->n_frames++] = oimg.Some.payload;
             }

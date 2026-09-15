@@ -583,7 +583,7 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
         data_format: RawImageFormat::RGBA8,
         tag: Vec::new().into(),
     };
-    ImageRef::new_rawimage(img)
+    ImageRef::create_rawimage(img)
         .into_option()
         .unwrap_or_else(|| {
             ImageRef::null_image(

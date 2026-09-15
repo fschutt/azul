@@ -130,7 +130,7 @@ pub fn save(s: &AppState) -> bool {
         return false;
     }
 
-    let mut zip = Zip::new();
+    let mut zip = Zip::create();
 
     let clips: Vec<&VoiceClip> = s.clips.iter().chain(s.recording.iter()).collect();
     for (i, c) in clips.iter().enumerate() {

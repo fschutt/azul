@@ -31,7 +31,7 @@ fn main() {
 
     let data = RefAny::new(TrayOnly { clicks: 0 });
 
-    let tray = TrayIconData::new("rs.azul.tray-only", "Azul Tray Only")
+    let tray = TrayIconData::create("rs.azul.tray-only", "Azul Tray Only")
         .with_named_icon("bolt")
         .with_tooltip("Azul tray-only demo")
         .with_menu(Menu::create(vec![

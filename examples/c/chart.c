@@ -64,7 +64,7 @@ static AzImageRef create_bar_mask(float bar_height_pct, int width, int height) {
         .tag = AzU8Vec_create(),
     };
 
-    AzOptionImageRef opt = AzImageRef_newRawimage(raw);
+    AzOptionImageRef opt = AzImageRef_createRawimage(raw);
     if (opt.Some.tag == AzOptionImageRef_Tag_Some) {
         return opt.Some.payload;
     }
@@ -118,7 +118,7 @@ static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
         .tag = AzU8Vec_create(),
     };
 
-    AzOptionImageRef opt = AzImageRef_newRawimage(raw);
+    AzOptionImageRef opt = AzImageRef_createRawimage(raw);
     if (opt.Some.tag == AzOptionImageRef_Tag_Some) {
         return opt.Some.payload;
     }

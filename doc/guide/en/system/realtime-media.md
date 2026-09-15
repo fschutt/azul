@@ -92,7 +92,7 @@ than it was asked for.
 // "Client Bob wants 500x200; the local preview is 100x200": the camera is
 // opened at 500x200 and each frame is sampled twice, from one capture.
 let camera = CameraWidget::create(CameraConfig::default())
-    .with_consumer(FrameConsumer::new(BOB, 500, 200))
+    .with_consumer(FrameConsumer::create(BOB, 500, 200))
     .with_on_consumer_frame(state.clone(), on_consumer_frame)
     .dom();
 

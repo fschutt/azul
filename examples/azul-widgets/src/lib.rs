@@ -534,7 +534,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "ComboBox",
-                ComboBox::new(strs(&["Apple", "Banana", "Cherry", "Date"]))
+                ComboBox::create_with_items(strs(&["Apple", "Banana", "Cherry", "Date"]))
                     .with_placeholder("Pick a fruit")
                     .with_text(s.combo_text.clone())
                     .with_on_select(
@@ -661,7 +661,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "Tooltip (hover the button)",
-                Tooltip::new(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
+                Tooltip::create(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
             ),
             labelled(
                 "Modal (starts closed)",
@@ -735,7 +735,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "Accordion",
-                Accordion::new(vec![
+                Accordion::create_with_sections(vec![
                     AccordionSection {
                         title: "What is Azul?".into(),
                         content: Dom::create_div_with_text("A cross-platform Rust GUI framework."),
@@ -764,7 +764,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         vec![
             labelled(
                 "Popover (starts closed)",
-                Popover::new(
+                Popover::create(
                     Button::create("Open popover").dom(),
                     Dom::create_div_with_text("Popover content"),
                 )

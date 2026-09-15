@@ -44,7 +44,7 @@ use azul::misc::Pdf;
 
 // `doc` is any styled Dom. Page size is in pixels at 96 DPI:
 //   A4     = 794 x 1123    Letter = 816 x 1056
-let bytes = Pdf::new().from_dom(doc, 794.0, 1123.0);   // -> U8Vec
+let bytes = Pdf::create().from_dom(doc, 794.0, 1123.0);   // -> U8Vec
 
 // You own the bytes - persist them however you like:
 std::fs::write("out.pdf", bytes.as_slice()).unwrap();
@@ -71,7 +71,7 @@ fn doc_page() -> Dom {
 
 extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(s) = data.downcast_ref::<DocState>() {
-        let bytes = Pdf::new().from_dom(doc_page(), 794.0, 1123.0); // A4 @ 96 DPI
+        let bytes = Pdf::create().from_dom(doc_page(), 794.0, 1123.0); // A4 @ 96 DPI
         let _ = std::fs::write(&s.export_path, bytes.as_slice());
     }
     Update::DoNothing

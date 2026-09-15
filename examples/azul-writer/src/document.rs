@@ -409,7 +409,7 @@ fn compute_break_paths_with_fonts(
 
     let content_size = page_content_size();
     let _p_pag = crate::perf::Phase::start("    compute_pagination");
-    let pdf = Pdf::new();
+    let pdf = Pdf::create();
     let snapshot: PaginationSnapshot = pdf.compute_pagination(
         styled_dom,
         content_size.width,
@@ -710,7 +710,7 @@ mod test_edit_support {
     }
 
     pub(super) fn changeset(op: DocumentOperation, resume_path: Vec<u32>) -> DocumentChangeset {
-        DocumentChangeset::new(
+        DocumentChangeset::create(
             null_node(),
             op,
             EditResumePoint {
@@ -923,7 +923,7 @@ mod pdf_export_tests {
         doc.add_child(content);
         let styled = StyledDom::create_from_dom(doc);
 
-        let pdf = Pdf::new();
+        let pdf = Pdf::create();
         let bytes = pdf.from_styled_dom_with_resources(
             styled,
             794.0,

@@ -64,13 +64,13 @@ pub fn title_band(
     band_theme.bg = Palette::TRANSPARENT;
     band.style = QuickAccessStyle::from_theme(band_theme);
     band.actions = vec![
-        QuickAccessAction::new(s("save")).with_on_click(
+        QuickAccessAction::create(s("save")).with_on_click(
             data.clone(),
             crate::on_save_clicked as ButtonOnClickCallbackType,
         ),
-        QuickAccessAction::new(s("undo"))
+        QuickAccessAction::create(s("undo"))
             .with_on_click(data.clone(), crate::on_undo as ButtonOnClickCallbackType),
-        QuickAccessAction::new(s("redo"))
+        QuickAccessAction::create(s("redo"))
             .with_on_click(data.clone(), crate::on_redo as ButtonOnClickCallbackType),
     ]
     .into();
@@ -251,11 +251,11 @@ pub fn status_bar(
 ) -> Dom {
     let words = state.document.word_count();
     let segments = vec![
-        StatusBarSegment::new(AzString::from(format!("PAGE 1 OF {page_count}"))),
-        StatusBarSegment::new(AzString::from(format!("{words} WORDS")))
+        StatusBarSegment::create(AzString::from(format!("PAGE 1 OF {page_count}"))),
+        StatusBarSegment::create(AzString::from(format!("{words} WORDS")))
             .with_marker(state.word_count_marker.clone()),
-        StatusBarSegment::new(s("")).with_icon(s("spellcheck")),
-        StatusBarSegment::new(s("ENGLISH (UNITED STATES)")),
+        StatusBarSegment::create(s("")).with_icon(s("spellcheck")),
+        StatusBarSegment::create(s("ENGLISH (UNITED STATES)")),
     ];
 
     let views = StatusBarViewSwitcher::office_2013()
@@ -280,7 +280,7 @@ pub fn status_bar(
     })
     .into();
 
-    let mut bar = StatusBar::new(segments).with_views(views).with_zoom(zoom);
+    let mut bar = StatusBar::create(segments).with_views(views).with_zoom(zoom);
     bar.style = crate::palette::widgets::status_bar(pal, sys);
     let status_bar = bar.style.resolved_bar_style();
     crate::fonts::push_ui_font(&mut bar.style.bar_style, status_bar);
