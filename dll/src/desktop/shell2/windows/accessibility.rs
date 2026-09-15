@@ -26,7 +26,7 @@ use accesskit_windows::SubclassingAdapter;
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 
 #[cfg(feature = "a11y")]
-use crate::desktop::shell2::windows::dlopen::HWND;
+use crate::desktop::shell2::{common::accessibility::A11yTreeFeed, windows::dlopen::HWND};
 
 /// Windows accessibility adapter that bridges Azul and UI Automation
 #[cfg(feature = "a11y")]
@@ -35,6 +35,7 @@ pub struct WindowsAccessibilityAdapter {
     adapter: Arc<Mutex<Option<SubclassingAdapter>>>,
     /// Pending actions from assistive technology
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
@@ -44,6 +45,7 @@ impl WindowsAccessibilityAdapter {
         Self {
             adapter: Arc::new(Mutex::new(None)),
             pending_actions: Arc::new(Mutex::new(Vec::new())),
+            feed: A11yTreeFeed::new(),
         }
     }
 
@@ -57,9 +59,11 @@ impl WindowsAccessibilityAdapter {
         // Create handlers (same struct, but two instances for the API)
         let activation_handler = AccessibilityActionHandler {
             pending_actions: Arc::clone(&pending_actions),
+            feed: Arc::clone(&self.feed),
         };
         let action_handler = AccessibilityActionHandler {
             pending_actions: Arc::clone(&pending_actions),
+            feed: Arc::clone(&self.feed),
         };
 
         // Create the accesskit adapter - wrap in catch_unwind for safety
@@ -90,6 +94,10 @@ impl WindowsAccessibilityAdapter {
     /// This function is designed to be non-blocking. If the a11y lock cannot
     /// be acquired immediately, the update is skipped to prevent UI hangs.
     pub fn update_tree(&self, tree_update: TreeUpdate) {
+        let Some(tree_update) = self.feed.next_update(tree_update) else {
+            return;
+        };
+        let had_tree = tree_update.tree.is_some();
         // Use try_lock to avoid blocking the UI thread
         let Ok(mut guard) = self.adapter.try_lock() else {
             return; // Skip update if lock not available
@@ -97,7 +105,7 @@ impl WindowsAccessibilityAdapter {
 
         if let Some(adapter) = guard.as_mut() {
             // Wrap in catch_unwind to prevent panics from crashing the app
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // MWA-A3a: update_if_active returns the QueuedEvents this
                 // update implies (focus changes, property changes, live-
                 // region announcements) — they MUST be raised. Discarding
@@ -108,6 +116,9 @@ impl WindowsAccessibilityAdapter {
                     queued_events.raise();
                 }
             }));
+            if applied.is_ok() {
+                self.feed.delivered(had_tree);
+            }
         }
     }
 
@@ -160,13 +171,13 @@ impl WindowsAccessibilityAdapter {
 #[cfg(feature = "a11y")]
 struct AccessibilityActionHandler {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
 impl ActivationHandler for AccessibilityActionHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-        // Return None - initial tree will be set after first layout
-        None
+        self.feed.initial_tree()
     }
 }
 
