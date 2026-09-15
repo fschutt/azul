@@ -6706,7 +6706,7 @@
                     "Hello, World.",
                     "Goodbye, JavaScript."
                 ],
-                "alt": "A minimal Azul application demonstrating the basic structure",
+                "alt": "A minimal Azul application",
                 "show_on_index": true,
                 "code": {
                     "c": "c/hello-world.c",
@@ -6756,7 +6756,11 @@
                     "linux": "hello-world.linux.png",
                     "mac": "hello-world.mac.png"
                 },
-                "description": []
+                "description": [
+                  "Your UI is a function of your data. Callbacks can be attached",
+                  "as simple function pointers with callback context, handing you",
+                  "small, unit-testable callback functions with a simple mental model"
+                ]
             },
             {
                 "name": "widgets",
@@ -6783,9 +6787,9 @@
                     "mac": "widgets.mac.png"
                 },
                 "description": [
-                    "Construct complex interfaces using a rich set of built-in desktop controls.",
-                    "Add standard elements like tabs, ribbons, and data lists out of the box.",
-                    "Customize the appearance of every component using standard CSS."
+                    "Create complex interfaces with a library of ready-made components: Ribbons, input fields, ",
+                    "toggles, checkboxes, menus... - while keeping full control over the style of your application",
+                    "with scoped inline CSS styles"
                 ]
             },
             {
@@ -6813,9 +6817,9 @@
                     "mac": "opengl.mac.png"
                 },
                 "description": [
-                    "Embed hardware-accelerated graphics directly alongside your standard user interface.",
-                    "Render 3D scenes, CAD models, or complex data visualizations natively.",
-                    "Integrate graphics smoothly without performance penalties or canvas wrappers."
+                    "If running in GPU mode, you can embed OpenGL textures directly composited into your UI. ",
+                    "Azul includes helpers for tesselation, creating texture masks as well as keeping heavy resources",
+                    "loaded in between layout() calls, so you don't recreate the world on every call"
                 ]
             },
             {
@@ -6843,9 +6847,8 @@
                     "mac": "infinity.mac.png"
                 },
                 "description": [
-                    "Display massive datasets with millions of entries without slowing down the interface.",
-                    "Render only what is currently visible on the screen to maintain high frame rates.",
-                    "Build high-performance data tables, log viewers, and infinite scrolling feeds."
+                    "Azul has built-in `VirtualView` DOM nodes and content-measuring functions to help you virtualize",
+                    "large lists or datasets - so the DOM never contains more than it needs to."
                 ]
             },
             {
@@ -6873,9 +6876,8 @@
                     "mac": "async.mac.png"
                 },
                 "description": [
-                    "Run heavy background tasks like network requests without blocking the user interface.",
-                    "Keep your applications responsive while processing data in the background.",
-                    "Utilize native operating system threads for true concurrent execution."
+                    "Heavy background tasks can run on OS-native threads without blocking the main thread - ",
+                    "Azul keeps track of threads and progress is submitted via message-passing."
                 ]
             },
             {
@@ -6903,9 +6905,8 @@
                     "mac": "xhtml.mac.png"
                 },
                 "description": [
-                    "Design your application layouts using familiar web standards like HTML and CSS.",
-                    "Load user interfaces from external files without needing to recompile your application.",
-                    "Display clear error messages during development instead of crashing on invalid markup."
+                    "Azul contains a simplified XHTML parser to load UIs from external files / tools, ",
+                    "in addition to an end-to-end testing pipeline to make sure your UI works the way you want it to."
                 ]
             },
             {
@@ -6933,9 +6934,9 @@
                     "mac": "calc.mac.png"
                 },
                 "description": [
-                    "Create adaptive layouts that automatically adjust to different window sizes.",
-                    "Apply modern styling features like rounded corners, shadows, and gradients.",
-                    "Blend seamlessly with the operating system by using native accent colors."
+                    "Azul includes support for flex and grid layouts via the taffy engine and runs ",
+                    "reference tests against Google Chrome to make sure the UI looks like in a browser - only ",
+                    "without the heavy memory penalty"
                 ]
             }
         ],
