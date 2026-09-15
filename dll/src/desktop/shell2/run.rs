@@ -465,6 +465,14 @@ fn setup_e2e_runner(test_file: &str) {
 /// The loop blocks on a condvar (zero CPU when idle) and behaves
 /// identically to a real platform window — layout, callbacks, timers
 /// all work — but without a GPU context or native window handle.
+/// Queues the windows from `App::add_window` on the root window; the event loop opens them in order.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn queue_extra_windows(window: &mut impl PlatformWindow, extra_windows: Vec<WindowCreateOptions>) {
+    for options in extra_windows.into_iter().rev() {
+        window.queue_window_create(options);
+    }
+}
+
 fn run_headless(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
@@ -472,6 +480,7 @@ fn run_headless(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -511,6 +520,9 @@ fn run_headless(
         fc_cache,
         font_registry,
     )?;
+    for options in extra_windows.into_iter().rev() {
+        window.queue_window_create(options);
+    }
 
     // Register debug timer if debug/E2E is active
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -612,6 +624,7 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -680,6 +693,7 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            extra_windows,
             tray,
             font_manager,
             app_icon,
@@ -766,6 +780,7 @@ pub fn run(
             None,
             mtm,
         )?;
+        queue_extra_windows(&mut window, extra_windows);
         debug_server::log(
             debug_server::LogLevel::Info,
             LogCategory::Window,
@@ -1284,6 +1299,7 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -1316,6 +1332,7 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            extra_windows,
             // These three were omitted on the mobile paths, so neither
             // matched the signature. They are in scope here exactly as on the
             // desktop paths — a headless run gets the same tray, font manager
@@ -1391,6 +1408,7 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -1412,6 +1430,7 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            extra_windows,
             // These three were omitted on the mobile paths, so neither
             // matched the signature. They are in scope here exactly as on the
             // desktop paths — a headless run gets the same tray, font manager
@@ -1453,6 +1472,7 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -1485,6 +1505,7 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            extra_windows,
             tray,
             font_manager,
             app_icon,
@@ -1527,6 +1548,7 @@ pub fn run(
         undo_manager.clone(),
         font_manager.clone(),
     )?;
+    queue_extra_windows(&mut window, extra_windows);
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -1930,6 +1952,7 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     // Tray requested via `App::set_tray()`, threaded rather than stashed in a
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
@@ -1996,6 +2019,7 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            extra_windows,
             tray,
             font_manager,
             app_icon,
@@ -2048,6 +2072,10 @@ pub fn run(
             return Err(e);
         }
     };
+    match &mut window {
+        LinuxWindow::X11(w) => queue_extra_windows(w, extra_windows),
+        LinuxWindow::Wayland(w) => queue_extra_windows(w, extra_windows),
+    }
 
     // Register debug timer with explicit channel + component map (no globals)
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {

@@ -437,6 +437,7 @@ impl App {
                 fc_cache,
                 font_registry,
                 dialog,
+                Vec::new(),
                 // The crash reporter is a standalone dialog, not the app: it
                 // must not inherit the app's tray, font manager, or icon.
                 // (This arm is telemetry-gated and had drifted behind run()'s
@@ -460,6 +461,7 @@ impl App {
             fc_cache,
             font_registry,
             root_window,
+            self.ptr.windows.as_ref().to_vec(),
             self.ptr.tray.clone(),
             self.ptr.font_manager.clone(),
             self.ptr.app_icon.clone(),
