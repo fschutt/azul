@@ -18154,7 +18154,20 @@ impl LayoutWindow {
                 // frames one frame after gaining them (the runner regenerates
                 // here after `finish_reconciliation` mints the keys, then the
                 // first tick's relayout resurrected the pre-key list).
-                if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                //
+                // ROOT ONLY: `self.layout_cache` is the ROOT's cache (a nested
+                // DOM lays out with a scratch cache swapped in, see
+                // `layout_dom_recursive_with_viewport`). Refreshing it after
+                // regenerating a VirtualView's DOM put THAT DOM's list into the
+                // root's slot, and the next structure-preserving root pass
+                // patched from it: page items spliced into the window's list,
+                // chrome items missing (AzWriter: a flash after a keystroke in
+                // the page, and the corrupt window after a theme switch).
+                if let Some(layout_result) = self
+                    .layout_results
+                    .get(&dom_id)
+                    .filter(|_| dom_id == DomId::ROOT_ID)
+                {
                     if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
                         let root_hash = layout_result
                             .layout_tree
