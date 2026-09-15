@@ -6111,6 +6111,29 @@ jobs:
     needs: [codegen_linux]
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      # Read and refresh the ghcr.io copy of the manylinux image (see
+      # scripts/ci/pick_manylinux_image.sh).
+      packages: write
+    # Job-level so the retry below builds exactly what the first attempt did.
+    env:
+      # The manylinux2014 tag cibuildwheel v2.21.3 builds in. Pinned here
+      # because the registry failover names the image itself.
+      MANYLINUX_TAG: "2024.10.07-1"
+      CIBW_BUILD_FRONTEND: "build"
+      CIBW_BUILD: "cp310-*"
+      CIBW_SKIP: "*-musllinux* *_i686 pp*"
+      CIBW_BEFORE_ALL_LINUX: >
+        yum install -y clang mesa-libGL-devel libX11-devel ||
+        (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0 --profile minimal
+      CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.90.0'
+      CIBW_TEST_COMMAND: >
+        python -c "import azul; c = azul.ColorU.create(1, 2, 3, 4); del c;
+        a = azul.AppConfig.create(); del a;
+        print('wheel import + pyclass teardown OK')"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -6142,21 +6165,36 @@ jobs:
           cp packaging/pypi/pyproject.toml ./pyproject.toml
           cp packaging/pypi/README.md ./README.md
 
-      - name: Build wheels (cibuildwheel)
-        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
+      - name: Pick a reachable manylinux registry
+        # cibuildwheel creates its container with `--pull=always`, so every run
+        # asks the image's registry for the manifest. A quay.io outage (HTTP 502,
+        # 2026-09-15) failed the whole release although nothing was wrong with
+        # the wheel. The script falls back to a ghcr.io copy of the same image,
+        # which it refreshes whenever quay.io is up.
         env:
-          CIBW_BUILD_FRONTEND: "build"
-          CIBW_BUILD: "cp310-*"
-          CIBW_SKIP: "*-musllinux* *_i686 pp*"
-          CIBW_BEFORE_ALL_LINUX: >
-            yum install -y clang mesa-libGL-devel libX11-devel ||
-            (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0 --profile minimal
-          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.90.0'
-          CIBW_TEST_COMMAND: >
-            python -c "import azul; c = azul.ColorU.create(1, 2, 3, 4); del c;
-            a = azul.AppConfig.create(); del a;
-            print('wheel import + pyclass teardown OK')"
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/pick_manylinux_image.sh "$MANYLINUX_TAG"
+
+      - name: Build wheels (cibuildwheel)
+        id: cibw
+        # A registry that fails between the pick above and the build still gets
+        # one retry, re-picked after a pause; a real build error fails both.
+        continue-on-error: true
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
+        with:
+          output-dir: dist
+
+      - name: Wait, then pick a registry again before retrying
+        if: steps.cibw.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 120
+          bash scripts/ci/pick_manylinux_image.sh "$MANYLINUX_TAG"
+
+      - name: Build wheels (cibuildwheel, retry)
+        if: steps.cibw.outcome == 'failure'
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
         with:
           output-dir: dist
 
