@@ -2,18 +2,17 @@
 # Screenshot the C examples for the website.
 #
 # THE ONLY PRODUCER of the example screenshots on /ui. They are static: taken
-# by hand, per OS, with this script, then copied into
-# examples/assets/screenshots and committed. CI neither takes nor overwrites
-# them. Publishing a fresh set for one OS:
+# by hand, per OS, with this script, which installs them into
+# examples/assets/screenshots; commit them from there. CI neither takes nor
+# overwrites them. Publishing a fresh set for one OS:
 #
 #   ./scripts/screenshot_single.sh all
-#   for e in hello-world widgets opengl infinity async xhtml calc; do
-#     cp target/examples-temp/$e/$e.<os>.light.png examples/assets/screenshots/
-#     cp target/examples-temp/$e/$e.<os>.dark.png  examples/assets/screenshots/
-#     cp target/examples-temp/$e/$e.<os>.light.png examples/assets/screenshots/$e.<os>.png
-#   done
+#   git add examples/assets/screenshots/*.<os>*.png
 #
-# and make sure api.json's `screenshot.<os>` for each example is
+# Each passing example is installed as <example>.<os>.light.png,
+# <example>.<os>.dark.png and <example>.<os>.png (the light one, the name
+# api.json points at). AZ_SCREENSHOT_NO_INSTALL=1 leaves them in
+# target/examples-temp/<example>/ only. Make sure api.json's `screenshot.<os>` for each example is
 # `<example>.<os>.png` — `Example::load` derives the light/dark names from it.
 # Flip it in the SAME commit as the images: pointed at files that do not exist
 # yet, the loader falls through to calculator.png on the live site.
@@ -31,8 +30,8 @@
 #
 # Output per example, in target/examples-temp/<example>/:
 #   <example>.<os>.light.png   <example>.<os>.dark.png
-# Those are the names examples/assets/screenshots and api.json use, so
-# publishing a fresh set is a straight copy.
+# and, unless AZ_SCREENSHOT_NO_INSTALL is set, the same files (plus
+# <example>.<os>.png) in examples/assets/screenshots/.
 #
 # ── Why AZ_E2E and not AZ_DEBUG ──────────────────────────────────────────────
 # The debug server is an in-process HTTP listener on a real port. Taking one
@@ -132,6 +131,32 @@ LIB_DIR="$ROOT_DIR/target/$PROFILE"
 if is_macos; then DLL_PATH="$LIB_DIR/libazul.dylib"
 elif is_linux; then DLL_PATH="$LIB_DIR/libazul.so"
 else DLL_PATH="$LIB_DIR/azul.dll"
+fi
+
+# ── Step 0: generated bindings that match api.json ─────────────────────────
+# target/codegen (azul.h, and the Rust the library includes) is generated from
+# api.json by azul-doc, and nothing regenerates it on its own. After a pull that
+# changed the API, the examples here are new and the header is not: the async
+# example failed to compile on macOS with "unknown type name 'AzHttpClient'".
+# Regenerate whenever the header is older than api.json or the generator, and
+# before the library build, which compiles the generated Rust.
+needs_codegen=""
+if [ ! -f "$HEADER_DIR/azul.h" ]; then
+    needs_codegen="no $HEADER_DIR/azul.h"
+elif [ "$ROOT_DIR/api.json" -nt "$HEADER_DIR/azul.h" ]; then
+    needs_codegen="api.json is newer than the generated header"
+elif [ -n "$(find "$ROOT_DIR/doc/src" -name '*.rs' -newer "$HEADER_DIR/azul.h" -print -quit 2>/dev/null)" ]; then
+    needs_codegen="the generator (doc/src) is newer than the generated header"
+fi
+if [ -n "$needs_codegen" ]; then
+    if [ -n "$AZ_SCREENSHOT_SKIP_BUILD" ]; then
+        log_warn "Bindings are stale ($needs_codegen) but AZ_SCREENSHOT_SKIP_BUILD is set - not regenerating"
+    else
+        log_step "Regenerating bindings: $needs_codegen"
+        (cd "$ROOT_DIR" && cargo run --release -p azul-doc -- codegen all) || { log_error "codegen failed"; exit 1; }
+        # The library includes the generated Rust; make sure cargo rebuilds it.
+        touch "$ROOT_DIR/dll/src/lib.rs"
+    fi
 fi
 
 # ── Step 1: the library, once for every example in this run ─────────────────
@@ -490,6 +515,11 @@ compile_example() {
     is_windows && bin="$dir/${name}.exe"
 
     mkdir -p "$dir"
+    # The source is compiled from a copy in $dir (see below), so a header copy
+    # left in $dir shadows the generated one exactly like a stray in
+    # examples/c/ does. One did on macOS: target/examples-temp/async/azul.h,
+    # older than the API the example uses.
+    rm -f "$dir"/azul*.h "$dir"/azul*.hpp
 
     # Skip when the binary is newer than everything it is built from. Seven
     # examples that changed in none of these rebuilt seven times a run.
@@ -650,6 +680,16 @@ capture_example() {
         return 1
     fi
 
+    if [ -z "$AZ_SCREENSHOT_NO_INSTALL" ]; then
+        local dest="$ROOT_DIR/examples/assets/screenshots"
+        mkdir -p "$dest"
+        cp "$light" "$dest/${name}.${OS_TAG}.light.png" \
+            && cp "$dark" "$dest/${name}.${OS_TAG}.dark.png" \
+            && cp "$light" "$dest/${name}.${OS_TAG}.png" \
+            || { log_error "$name: could not install the captures into $dest"; return 1; }
+        log_success "$name: installed ${name}.${OS_TAG}.{light,dark}.png and ${name}.${OS_TAG}.png into examples/assets/screenshots/"
+    fi
+
     return 0
 }
 
@@ -669,7 +709,11 @@ log_info "=========================================="
 log_info "SUMMARY  (profile=$PROFILE, os=$OS_TAG)"
 log_info "=========================================="
 for e in "${PASSED[@]}"; do
-    log_success "$e -> $TEMP_ROOT/$e/${e}.${OS_TAG}.{light,dark}.png"
+    if [ -z "$AZ_SCREENSHOT_NO_INSTALL" ]; then
+        log_success "$e -> examples/assets/screenshots/${e}.${OS_TAG}.{light,dark}.png (+ ${e}.${OS_TAG}.png)"
+    else
+        log_success "$e -> $TEMP_ROOT/$e/${e}.${OS_TAG}.{light,dark}.png"
+    fi
 done
 for e in "${FAILED[@]}"; do
     log_error "$e FAILED (logs in $TEMP_ROOT/$e/stderr.*.log)"
