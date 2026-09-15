@@ -1722,15 +1722,18 @@ fn write_screenshot_manifest(
         }
     }
 
-    // Make source_page relative to project_root for portability.
+    // Make source_page relative to project_root for portability - with `/` separators, so the
+    // manifest a Windows run writes is the one a Linux run writes (it is committed, and the CI
+    // regeneration diffed against a backslash copy otherwise).
     let mut entries = Vec::with_capacity(blocks.len());
     for b in blocks {
         let mut clone = b.clone();
-        clone.source_page = b
+        let relative = b
             .source_page
             .strip_prefix(project_root)
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|_| b.source_page.clone());
+        clone.source_page = PathBuf::from(relative.to_string_lossy().replace('\\', "/"));
         entries.push(clone);
     }
 
