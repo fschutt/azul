@@ -988,8 +988,12 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/d/$(basename "$LIB_PATH")"
       ;;
     swift)
-      rm -f "$REPO_ROOT/examples/swift/hello-world-e2e"
-      rm -f "$REPO_ROOT/examples/swift/azul.swift" "$REPO_ROOT/examples/swift/azul.h" "$REPO_ROOT/examples/swift/module.modulemap"
+      rm -f "$REPO_ROOT/examples/swift/hello-world-e2e" "$REPO_ROOT/examples/swift/hello-world-e2e.exe"
+      rm -rf "$REPO_ROOT/examples/swift/Azul"
+      rm -f "$REPO_ROOT/examples/swift/azul.swift" "$REPO_ROOT/examples/swift/azul.h"
+      rm -f "$REPO_ROOT/examples/swift/libAzulSwift.so" "$REPO_ROOT/examples/swift/libAzulSwift.dylib"
+      rm -f "$REPO_ROOT/examples/swift/AzulSwift.dll" "$REPO_ROOT/examples/swift/AzulSwift.lib" "$REPO_ROOT/examples/swift/AzulSwift.exp"
+      rm -f "$REPO_ROOT/examples/swift/Azul.swiftmodule" "$REPO_ROOT/examples/swift/Azul.swiftdoc" "$REPO_ROOT/examples/swift/Azul.swiftsourceinfo" "$REPO_ROOT/examples/swift/Azul.abi.json"
       rm -f "$REPO_ROOT/examples/swift/$(basename "$LIB_PATH")"
       ;;
     v)
@@ -1700,24 +1704,36 @@ lang_swift() {
   local f; f="$(log_path swift)"
   (
     set -x
-    cp "$CODEGEN_DIR/azul.swift"       "$REPO_ROOT/examples/swift/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h"           "$REPO_ROOT/examples/swift/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    # The example does `import Azul`, so that module is built first: the
+    # generated package sources (one file per api.json module, so swiftc
+    # compiles them in parallel; the one-file azul.swift the website ships is
+    # the same code and takes 2.5x longer) against azul.h through the module
+    # map that exposes it as CAzul. Its library is AzulSwift: `Azul.dll` /
+    # `libAzul.dylib` would be libazul's file on a case-insensitive file system.
+    rm -rf "$REPO_ROOT/examples/swift/Azul"
+    cp -R "$CODEGEN_DIR/swift/Sources/Azul" "$REPO_ROOT/examples/swift/Azul" || exit 1
+    cp "$CODEGEN_DIR/azul.h"           "$REPO_ROOT/examples/swift/" || exit 1
+    cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" || exit 1
     cp "$LIB_PATH"                     "$REPO_ROOT/examples/swift/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/swift" || exit 1
     local BIN=./hello-world-e2e
+    local MODULE=(swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j4 -I. Azul/*.swift)
     if [ "$IS_MACOS" = 1 ]; then
-      swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
+      "${MODULE[@]}" -L. -lazul -o libAzulSwift.dylib || exit 1
+      swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # Link the MSVC import lib directly; the dll resolves from PATH.
+      # Link the MSVC import libs directly; AzulSwift.dll sits next to the
+      # exe and azul.dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      swiftc -I. hello-world.swift azul.swift "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
+      "${MODULE[@]}" "$RELEASE_DIR/azul.dll.lib" -o AzulSwift.dll || exit 1
+      swiftc -I. hello-world.swift AzulSwift.lib "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
     else
-      swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world-e2e || exit 1
+      "${MODULE[@]}" -L. -lazul -o libAzulSwift.so || exit 1
+      swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
-  finish swift "swift build/run failed (swiftc -I. + module.modulemap)"
+  finish swift "swift build/run failed (Azul module from swift/Sources/Azul, then hello-world.swift)"
 }
 
 lang_julia() {
@@ -2342,6 +2358,10 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
     # slow runner without hiding a return of that class.
     go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # swiftc compiles the generated Azul module (~170k lines, 44 files) before
+    # the example: 2m12s with -j4 on a 4-core laptop, 1.9 GB and 5m37s as the
+    # one file. The default 240 s is a coin toss on a CI runner.
+    swift) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

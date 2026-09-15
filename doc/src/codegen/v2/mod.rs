@@ -313,9 +313,10 @@ pub fn generate_v(api_data: &ApiData) -> Result<String> {
     lang_v::generate(&ir, &config)
 }
 
-/// Generate Swift bindings as String. Returns `azul.swift` (a thin idiomatic
-/// layer over the C header, imported via a Clang module map; callbacks are
-/// C-direct `@convention(c)` fn pointers). Pair with [`generate_swift_modulemap`].
+/// Generate Swift bindings as String. Returns `azul.swift`, the `Azul` module in
+/// one file (classes, structs and enums over the C header, which Swift imports
+/// through a Clang module map; closures for callbacks). Pair with
+/// [`generate_swift_modulemap`].
 pub fn generate_swift(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();

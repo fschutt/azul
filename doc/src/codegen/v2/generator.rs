@@ -340,14 +340,15 @@ impl GenerationTargets {
             super::lang_v::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.v"),
         )?;
-        println!("[20i/35] Generating Swift bindings...");
+        println!("[20i/35] Generating Swift bindings (azul.swift + swift/ package)...");
+        for (rel, content) in super::lang_swift::generate_files(ir, &CodegenConfig::c_header())? {
+            Self::write_string(content, &codegen_dir.join(rel))?;
+        }
+        // The package's system-library target carries its own azul.h, so the
+        // swift/ directory can be copied anywhere and still build.
         Self::write_string(
-            super::lang_swift::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.swift"),
-        )?;
-        Self::write_string(
-            super::lang_swift::module_map(),
-            &codegen_dir.join("module.modulemap"),
+            fs::read_to_string(codegen_dir.join("azul.h"))?,
+            &codegen_dir.join("swift/Sources/CAzul/azul.h"),
         )?;
         println!("[20j/35] Generating Julia bindings...");
         Self::write_string(
