@@ -32,6 +32,8 @@ pub mod menu;
 pub mod radial_controller;
 pub mod registry;
 pub(crate) mod system_style;
+#[cfg(feature = "cpurender")]
+mod subpixel;
 mod tooltip;
 mod wcreate;
 pub mod win_event;
@@ -174,6 +176,11 @@ pub struct Win32Window {
     /// former per-backend glyph_cache / retained_pixmap / previous_display_list.
     #[cfg(feature = "cpurender")]
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
+    /// The monitor whose panel stripe order LCD text is currently blended
+    /// for (`MonitorFromWindow` identity, 0 before the first check). See
+    /// [`Win32Window::sync_panel_subpixel_order`].
+    #[cfg(feature = "cpurender")]
+    panel_monitor: isize,
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
@@ -836,6 +843,8 @@ impl Win32Window {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
+            panel_monitor: 0,
+            #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             #[cfg(feature = "cpurender")]
             native_dib: None,
@@ -950,6 +959,10 @@ impl Win32Window {
             // Same deadline for the caption colour: set before the first show,
             // or a dark window flashes a light title bar.
             result.apply_titlebar_theme();
+            // And for the panel's stripe order: the first frame's text is
+            // blended for whichever monitor the window was created on.
+            #[cfg(feature = "cpurender")]
+            result.sync_panel_subpixel_order(true);
 
             let regen_epoch_seen = result.common.regen_epoch();
             if let Err(e) = result.regenerate_layout() {
@@ -2740,6 +2753,41 @@ impl Win32Window {
                 let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
                 // Last statement: window_proc re-borrows this window.
                 (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+            }
+        }
+    }
+
+    /// Blend LCD text for the stripe order of the monitor this window is on.
+    ///
+    /// The order belongs to the PANEL, so it is checked before the first
+    /// frame, whenever the window may have landed on a different monitor
+    /// (WM_MOVE, which a DPI change and a monitor hand-off both produce), and
+    /// with `force` when the answer itself may have changed without the
+    /// window moving (the ClearType tuner, a display reconfiguration).
+    ///
+    /// `MonitorFromWindow` is cheap, so an unforced call that finds the same
+    /// monitor returns at once and a drag costs nothing extra. When the order
+    /// does change, every glyph already on screen was blended for the old one
+    /// and the display-list diff cannot know that, so the next frame is a full
+    /// repaint.
+    #[cfg(feature = "cpurender")]
+    pub fn sync_panel_subpixel_order(&mut self, force: bool) {
+        let monitor = subpixel::monitor_of(self.hwnd);
+        if monitor == self.panel_monitor && !force {
+            return;
+        }
+        self.panel_monitor = monitor;
+        let order = subpixel::subpixel_order_of(monitor);
+        if self.cpu_backend.glyph_cache.set_lcd_subpixel_order(order) {
+            log_debug!(
+                LogCategory::Rendering,
+                "[Win32] LCD subpixel order is now {:?} (monitor {:#x})",
+                order,
+                monitor
+            );
+            self.cpu_backend.force_full_repaint = true;
+            unsafe {
+                (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
             }
         }
     }
@@ -4659,6 +4707,11 @@ unsafe extern "system" fn window_proc(
                 |ws| ws.position = pos,
             );
 
+            // A move is how a window reaches another monitor; its panel may have
+            // the other LCD stripe order. Free when the monitor is unchanged.
+            #[cfg(feature = "cpurender")]
+            window.sync_panel_subpixel_order(false);
+
             // Detect which monitor the window is on via MonitorFromWindow
             // This updates monitor_id so that DPI/MonitorChanged events can fire
             {
@@ -6549,6 +6602,11 @@ unsafe extern "system" fn window_proc(
             // separates a hotplug from a mode change. Equal counts emit
             // nothing, which is what keeps dragging a window between displays
             // from looking like an unplug.
+            //
+            // A reconfiguration can also swap which panel sits behind the same
+            // monitor handle, so re-read its stripe order regardless.
+            #[cfg(feature = "cpurender")]
+            window.sync_panel_subpixel_order(true);
             if let Some(ref mut lw) = window.common.layout_window {
                 let before = lw.monitors.lock().map(|g| g.len()).unwrap_or(0);
                 let after = {
@@ -6875,6 +6933,21 @@ unsafe extern "system" fn window_proc(
             // `adopt_system_style` makes an unnecessary re-discovery free of
             // RELAYOUT, but not free of the discovery itself, which is the
             // expensive half.
+            // The ClearType tuner announces a new stripe order as a
+            // SPI_SETFONTSMOOTHING* change, which is not "appearance" for the
+            // filter below — check it first. Both reads are cheap syscalls.
+            #[cfg(feature = "cpurender")]
+            if msg == WM_SETTINGCHANGE {
+                const SPI_SETFONTSMOOTHING: usize = 0x004B;
+                const SPI_SETFONTSMOOTHINGTYPE: usize = 0x200B;
+                const SPI_SETFONTSMOOTHINGORIENTATION: usize = 0x2013;
+                if matches!(
+                    wparam as usize,
+                    SPI_SETFONTSMOOTHING | SPI_SETFONTSMOOTHINGTYPE | SPI_SETFONTSMOOTHINGORIENTATION
+                ) {
+                    window.sync_panel_subpixel_order(true);
+                }
+            }
             if msg == WM_SETTINGCHANGE && !settingchange_touches_appearance(wparam, lparam) {
                 return 0;
             }

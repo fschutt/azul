@@ -3226,6 +3226,8 @@ fn render_glyphs_lcd(
     let w = pixmap.width;
     let h = pixmap.height;
     let stride = (w * 4) as i32;
+    // The panel's stripe order, per window (the shell sets it per monitor).
+    let order = glyph_cache.lcd_subpixel_order();
     let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     // FreeType default "light" 5-tap FIR (see lcd_distribution_lut).
     let lut = lcd_distribution_lut();
@@ -3237,6 +3239,7 @@ fn render_glyphs_lcd(
         // on ANY fg/bg pair (thin white on green was unreadable with
         // sRGB-space blending), instead of only on near-b/w pairs.
         let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+        pf.set_subpixel_order(order);
         if let Some(c) = clip {
             // The FIR spread writes 2 stripes past every span; the renderer-
             // base clip box cannot bound those writes (task #17: a damage-rect
@@ -3263,6 +3266,7 @@ fn render_glyphs_lcd(
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
         let mut pf = PixfmtRgba32Lcd::new(&mut ra, lut);
+        pf.set_subpixel_order(order);
         if let Some(c) = clip {
             // Same stripe-clip as the colorimetric arm above.
             pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);

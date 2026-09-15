@@ -132,6 +132,10 @@ pub struct GlyphCache {
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
     /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
     lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
+    /// Stripe order of the panel this cache's window is on. Set by the
+    /// platform shell per monitor (see [`Self::set_lcd_subpixel_order`]);
+    /// every LCD blend reads it.
+    lcd_subpixel_order: agg_rust::pixfmt_lcd::LcdSubpixelOrder,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -143,6 +147,10 @@ impl core::fmt::Debug for GlyphCache {
             .finish_non_exhaustive()
     }
 }
+
+/// Panel stripe order for LCD text, re-exported so platform shells can pass
+/// it to [`GlyphCache::set_lcd_subpixel_order`] without depending on agg.
+pub use agg_rust::pixfmt_lcd::LcdSubpixelOrder;
 
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
 #[inline]
@@ -191,7 +199,29 @@ impl GlyphCache {
             cells: HashMap::new(),
             cells_prev: HashMap::new(),
             lcd_tiles: HashMap::new(),
+            lcd_subpixel_order: agg_rust::pixfmt_lcd::LcdSubpixelOrder::Rgb,
         }
+    }
+
+    /// The panel stripe order LCD text is blended for.
+    #[must_use]
+    pub fn lcd_subpixel_order(&self) -> agg_rust::pixfmt_lcd::LcdSubpixelOrder {
+        self.lcd_subpixel_order
+    }
+
+    /// Blend LCD text for a panel with `order`. Returns whether it changed.
+    ///
+    /// A change drops the pre-blended LCD tiles: they hold finished pixels
+    /// for the old order. The glyph cells are stripe COVERAGE, which does not
+    /// depend on the order, and are kept. Pixels already on screen are the
+    /// caller's to repaint.
+    pub fn set_lcd_subpixel_order(&mut self, order: agg_rust::pixfmt_lcd::LcdSubpixelOrder) -> bool {
+        if self.lcd_subpixel_order == order {
+            return false;
+        }
+        self.lcd_subpixel_order = order;
+        self.lcd_tiles.clear();
+        true
     }
 
     /// Entry count of the glyph-path cache (for leak probes).
@@ -1876,7 +1906,8 @@ impl GlyphCache {
             ras.add_cells_offset(&cells, -min_px * 3, -min_y);
             let stride = (w * 4) as i32;
             let mut ra = unsafe { RowAccessor::new_with_buf(rgba.as_mut_ptr(), w, h, stride) };
-            let pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+            let mut pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
+            pf.set_subpixel_order(self.lcd_subpixel_order);
             let mut rb = RendererBase::new(pf);
             let mut sl = ScanlineU8::new();
             let agg_color = agg_rust::color::Rgba8::new(

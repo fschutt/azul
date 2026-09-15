@@ -282,6 +282,13 @@ pub struct CpuBackend {
     /// backdrop standing everywhere the diff found nothing, so the window ends
     /// up half light and half dark until something else forces a full repaint.
     pub last_clear_color: Option<[u8; 4]>,
+    /// Repaint the next frame in full, whatever the display-list diff says.
+    ///
+    /// For changes the diff cannot see because they are not in the display
+    /// list at all — the window moving to a monitor whose panel has a
+    /// different LCD stripe order leaves every glyph on screen blended for
+    /// the old one. Consumed by the next `render_frame`.
+    pub force_full_repaint: bool,
     /// Implied by `transparent`: after every frame the window's shape (the
     /// rectangles of opaque-enough pixels, physical px) is computed into
     /// `last_shape` for the backend to hand to the OS, so clicks on fully
@@ -460,6 +467,7 @@ impl CpuBackend {
             compositor: None,
             #[cfg(feature = "cpurender")]
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            force_full_repaint: false,
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
             last_consumed_build_seq: 0,
@@ -723,8 +731,9 @@ impl CpuBackend {
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
         // were copied over verbatim). No on a shrink / first allocation.
-        let can_reuse_previous_frame =
-            (!needs_resize || resize_preserved_pixels) && !clear_color_changed;
+        let can_reuse_previous_frame = (!needs_resize || resize_preserved_pixels)
+            && !clear_color_changed
+            && !core::mem::take(&mut self.force_full_repaint);
 
         // ROUND 3: the layout patch's presentation hint. Eligible when the
         // dominant delta is INTEGRAL in physical pixels (a fractional blit
