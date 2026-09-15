@@ -1550,6 +1550,83 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.blank();
     }
 
+    /// `is_<variant>()` and, where Python can hold the payload, `as_<variant>()` (None if another variant).
+    fn generate_variant_accessors(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        ir: &CodegenIR,
+        prefix: &str,
+        config: &PythonConfig,
+        c_api_type: &str,
+        taken: &mut BTreeSet<String>,
+    ) {
+        let is_clone = |type_name: &str| {
+            ir.structs
+                .iter()
+                .find(|s| s.name == type_name)
+                .map(|s| s.traits.is_clone)
+                .or_else(|| ir.enums.iter().find(|e| e.name == type_name).map(|e| e.traits.is_clone))
+                .unwrap_or(false)
+        };
+        for variant in &enum_def.variants {
+            let snake = to_snake_case(&variant.name);
+            let is_name = format!("is_{}", snake);
+            let as_name = format!("as_{}", snake);
+            match &variant.kind {
+                EnumVariantKind::Unit => {
+                    if !taken.insert(is_name.clone()) {
+                        continue;
+                    }
+                    builder.line(&format!("fn {}(&self) -> bool {{", is_name));
+                    builder.line(&format!("    matches!(&self.inner, {}::{})", c_api_type, variant.name));
+                    builder.line("}");
+                    builder.blank();
+                }
+                EnumVariantKind::Tuple(types) => {
+                    if taken.insert(is_name.clone()) {
+                        builder.line(&format!("fn {}(&self) -> bool {{", is_name));
+                        builder.line(&format!("    matches!(&self.inner, {}::{}(..))", c_api_type, variant.name));
+                        builder.line("}");
+                        builder.blank();
+                    }
+                    if taken.contains(&as_name) {
+                        continue;
+                    }
+                    let Some((ty, _)) = types.first() else { continue };
+                    let (ret, conv) = if is_primitive_type(ty) {
+                        (ty.clone(), "*v".to_string())
+                    } else if ty == "String" {
+                        (
+                            "String".to_string(),
+                            "{ let s: &azul_css::corety::AzString = unsafe { mem::transmute(v) }; s.as_str().to_string() }"
+                                .to_string(),
+                        )
+                    } else if self.is_python_compatible_type(ty, ir)
+                        && !self.type_is_excluded(ty, ir, config)
+                        && !is_direct_ffi_type(ty)
+                        && !is_callback_wrapper_type(ty, ir)
+                        && is_clone(ty)
+                    {
+                        (format!("{}{}", prefix, ty), format!("{}{} {{ inner: v.clone() }}", prefix, ty))
+                    } else {
+                        continue;
+                    };
+                    taken.insert(as_name.clone());
+                    builder.line(&format!("fn {}(&self) -> Option<{}> {{", as_name, ret));
+                    builder.line("    match &self.inner {");
+                    builder.line(&format!("        {}::{}(v) => Some({}),", c_api_type, variant.name, conv));
+                    builder.line("        #[allow(unreachable_patterns)]");
+                    builder.line("        _ => None,");
+                    builder.line("    }");
+                    builder.line("}");
+                    builder.blank();
+                }
+                EnumVariantKind::Struct(_) => {}
+            }
+        }
+    }
+
     fn generate_enum_pymethods(
         &self,
         builder: &mut CodeBuilder,
@@ -1636,16 +1713,40 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             }
         }
 
-        {
-            // Variant constructors occupy the Python name space of this class
-            // too. Raw names, not snake_case: a variant is emitted as
-            // `fn Default()`, which does NOT collide with `fn default()` in
-            // either Rust or Python -- lowercasing here would suppress the
-            // `Default` derive on the six enums that have such a variant.
-            let taken: BTreeSet<String> =
-                enum_def.variants.iter().map(|v| v.name.clone()).collect();
-            self.generate_derive_dunders(builder, &enum_def.traits, &taken);
+        // Variant constructors occupy the Python name space of this class
+        // too. Raw names, not snake_case: a variant is emitted as
+        // `fn Default()`, which does NOT collide with `fn default()` in
+        // either Rust or Python -- lowercasing here would suppress the
+        // `Default` derive on the six enums that have such a variant.
+        let mut taken: BTreeSet<String> =
+            enum_def.variants.iter().map(|v| v.name.clone()).collect();
+
+        // Variants, `default` and `clone` are already covered above and by the derive dunders.
+        for func in ir.functions.iter().filter(|f| f.class_name == enum_def.name).filter(|f| {
+            matches!(
+                f.kind,
+                FunctionKind::Constructor
+                    | FunctionKind::StaticMethod
+                    | FunctionKind::Method
+                    | FunctionKind::MethodMut
+            )
+        }) {
+            if self.function_has_unsupported_args(func, ir)
+                || self.function_refs_excluded_type(func, ir, config)
+            {
+                continue;
+            }
+            if func.fn_body.is_some() {
+                taken.insert(func.method_name.clone());
+            }
+            self.generate_pymethod(builder, func, ir, prefix);
         }
+
+        if enum_def.is_union {
+            self.generate_variant_accessors(builder, enum_def, ir, prefix, config, &c_api_type, &mut taken);
+        }
+
+        self.generate_derive_dunders(builder, &enum_def.traits, &taken);
 
         if !enum_def.is_union {
             // Unit variants of C-like enums are exposed as #[classattr]
@@ -1998,6 +2099,15 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     .replace(&format!("&mut {})", sv), "&mut __cloned)")
                     .replace(&format!("&{},", sv), "&__cloned,")
                     .replace(&format!("&{})", sv), "&__cloned)");
+            }
+            // Any other use of the receiver name (`&earlier < instant`) gets a binding.
+            for sv in &self_vars {
+                let word = regex::Regex::new(&format!(r"(^|[^\w.:]){}($|[^\w:])", regex::escape(sv)))
+                    .unwrap();
+                if word.is_match(&transformed_body) {
+                    builder.line(&format!("let {} = {};", sv, self_ref));
+                    break;
+                }
             }
         }
 
