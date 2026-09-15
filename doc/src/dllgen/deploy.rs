@@ -2005,6 +2005,20 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // C header tile
     let c_header_link = generate_asset_card(version, &assets.c_header);
 
+    // The debug libraries are shared libraries like any other: LARGE, so the
+    // deploy uploads them to the GitHub Release and trims them from Pages.
+    // These cards used to hardcode the Pages path, which the dead-link pruner
+    // then (correctly) found missing and greyed out on every release.
+    let debug_library_links: String = [
+        ("libazuldbg.so", "Debug library (Linux)"),
+        ("libazuldbg.dylib", "Debug library (macOS)"),
+        ("azuldbg.dll", "Debug library (Windows)"),
+    ]
+    .iter()
+    .map(|(filename, description)| release_card(version, filename, description))
+    .collect::<Vec<_>>()
+    .join(card_join);
+
     // C++ header tiles (same present/missing handling + URLs as the asset
     // tiles: .hpp files are SMALL assets, so asset_url yields the identical
     // {HTML_ROOT}/release/{version}/{filename} href as before)
@@ -2421,9 +2435,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <h2 id='debug-libraries'>Debug libraries</h2>
               <p class='release-note'>For debugging desktop applications, see the <a href='{HTML_ROOT}/guide/debugging'>Debugging guide</a>.</p>
               <div class='docs-card-grid'>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/libazuldbg.so'><h4>Debug library (Linux)</h4><p class='docs-card-file'>libazuldbg.so</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/libazuldbg.dylib'><h4>Debug library (macOS)</h4><p class='docs-card-file'>libazuldbg.dylib</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/release/{version}/azuldbg.dll'><h4>Debug library (Windows)</h4><p class='docs-card-file'>azuldbg.dll</p></a>
+                {debug_library_links}
               </div>
 
               <h3>Mobile (iOS &amp; Android): drop-in libraries</h3>
