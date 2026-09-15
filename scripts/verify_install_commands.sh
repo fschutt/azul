@@ -256,12 +256,22 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "${CHANNEL:-verify}: '$1' i
 # build of a hello-world through it is the difference between "the files
 # downloaded" and "the documented steps produce a working program".
 E2E_SCRIPT="$REPO_DIR/tests/e2e/hello_world_counter.json"
+# `timeout` is GNU coreutils: the macOS runner has none (brew's coreutils calls
+# it `gtimeout`), and the brew check died with exit 127 AFTER a successful
+# install. Fall back to perl's alarm, which every runner image ships.
+with_timeout() { # $1 seconds, $2.. command
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+  else perl -e 'alarm shift @ARGV; exec @ARGV or die "exec $ARGV[0]: $!\n"' "$secs" "$@"
+  fi
+}
 e2e_run() { # $1 label, $2.. command — runs it headless through the counter script
   local label="$1"; shift
   [ -s "$E2E_SCRIPT" ] || fail "$label: $E2E_SCRIPT is missing (checkout tests/e2e/ next to this script)"
   local log; log="$(mktemp)"
   printf '\n$ AZ_E2E=%s AZ_BACKEND=headless %s\n' "$E2E_SCRIPT" "$*"
-  AZ_E2E="$E2E_SCRIPT" AZ_BACKEND=headless timeout 180 "$@" >"$log" 2>&1
+  AZ_E2E="$E2E_SCRIPT" AZ_BACKEND=headless with_timeout 180 "$@" >"$log" 2>&1
   local rc=$?
   sed 's/\x1b\[[0-9;]*m//g' "$log" | tail -20
   if [ "$rc" -ne 0 ] || ! sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -q "test result: ok" \
