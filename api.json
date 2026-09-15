@@ -6941,13 +6941,8 @@
             }
         ],
         "notes": [
-            "Azul 0.2.0 is the first release meant to be actually used: a single API surface across 17 languages, a self-hosted mirror for every package manager it ships through, and one hello-world guide per language whose install steps are the exact commands post-release CI runs.",
-            "",
-            "The engine gained a widget library (tabs, ribbons, data lists, and the rest of the built-in controls, styled through plain CSS), OpenGL integration for embedding hardware-accelerated content next to the normal UI, virtualized rendering for lists with millions of rows, native OS threads for background work that does not block the UI, an XHTML/CSS layout engine that loads interfaces from external markup, and flexbox and grid layouts with rounded corners, shadows, gradients, and native accent colors. Dialogs, file access, HTTP, media, and a local-first Db now share one resumable request/response primitive.",
-            "",
-            "Bindings ship for C, C++ (C++17), C#, Fortran, Go, Haskell, Java, Kotlin, Lua, Node.js, OCaml, Pascal, Python, Ruby, Rust, Scala, and Zig. Each has a hello-world guide at `/ui/guide/hello-world/<language>`; only Rust is marked mature so far, the rest are working but young.",
-            "",
-            "Every install route is a package-manager install, not just a tarball: `apt`/`dnf`/`pacman`/`apk` on Linux, Homebrew on macOS, and Chocolatey or Scoop on Windows for the C-family languages, backed by self-hosted repositories; a sparse cargo registry for Rust; a PEP 503 package index for Python (pip, uv, poetry, pdm); an npm tarball for Node.js bundling every platform's native library; a RubyGems-compatible source for Ruby; a NuGet feed for C#; and a Maven mirror serving `rs.azul:azul` and, as a separate artifact with its own natives, `rs.azul:azul-kotlin`. A manual download of the prebuilt library plus headers or generated bindings remains the fallback everywhere."
+            "This release is still a work in progress, mainly to have a vertical slice whether everything works now.",
+            "Check back later for the final release."
         ],
         "api": {
             "window": {
