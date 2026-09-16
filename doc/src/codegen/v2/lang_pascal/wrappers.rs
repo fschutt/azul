@@ -150,6 +150,7 @@ fn emit_wrapper_class_decl(
 ) {
     let class_name = pascal_class_name(&s.name);
     let raw_record = record_type_name(&s.name);
+    let members = class_member_names(ir, &s.name);
 
     if !s.doc.is_empty() {
         for d in &s.doc {
@@ -183,9 +184,9 @@ fn emit_wrapper_class_decl(
         }
         let ctor_name = &ctor_names[ctor_idx];
         ctor_idx += 1;
-        emit_constructor_decl(builder, ctor_name, func, ir, targets, false);
+        emit_constructor_decl(builder, ctor_name, func, ir, targets, false, &members);
         if has_owned_wrapper_arg(func, targets) {
-            emit_constructor_decl(builder, ctor_name, func, ir, targets, true);
+            emit_constructor_decl(builder, ctor_name, func, ir, targets, true, &members);
         }
     }
 
@@ -229,9 +230,9 @@ fn emit_wrapper_class_decl(
             continue;
         }
         let twin = has_owned_wrapper_arg(func, targets);
-        emit_method_decl(builder, func, ir, targets, false, twin);
+        emit_method_decl(builder, func, ir, targets, false, twin, &members);
         if twin {
-            emit_method_decl(builder, func, ir, targets, true, twin);
+            emit_method_decl(builder, func, ir, targets, true, twin, &members);
         }
     }
 
@@ -247,9 +248,10 @@ fn emit_constructor_decl(
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     wrapper_variant: bool,
+    members: &BTreeSet<String>,
 ) {
     let visible = visible_user_args(func);
-    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant);
+    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant, members);
     if args_str.is_empty() {
         builder.line(&format!("constructor {}; overload;", ctor_name));
     } else {
@@ -267,10 +269,11 @@ fn emit_method_decl(
     targets: &BTreeSet<String>,
     wrapper_variant: bool,
     overloaded: bool,
+    members: &BTreeSet<String>,
 ) {
     let method_name = idiomatic_method_name(&func.method_name);
     let visible = visible_user_args(func);
-    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant);
+    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant, members);
     let is_static = matches!(func.kind, FunctionKind::StaticMethod);
 
     let prefix_kw = if is_static { "class " } else { "" };
@@ -310,6 +313,7 @@ fn emit_wrapper_class_impl(
 ) {
     let class_name = pascal_class_name(&s.name);
     let ffi = ffi_type_name(&s.name);
+    let members = class_member_names(ir, &s.name);
 
     // Wrap(ARaw) constructor: take ownership of an already-built FFI record.
     builder.line(&format!(
@@ -335,9 +339,9 @@ fn emit_wrapper_class_impl(
         }
         let ctor_name = &ctor_names[ctor_idx];
         ctor_idx += 1;
-        emit_constructor_impl(builder, &class_name, ctor_name, func, ir, targets, false);
+        emit_constructor_impl(builder, &class_name, ctor_name, func, ir, targets, false, &members);
         if has_owned_wrapper_arg(func, targets) {
-            emit_constructor_impl(builder, &class_name, ctor_name, func, ir, targets, true);
+            emit_constructor_impl(builder, &class_name, ctor_name, func, ir, targets, true, &members);
         }
     }
 
@@ -387,9 +391,9 @@ fn emit_wrapper_class_impl(
         if !emitted.insert(name.to_ascii_lowercase()) {
             continue;
         }
-        emit_method_impl(builder, &class_name, &ffi, func, ir, targets, false);
+        emit_method_impl(builder, &class_name, &ffi, func, ir, targets, false, &members);
         if has_owned_wrapper_arg(func, targets) {
-            emit_method_impl(builder, &class_name, &ffi, func, ir, targets, true);
+            emit_method_impl(builder, &class_name, &ffi, func, ir, targets, true, &members);
         }
     }
 }
@@ -402,9 +406,10 @@ fn emit_constructor_impl(
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     wrapper_variant: bool,
+    members: &BTreeSet<String>,
 ) {
     let visible = visible_user_args(func);
-    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant);
+    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant, members);
     let signature = if args_str.is_empty() {
         format!("constructor {}.{};", class_name, ctor_name)
     } else {
@@ -473,10 +478,11 @@ fn emit_method_impl(
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     wrapper_variant: bool,
+    members: &BTreeSet<String>,
 ) {
     let method_name = idiomatic_method_name(&func.method_name);
     let visible = visible_user_args(func);
-    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant);
+    let args_str = format_arg_list(&visible, ir, targets, wrapper_variant, members);
     let is_static = matches!(func.kind, FunctionKind::StaticMethod);
     let takes_self = matches!(
         func.kind,
@@ -533,7 +539,7 @@ fn emit_method_impl(
     }
     let mut consumed: Vec<String> = Vec::new();
     for a in &visible {
-        let name = sanitize_identifier(&a.name);
+        let name = sanitize_arg(&a.name, members);
         if wrapper_variant && is_owned_wrapper_arg(a, targets) {
             consumed.push(name.clone());
             call_args.push(format!("{}.FRaw", name));
@@ -645,6 +651,7 @@ fn format_arg_list(
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     wrapper_variant: bool,
+    members: &BTreeSet<String>,
 ) -> String {
     let parts: Vec<String> = args
         .iter()
@@ -659,10 +666,44 @@ fn format_arg_list(
                     }
                 }
             };
-            format!("{}: {}", sanitize_identifier(&a.name), pas_ty)
+            format!("{}: {}", sanitize_arg(&a.name, members), pas_ty)
         })
         .collect();
     parts.join("; ")
+}
+
+/// Every (case-insensitive) member name the wrapper class declares: the
+/// fixed ones plus one per surviving api.json method.
+fn class_member_names(ir: &CodegenIR, class_name: &str) -> BTreeSet<String> {
+    let mut members: BTreeSet<String> = ["wrap", "raw", "release", "destroy", "fraw", "fowned"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    members.extend(
+        constructor_pascal_names(ir, class_name)
+            .iter()
+            .map(|n| n.to_ascii_lowercase()),
+    );
+    for func in ir.functions_for_class(class_name) {
+        if func.kind.is_trait_function() {
+            continue;
+        }
+        members.insert(idiomatic_method_name(&func.method_name).to_ascii_lowercase());
+    }
+    members
+}
+
+/// Pascal is case-insensitive and gives parameters the same scope as the
+/// enclosing class's members, so `Connect(ticket: ...)` is a duplicate
+/// identifier once the class also declares `function Ticket`. A parameter
+/// that collides with a member of ITS OWN class gets a trailing underscore.
+fn sanitize_arg(name: &str, members: &BTreeSet<String>) -> String {
+    let base = sanitize_identifier(name);
+    if members.contains(&base.to_ascii_lowercase()) {
+        format!("{}_", base)
+    } else {
+        base
+    }
 }
 
 // ============================================================================
