@@ -37,9 +37,12 @@ armv7-unknown-linux-gnueabihf   *azul*.so       64000000   # 0.2.0: 35047524
 powerpc64-unknown-linux-gnu     *azul*.so       91000000   # 0.2.0: 50546888
 s390x-unknown-linux-gnu         *azul*.so       79000000   # 0.2.0: 43603672
 riscv64gc-unknown-linux-gnu     *azul*.so       63000000   # 0.2.0: 34506720
-# musl x86_64 is the library the Alpine .apk ships; same code, same arch as
-# the host build, so it is sized against that measurement.
-x86_64-unknown-linux-musl       *azul*.so       61000000   # sized against 2026-09-07 host libazul.so: 52851208
+# musl x86_64 is the library the Alpine .apk ships. It was sized against the
+# host gnu build for want of a measurement; the first run that actually built
+# it reported 61.5MB, because musl links libc statically and the iroh
+# transport (noq/rustls/ring/tokio) is compiled into build-dll. 1.15x of the
+# measurement, per PROVENANCE.
+x86_64-unknown-linux-musl       *azul*.so       71000000   # 2026-09-16: 61556032 (was sized against the host gnu build: 52851208)
 aarch64-unknown-linux-musl      *azul*.so       62000000   # sized like the aarch64-gnu row (0.2.0: 34228712)
 
 # --- Windows / macOS -------------------------------------------------------
