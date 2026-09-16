@@ -177,7 +177,7 @@ jobs:
           echo "docproof pinned at $got"
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
@@ -2985,7 +2985,7 @@ jobs:
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
@@ -3097,14 +3097,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3127,22 +3127,40 @@ jobs:
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
+      # vlang/setup-v does not install V, it BUILDS it: clone vlang/v, clone the
+      # vlang/vc bootstrap (the V compiler transpiled to C), compile that with cc,
+      # then have the result recompile the compiler. One run stalled in the
+      # self-compile stage for 58 of the job's 60 minutes, and a job CANCELLED on
+      # timeout skips every dependent no matter what continue-on-error says - that
+      # is how an experimental language shard came to block deploy_pages. V ships
+      # prebuilt binaries for every platform we run on, so just take those.
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        # Builds V from source; a hung `make` here once burned the job's whole
-        # 60 minutes, and a job CANCELLED on timeout skips the deploy no matter
-        # what continue-on-error says. Bound the step so V just gets skipped.
-        timeout-minutes: 10
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
-        with:
-          version: 0.5.2
-          check-latest: false
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=0.5.2
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)   asset=v_linux.zip ;;
+            Linux-ARM64) asset=v_linux_arm64.zip ;;
+            macOS-ARM64) asset=v_macos_arm64.zip ;;
+            macOS-X64)   asset=v_macos_x86_64.zip ;;
+            Windows-X64) asset=v_windows.zip ;;
+            *) echo "::warning::no prebuilt V for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 0 ;;
+          esac
+          curl -fsSL --retry 3 --retry-delay 5             -o "$RUNNER_TEMP/v.zip"             "https://github.com/vlang/v/releases/download/${ver}/${asset}"
+          unzip -q "$RUNNER_TEMP/v.zip" -d "$RUNNER_TEMP/vdist"
+          vbin="$RUNNER_TEMP/vdist/v/v"
+          [ "$RUNNER_OS" = "Windows" ] && vbin="$vbin.exe" || chmod +x "$vbin"
+          "$vbin" version
+          echo "$RUNNER_TEMP/vdist/v" >> "$GITHUB_PATH"
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3326,7 +3344,7 @@ jobs:
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
@@ -3438,14 +3456,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3468,22 +3486,40 @@ jobs:
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
+      # vlang/setup-v does not install V, it BUILDS it: clone vlang/v, clone the
+      # vlang/vc bootstrap (the V compiler transpiled to C), compile that with cc,
+      # then have the result recompile the compiler. One run stalled in the
+      # self-compile stage for 58 of the job's 60 minutes, and a job CANCELLED on
+      # timeout skips every dependent no matter what continue-on-error says - that
+      # is how an experimental language shard came to block deploy_pages. V ships
+      # prebuilt binaries for every platform we run on, so just take those.
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        # Builds V from source; a hung `make` here once burned the job's whole
-        # 60 minutes, and a job CANCELLED on timeout skips the deploy no matter
-        # what continue-on-error says. Bound the step so V just gets skipped.
-        timeout-minutes: 10
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
-        with:
-          version: 0.5.2
-          check-latest: false
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=0.5.2
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)   asset=v_linux.zip ;;
+            Linux-ARM64) asset=v_linux_arm64.zip ;;
+            macOS-ARM64) asset=v_macos_arm64.zip ;;
+            macOS-X64)   asset=v_macos_x86_64.zip ;;
+            Windows-X64) asset=v_windows.zip ;;
+            *) echo "::warning::no prebuilt V for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 0 ;;
+          esac
+          curl -fsSL --retry 3 --retry-delay 5             -o "$RUNNER_TEMP/v.zip"             "https://github.com/vlang/v/releases/download/${ver}/${asset}"
+          unzip -q "$RUNNER_TEMP/v.zip" -d "$RUNNER_TEMP/vdist"
+          vbin="$RUNNER_TEMP/vdist/v/v"
+          [ "$RUNNER_OS" = "Windows" ] && vbin="$vbin.exe" || chmod +x "$vbin"
+          "$vbin" version
+          echo "$RUNNER_TEMP/vdist/v" >> "$GITHUB_PATH"
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3864,7 +3900,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           cmdline-tools-version: 12266719
           # The action's default is `tools platform-tools`. The legacy `tools`
@@ -6732,7 +6768,7 @@ jobs:
       # App, AzulHostInvoker, ...): the two jars can never share a classpath,
       # so the Kotlin jar carries its own natives.
       - name: Kotlin compiler (rs.azul:azul-kotlin)
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: "${{ env.KOTLIN_VERSION }}"
       - name: Build the Kotlin binding jar + its consumer pom
