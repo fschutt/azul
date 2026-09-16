@@ -4962,6 +4962,9 @@ jobs:
           AZUL_RPM_GPG_KEY: ${{ secrets.AZUL_RPM_GPG_KEY }}
           AZUL_PACMAN_GPG_KEY: ${{ secrets.AZUL_PACMAN_GPG_KEY }}
           AZUL_APK_SIGN_KEY: ${{ secrets.AZUL_APK_SIGN_KEY }}
+          # The npm tarball and the wheels are uploaded to the Release below,
+          # before the install self-checks exercise the URLs the indexes carry.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -u
           if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
@@ -5034,6 +5037,9 @@ jobs:
             need_glob pypi wheel 'website/ui/azul/*.whl'
             if [ -s website/ui/azul/index.html ]; then
               for d in $(sed -n 's/.*<a href="\([^"#]*\)[^"]*".*/\1/p' website/ui/azul/index.html); do
+                # A wheel offloaded to the GitHub Release is an absolute URL, not
+                # a file next to the index; only relative hrefs must exist here.
+                case "$d" in http://*|https://*) continue;; esac
                 need_file pypi "website/ui/azul/$d"
               done
             fi
@@ -5128,6 +5134,29 @@ jobs:
             fi
             kill "$gem_srv" 2>/dev/null
             rm -rf "$gem_root"
+          fi
+
+          # --- offload the wheels to the GitHub Release ---
+          # The documented command is `pip install azul --index-url .../ui`, so the
+          # wheel URL is data inside the PEP 503 index and pip follows it anywhere;
+          # build_registry_mirrors.sh points it at the Release. Upload BEFORE the
+          # install self-check below, so it exercises the very URL the published
+          # index carries, then drop the wheels from the Pages tree. npm keeps its
+          # payload here (its documented command is a direct azul.rs URL), and the
+          # path-addressed mirrors (apt, maven, nuget, gems, alpine, arch) must.
+          OFFLOAD=()
+          while IFS= read -r w; do
+            [ -n "$w" ] && OFFLOAD+=("$w")
+          done < <(find website/ui/azul -maxdepth 1 -name '*.whl' 2>/dev/null | sort)
+          if [ "${#OFFLOAD[@]}" -gt 0 ]; then
+            gh release create "${AZUL_VERSION}"               --title "Azul ${AZUL_VERSION}"               --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/ui/release/${AZUL_VERSION}/."               2>/dev/null || true
+            echo "=== offloading ${#OFFLOAD[@]} payload(s) to the Release ==="
+            if gh release upload "${AZUL_VERSION}" "${OFFLOAD[@]}" --clobber; then
+              for f in "${OFFLOAD[@]}"; do rm -f "$f" && echo "offloaded $(basename "$f")"; done
+            else
+              echo "::error::could not upload the wheels to the ${AZUL_VERSION} Release - the pypi index points at URLs that would 404"
+              exit 1
+            fi
           fi
 
           if [ -d website/ui/azul ]; then

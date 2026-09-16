@@ -58,6 +58,13 @@ SITE="${1:?website dir}"
 V="${2:?version}"
 ART="${3:?artifacts root}"
 BASE="https://azul.rs"
+# The wheels are served from the GitHub Release, not Pages: the documented command
+# is `pip install azul --index-url https://azul.rs/ui`, so the wheel URL is data
+# inside the PEP 503 index and pip follows it anywhere, while the Pages artifact
+# is up against GitHub's 1 GB cap. Not npm: its documented command is a direct
+# https://azul.rs/ui/npm/... URL, so that payload has to stay on Pages. Nor the
+# path-addressed mirrors (apt Filename:, maven/nuget/gems/alpine/arch layouts).
+OFFLOAD_BASE="${AZUL_OFFLOAD_BASE:-https://github.com/fschutt/azul/releases/download/$V}"
 # The deploy lays the per-release files (dylib / dll / azul.h) here; brew + choco
 # point their downloads at the matching azul.rs/ui/release/<V>/ URLs and check the
 # sha256 of these exact files.
@@ -208,7 +215,7 @@ build_pypi() {
     base="$(basename "$f")"
     [ "$f" = "$pkgdir/$base" ] || cp "$f" "$pkgdir/$base"
     h="$(sha256_of "$pkgdir/$base")"
-    links="$links    <a href=\"$base#sha256=$h\">$base</a><br>\n"
+    links="$links    <a href=\"$OFFLOAD_BASE/$base#sha256=$h\">$base</a><br>\n"
   done
   # per-project page: /ui/azul/index.html
   printf '<!DOCTYPE html><html><head><meta name="pypi:repository-version" content="1.0"><title>Links for azul</title></head><body><h1>Links for azul</h1>\n%b</body></html>\n' "$links" \
