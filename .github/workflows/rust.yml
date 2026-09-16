@@ -4968,10 +4968,24 @@ jobs:
         run: |
           set -u
           if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
-            mkdir -p website/apt website/ui/apt
-            cp -r artifacts-apt/. website/apt/
+            mkdir -p website/ui/apt
             cp -r artifacts-apt/. website/ui/apt/
-            echo "[live] apt mirror -> /ui/apt (and legacy /apt)"
+            # The legacy /apt was a byte-for-byte second copy of the repository,
+            # pool included, so every .deb sat in the Pages artifact twice. Once
+            # the per-arch packages started building that became 135MB of pure
+            # duplication against GitHub's 1 GB cap. Nothing documents or verifies
+            # /apt - the guides, the landing page and verify_install_commands.sh
+            # all say /ui/apt - so it keeps a pointer instead of a copy.
+            mkdir -p website/apt
+            {
+              echo '<!DOCTYPE html><html><head><meta charset="utf-8">'
+              echo '<title>azul apt repository</title>'
+              echo '<meta http-equiv="refresh" content="0; url=/ui/apt/"></head><body>'
+              echo '<p>The azul apt repository is served from <a href="/ui/apt/">/ui/apt/</a>:</p>'
+              echo "<pre>echo 'deb [trusted=yes] https://azul.rs/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list</pre>"
+              echo '</body></html>'
+            } > website/apt/index.html
+            echo "[live] apt mirror -> /ui/apt (legacy /apt points at it)"
           else
             echo "[skip] apt mirror (no apt-repo artifact in this run)"
           fi
