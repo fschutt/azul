@@ -297,3 +297,10 @@ impl IrohEndpoint {
         self.run_destructor = false;
     }
 }
+
+// netdev and n0-dns-resolver call SystemConfiguration directly to enumerate interfaces and read
+// the DNS config, but neither declares the framework, so a static link leaves `SCNetworkInterface*`
+// and `SCDynamicStore*` undefined. Declaring it here links it for every consumer of the rlib.
+#[cfg(all(az_iroh_engine, target_os = "macos"))]
+#[link(name = "SystemConfiguration", kind = "framework")]
+extern "C" {}
