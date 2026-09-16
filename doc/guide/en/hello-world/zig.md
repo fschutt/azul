@@ -151,18 +151,15 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var d = data;
     const m = myDataDowncast(&d) orelse return C.AzDom_createBody();
 
-    // Counter label (wrapped in a div so the font-size sticks).
+    // Counter label.
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
-    const label = C.AzDom_createSpanWithText(counter_str);
-
-    var label_wrapper = C.AzDom_createDiv();
-    const font_size = C.AzStyleFontSize_px(32.0);
-    const css_prop = C.AzCssProperty_fontSize(font_size);
-    const cond = C.AzCssPropertyWithConditions_simple(css_prop);
-    C.AzDom_addCssProperty(&label_wrapper, cond);
-    C.AzDom_addChild(&label_wrapper, label);
+    var label_wrapper = C.AzDom_createPWithText(counter_str);
+    
+    const css_bytes = "font-size: 32px; margin: 0;";
+    const css_str = C.AzString_fromUtf8(css_bytes.ptr, css_bytes.len);
+    C.AzDom_setCss(&label_wrapper, css_str);
 
     // Increment button. The typed `AzButton_setOnClick` takes the bare
     // `AzButtonOnClickCallbackType` fn pointer directly — no AzCallback

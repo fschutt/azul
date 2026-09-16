@@ -198,12 +198,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         written /* num_bytes to copy */
     );
 
-    // AzDom_createTextDoNotUseWithoutBlockLevelWrapper would just create the raw inline text node
-    // ("span::text" in CSS) - but we have to wrap it in an element. A counter is a
-    // LABEL, so a <span>: a <p> is for prose and carries the UA paragraph margin.
-    AzDom label_dom = AzDom_createSpanWithText(label_text);
+    AzDom label_dom = AzDom_createPWithText(label_text);
     AzDom_setCss(&label_dom, AZ_CONST_STR(
-        "font-size: 50px;"
+        "font-size: 50px; margin: 0;"
     ));
 
     // Button widget - has its own helper API on top of Dom

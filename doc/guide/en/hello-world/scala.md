@@ -106,9 +106,8 @@ object HelloWorld {
       override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
-            val label = Dom.createDiv()
-              .withCss("font-size: 32px;")
-              .withChild(Dom.createSpanWithText(String.valueOf(m.counter)))
+            val label = Dom.createPWithText(String.valueOf(m.counter))
+              .withCss("font-size: 32px; margin: 0;")
             val buttonDom = new Dom(
               Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)

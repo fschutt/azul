@@ -89,11 +89,8 @@ function layout(dataPtr, _info) {
     const m = refanyGet(dataPtr);
     if (m == null) return Dom.create_body();
 
-    const label = Dom.create_div()
-        .with_css_property(
-            CssPropertyWithConditions.simple(
-                CssProperty.font_size(StyleFontSize.px(32.0))))
-        .with_child(Dom.create_span_with_text(String(m.counter)));
+    const label = Dom.create_p_with_text(String(m.counter))
+        .with_css("font-size: 32px; margin: 0;");
 
     const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)

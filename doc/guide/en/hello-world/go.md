@@ -207,17 +207,14 @@ func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
 		return C.AzDom_createBody()
 	}
 
-	// Counter label (wrapped in a div so the font-size sticks).
+	// Counter label.
 	counterStr := []byte(fmt.Sprintf("%d", m.counter))
 	counterAz := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&counterStr[0])), C.size_t(len(counterStr)))
-	label := C.AzDom_createSpanWithText(counterAz)
-
-	labelWrapper := C.AzDom_createDiv()
-	fontSize := C.AzStyleFontSize_px(C.float(32.0))
-	cssProp := C.AzCssProperty_fontSize(fontSize)
-	cond := C.AzCssPropertyWithConditions_simple(cssProp)
-	C.AzDom_addCssProperty(&labelWrapper, cond)
-	C.AzDom_addChild(&labelWrapper, label)
+	labelWrapper := C.AzDom_createPWithText(counterAz)
+	
+	cssBytes := []byte("font-size: 32px; margin: 0;")
+	cssAz := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&cssBytes[0])), C.size_t(len(cssBytes)))
+	C.AzDom_setCss(&labelWrapper, cssAz)
 
 	// AzButton_setOnClick takes the bare fn-pointer typedef; the C helper
 	// casts the //export'd goOnClick to AzCallbackType (see the preamble).

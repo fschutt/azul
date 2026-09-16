@@ -75,10 +75,8 @@ local function layout(data, _info)
     if m == nil then return azul.Dom.create_body() end
 
     -- add_* mutators return self (chain top-down); with_* consume self.
-    local label = azul.Dom.create_div()
-        :add_css_property(azul.CssPropertyWithConditions.simple(
-            azul.CssProperty.font_size(azul.StyleFontSize.px(32.0))))
-        :add_child(azul.Dom.create_span_with_text(tostring(m.counter)))
+    local label = azul.Dom.create_p_with_text(tostring(m.counter))
+        :set_css("font-size: 32px; margin: 0;")
 
     local button_dom = azul.Button.create('Increase counter')
         :set_button_type(azul.ButtonType.Primary)

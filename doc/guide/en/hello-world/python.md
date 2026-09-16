@@ -101,9 +101,7 @@ def layout(data, info):
     # Rendered counter label: a text node wrapped in a styled div.
     # .with_css(...) consumes self and returns a new Dom, so builder
     # calls chain inline.
-    label = (Dom.create_div()
-             .with_child(Dom.create_span_with_text(str(data.counter)))
-             .with_css("font-size: 32px;"))
+    label = Dom.create_p_with_text(str(data.counter)).with_css("font-size: 32px; margin: 0;")
 
     # Button widget with a click handler. Everything lives in the flat
     # `azul` module; with_on_click(data, callback) registers the handler
