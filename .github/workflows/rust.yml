@@ -4174,16 +4174,24 @@ jobs:
             mkdir -p "$outdir"
             cp "$so" "$outdir/libazul.so"
             find nfpm-config -name 'azul.h' -exec cp {} "$outdir/" \; 2>/dev/null || true
+            # nfpm.yaml also lists azul03/11/14/17/20/23.hpp. Copying only azul.h
+            # here (the amd64 path above copies both) meant EVERY per-arch package
+            # died on `Matching "./azul03.hpp": file does not exist` - swallowed by
+            # a warning, so the deb/rpm for arm64/ppc64/s390x/riscv64 never existed.
+            find nfpm-config -name 'azul*.hpp' -exec cp {} "$outdir/" \; 2>/dev/null || true
             cp LICENSE "$outdir/" 2>/dev/null || true
             sed "s/^arch:.*/arch: ${nfpm_arch}/" "$BASE_YAML" > "$outdir/nfpm.yaml"
             ( cd "$outdir" && \
               nfpm pkg --config nfpm.yaml --packager deb --target . && \
               nfpm pkg --config nfpm.yaml --packager rpm --target . ) \
-              || echo "::warning::nfpm packaging failed for $dir"
+              || { echo "::error::nfpm packaging failed for $dir"; pkg_failed=1; }
             ls -la "$outdir"/*.deb "$outdir"/*.rpm 2>/dev/null || true
           done
           echo "=== per-arch packages ==="
           find target/packages-arch -name '*.deb' -o -name '*.rpm' 2>/dev/null || true
+          # The step stays continue-on-error, so this only turns a silent warning
+          # into a red step - it cannot block the deploy.
+          exit "${pkg_failed:-0}"
 
       - name: Upload per-arch aarch64 packages
         if: always()
