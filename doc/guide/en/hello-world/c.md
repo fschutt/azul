@@ -4,7 +4,7 @@ title: Hello World [C]
 language: en
 canonical_slug: hello-world/c
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 12
 topic_only: false
 prerequisites: [hello-world]
@@ -13,8 +13,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -31,337 +31,65 @@ default-search-keys:
 
 ## Introduction
 
-C is the "native" surface of Azul. Every other language binding (Rust, C++, Python, ...) 
-ultimately calls into the same `azul.h` symbols described here, so anything that works in 
-C works everywhere.
+C is the "native" surface of Azul: every other binding (Rust, C++, Python, ...) ultimately 
+calls into the same `azul.h` symbols, so anything that works in C works everywhere. The C 
+header exposes the exact same architecture as every other binding, however C is notably the 
+only language where you have to call the destructors manually.
 
-The good news is that you do not have to build Azul "from scratch" as a C user. The 
-library ships as a prebuilt DLL and a single header file, both of which you can drop 
-into an existing project and link like any other system library. 
+### Installation
 
-## Installation
-
-### Pre-built DLL (recommended)
-
-On Debian/Ubuntu and Fedora/RHEL you can install the prebuilt package
-straight from the GitHub release:
+Ideally, install the precompiled dynamic C library using your package manager:
 
 ```sh
-# linux - Debian / Ubuntu (installs /usr/include/azul.h + /usr/lib/libazul.so)
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_${VERSION}_amd64.deb
-sudo apt install ./azul_${VERSION}_amd64.deb
-
-# linux - Fedora / RHEL
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
-sudo dnf install ./azul-$VERSION-1.x86_64.rpm
-```
-
-ARM64 and other architectures are on the
-[GitHub releases page](https://github.com/fschutt/azul/releases/tag/$VERSION).
-The `.deb` / `.rpm` installs `libazul.so` plus the `azul.h` header into the
-standard system locations, so a plain `cc hello-world.c -lazul` will pick
-everything up.
-
-Instead of downloading the `.deb` manually, Debian/Ubuntu users can also
-subscribe to the self-hosted apt repository served from azul.rs (it is
-unsigned, hence the explicit `[trusted=yes]`):
-
-```sh
-echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
-sudo apt update
-sudo apt install azul
-```
-
-Arch and Alpine have self-hosted repositories too (unsigned, like the apt
-one — the `SigLevel` / `--allow-untrusted` say so explicitly):
-
-```sh
-# Arch / Manjaro - append to /etc/pacman.conf, then pacman -Sy azul
-[azul]
-SigLevel = Optional TrustAll
-Server = https://azul.rs/ui/arch/$arch
-
-# Alpine
-echo https://azul.rs/ui/alpine >> /etc/apk/repositories
-apk add --allow-untrusted azul
-```
-
-On macOS, a self-hosted Homebrew tap (a real git repository served from
-azul.rs - no external registry involved) installs `libazul.dylib`, `azul.h`,
-the C++ headers and a pkg-config file:
-
-```sh
+# macOS
 brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
-cc $(pkg-config --cflags --libs azul) hello-world.c -o hello-world
-```
 
-On Windows, Chocolatey and Scoop (a self-hosted bucket, the same mechanism
-as the tap) both install `azul.dll`, the MSVC import library `azul.dll.lib`
-and `azul.h` into one directory and point `AZ_LINK_PATH` at it:
+# Debian / Ubuntu
+# (This adds the azul.rs apt repository to your sources.list, so you can receive updates via apt update)
+echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update && sudo apt install azul
 
-```powershell
+# Fedora / RHEL / openSUSE
+sudo dnf config-manager --add-repo https://azul.rs/ui/rpm/azul.repo && sudo dnf install azul
+
+# Arch Linux
+echo '
+[azul]
+SigLevel = Optional TrustAll
+Server = https://azul.rs/ui/arch/$arch' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy azul
+
+# Alpine Linux
+echo "https://azul.rs/ui/alpine" | sudo tee -a /etc/apk/repositories
+sudo apk add --allow-untrusted azul
+
+# Windows
 choco install libazul --source https://azul.rs/ui/nuget/index.json
 # or
-scoop bucket add azul https://azul.rs/ui/scoop.git
-scoop install azul
+scoop bucket add azul https://azul.rs/ui/scoop.git && scoop install azul
 ```
 
-Or - on any platform, and in CI - download the header and the library
-directly from the [release page](https://azul.rs/ui/release/$VERSION):
-
-```sh
-# header (same file on every platform)
-curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
-
-# windows: the DLL, and azul.dll.lib, the import library you link against
-curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-# linux
-curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
-# macos (Apple Silicon; Intel: libazul.x86_64.dylib)
-curl -L -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-```
-
-You then either install both into a system path or pass `-I` and `-L` to the compiler.
-
-## Simple "Counter" Example
-
-The C version of the counter is about ~60 lines (without comments):
-
-```c
-#include "azul.h"
-#include <stdio.h>
-#include <string.h>
-
-// Tiny helper: turn a compile-time string literal into an AzString.
-// AzString_fromConstStr is a designated-initializer macro - in expression
-// context it needs a compound-literal cast to `(AzString){...}`. The
-// resulting AzString just points at the literal (which lives in .rodata)
-// with a NoDestructor - zero allocation. For runtime-built strings, see
-// AzString_copyFromBytes further down.
-#define AZ_CONST_STR(s) ((AzString)AzString_fromConstStr(s))
-
-// Data model: Plain old struct - the "single source of truth" for app state.
-typedef struct { uint32_t counter; } MyDataModel;
-
-// Called once when the framework drops the last RefAny pointing at
-// our struct. No heap allocation here, so the body is empty.
-void MyDataModel_destructor(void* m) { }
-
-// AZ_REFLECT expands into a small set of helper functions:
-// 
-//   MyDataModel_upcast(struct)         -> AzRefAny
-//   MyDataModel_downcastRef(&refany,&MyDataModelRef) -> bool (const access)
-//   MyDataModel_downcastMut(&refany,&MyDataModelRefMut) -> bool (mutable access)
-// 
-// It stores a compiler-generated tag in the RefAny, so that the 
-// framework can verify the type-safety casts at runtime.
-//
-// Alternatively, use AZ_REFLECT_JSON if you want to plug into the
-// state-hot-reload machinery (requires you to supply toJson /
-// fromJson callbacks).
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
-// AZ_REFLECT_JSON(MyDataModel, destructor_fn, toJson, fromJson)
-
-// Forward-declare on_click so layout() can pass it to the button.
-// All UI callbacks share this same signature.
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
-
-// f(DataModel) -> Dom. Runs once on startup and again after every
-// callback that returns Update::RefreshDom.
-AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-
-    // We downcast non-mutably from the RefAny to our MyDataModelRef
-    // (generated by AZ_REFLECT macro). We only want to read the counter
-    // so we don't use the "RefMut" here.
-    MyDataModelRef d = MyDataModelRef_create(&data);
-    if (!MyDataModel_downcastRef(&data, &d)) {
-        // _delete is safe even though the downcast failed: it only
-        // releases what _create allocated and skips the borrow-count
-        // decrease when .ptr was never set.
-        MyDataModelRef_delete(&d);
-        return AzDom_createBody();
-    }
-
-    // Format the counter value into a string and immediately
-    // release the const borrow - we don't need it further.
-    char buffer[20];
-    int written = snprintf(buffer, 20, "%d", d.ptr->counter);
-    MyDataModelRef_delete(&d);
-
-    // copy the bytes to an owned AzString, since char[20] will
-    // go out of scope at the end of this function
-    AzString label_text = AzString_copyFromBytes(
-        (const uint8_t*)buffer,
-        0 /* start */,
-        written /* num_bytes to copy */
-    );
-
-    AzDom label_dom = AzDom_createPWithText(label_text);
-    AzDom_setCss(&label_dom, AZ_CONST_STR(
-        "font-size: 50px; margin: 0;"
-    ));
-
-    // Button widget - has its own helper API on top of Dom
-    AzButton button = AzButton_create(AZ_CONST_STR("Increase counter"));
-    AzButton_setButtonType(&button, AzButtonType_Primary);
-
-    // RefAny_clone bumps the refcount - clone ownership 
-    // is moved into the AzButton so the AzButton
-    // can hand it back to on_click later.
-    AzRefAny data_clone = AzRefAny_clone(&data);
-    AzButton_setOnClick(&button, data_clone, on_click);
-
-    // Convert the button widget to a plain Dom node so we
-    // can append it like any other.
-    AzDom button_dom = AzButton_dom(button);
-
-    // Final wrapup and return
-    AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, label_dom);
-    AzDom_addChild(&body, button_dom);
-    return body;
-}
-
-// Click callback, framework invokes this function pointer 
-// when the button's hit-test matches a MouseUp event.
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-
-    // Now we use the RefMut variant (generated by AZ_REFLECT),
-    // to perform the runtime borrow check. Failure means the RefAny 
-    // is already borrowed elsewhere or holds a different type.
-    MyDataModelRefMut d = MyDataModelRefMut_create(&data);
-    if (!MyDataModel_downcastMut(&data, &d)) {
-        // You could debug here. _delete is safe on this failure
-        // path too - see the note in layout() above.
-        MyDataModelRefMut_delete(&d);
-        return AzUpdate_DoNothing;
-    }
-
-    // Actually increase the counter behind the MyDataModelRefMut 
-    // (thread safe, no other thread has access to this at this point)
-    d.ptr->counter += 1;
-
-    // ALWAYS pair _create with _delete before returning - on every
-    // path, including failed downcasts. Forgetting it after a
-    // successful downcast leaves the RefAny borrowed and the next
-    // downcast will fail.
-    MyDataModelRefMut_delete(&d);
-
-    // RefreshDom now queues a new layout() invocation:
-    // dom build -> cascade -> relayout -> display list -> render
-    return AzUpdate_RefreshDom;
-}
-
-int main() {
-
-    // Initialize the data model
-    MyDataModel model = { .counter = 5 };
-
-    // Move ownership of the model into a RefAny.
-    AzRefAny data = MyDataModel_upcast(model);
-
-    // Configure the window(s) to spawn on startup. layout() is the
-    // "/" default route; SPA-style routing is done later by swapping
-    // the layout callback on a window.
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
-
-    // Play with the window options
-    window.window_state.title = AZ_CONST_STR("Hello World!");
-    window.window_state.size.dimensions.width = 400.0;
-    window.window_state.size.dimensions.height = 300.0;
-
-    // OS draws close/min/max buttons; framework auto-injects a
-    // draggable titlebar above our content.
-    window.window_state.flags.decorations =
-        AzWindowDecorations_NoTitleAutoInject;
-    window.window_state.flags.background_material =
-        AzWindowBackgroundMaterial_Sidebar;
-
-    // AppConfig discovers system-native styling, monitor layout, etc.
-    AzApp app = AzApp_create(data, AzAppConfig_create());
-
-    // Blocks until the last window closes (on Win32 this never
-    // returns; on other systems it depends on window_config flags).
-    AzApp_run(&app, window);
-    AzApp_delete(&app);
-    return 0;
-}
-```
-
-Five things to notice.
-
-- **`AZ_REFLECT(...)`** — generates the upcast / downcast helpers and a runtime type tag the framework uses to verify casts. The destructor parameter is a function pointer the framework calls when the last `RefAny` referencing your struct is dropped; if your struct owns heap data, free it here. The longer form `AZ_REFLECT_JSON(struct, destructor, toJson, fromJson)` additionally plugs into the state-hot-reload machinery — not needed for hello-world.
-- **`FooRef_create` / `FooRef_delete`** — every `_create` must be paired with a `_delete` before the function returns, on the success *and* the failure path. `_delete` is failure-safe: if the downcast never succeeded (`.ptr` is still `0`), it only releases the bookkeeping that `_create` allocated and does not touch the borrow count. After a successful downcast it is the C version of Rust's `RefMut` going out of scope: it releases the runtime borrow on this RefAny instance.
-- **`AzRefAny_clone`** — bumps the reference count, does not deep-copy your struct. The second `RefAny` is moved into the button so the click handler can downcast it later. Cloning is thread-safe (refcount is atomic).
-- **`AzString_fromConstStr` vs `AzString_copyFromBytes`** — strings cross the FFI as length-prefixed UTF-8 buffers, not `const char*`. For compile-time string literals, `AzString_fromConstStr` (wrapped in our `AZ_CONST_STR` macro) is a zero-allocation designated initializer: the resulting `AzString` just points at `.rodata` and carries a `NoDestructor` so the framework will not try to free it. For runtime-built strings (e.g. the counter `snprintf`'d into a stack buffer above), use `AzString_copyFromBytes` instead — it copies the bytes into a refcounted heap buffer so the framework can outlive your stack frame. For NUL-terminated runtime strings, `azul.h` also ships the shorthand `AZ_STR(s)`, which expands to `AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))`.
-- **`AzDom_setCss("...")`** — accepts a CSS string, the C analogue of Rust's `set_css`. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also embed `:hover { }`, `:focus { }`, `@media ... { }`, `@os(macos >= sonoma) { }` dynamic queries directly inline — in difference to regular CSS. The string is parsed once on the first cascade and cached, so this is not a per-frame cost. (For programmatic, type-safe access without a CSS string round-trip, use `AzDom_addCssProperty` with the `AzCssProperty_*` constructors instead.)
-
-Things we did not use that you may want to explore next.
-
-- `AzLayoutCallbackInfo` — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries.
-- `AzCallbackInfo` — many functions for navigating the DOM, mutating CSS without rebuilding the tree, querying computed layout / styles, etc.
-- `AzWindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Covered in [windowing](../system/windowing.md).
-
-## Build and run
-
-If you installed `libazul` through the `.deb` / `.rpm` package, the
-header and the shared library live in standard locations and the
-compiler will find them on its own — one line is enough:
-
-```sh
-cc hello-world.c -lazul -o hello-world
-./hello-world
-```
-
-(On Windows the equivalent is `cl hello-world.c azul.dll.lib` once the
-downloaded MSVC import library `azul.dll.lib` is on the linker search path,
-with `azul.dll` next to the resulting `.exe` at run time.)
-
-If you downloaded the header and DLL manually (or built from source),
-you have to point the compiler at them explicitly. `-I` / `-L` add
-include and link search paths; `-Wl,-rpath` tells the dynamic loader
-where to find `libazul.{so,dylib}` at runtime so you do not have to
-set `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) every
-time you run the binary.
+Alternatively, download it next to your project from the [release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
 # Linux
-cc hello-world.c \
-   -I/path/to/azul-headers \
-   -L/path/to/azul-lib \
-   -lazul -ldl -lpthread -lm \
-   -Wl,-rpath,/path/to/azul-lib \
-   -o hello-world
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
 
-# macOS — @executable_path resolves relative to the binary, so you can
-# ship the .dylib next to the .bin and the loader will pick it up
-cc hello-world.c \
-   -I/path/to/azul-headers \
-   -L/path/to/azul-lib -lazul \
-   -Wl,-rpath,@executable_path/. \
-   -o hello-world
+# macOS M1+
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
 
-# Windows (MSVC) — drop azul.dll next to the .exe at run time
-cl hello-world.c /I path\to\azul-headers ^
-   /link /LIBPATH:path\to\azul-lib azul.dll.lib
+# macOS Intel
+curl -O https://azul.rs/ui/release/$VERSION/libazul.x86_64.dylib
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
+
+# Windows
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.h
 ```
-
-You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
-
-1. `AzApp_run` opened a native window and ran `layout()` once with your `RefAny` on startup.
-2. The returned `AzDom` was styled, laid out, and rendered (default: CPU-rendered; can be GPU-rendered if needed).
-3. On click, the button's event filter matched a `MouseUp` inside its hit-test bounds. The framework borrowed the `RefAny` mutably, ran `on_click`, observed the `AzUpdate_RefreshDom` return, and re-invoked `layout()`.
-4. The new `AzDom` was diffed against the previous one; only the changed text node was repainted.
-
-## Common errors
-
-- **Linker reports unresolved `Az*` symbols** — the dynamic library is not on the linker path. Check `-L` and `-l` (or `LIBPATH` on MSVC).
-- **Runtime: "library not found"** — the loader cannot find `libazul.{so,dylib,dll}`. On Linux export `LD_LIBRARY_PATH`; on macOS use `-Wl,-rpath,@executable_path/.`; on Windows place `azul.dll` next to the `.exe`.
-- **`downcastMut` / `downcastRef` returns `false`** — usually a missing `_delete` somewhere is leaving the `RefAny` borrowed. Less commonly, it holds a different type than you think. Return `AzUpdate_DoNothing` (or `AzDom_createBody()`) and audit your borrow scopes.
-- **Counter does not update on click** — the click callback returned `AzUpdate_DoNothing`, or the downcast failed silently. Add a `printf` to the failure branch to verify.
-- **The window opens blank** — the layout callback returned `AzDom_createBody()` with no children, or the `_addChild` calls were applied to the wrong node.
 
 ### Building from source
 
@@ -376,4 +104,200 @@ cargo run -p azul-doc --release -- codegen all
 cargo build -p azul-dll --release --features build-dll
 ```
 
-Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The header is previously generated by `azul-doc codegen all` and ends up at `target/codegen/azul.h`. Copy both somewhere your C compiler can find.
+Notice the required `--features build-dll`. The DLL gets built in `target/release/libazul.{so,dylib}` (or `azul.dll`). The C header is generated by `azul-doc codegen all` (alongside all other language bindings) and ends up at `target/codegen/azul.h`. Copy both somewhere your C compiler can find.
+
+## Simple "Counter" Example
+
+The simplest example to showcase Azul's model is only about ~60 lines long:
+
+```c
+#include "azul.h"
+#include <stdio.h>
+#include <string.h>
+
+static AzString str(const char* s) {
+    return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
+}
+
+typedef struct { uint32_t counter; } MyDataModel;
+void MyDataModel_destructor(void* m) { }
+AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    MyDataModelRefMut d = MyDataModelRefMut_create(&data);
+    if (!MyDataModel_downcastMut(&data, &d)) {
+        MyDataModelRefMut_delete(&d);
+        return AzUpdate_DoNothing;
+    }
+    d.ptr->counter += 1;
+    MyDataModelRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    MyDataModelRef d = MyDataModelRef_create(&data);
+    if (!MyDataModel_downcastRef(&data, &d)) {
+        MyDataModelRef_delete(&d);
+        return AzDom_createBody();
+    }
+
+    char buffer[20];
+    snprintf(buffer, sizeof(buffer), "%d", d.ptr->counter);
+    MyDataModelRef_delete(&d);
+
+    AzDom label = AzDom_createPWithText(str(buffer));
+    AzDom_setCss(&label, str("font-size: 32px; margin: 0;"));
+
+    AzButton button = AzButton_create(str("Increase counter"));
+    AzButton_setButtonType(&button, AzButtonType_Primary);
+    AzRefAny data_clone = AzRefAny_clone(&data);
+    AzButton_setOnClick(&button, data_clone, on_click);
+    AzDom button_dom = AzButton_dom(button);
+
+    AzDom body = AzDom_createBody();
+    AzDom_addChild(&body, label);
+    AzDom_addChild(&body, button_dom);
+
+    return body;
+}
+
+int main() {
+    MyDataModel model = { .counter = 5 };
+    AzRefAny data = MyDataModel_upcast(model);
+
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
+    window.window_state.title = str("Hello World");
+    window.window_state.size.dimensions.width = 400.0;
+    window.window_state.size.dimensions.height = 300.0;
+
+    AzApp app = AzApp_create(data, AzAppConfig_create());
+    AzApp_run(&app, window);
+    AzApp_delete(&app);
+    return 0;
+}
+```
+
+### `AZ_REFLECT`
+
+In difference to other bindings, we need to generate the upcast and downcast functions 
+with the `AZ_REFLECT(...)` macro. It uses the compiler-generated type ID to safely check 
+the downcasted type. The macro requires you to pass in the destructor function, which 
+will run once the last instance of a `RefAny` is deleted. 
+
+Alternatively, you can also use the `AZ_REFLECT_JSON` macro, which allows you to add 
+JSON support for your class - this may in some cases be necessary, i.e. for introspection 
+during debugging:
+
+```c
+typedef struct { uint32_t counter; } MyDataModel;
+void MyDataModel_destructor(void* m) { }
+
+AzJson MyDataModel_toJson(AzRefAny refany) {
+    MyDataModelRef ref = MyDataModelRef_create(&refany);
+    if (!MyDataModel_downcastRef(&refany, &ref)) {
+        MyDataModelRef_delete(&ref);
+        return AzJson_null();              // serialize failed -> null
+    }
+    int64_t counter = (int64_t)ref.ptr->counter;
+    MyDataModelRef_delete(&ref);           // release borrow before building Json
+
+    AzJsonKeyValue kv = AzJsonKeyValue_create(str("counter"), AzJson_int(counter));
+    return AzJson_object(AzJsonKeyValueVec_fromItem(kv));   // { "counter": 5 }
+}
+
+AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
+    AzOptionJson field = AzJson_getKey(&json, str("counter"));
+    if (field.None.tag == AzOptionJson_Tag_None) {
+        return AzResultRefAnyString_err(str("Expected object with 'counter'"));
+    }
+    AzOptionI64 counter_opt = AzJson_asInt(&field.Some.payload);
+    if (counter_opt.None.tag == AzOptionI64_Tag_None) {
+        return AzResultRefAnyString_err(str("'counter' is not an integer"));
+    }
+    MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
+    return AzResultRefAnyString_ok(MyDataModel_upcast(model));
+}
+
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor,
+                MyDataModel_toJson, MyDataModel_fromJson);
+```
+
+### Further Notes
+
+Every `_create` reference (like `MyDataModelRef_create`) must be paired with a `_delete` before 
+returning - on the success *and* the failure path, since a missing `_delete` leaves the `RefAny` 
+borrowed and the next downcast fails. On the API page, the classes that have `_delete` functions 
+are marked with a "has destructor" label; all other types are "trivially copyable", e.g. `LogicalPosition` 
+having only two floating point numbers for x and y - therefore not needing a `_delete` function. 
+
+In the example we build the UI with `Dom` constructors like `AzDom_createPWithText` and `AzDom_createBody`. 
+The styling is done via `AzDom_setCss`, which internally parses the string once and caches it. Note that 
+in difference to the web, you can add a full CSS stylesheet here, including rules for `:hover { }`, `:focus { }`, 
+`@media ... { }`. Alternatively, you can use `AzDom_addCssProperty` with the `AzCssProperty_*` constructors 
+to avoid the parsing or define your properties as compile-time constants. 
+
+Strings are passed across the FFI as length-prefixed UTF-8 buffers: for compile-time literals 
+`AzString_fromConstStr` is zero-allocation and just takes a pointer to `.rodata` bytes - and 
+therefore never deallocates the string. Meanwhile, runtime-built strings such as the `snprintf`'d 
+counter need `AzString_copyFromBytes` so the buffer can outlive the `layout()` function returning. 
+
+Finally, `AzRefAny_clone` just bumps the (atomic, thread-safe) reference count instead of doing a 
+deep copy. That should be everything that is "C specific" about the API - everything else is the 
+same for every binding.
+
+## Build and run
+
+If you installed `libazul` via a Linux package manager (`apt`, `rpm`, `pacman`, `apk`), 
+the header and shared library live in standard system locations, so the compiler finds them automatically:
+
+```sh
+# Linux (apt / rpm / pacman / apk)
+cc hello-world.c -lazul -o hello-world
+```
+
+If you used Homebrew on macOS, or a package manager on Windows, you need to point the compiler to the installation directory:
+
+```sh
+# macOS (Homebrew)
+cc -I"$(brew --prefix)/include" -L"$(brew --prefix)/lib" hello-world.c -lazul -o hello-world
+
+# Windows (Chocolatey) - in Developer Command Prompt
+cl /I%AZ_LINK_PATH% hello-world.c %AZ_LINK_PATH%\azul.dll.lib /Fe:hello-world.exe
+
+# Windows (Scoop) - in Developer Command Prompt
+cl /I%USERPROFILE%\scoop\apps\azul\current hello-world.c %USERPROFILE%\scoop\apps\azul\current\azul.dll.lib /Fe:hello-world.exe
+```
+
+Note the `%AZ_LINK_PATH%`, which is set by the Chocolatey installation script automatically. 
+If you downloaded the header and DLL manually (or built from source), you must point the compiler 
+at them explicitly. `-I` / `-L` add include and link search paths; `-Wl,-rpath` tells the dynamic 
+loader where to find `libazul.{so,dylib}` at runtime, so that you do not have to set 
+`LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) on every run. On Windows, `azul.dll` 
+has to sit next to the resulting `.exe` at run time.
+
+```sh
+# Linux (manual download)
+cc hello-world.c -I. -L. -lazul -ldl -lpthread -lm -Wl,-rpath,'$ORIGIN' -o hello-world
+
+# macOS (manual download)
+cc hello-world.c -I. -L. -lazul -Wl,-rpath,@executable_path -o hello-world
+
+# Windows (manual download) - in Developer Command Prompt
+cl /I. hello-world.c azul.dll.lib /Fe:hello-world.exe
+```
+
+After running the `hello-world` binary, you should see the window pictured on the 
+[hello-world landing page](../hello-world.md). Click the button: the counter should increment, 
+the layout callback then re-runs, and the new value renders.
+
+1. `AzApp_run` opens a native window and runs the layout callback once with your `AzRefAny`.
+2. The returned `AzDom` is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up in the `AzDom`. On click, the framework borrows your `AzRefAny` mutably, runs `on_click`, observes the `AzUpdate_RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's `AzDom` and the current one, and only re-updates and re-paints the counter, not the entire window.
+
+Congratulations if you made it this far - now you've already mastered 80% of the framework. 
+As you might have guessed, more complex UI and styling are only composing more Dom objects 
+together and working with the various event filters. You can now start reading about the 
+[architecture patterns](../architecture.md) or explore what [methods the `AzDom` has to offer](../dom.md). 
+
+See you in the next tutorial!
