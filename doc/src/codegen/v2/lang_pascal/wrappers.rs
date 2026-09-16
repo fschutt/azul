@@ -425,7 +425,7 @@ fn emit_constructor_impl(
     let call_args: Vec<String> = visible
         .iter()
         .map(|a| {
-            let name = sanitize_identifier(&a.name);
+            let name = sanitize_arg(&a.name, members);
             if wrapper_variant && is_owned_wrapper_arg(a, targets) {
                 consumed.push(name.clone());
                 format!("{}.FRaw", name)
