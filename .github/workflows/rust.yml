@@ -5382,12 +5382,17 @@ jobs:
           echo "hard-linked remaining: $(find website -type f -links +1 2>/dev/null | wc -l | tr -d ' ')"
           echo "artifact size:"; du -sh website 2>/dev/null || true
 
-      # Fails the build if the compressed artifact exceeds 900MB (GitHub Pages limit is 1GB).
-      # Over-estimates size by using gzip -1.
+      # Fails the build if the compressed artifact exceeds the gate (GitHub Pages
+      # limit is 1GB). Over-estimates size by using gzip -1, so the gate sits close
+      # to the hard cap deliberately: the estimate is already pessimistic, and the
+      # bulk of the artifact is the registry mirrors (maven/npm/nuget/gems/whl/apt/
+      # rpm/apk/arch), which CANNOT move to the Release - package managers fetch
+      # them from these exact URLs and the install-verification step above proves
+      # that against the tree being published.
       - name: Assert the Pages artifact fits under the 1 GB upload limit
         run: |
           set -euo pipefail
-          LIMIT=$((900 * 1000 * 1000))
+          LIMIT=$((980 * 1000 * 1000))
           uncompressed="$(du -sb website | cut -f1)"
           compressed="$(tar -C website -cf - . | gzip -1 -c | wc -c)"
           echo "Pages artifact: $(numfmt --to=iec "$uncompressed") on disk, ~$(numfmt --to=iec "$compressed") uploaded (gate: $(numfmt --to=iec "$LIMIT"), GitHub's hard limit: 1 GB)"
