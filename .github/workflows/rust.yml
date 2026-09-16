@@ -2358,7 +2358,12 @@ jobs:
           # SQLite aggregates that `turso_macros`' agg_derive emits
           # (`Median_step`, `PercentileCont_finalize`, `StandardDeviation_*`),
           # which are always `<CamelName>_(init|step|finalize|value)`.
-          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char|turso_.*|regexp|[A-Z][A-Za-z0-9]*_(init|step|finalize|value))$'
+          #
+          # The iroh transport adds one more: blake3 builds its compression
+          # routines with cc, and a C object's symbols are not subject to the
+          # cdylib export restriction at all (`blake3_compress_in_place_portable`,
+          # plus the SIMD variants the other runners select).
+          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char|turso_.*|regexp|blake3_.*|[A-Z][A-Za-z0-9]*_(init|step|finalize|value))$'
           if [ "${{ runner.os }}" = "macOS" ]; then
             LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
             MACOS_ALLOW="$RESIDUAL_ALLOW"

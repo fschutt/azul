@@ -51,10 +51,12 @@ i686-pc-windows-msvc            *azul*.dll      61000000   # 0.2.0 azuldbg.dll: 
 x86_64-apple-darwin             *azul*.dylib    63000000   # 0.2.0 libazuldbg.dylib: 29570896; sized like libazul.dylib below
 
 # --- Host builds (x86_64 linux), for jobs that opt in ----------------------
-# libazul.so / libazuldbg.so / azul.so / libazul.a: 1.15x of the 2026-09-07
+# libazul.so / libazuldbg.so / azul.so / libazul.a: 1.15x of the newest
 # measurement. The rest: 1.8x of 0.2.0 until a run reports them.
-*                               libazuldbg.so   62000000   # 2026-09-07: 53358992 (0.2.0: 43543648)
-*                               libazul.so      61000000   # 2026-09-07: 52851208 (0.2.0: 33970016)
+# The 2026-09-16 numbers are the first since build-dll gained the iroh
+# transport, which compiles noq/rustls/ring/tokio into every artifact.
+*                               libazuldbg.so   72000000   # 2026-09-16: 62683000 (was 2026-09-07: 53358992)
+*                               libazul.so      72000000   # 2026-09-16: 62258000 (was 2026-09-07: 52851208)
 # No CI measurement for the dylibs yet; a local arm64 dev build (build-dll,
 # debug-server, unstripped) was 54,525,408 on 2026-09-07 and the prod build
 # strips local symbols, so 1.15x of that is a safe first ceiling.
@@ -64,11 +66,11 @@ x86_64-apple-darwin             *azul*.dylib    63000000   # 0.2.0 libazuldbg.dy
 # Linux AND macOS), not the C library — the first version of this line said
 # "the C lib" and sized it like libazul.so, which is why the very first gated
 # run failed it at 137 %.
-*                               azul.so         81000000   # 2026-09-07: 70227720 (python ext, linux)
+*                               azul.so         103000000  # 2026-09-16: 89074000 (python ext, linux; was 70227720)
 *                               azuldbg.dll     61000000   # 0.2.0: 33751552
 *                               azul.dll        61000000   # sized against azuldbg.dll
-*                               azul.pyd        70000000   # 0.2.0: 38763008
-*                               azul.cpython*.so 81000000  # sized against azul.so (0.2.0: 49466680)
+*                               azul.pyd        84000000   # 2026-09-16: 72831000 (first measurement; 0.2.0: 38763008)
+*                               azul.cpython*.so 103000000 # sized against azul.so (0.2.0: 49466680)
 
 # --- Static archives -------------------------------------------------------
 # 0.2.0 only published these gzipped, so the first honest raw number is the
