@@ -917,10 +917,17 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends             gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu musl-tools || true
-          sudo apt-get install -y --no-install-recommends gcc-i686-linux-gnu             || sudo apt-get install -y --no-install-recommends gcc-multilib || true
+          # The gcc-<triple> packages carry no libc headers: without the matching
+          # libc6-dev-*-cross the compiler falls back to the host /usr/include and
+          # dies on `bits/libc-header-start.h`.
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            gcc-i686-linux-gnu libc6-dev-i386-cross \
+            musl-tools || true
           # musl-tools ships musl-gcc for x86_64 only; aarch64-musl borrows the gnu cross compiler,
           # which is enough for a check (nothing is linked).
+          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
           echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Check sub-crates (azul-css, azul-core, azul-layout)
