@@ -340,6 +340,8 @@ fn emit_static_system_deps(target: &str) {
             "CoreGraphics",
             "CoreText",
             "Security",
+            // netdev/n0-dns-resolver under the iroh transport: SCNetworkInterface*, SCDynamicStore*
+            "SystemConfiguration",
             "IOKit",
             "AppKit",
             "Foundation",
