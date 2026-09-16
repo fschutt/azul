@@ -907,6 +907,22 @@ jobs:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
+      # `cargo check` runs build scripts, and ring - the crypto provider under the iroh transport -
+      # compiles C for the TARGET, so these targets need a cross C compiler even though this job
+      # links nothing. The Cross-Build jobs get one from their `cross` container; this one is plain
+      # cargo, and without this every target with a C-compiling dependency fails in cc-rs with
+      # "failed to find tool <triple>-gcc".
+      - name: Install cross C toolchains
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends             gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu musl-tools || true
+          sudo apt-get install -y --no-install-recommends gcc-i686-linux-gnu             || sudo apt-get install -y --no-install-recommends gcc-multilib || true
+          # musl-tools ships musl-gcc for x86_64 only; aarch64-musl borrows the gnu cross compiler,
+          # which is enough for a check (nothing is linked).
+          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
       - name: Check sub-crates (azul-css, azul-core, azul-layout)
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
