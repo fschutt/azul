@@ -545,7 +545,7 @@ fn emit_cs_data_typed_delegate(
     // === Typed delegate ===
     builder.line("/// <summary>");
     builder.line(&format!(
-        "/// Typed Data<T> delegate for {}: first arg is the deref'd-and-cast",
+        "/// Typed Data&lt;T&gt; delegate for {}: first arg is the deref'd-and-cast",
         wrapper
     ));
     builder.line("/// `T` payload of the RefAny; remaining args are wrapper-class types");
@@ -579,10 +579,10 @@ fn emit_cs_data_typed_delegate(
 
     builder.line("/// <summary>");
     builder.line(&format!(
-        "/// Register a typed Data<T> `{}WithData<T>`. Wraps the typed delegate",
+        "/// Register a typed Data&lt;T&gt; `{}WithData&lt;T&gt;`. Wraps the typed delegate",
         wrapper
     ));
-    builder.line("/// into a raw `<Wrapper>InvokerDelegate` whose body handles RefanyGet,");
+    builder.line("/// into a raw `&lt;Wrapper&gt;InvokerDelegate` whose body handles RefanyGet,");
     builder.line("/// runtime-class check (via `as T` — silently skips on mismatch),");
     builder.line("/// arg-wrap via `Marshal.PtrToStructure`, and outPtr-write.");
     builder.line("/// </summary>");

@@ -3007,7 +3007,10 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        # v1.x builds the OS-first tarball name (zig-linux-x86_64-<ver>); Zig renamed its
+        # releases arch-first at 0.14.1, so every mirror AND ziglang.org 404d and only the
+        # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: "0.14.1"
 
@@ -3345,7 +3348,10 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        # v1.x builds the OS-first tarball name (zig-linux-x86_64-<ver>); Zig renamed its
+        # releases arch-first at 0.14.1, so every mirror AND ziglang.org 404d and only the
+        # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: "0.14.1"
 
