@@ -3127,6 +3127,10 @@ jobs:
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
+        # Builds V from source; a hung `make` here once burned the job's whole
+        # 60 minutes, and a job CANCELLED on timeout skips the deploy no matter
+        # what continue-on-error says. Bound the step so V just gets skipped.
+        timeout-minutes: 10
         uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
         with:
           version: 0.5.2
@@ -3461,6 +3465,10 @@ jobs:
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
+        # Builds V from source; a hung `make` here once burned the job's whole
+        # 60 minutes, and a job CANCELLED on timeout skips the deploy no matter
+        # what continue-on-error says. Bound the step so V just gets skipped.
+        timeout-minutes: 10
         uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
         with:
           version: 0.5.2
