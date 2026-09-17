@@ -172,6 +172,12 @@ pub fn generate_c_header(api_data: &ApiData) -> Result<String> {
 }
 
 /// Generate C++ header as String
+pub fn generate_cpp_module_partition(api_data: &ApiData, standard: CppStandard) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::cpp_header(standard);
+    Ok(lang_cpp::generate_module_partition(&ir, &config, standard))
+}
+
 pub fn generate_cpp_header(api_data: &ApiData, standard: CppStandard) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::cpp_header(standard);

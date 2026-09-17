@@ -2377,6 +2377,7 @@ fn generate_release_pages(
             cpp17: codegen::generate_cpp_header(api_data, CppStandard::Cpp17)?,
             cpp20: codegen::generate_cpp_header(api_data, CppStandard::Cpp20)?,
             cpp23: codegen::generate_cpp_header(api_data, CppStandard::Cpp23)?,
+            cppm: codegen::v2::generate_cpp_module_partition(api_data, CppStandard::Cpp20)?,
         };
 
         // Write individual C++ header files
@@ -2386,6 +2387,7 @@ fn generate_release_pages(
         fs::write(version_dir.join("azul17.hpp"), &cpp_headers.cpp17)?;
         fs::write(version_dir.join("azul20.hpp"), &cpp_headers.cpp20)?;
         fs::write(version_dir.join("azul23.hpp"), &cpp_headers.cpp23)?;
+        fs::write(version_dir.join("azul.cppm"), &cpp_headers.cppm)?;
         println!(
             "  [OK] Generated: release/{}/azul*.hpp (all C++ versions)",
             version

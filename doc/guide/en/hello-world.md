@@ -14,8 +14,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - Dom

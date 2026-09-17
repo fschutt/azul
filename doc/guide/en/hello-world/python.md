@@ -4,7 +4,7 @@ title: Hello World [Python]
 language: en
 canonical_slug: hello-world/python
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 14
 topic_only: false
 prerequisites: [hello-world]
@@ -13,8 +13,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -84,88 +84,6 @@ dependencies to worry about. The abi3 wheel targets **Python 3.10+** (pyo3 is
 > see "[Building the extension](#building-the-extension)" below for the 
 > manual route.
 
-## Simple "Counter" Example
-
-```python
-from azul import *
-
-# Plain Python class - "single source of truth" for app state
-class DataModel:
-    def __init__(self, counter):
-        self.counter = counter
-
-# Layout callback: f(DataModel, LayoutCallbackInfo) -> Dom. Runs once on
-# startup and again after every callback that returns Update.RefreshDom.
-def layout(data, info):
-
-    # Rendered counter label: a text node wrapped in a styled div.
-    # .with_css(...) consumes self and returns a new Dom, so builder
-    # calls chain inline.
-    label = Dom.create_p_with_text(str(data.counter)).with_css("font-size: 32px; margin: 0;")
-
-    # Button widget with a click handler. Everything lives in the flat
-    # `azul` module; with_on_click(data, callback) registers the handler
-    # and .dom() turns the widget into a Dom node.
-    button = (Button.create("Increase counter")
-              .with_on_click(data, on_click)
-              .dom()
-              .with_css("flex-grow: 1;"))
-
-    # Final wrapup - Dom.create_body builds the root, then .with_child(...)
-    # appends children. Builder methods return a NEW Dom - keep chaining
-    # (or re-assign the result); they do not mutate in place.
-    return (Dom.create_body()
-            .with_child(label)
-            .with_child(button))
-
-# Click callback: f(DataModel, CallbackInfo) -> Update. 'data' is the same
-# Python instance you passed to App.create, it is mutated in place (thread
-# safe). Update variants are plain class attributes - no parentheses:
-# return Update.RefreshDom.
-def on_click(data, info):
-    data.counter += 1
-    return Update.RefreshDom
-
-# main function
-if __name__ == "__main__":
-
-    # Initialize the data model (here we set counter=5 on startup)
-    model = DataModel(5)
-
-    # Configure the window. layout is the "/" default route; SPA-style
-    # routing is done later by swapping the layout callback.
-    window = WindowCreateOptions.create(layout)
-
-    # AppConfig discovers system-native styling, monitor layout, etc.
-    # App.run blocks until the last window closes.
-    app = App.create(model, AppConfig.create())
-    app.run(window)
-```
-
-Three things to notice.
-
-- **Pass plain Python objects.** No upcast, no downcast, no reflection macro. The binding wraps your `DataModel` instance for you and hands the *same* instance back to your callbacks. The framework holds a strong reference until you drop the `App`, so the GC will not eat it under your feet.
-- **Strings are `str`, styles are CSS strings.** No `AzString`, no `String(...)` wrapper, no `AZ_CONST_STR` macro. Pass UTF-8 Python strings; the binding converts at the boundary.
-- **Callbacks are regular functions** with the signature `(data, info) -> Update` (or `-> Dom` for layout). No `extern "C"`, no boxing, no decorators — just `def`.
-
-Things we did not use that you may want to explore next.
-
-- The `info` argument — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries in `layout`; lots of mutation helpers in `on_click` (DOM navigation, CSS overrides without rebuilding, computed-layout queries).
-- `WindowCreateOptions` — the Python binding currently exposes only `WindowCreateOptions.create(layout)`; setting the window title, size, decorations etc. from Python is not wrapped yet. The underlying options are covered in [windowing](../system/windowing.md).
-
-## Run it
-
-```sh
-python3 hello-world.py
-```
-
-You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
-
-1. `app.run(window)` opened a native window and ran `layout()` once with your `DataModel` on startup.
-2. The returned `Dom` was styled, laid out, and rendered.
-3. On click, the framework matched the button's event filter, called `on_click(data, info)`, observed the `Update.RefreshDom` return, and re-invoked `layout()`.
-4. The new `Dom` was diffed against the previous one; only the changed text node was repainted.
-
 ## Building the extension
 
 Only needed if there is no prebuilt module for your platform, or if you want to track `master`. From a checkout:
@@ -197,10 +115,52 @@ sys.path.insert(0,
 import azul
 ```
 
-## Common errors
+## Simple "Counter" Example
 
-- **`ModuleNotFoundError: No module named 'azul'`** — the downloaded `azul.so` / `azul.pyd` is not in the directory you are running from (or on `sys.path`). Run `python3` from the directory containing the file, or prepend that path to `sys.path`.
-- **Blank window / dead button** — a callback raised an exception. The binding prints the Python traceback to stderr and falls back to a default return value (an empty `Dom` for `layout`, `DoNothing` for event callbacks), so check the terminal you started the app from.
-- **Counter does not advance** — the click callback returned `Update.DoNothing`, or it implicitly returned `None` (which the binding treats as `DoNothing`). Always end a mutating handler with `return Update.RefreshDom`.
-- **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
-- **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.
+```python
+from azul import *
+
+class DataModel:
+    def __init__(self, counter):
+        self.counter = counter
+
+def layout(data, info):
+    label = (Dom.create_p_with_text(str(data.counter))
+             .with_css("font-size: 32px; margin: 0;"))
+
+    button = (Button.create("Increase counter")
+              .with_on_click(data, on_click)
+              .dom()
+              .with_css("flex-grow: 1;"))
+
+    return (Dom.create_body()
+            .with_child(label)
+            .with_child(button))
+
+def on_click(data, info):
+    data.counter += 1
+    return Update.RefreshDom
+
+if __name__ == "__main__":
+    model = DataModel(5)
+    window = WindowCreateOptions.create(layout)
+    app = App.create(model, AppConfig.create())
+    app.run(window)
+```
+
+Notice that you pass plain Python objects: no upcast, no downcast, no reflection macro. The binding wraps your `DataModel` instance and hands the *same* instance back to every callback, which you mutate in place (the framework holds a strong reference until you drop the `App`, so the GC will not eat it under your feet). Everything lives in the flat `azul` module, callbacks are regular functions with the signature `(data, info) -> Update` (or `-> Dom` for layout) and `Update` variants are plain class attributes, so `return Update.RefreshDom` takes no parentheses. Strings are ordinary `str` objects - no `AzString`, no `String(...)` wrapper - and styles are CSS strings, where `with_css("...")` also accepts `:hover { }`, `@media ... { }` and `@os(...)` queries inline. Builder methods such as `.with_css(...)` and `.with_child(...)` consume `self` and return a *new* `Dom` rather than mutating in place, so keep chaining (or re-assign the result). The `info` argument, which this example ignores, carries read-only access to the system font cache, image cache, GL context, window size, routing and localization dictionaries in `layout`, plus the mutation helpers (DOM navigation, CSS overrides without rebuilding, computed-layout queries) in `on_click`. Note that the Python binding currently exposes only `WindowCreateOptions.create(layout)`; setting the window title, size or decorations from Python is not wrapped yet (the underlying options are covered in [windowing](../system/windowing.md)).
+
+## Run it
+
+```sh
+python3 hello-world.py
+```
+
+You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+
+1. `app.run(window)` opened a native window and ran the layout callback once with your `DataModel` instance.
+2. The returned DOM was styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up in the DOM. On click, the framework borrows your data model mutably, runs the click callback, observes the refresh return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one, and only re-updates and re-paints the counter, not the entire window.
+
+Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!

@@ -540,6 +540,7 @@ impl ReleaseAssets {
             AssetInfo::from_path(&version_dir.join("azul14.hpp"), "C++14 Header"),
             AssetInfo::from_path(&version_dir.join("azul17.hpp"), "C++17 Header"),
             AssetInfo::from_path(&version_dir.join("azul20.hpp"), "C++20 Header"),
+            AssetInfo::from_path(&version_dir.join("azul.cppm"), "C++20 Modules"),
             AssetInfo::from_path(&version_dir.join("azul23.hpp"), "C++23 Header"),
         ];
 
@@ -813,6 +814,7 @@ pub struct CppHeaders {
     pub cpp17: String,
     pub cpp20: String,
     pub cpp23: String,
+    pub cppm: String,
 }
 
 /// Where a release-dir file is sourced from.
@@ -1735,6 +1737,8 @@ pub fn create_examples(
     source_zip.write_all(cpp_headers.cpp20.as_bytes())?;
     source_zip.start_file("include/cpp/azul23.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp23.as_bytes())?;
+    source_zip.start_file("include/cpp/azul.cppm", options)?;
+    source_zip.write_all(cpp_headers.cppm.as_bytes())?;
 
     // Add README
     source_zip.start_file("README.md", options)?;

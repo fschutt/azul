@@ -2393,7 +2393,8 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul20.hpp": "azul20.hpp",
-                        "hello-world-cpp20.cpp": "hello-world-cpp20.cpp"
+                        "hello-world-cpp20.cpp": "hello-world-cpp20.cpp",
+                        "azul.cppm": "azul.cppm"
                     }
                 },
                 "cpp23": {
@@ -2735,7 +2736,8 @@
                     "bundle": {
                         "azul.h": "azul.h",
                         "azul23.hpp": "azul23.hpp",
-                        "hello-world-cpp23.cpp": "hello-world-cpp23.cpp"
+                        "hello-world-cpp23.cpp": "hello-world-cpp23.cpp",
+                        "azul.cppm": "azul.cppm"
                     }
                 },
                 "crystal": {
@@ -5857,7 +5859,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here from a download next to the project; `sudo apt install azul` / `dnf install azul` from the azul.rs repositories (see the C tab) work just as well",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here from a download next to the project; `sudo apt install azul` / `dnf install azul` from the azul.rs repositories (see the C tab) work just as well",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5891,7 +5893,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here /opt/homebrew/lib, where the self-hosted Homebrew tap installs it",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here /opt/homebrew/lib, where the self-hosted Homebrew tap installs it",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5929,7 +5931,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop.git set AZ_LINK_PATH for you instead)",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop.git set AZ_LINK_PATH for you instead)",
                             "steps": [
                                 {
                                     "type": "command",
