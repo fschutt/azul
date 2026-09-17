@@ -220,7 +220,7 @@ impl GenerationTargets {
         println!("[16/35] Generating Lua bindings...");
         let lua_bindings = super::lang_lua::generate(ir, &CodegenConfig::c_header())?;
         Self::write_string(
-            &lua_bindings,
+            lua_bindings.clone(),
             &codegen_dir.join("azul.lua"),
         )?;
         
@@ -230,7 +230,7 @@ impl GenerationTargets {
                 "local ffi = require('cffi')"
             );
         Self::write_string(
-            &cffi_bindings,
+            cffi_bindings,
             &codegen_dir.join("azul_cffi.lua"),
         )?;
         // LuaRocks rejects a filename/content version mismatch, so the
