@@ -83,54 +83,36 @@ Notice the required `--features build-dll`. The DLL gets built in `target/releas
 ```javascript
 'use strict';
 
-let azul;
-
-try { 
-  azul = require('./azul.js'); 
-} catch (_) { 
-  azul = require('azul'); 
-}
-
-const {
-    App, AppConfig, Button, ButtonType, Dom, Update, WindowCreateOptions,
-} = azul;
-
+const azul = require('azul'); // Use require('./azul.js') if downloaded manually
 const model = { counter: 5 };
 
 function onClick(data, _info) {
     data.counter += 1;
-    return Update.RefreshDom;
+    return azul.Update.RefreshDom;
 }
 
 function layout(data, _info) {
-    const label = Dom.createPWithText(String(data.counter))
+    const label = azul.Dom.createPWithText(String(data.counter))
         .withCss('font-size: 32px; margin: 0;');
 
-    const button = Button.create('Increase counter')
-        .setButtonType(ButtonType.Primary)
+    const button = azul.Button.create('Increase counter')
+        .setButtonType(azul.ButtonType.Primary)
         .withOnClick(data, onClick)
         .dom();
 
-    return Dom.createBody()
+    return azul.Dom.createBody()
         .addChild(label)
         .addChild(button);
 }
 
-process.on('uncaughtException', (e) => {
-    console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
-});
-
-const window = WindowCreateOptions.create(layout).with({
+const window = azul.WindowCreateOptions.create(layout).with({
     windowState: {
         title: 'Hello World',
         size: { dimensions: { width: 400.0, height: 300.0 } }
     },
 });
 
-App.create(model, AppConfig.create()).run(window);
-```
-
-Notice that you can pass plain JavaScript objects directly to `App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `Update.*` (or a `Dom` for layout). Enums and helpers sit at the top level of the module (`Update.RefreshDom`, `ButtonType.Primary`). Keep the `uncaughtException` handler: it logs exceptions thrown inside koffi callbacks before libffi can `SIGABRT` the process, which is otherwise an abort with no stack.
+azul.App.create(model, azul.AppConfig.create()).run(window); JavaScript objects directly to `App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `Update.*` (or a `Dom` for layout). Enums and helpers sit at the top level of the module (`Update.RefreshDom`, `ButtonType.Primary`). Keep the `uncaughtException` handler: it logs exceptions thrown inside koffi callbacks before libffi can `SIGABRT` the process, which is otherwise an abort with no stack.
 
 ## Build and run
 

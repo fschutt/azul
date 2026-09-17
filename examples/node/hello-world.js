@@ -1,40 +1,32 @@
 'use strict';
 
-let azul;
-try { azul = require('./azul.js'); } catch (_) { azul = require('azul'); }
-const {
-    App, AppConfig, Button, ButtonType, Dom, Update, WindowCreateOptions,
-} = azul;
+const azul = require('azul'); // Use require('./azul.js') if downloaded manually
 const model = { counter: 5 };
 
 function onClick(data, _info) {
     data.counter += 1;
-    return Update.RefreshDom;
+    return azul.Update.RefreshDom;
 }
 
 function layout(data, _info) {
-    const label = Dom.createPWithText(String(data.counter))
+    const label = azul.Dom.createPWithText(String(data.counter))
         .withCss('font-size: 32px; margin: 0;');
 
-    const button = Button.create('Increase counter')
-        .setButtonType(ButtonType.Primary)
+    const button = azul.Button.create('Increase counter')
+        .setButtonType(azul.ButtonType.Primary)
         .withOnClick(data, onClick)
         .dom();
 
-    return Dom.createBody()
+    return azul.Dom.createBody()
         .addChild(label)
         .addChild(button);
 }
 
-process.on('uncaughtException', (e) => {
-    console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
-});
-
-const window = WindowCreateOptions.create(layout).with({
+const window = azul.WindowCreateOptions.create(layout).with({
     windowState: {
         title: 'Hello World',
         size: { dimensions: { width: 400.0, height: 300.0 } }
     },
 });
 
-App.create(model, AppConfig.create()).run(window);
+azul.App.create(model, azul.AppConfig.create()).run(window);
