@@ -3125,7 +3125,7 @@ mod tests {
                 copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
             })
             .collect();
-        assert_eq!(copied, [5, 3]);
+        assert_eq!(copied, [5, 5]);
         assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
         assert!(version_dir.join("azul-fortran/Makefile").is_file());
         assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
