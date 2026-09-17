@@ -28,8 +28,8 @@ default-search-keys:
 
 In order to use Azul from Lua, you need the native prebuilt `libazul` library and the 
 pre-rendered Lua bindings, which handle the `ffi` abstraction for you. Azul's Lua bindings 
-rely on the `ffi` module. The easiest way to get this is by using **LuaJIT 2.1+**, which 
-includes `ffi` built-in. 
+rely on the `ffi` module. The easiest way to get this is by using LuaJIT 2.1+, which 
+includes the `ffi` module by default. 
 
 If you are using vanilla PUC Lua (5.1-5.4), you will need to install a third-party FFI 
 module such as `luaffi` or `cffi-lua` via LuaRocks first.
@@ -117,14 +117,13 @@ trampoline that securely passes your plain Lua table (`model`) back into your ca
 There are two builder flavours, which compose freely: `add_*` / `set_*` mutate in place 
 and return `self`, whereas `with_*` consume `self` and return the new value. Plain Lua 
 strings flow through the auto-string conversion, so `'Increase counter'` and `tostring(data.counter)` 
-can be passed directly. Garbage collection is wired up - `AzApp`'s `__gc` metamethod 
-calls `AzApp_delete` when `app` is collected.
+can be passed directly.
 
 ## Build and run
 ```sh
 # macOS
 DYLD_LIBRARY_PATH=. luajit hello-world.lua
-# linux
+# Linux
 LD_LIBRARY_PATH=. luajit hello-world.lua
 ```
 

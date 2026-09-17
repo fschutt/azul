@@ -123,16 +123,16 @@ app.run(window)
 
 Notice that `Azul::RefAny.wrap` wraps any Ruby object into a handle which prevents it from being garbage collected by Ruby while C holds a reference to it. The generated bindings automatically unwrap this handle before calling your lambdas, handing the original Ruby object back to your callbacks (returning `nil` if there is a mismatch, so guard with `next ... if m.nil?`). 
 
-Callbacks are lambdas with the signature `|m, info|`, and you yield a value out of them 
-with `next` rather than `return`. The smart builders hide all the FFI plumbing: `WindowCreateOptions.create_with_layout(layout)` and `Button.create(...).on_click(data, on_click)` automatically handle callback registration for you. Furthermore, `.with(...)` allows you to recursively assign nested fields while 
-auto-converting standard Ruby `String`s to `AzString`. 
+Callbacks are lambdas with the signature `|obj, info|`, and you yield a value out of them 
+with `next` rather than `return`. The smart builders hide all the FFI plumbing: `WindowCreateOptions.create_with_layout(layout)` and `Button.create(...).on_click(data, on_click)` automatically handle callback registration for you. Furthermore, `.with(...)` allows you 
+to recursively assign nested fields while auto-converting standard Ruby `String`s to `AzString`. 
 
 Styling takes plain CSS strings through `Dom#with_css('font-size: 32px;')`, with no manual property 
 construction, and the generated types have Ruby helpers as well (`Azul::String#to_s`, `Option#to_opt`, `Result#unwrap`, `Vec#to_a`). 
 
 If the library cannot be found at run time, put `libazul.dylib` / `libazul.so` next 
 to `azul.rb` or point `AZ_LIB_DIR` at its directory - note that `DYLD_LIBRARY_PATH` 
-does *not* work with the macOS system Ruby.
+does not work with the macOS system Ruby.
 
 ## Build and run
 

@@ -48,9 +48,10 @@ If you'd rather like to do it manually:
 
 ```sh
 npm install koffi
-# Download the native library into the working dir:
-wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
-wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
+# macOS
+wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib
+# Linux
+wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so
 # Windows (PowerShell)
 Invoke-WebRequest -Uri https://azul.rs/ui/release/$VERSION/azul.dll -OutFile azul.dll
 ```

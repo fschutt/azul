@@ -32,9 +32,8 @@ default-search-keys:
 ## Introduction
 
 For Python, Azul offers a custom python extension (using the `pyo3` binding library), 
-so you can write idiomatic Python - plain classes, plain `str`, plain method calls - 
-and the binding takes care of the rest. The extension is packaged as a `.whl`, so 
-you can easily install it with PyPI or `uv`.
+so you can write idiomatic Python and the binding takes care of the rest. The extension 
+is packaged as a `.whl`, so you can easily install it with PyPI or `uv`.
 
 Azul is not (yet) on the public pypi.org index, so you can either use the self-hosted 
 pip index on azul.rs, or a manual download.
