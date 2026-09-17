@@ -2060,9 +2060,13 @@ fn main() -> anyhow::Result<()> {
                     let _ = fs::create_dir_all(parent);
                 }
                 // In debug mode, strip the production hostname so links resolve
-                // against the local server (`python -m http.server`).
+                // against the local server (`python -m http.server`). Only in
+                // attribute values (`href="..."`, `src="..."`): a blanket
+                // replace also ate the hostname out of the install commands
+                // printed in <code> blocks, so the guide told readers to run
+                // `brew tap fschutt/azul /ui/brew.git`.
                 let mut html_out = if is_debug {
-                    html.replace("https://azul.rs", "")
+                    html.replace("=\"https://azul.rs", "=\"")
                 } else {
                     html
                 };
