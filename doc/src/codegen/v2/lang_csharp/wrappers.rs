@@ -621,6 +621,26 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.dedent();
         builder.line("}");
         builder.blank();
+
+        // Generic strongly-typed smart builder
+        builder.line("/// <summary>");
+        builder.line(&format!("/// Strongly-typed generic smart builder for {}.", with_pascal));
+        builder.line("/// </summary>");
+        builder.line(&format!(
+            "public {} {}<T>(T data, HostInvoker.{}WithData<T> fn) where T : class",
+            class_name, smart_pascal, wrapper_kind
+        ));
+        builder.line("{");
+        builder.indent();
+        builder.line("var __data = HostInvoker.RefanyCreate(data);");
+        builder.line(&format!("var __cb = HostInvoker.{}<T>(fn);", register_method));
+        builder.line(&format!(
+            "return {}(new RefAny(__data), new {}(__cb));",
+            with_pascal, wrapper_kind
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
 
     if matches!(s.category, TypeCategory::String) {
@@ -725,6 +745,58 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.dedent();
         builder.line("}");
         builder.blank();
+
+        builder.line("/// <summary>");
+        builder.line("/// Strongly-typed smart factory: pass a typed layout-callback delegate; the host-invoker");
+        builder.line("/// registration and field-copy plumbing happen internally.");
+        builder.line("/// </summary>");
+        builder.line(&format!(
+            "public static {} Create<T>(HostInvoker.{}WithData<T> fn) where T : class",
+            wrapper_class, info.callback_wrapper
+        ));
+        builder.line("{");
+        builder.indent();
+        builder.line(&format!("var __cb = HostInvoker.{}<T>(fn);", register_fn));
+        builder.line(&format!(
+            "var __wco = NativeMethods.{}();",
+            info.default_c_name
+        ));
+        for (i, seg) in info
+            .field_path
+            .iter()
+            .enumerate()
+            .take(depth.saturating_sub(1))
+        {
+            let parent_var = if i == 0 {
+                "__wco".to_string()
+            } else {
+                format!("__lvl{}", i - 1)
+            };
+            builder.line(&format!(
+                "var __lvl{i} = {parent}.{seg};",
+                i = i,
+                parent = parent_var,
+                seg = seg
+            ));
+        }
+        builder.line(&format!("{}.{} = __cb;", leaf_parent, leaf_field));
+        for i in (0..depth.saturating_sub(1)).rev() {
+            let parent_var = if i == 0 {
+                "__wco".to_string()
+            } else {
+                format!("__lvl{}", i - 1)
+            };
+            let seg = &info.field_path[i];
+            builder.line(&format!(
+                "{parent}.{seg} = __lvl{i};",
+                parent = parent_var,
+                seg = seg,
+            ));
+        }
+        builder.line(&format!("return new {}(__wco);", wrapper_class));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
 
     // Emit methods for each non-trait function on this class.
@@ -757,6 +829,20 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
 
     // IDisposable boilerplate.
     emit_dispose_methods(builder, &class_name, &s.name);
+
+    if class_name == "App" {
+        builder.line("/// <summary>");
+        builder.line("/// Strongly-typed smart factory: implicitly wraps the payload into a RefAny.");
+        builder.line("/// </summary>");
+        builder.line("public static App Create<T>(T data, AppConfig app_config) where T : class");
+        builder.line("{");
+        builder.indent();
+        builder.line("var __data = HostInvoker.RefanyCreate(data);");
+        builder.line("return Create(new RefAny(__data), app_config);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     builder.dedent();
     builder.line("}");

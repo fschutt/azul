@@ -112,23 +112,19 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
+        private static Update OnClick(MyDataModel m, IntPtr info)
         {
-            var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return (int)Update.DoNothing;
             m.Counter += 1;
-            return (int)Update.RefreshDom;
+            return Update.RefreshDom;
         }
 
-        private static Dom Layout(IntPtr dataPtr, IntPtr infoPtr)
+        private static Dom Layout(MyDataModel m, IntPtr info)
         {
-            var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return Dom.CreateBody();
             var label = Dom.CreatePWithText(m.Counter.ToString())
                 .WithCss("font-size: 32px; margin: 0;");
             var buttonDom = Button.Create("Increase counter")
                 .WithButtonType(ButtonType.Primary)
-                .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
+                .OnClick(m, OnClick)
                 .Dom();
             return Dom.CreateBody()
                 .WithChild(label)
@@ -137,15 +133,15 @@ namespace HelloWorld
 
         public static int Main(string[] args)
         {
-            using var app = App.Create(HostInvoker.RefanyWrap(_model), AppConfig.Create());
-            app.Run(WindowCreateOptions.Create(new Func<IntPtr, IntPtr, Dom>(Layout)));
+            using var app = App.Create(_model, AppConfig.Create());
+            app.Run(WindowCreateOptions.Create<MyDataModel>(Layout));
             return 0;
         }
     }
 }
 ```
 
-Notice that `HostInvoker.RefanyWrap` wraps your `MyDataModel` into a type-erased handle when you hand it to `App.Create`, and the *same* instance is handed back to every callback; `HostInvoker.RefanyGet(ptr) as MyDataModel` is the runtime cast, which returns `null` on a type mismatch, so return `Update.DoNothing` / `Dom.CreateBody()` in that case. Apart from those handles there is no `IntPtr` ceremony: `App.Create(...).Run(...)`, `Dom.CreateBody().WithChild(...)` and `Button.Create(label).WithButtonType(...).OnClick(...).Dom()` read like normal fluent C#, and `WithCss("...")` accepts any CSS string, including inline `:hover { }`, `@media ... { }` and `@os(...)` queries. Callbacks are plain delegates - a layout callback is `Func<IntPtr, IntPtr, Dom>`, a click handler is `Func<IntPtr, IntPtr, int>` returning `(int)Update.*`. Finally, `using var app` disposes deterministically: `Dispose()` calls the C-side `delete`, so the native memory is released when the `App` goes out of scope. At run time the generated `DllImportResolver` probes the project directory and the directory of the published executable for `libazul.dylib` / `libazul.so` / `azul.dll`, with `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` as a fallback for non-standard layouts (note that macOS strips `DYLD_*` in some launch paths because of SIP).
+Notice how `App.Create` automatically wraps your `MyDataModel` into a type-erased handle, and the generated C# bindings automatically downcast it and hand it back to every callback. Apart from `IntPtr info` (which you can ignore if you don't need it), there is no `IntPtr` ceremony: `App.Create(...).Run(...)`, `Dom.CreateBody().WithChild(...)` and `Button.Create(label).WithButtonType(...).OnClick(...).Dom()` read like normal fluent C#. Callbacks are strongly typed - a layout callback is `Func<MyDataModel, IntPtr, Dom>`, a click handler is `Func<MyDataModel, IntPtr, Update>`. `WithCss("...")` accepts any CSS string, including inline `:hover { }`, `@media ... { }` and `@os(...)` queries. Finally, `using var app` disposes deterministically: `Dispose()` calls the C-side `delete`, so the native memory is released when the `App` goes out of scope. At run time the generated `DllImportResolver` probes the project directory and the directory of the published executable for `libazul.dylib` / `libazul.so` / `azul.dll`, with `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` as a fallback for non-standard layouts (note that macOS strips `DYLD_*` in some launch paths because of SIP).
 
 ## Build and run
 
