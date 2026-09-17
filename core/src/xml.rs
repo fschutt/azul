@@ -8546,7 +8546,7 @@ pub fn str_to_cpp_code<'a>(
          {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
          RefAny::create(Data{{}});\n    WindowCreateOptions window = \
          WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
-         AppConfig::default_());\n    app.run(std::move(window));\n    return 0;\n}}\n"
+         AppConfig::create());\n    app.run(std::move(window));\n    return 0;\n}}\n"
     ))
 }
 

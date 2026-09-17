@@ -1722,7 +1722,7 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR,
             FunctionKind::DebugToString => Some("to_string"),
             FunctionKind::Cmp => Some("compare"),
             FunctionKind::PartialCmp => Some("partial_compare"),
-            FunctionKind::Default => Some("default"),
+            FunctionKind::Default => Some("create_default"),
             _ => None,
         })
         .collect();
@@ -1747,7 +1747,7 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR,
             FunctionKind::DebugToString => "to_string",
             FunctionKind::Cmp => "compare",
             FunctionKind::PartialCmp => "partial_compare",
-            FunctionKind::Default => "default",
+            FunctionKind::Default => "create_default",
             _ => continue,
         };
         if !seen.insert(name) {

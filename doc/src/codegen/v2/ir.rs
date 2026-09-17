@@ -541,7 +541,7 @@ impl FunctionKind {
             FunctionKind::PartialCmp => "_partialCmp",
             FunctionKind::Cmp => "_cmp",
             FunctionKind::Hash => "_hash",
-            FunctionKind::Default => "_default",
+            FunctionKind::Default => "_createDefault",
             FunctionKind::DebugToString => "_toDbgString",
             _ => "",
         }

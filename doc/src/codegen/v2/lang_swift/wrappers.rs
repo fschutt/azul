@@ -1342,7 +1342,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 w.l(1, "/// Rust `Default`.");
                 w.l(
                     1,
-                    &format!("public static func `default`() -> {} {{", sname),
+                    &format!("public static func createDefault() -> {} {{", sname),
                 );
                 w.l(2, &format!("return {}", make));
                 w.l(1, "}");
@@ -1350,7 +1350,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 taken.take(
                     Selector {
                         is_static: true,
-                        base: "default".to_string(),
+                        base: "createDefault".to_string(),
                         labels: vec![],
                     },
                     Some(String::new()),

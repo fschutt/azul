@@ -3833,7 +3833,7 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
-            builder.line(&format!("unsafe {{ {}() }}", sym("default")));
+            builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
             builder.dedent();
