@@ -121,17 +121,14 @@ app = Azul::App.create(data, Azul::AppConfig.create)
 app.run(window)
 ```
 
-Notice that `Azul::RefAny.wrap` wraps any Ruby object into a handle and the same object 
-is handed back to your callbacks, where `unwrap` recovers it and returns `nil` on a mismatch - 
-guard with `next ... if m.nil?`. 
+Notice that `Azul::RefAny.wrap` wraps any Ruby object into a handle which prevents it from being garbage collected by Ruby while C holds a reference to it. The generated bindings automatically unwrap this handle before calling your lambdas, handing the original Ruby object back to your callbacks (returning `nil` if there is a mismatch, so guard with `next ... if m.nil?`). 
 
-Callbacks are lambdas with the signature `|data_ptr, info|`, and you yield a value out of them 
-with `next` rather than `return`. The smart builders hide the plumbing: `WindowCreateOptions.create_with_layout(lambda)` and `Button.create(...).on_click(model, fn)` do the `RefAny` wrapping, callback registration 
-and struct splice for you, and `.with(...)` recursively assigns nested fields while 
-auto-converting Ruby `String`s to `AzString`. 
+Callbacks are lambdas with the signature `|m, info|`, and you yield a value out of them 
+with `next` rather than `return`. The smart builders hide all the FFI plumbing: `WindowCreateOptions.create_with_layout(layout)` and `Button.create(...).on_click(data, on_click)` automatically handle callback registration for you. Furthermore, `.with(...)` allows you to recursively assign nested fields while 
+auto-converting standard Ruby `String`s to `AzString`. 
 
 Styling takes plain CSS strings through `Dom#with_css('font-size: 32px;')`, with no manual property 
-construction, and the generated types have Ruby-shaped helpers as well (`Azul::String#to_s`, `Option#to_opt`, `Result#unwrap`, `Vec#to_a`). 
+construction, and the generated types have Ruby helpers as well (`Azul::String#to_s`, `Option#to_opt`, `Result#unwrap`, `Vec#to_a`). 
 
 If the library cannot be found at run time, put `libazul.dylib` / `libazul.so` next 
 to `azul.rb` or point `AZ_LIB_DIR` at its directory - note that `DYLD_LIBRARY_PATH` 
