@@ -159,7 +159,7 @@ fn emit_wrapper_class_decl(
     }
 
     builder.line(&format!("{} = class(TObject)", class_name));
-    builder.line("private");
+    builder.line("public");
     builder.indent();
     builder.line(&format!("FRaw: {};", raw_record));
     builder.line("FOwned: Boolean;");

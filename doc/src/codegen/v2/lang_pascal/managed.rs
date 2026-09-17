@@ -122,6 +122,39 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
             sig_parts.join("; ")
         ));
         builder.line("end;");
+        
+        let mut event_args = vec!["Model: TAzRefAny".to_string()];
+        for (i, a) in cb.args.iter().skip(1).enumerate() {
+            let ty = match a.type_name.as_str() {
+                "AzRefAny" => "TAzRefAny".to_string(),
+                "AzString" => "string".to_string(),
+                "AzUpdate" => "TAzUpdate".to_string(),
+                "usize" => "cuint64".to_string(),
+                "f32" => "Single".to_string(),
+                "f64" => "Double".to_string(),
+                "i32" => "LongInt".to_string(),
+                "u32" => "LongWord".to_string(),
+                "u64" => "cuint64".to_string(),
+                "bool" => "Boolean".to_string(),
+                _ => format!("TAz{}", a.type_name.strip_prefix("Az").unwrap_or(&a.type_name)),
+            };
+            let nm = format!("arg{}", i + 1);
+            event_args.push(format!("{}: {}", nm, ty));
+        }
+        let ret_ty = match &cb.return_type {
+            Some(r) => format!("TAz{}", r.strip_prefix("Az").unwrap_or(r)),
+            None => "".to_string(),
+        };
+        let ret_str = if ret_ty.is_empty() { "".to_string() } else { format!(": {}", ret_ty) };
+        let proc_or_func = if ret_ty.is_empty() { "procedure" } else { "function" };
+        
+        builder.line(&format!("TAz{}Event = {}({}){} of object;", wrapper, proc_or_func, event_args.join("; "), ret_str));
+        builder.line(&format!("TAz{}Wrapper = class(TAz{}Invoker)", wrapper, wrapper));
+        builder.line("public");
+        builder.line(&format!("  FCallback: TAz{}Event;", wrapper));
+        builder.line(&format!("  constructor Create(Callback: TAz{}Event);", wrapper));
+        builder.line(&format!("  procedure Invoke({}); override;", sig_parts.join("; ")));
+        builder.line("end;");
     }
     builder.dedent();
     builder.blank();
@@ -284,6 +317,52 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR) {
     // handler in the handle table and return the matching cdata.
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
+        
+        let mut cast_args = vec!["PAzRefAny(arg0)^".to_string()];
+        for (i, arg) in cb.args.iter().skip(1).enumerate() {
+            let nm = if arg.name.is_empty() { format!("arg{}", i+1) } else { arg.name.clone() };
+            let raw_ty = match arg.type_name.as_str() {
+                "usize" | "u64" => "cuint64".to_string(),
+                "bool" => "Boolean".to_string(),
+                _ => format!("Az{}", arg.type_name.strip_prefix("Az").unwrap_or(&arg.type_name)),
+            };
+            cast_args.push(format!("P{}({})^", raw_ty, nm));
+        }
+        let cast_str = cast_args.join(", ");
+        
+        builder.line(&format!("constructor TAz{}Wrapper.Create(Callback: TAz{}Event);", wrapper, wrapper));
+        builder.line("begin");
+        builder.line("  inherited Create;");
+        builder.line("  FCallback := Callback;");
+        builder.line("end;");
+        
+        let mut sig_parts = vec!["id: cuint64".to_string()];
+        for (i, arg) in cb.args.iter().enumerate() {
+            let nm = if arg.name.is_empty() { format!("arg{}", i) } else { arg.name.clone() };
+            sig_parts.push(format!("{}: Pointer", nm));
+        }
+        if cb.return_type.is_some() {
+            sig_parts.push("out_ptr: Pointer".to_string());
+        }
+        builder.line(&format!("procedure TAz{}Wrapper.Invoke({});", wrapper, sig_parts.join("; ")));
+        if let Some(r) = &cb.return_type {
+            let ret_pas = format!("TAz{}", r.strip_prefix("Az").unwrap_or(r));
+            builder.line(&format!("var r: {};", ret_pas));
+            builder.line("begin");
+            builder.line(&format!("  if Assigned(FCallback) then"));
+            builder.line(&format!("  begin"));
+            builder.line(&format!("    r := FCallback({});", cast_str));
+            builder.line(&format!("    if out_ptr <> nil then"));
+            builder.line(&format!("      Move(r, out_ptr^, SizeOf({}));", ret_pas));
+            builder.line(&format!("  end;"));
+            builder.line("end;");
+        } else {
+            builder.line("begin");
+            builder.line(&format!("  if Assigned(FCallback) then FCallback({});", cast_str));
+            builder.line("end;");
+        }
+        builder.blank();
+        
         builder.line(&format!(
             "function azul_register_{w_low}(handler: TAz{w}Invoker): TAz{w};",
             w = wrapper,
