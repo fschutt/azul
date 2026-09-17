@@ -414,6 +414,43 @@ fn emit_module_interface_for_class(
     // NAME PRESENCE, so naming the type in prose flips it from `absent` to
     // `present` and starts charging it for derives it still lacks. An earlier
     // attempt measured worse for exactly that reason.
+    let mut create_func = None;
+    let mut with_funcs = Vec::new();
+    for func in ir.functions_for_class(&s.name) {
+        if func.method_name == "create" { create_func = Some(func); }
+        if func.method_name.starts_with("with") && func.args.len() >= 2 { with_funcs.push(func); }
+    }
+    
+    if let Some(cf) = create_func {
+        builder.line("(* Smart builder with optional labeled arguments. *)");
+        let mut sig_parts = Vec::new();
+        for w in &with_funcs {
+            let label = sanitize_identifier(&super::to_snake_case(&w.method_name[4..])); // strip "with"
+            let mut arg_type = "UNKNOWN".to_string();
+            if w.args.iter().any(|a| a.callback_info.is_some()) {
+                arg_type = "(unit -> Azul_api_core.Update.t)".to_string();
+            } else {
+                if let Some(a) = w.args.get(1) {
+                    if a.type_name.trim() == "String" {
+                        arg_type = "string".to_string();
+                    } else {
+                        arg_type = map_type_to_ocaml_typ(&a.type_name, ir);
+                    }
+                }
+            }
+            sig_parts.push(format!("?{}:{} -> ", label, arg_type));
+        }
+        for a in &cf.args {
+            if a.type_name.trim() == "String" {
+                sig_parts.push("string -> ".to_string());
+            } else {
+                sig_parts.push(format!("{} -> ", map_type_to_ocaml_typ(&a.type_name, ir)));
+            }
+        }
+        sig_parts.push("t".to_string());
+        builder.line(&format!("val create : {}", sig_parts.join("")));
+    }
+
     if ocaml_has_equal(s, ir) {
         builder.line("(* Equality routed through the C ABI. *)");
         builder.line("val equal : t -> t -> bool");
@@ -521,6 +558,56 @@ fn emit_module_impl_for_class(
     // copy from the Vec's `(ptr void)` buffer via per-primitive
     // `Ctypes.from_voidp <view>` cast.
     emit_ocaml_vec_to_array_if_primitive(builder, s, has_wrapper);
+
+    // INJECT: Optional labeled arguments for `create`
+    let mut create_func = None;
+    let mut with_funcs = Vec::new();
+    for func in ir.functions_for_class(&s.name) {
+        if func.method_name == "create" { create_func = Some(func); }
+        if func.method_name.starts_with("with") && func.args.len() >= 2 { with_funcs.push(func); }
+    }
+    
+    if let Some(cf) = create_func {
+        builder.line("(* Smart builder with optional labeled arguments. *)");
+        let mut arg_names = Vec::new();
+        for w in &with_funcs {
+            let label = sanitize_identifier(&super::to_snake_case(&w.method_name[4..])); // strip "with"
+            builder.line(&format!("let create ?{} ", label));
+            arg_names.push(label);
+        }
+        
+        let mut create_args = Vec::new();
+        for (i, a) in cf.args.iter().enumerate() {
+            let n = sanitize_identifier(&super::to_snake_case(&a.name));
+            builder.line(&format!("{} ", n));
+            create_args.push(n);
+        }
+        builder.line(": t =");
+        builder.indent();
+        builder.line(&format!("let _obj = create_raw {} in", create_args.join(" ")));
+        for (w, label) in with_funcs.iter().zip(arg_names.iter()) {
+            let m_name = method_emission_name(w, ir);
+            if w.args.iter().any(|a| a.callback_info.is_some()) {
+                // If it takes a callback, we generate the wrapper registration inline
+                let cb = w.args.iter().find(|a| a.callback_info.is_some()).unwrap();
+                let cb_name = super::to_snake_case(cb.type_name.trim());
+                builder.line(&format!("let _obj = match {} with", label));
+                builder.line("| Some f ->");
+                builder.indent();
+                builder.line(&format!("let _cb = Azul_managed.azul_register_{} (fun _ _ -> Azul_api_core.Update.to_int (f ())) in", cb_name));
+                builder.line(&format!("let _data = Azul_managed.azul_refany_wrap f in"));
+                builder.line(&format!("{} _obj _data _cb", m_name));
+                builder.dedent();
+                builder.line("| None -> _obj");
+                builder.line("in");
+            } else {
+                builder.line(&format!("let _obj = match {} with | Some v -> {} _obj v | None -> _obj in", label, m_name));
+            }
+        }
+        builder.line("_obj");
+        builder.dedent();
+    }
+
 
     builder.dedent();
     builder.line("end");
@@ -1325,6 +1412,7 @@ fn idiomatic_method_name(method_name: &str) -> String {
 /// the same trailing-underscore convention every other OCaml keyword gets.
 fn method_emission_name(func: &FunctionDef, ir: &CodegenIR) -> String {
     let snake = to_snake_case(&func.method_name);
+    let snake = if snake == "create" { "create_raw".to_string() } else { snake };
     if snake == "new" {
         let class_has_real_create = ir
             .functions_for_class(&func.class_name)
