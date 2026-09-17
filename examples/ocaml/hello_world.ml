@@ -6,10 +6,10 @@ let layout (m : my_data_model) : Azul.Dom.t =
   in
   let button =
     Azul.Button.create "Increase counter"
-      ~btn_type:`Primary
+      ~btn_type:Azul.ButtonType.Primary
       ~on_click:(fun () ->
           m.counter <- m.counter + 1;
-          `RefreshDom)
+          Azul.Update.RefreshDom)
   in
   Azul.Dom.body ~children:[ label; button ]
 
