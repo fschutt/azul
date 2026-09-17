@@ -500,7 +500,8 @@ fn emit_cs_data_typed_delegate(
 
     // Subsequent args: wrapper class when available, else IntPtr.
     enum ArgKind {
-        Wrapper(String), // user-facing wrapper class name (e.g. "LayoutCallbackInfo")
+        Wrapper(String),
+        Struct(String),
         RawIntPtr,
     }
     let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
@@ -508,6 +509,8 @@ fn emit_cs_data_typed_delegate(
         let t = a.type_name.trim();
         let kind = if cs_managed_has_wrapper_class(t, ir) {
             ArgKind::Wrapper(t.to_string())
+        } else if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() {
+            ArgKind::Struct(t.to_string())
         } else {
             ArgKind::RawIntPtr
         };
@@ -556,6 +559,7 @@ fn emit_cs_data_typed_delegate(
     for (kind, name) in &extra_args {
         let ty = match kind {
             ArgKind::Wrapper(t) => t.clone(),
+            ArgKind::Struct(t) => super::ffi_type_name(t),
             ArgKind::RawIntPtr => "IntPtr".to_string(),
         };
         iface_params.push(format!("{} {}", ty, name));
@@ -628,6 +632,14 @@ fn emit_cs_data_typed_delegate(
                     "var __{} = new \
                      {}(System.Runtime.InteropServices.Marshal.PtrToStructure<{}>({}));",
                     name, ty, ffi_ty, name
+                ));
+                call_args.push(format!("__{}", name));
+            }
+            ArgKind::Struct(ty) => {
+                let ffi_ty = super::ffi_type_name(ty);
+                builder.line(&format!(
+                    "var __{} = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>({});",
+                    name, ffi_ty, name
                 ));
                 call_args.push(format!("__{}", name));
             }

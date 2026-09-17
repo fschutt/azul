@@ -112,13 +112,13 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static Update OnClick(MyDataModel m, IntPtr info)
+        private static Update OnClick(MyDataModel m, AzCallbackInfo info)
         {
             m.Counter += 1;
             return Update.RefreshDom;
         }
 
-        private static Dom Layout(MyDataModel m, IntPtr info)
+        private static Dom Layout(MyDataModel m, AzLayoutCallbackInfo info)
         {
             var label = Dom.CreatePWithText(m.Counter.ToString())
                 .WithCss("font-size: 32px; margin: 0;");
@@ -141,7 +141,7 @@ namespace HelloWorld
 }
 ```
 
-Notice how `App.Create` automatically wraps your `MyDataModel` into a type-erased handle, and the generated C# bindings automatically downcast it and hand it back to every callback. Apart from `IntPtr info` (which you can ignore if you don't need it), there is no `IntPtr` ceremony: `App.Create(...).Run(...)`, `Dom.CreateBody().WithChild(...)` and `Button.Create(label).WithButtonType(...).OnClick(...).Dom()` read like normal fluent C#. Callbacks are strongly typed - a layout callback is `Func<MyDataModel, IntPtr, Dom>`, a click handler is `Func<MyDataModel, IntPtr, Update>`. `WithCss("...")` accepts any CSS string, including inline `:hover { }`, `@media ... { }` and `@os(...)` queries. Finally, `using var app` disposes deterministically: `Dispose()` calls the C-side `delete`, so the native memory is released when the `App` goes out of scope. At run time the generated `DllImportResolver` probes the project directory and the directory of the published executable for `libazul.dylib` / `libazul.so` / `azul.dll`, with `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` as a fallback for non-standard layouts (note that macOS strips `DYLD_*` in some launch paths because of SIP).
+Notice how `App.Create` automatically wraps your `MyDataModel` into a type-erased handle, and the generated C# bindings automatically downcast it and hand it back to every callback. Apart from `AzCallbackInfo info` (which you can ignore if you don't need it), there is no `IntPtr` ceremony: `App.Create(...).Run(...)`, `Dom.CreateBody().WithChild(...)` and `Button.Create(label).WithButtonType(...).OnClick(...).Dom()` read like normal fluent C#. Callbacks are strongly typed - a layout callback is `Func<MyDataModel, AzLayoutCallbackInfo, Dom>`, a click handler is `Func<MyDataModel, AzCallbackInfo, Update>`. `WithCss("...")` accepts any CSS string, including inline `:hover { }`, `@media ... { }` and `@os(...)` queries. Finally, `using var app` disposes deterministically: `Dispose()` calls the C-side `delete`, so the native memory is released when the `App` goes out of scope. At run time the generated `DllImportResolver` probes the project directory and the directory of the published executable for `libazul.dylib` / `libazul.so` / `azul.dll`, with `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` as a fallback for non-standard layouts (note that macOS strips `DYLD_*` in some launch paths because of SIP).
 
 ## Build and run
 
