@@ -371,7 +371,9 @@ fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) ->
     ) {
         return false;
     }
-    has_delete(&s.name, ir)
+    let has_delete = has_delete(&s.name, ir);
+    let has_methods = ir.functions.iter().any(|f| f.class_name == s.name && matches!(f.kind, super::super::ir::FunctionKind::Method | FunctionKind::MethodMut));
+    println!("kotlin should_emit_wrapper for {}: has_delete={}, has_methods={}", s.name, has_delete, has_methods); has_delete || has_methods
 }
 
 fn should_emit_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -421,6 +423,7 @@ fn detect_vec_elem_type_kt(s: &StructDef) -> Option<String> {
 }
 
 fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let has_delete = has_delete(&s.name, ir);
     let class_name = kotlin_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
 
@@ -454,10 +457,11 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // and auto-wrapper-class converted call sites construct wrappers
     // from raw pointers. Users outside the module use the static
     // factories.
-    builder.line(&format!(
-        "class {} internal constructor(internal val ptr: Pointer) : AutoCloseable{} {{",
-        class_name, extra_iface
-    ));
+    if has_delete {
+        builder.line(&format!("class {} internal constructor(internal val ptr: Pointer) : AutoCloseable{} {{", class_name, extra_iface));
+    } else {
+        builder.line(&format!("class {} internal constructor(internal val ptr: Pointer){} {{", class_name, if extra_iface.is_empty() { "".to_string() } else { format!(" : {}", &extra_iface[2..]) }));
+    }
     builder.indent();
 
     builder.line("private var closed: Boolean = false");
@@ -470,27 +474,29 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // shared with the action: whoever wins the CAS performs (or skips)
     // the free, so the pointer is deleted at most once regardless of
     // close() / __consume() / GC ordering.
+        if has_delete {
     builder.line("private val __cleanFreed = java.util.concurrent.atomic.AtomicBoolean(false)");
-    builder.line("private val __cleanable: java.lang.ref.Cleaner.Cleanable = run {");
-    builder.indent();
-    builder.line("val __p = ptr");
-    builder.line("val __guard = __cleanFreed");
-    builder.line("AZUL_CLEANER.register(this, Runnable {");
-    builder.indent();
-    builder.line("if (__guard.compareAndSet(false, true)) {");
-    builder.indent();
-    builder.line(&format!(
-        "{}.{}_delete(__p)",
-        super::super::lang_java::functions::native_class_for_class(&s.name, ir),
-        ffi_name
-    ));
-    builder.dedent();
-    builder.line("}");
-    builder.dedent();
-    builder.line("})");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+        builder.line("private val __cleanable: java.lang.ref.Cleaner.Cleanable = run {");
+        builder.indent();
+        builder.line("val __p = ptr");
+        builder.line("val __guard = __cleanFreed");
+        builder.line("AZUL_CLEANER.register(this, Runnable {");
+        builder.indent();
+        builder.line("if (__guard.compareAndSet(false, true)) {");
+        builder.indent();
+        builder.line(&format!(
+            "{}.{}_delete(__p)",
+            super::super::lang_java::functions::native_class_for_class(&s.name, ir),
+            ffi_name
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("})");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     // Internal pointer access for sibling wrappers.
     builder.line("/** Internal: raw pointer for use by sibling wrappers. */");
@@ -707,14 +713,16 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // calls Az<X>_delete) and deregisters the Cleanable, so a later GC
     // never re-runs it. Idempotent via `closed` + the one-shot guard.
     builder.line("/** Frees the underlying native resources. Idempotent. */");
-    builder.line("override fun close() {");
-    builder.indent();
-    builder.line("if (closed) return");
-    builder.line("closed = true");
-    builder.line("__cleanable.clean()");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+    if has_delete {
+        builder.line("override fun close() {");
+        builder.indent();
+        builder.line("if (closed) return");
+        builder.line("closed = true");
+        builder.line("__cleanable.clean()");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     // Mark this wrapper as consumed without calling Az<X>_delete.
     // Used by codegen-emitted call sites where the C ABI takes

@@ -439,7 +439,9 @@ fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) ->
         | TypeCategory::GenericTemplate => return false,
         _ => {}
     }
-    has_delete_function(&s.name, ir)
+    let has_delete = has_delete_function(&s.name, ir);
+    let has_methods = ir.functions.iter().any(|f| f.class_name == s.name && matches!(f.kind, super::super::ir::FunctionKind::Method | super::super::ir::FunctionKind::MethodMut));
+    has_delete || has_methods
 }
 
 fn should_emit_union_hierarchy(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -493,6 +495,7 @@ fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
 }
 
 fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let has_delete = has_delete_function(&s.name, ir);
     let class_name = sanitize_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
 
@@ -524,8 +527,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     };
 
     builder.line(&format!(
-        "public sealed class {} : IDisposable{}",
-        class_name, extra_iface
+        "{}",
+        if has_delete { format!("public sealed class {} : IDisposable{}", class_name, extra_iface) } else { format!("public sealed class {}{}", class_name, if extra_iface.is_empty() { "".to_string() } else { format!(" : {}", &extra_iface[2..]) }) }
     ));
     builder.line("{");
     builder.indent();
@@ -828,7 +831,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     }
 
     // IDisposable boilerplate.
-    emit_dispose_methods(builder, &class_name, &s.name);
+    emit_dispose_methods(builder, &class_name, &s.name, ir);
 
     if class_name == "App" {
         builder.line("/// <summary>");
@@ -1123,16 +1126,19 @@ fn emit_cs_vec_enumerator(
     builder.blank();
 }
 
-fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_name: &str) {
+fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_name: &str, ir: &CodegenIR) {
+    let has_delete = has_delete_function(raw_type_name, ir);
+    if has_delete {
     builder.line("/// <summary>Frees the underlying native resources.</summary>");
-    builder.line("public void Dispose()");
-    builder.line("{");
-    builder.indent();
-    builder.line("Dispose(true);");
-    builder.line("GC.SuppressFinalize(this);");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+        builder.line("public void Dispose()");
+        builder.line("{");
+        builder.indent();
+        builder.line("Dispose(true);");
+        builder.line("GC.SuppressFinalize(this);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     builder.line("private void Dispose(bool disposing)");
     builder.line("{");

@@ -95,7 +95,10 @@ fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) ->
     ) {
         return false;
     }
-    has_delete_function(&s.name, ir)
+    let has_delete = has_delete_function(&s.name, ir);
+    println!("should_emit_wrapper for {}: has_delete={}, has_methods={}", s.name, has_delete, ir.functions.iter().any(|f| f.class_name == s.name && matches!(f.kind, super::super::ir::FunctionKind::Method | super::super::ir::FunctionKind::MethodMut)));
+    let has_methods = ir.functions.iter().any(|f| f.class_name == s.name && matches!(f.kind, super::super::ir::FunctionKind::Method | super::super::ir::FunctionKind::MethodMut));
+    has_delete || has_methods
 }
 
 fn should_emit_union_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -142,7 +145,9 @@ fn has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
     ) {
         return false;
     }
-    has_delete_function(type_name, ir)
+    let has_delete = has_delete_function(type_name, ir);
+    println!("has_delete={}, class={}", has_delete, type_name); let has_methods = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut));
+    println!("has_methods={} for {}", has_methods, type_name); has_delete || has_methods
 }
 
 // ============================================================================
@@ -150,6 +155,7 @@ fn has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
 // ============================================================================
 
 fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let has_delete = has_delete_function(&s.name, ir);
     let class_name = wrapper_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
 
@@ -173,14 +179,15 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     let interfaces = match &vec_elem_type {
         Some(elem) if elem_has_wrapper(elem) => {
             let elem_wrapper = wrapper_class_name(elem);
-            format!("AutoCloseable, Iterable<{}>", elem_wrapper)
+            if has_delete { format!("AutoCloseable, Iterable<{}>", elem_wrapper) } else { format!("Iterable<{}>", elem_wrapper) }
         }
-        _ => "AutoCloseable".to_string(),
+        _ => if has_delete { "AutoCloseable".to_string() } else { "".to_string() },
     };
-    builder.line(&format!(
-        "public final class {} implements {} {{",
-        class_name, interfaces
-    ));
+    if interfaces.is_empty() {
+        builder.line(&format!("public final class {} {{", class_name));
+    } else {
+        builder.line(&format!("public final class {} implements {} {{", class_name, interfaces));
+    }
     builder.indent();
 
     builder.line("private Pointer ptr;");
@@ -707,21 +714,24 @@ fn emit_close_method(
     class_name: &str,
     ir: &CodegenIR,
 ) {
+    let has_delete = has_delete_function(raw_type_name, ir);
+    if has_delete {
     builder.line("/** Frees the underlying native resources. Idempotent. */");
-    builder.line("@Override");
-    builder.line("public void close() {");
-    builder.indent();
-    builder.line("if (closed || ptr == null) return;");
-    builder.line(&format!(
-        "{}.INSTANCE.Az{}_delete(ptr);",
-        super::functions::native_class_for_class(raw_type_name, ir),
-        raw_type_name
-    ));
-    builder.line("ptr = null;");
-    builder.line("closed = true;");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+        builder.line("@Override");
+        builder.line("public void close() {");
+        builder.indent();
+        builder.line("if (closed || ptr == null) return;");
+        builder.line(&format!(
+            "{}.INSTANCE.Az{}_delete(ptr);",
+            super::functions::native_class_for_class(raw_type_name, ir),
+            raw_type_name
+        ));
+        builder.line("ptr = null;");
+        builder.line("closed = true;");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     // Mark this wrapper as consumed without calling Az<X>_delete.
     // Used by codegen-emitted call sites where the C ABI takes

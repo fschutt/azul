@@ -704,7 +704,7 @@ fn cs_managed_has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
     ) {
         return false;
     }
-    ir.functions
-        .iter()
-        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+    let has_delete = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete));
+    let has_methods = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut));
+    has_delete || has_methods
 }

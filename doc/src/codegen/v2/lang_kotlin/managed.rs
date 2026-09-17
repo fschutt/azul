@@ -616,9 +616,9 @@ fn kt_managed_has_wrapper_class(type_name: &str, ir: &super::super::ir::CodegenI
     ) {
         return false;
     }
-    ir.functions
-        .iter()
-        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+    let has_delete = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete));
+    let has_methods = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut));
+    has_delete || has_methods
 }
 
 fn lower_first(name: &str) -> String {
