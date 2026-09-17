@@ -1,48 +1,22 @@
 type my_data_model = { mutable counter : int }
-let model = { counter = 5 }
 
-let on_click (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr) : int =
-  let ref_ptr = Ctypes.from_voidp Azul.az_ref_any data_ptr in
-  match Azul.azul_refany_get ref_ptr with
-  | None -> Azul.Update.do_nothing
-  | Some (m : my_data_model) ->
-      m.counter <- m.counter + 1;
-      Azul.Update.refresh_dom
-
-let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
-  : Azul.az_dom Ctypes.structure =
-  let ref_ptr = Ctypes.from_voidp Azul.az_ref_any data_ptr in
-  match Azul.azul_refany_get ref_ptr with
-  | None -> Azul.raw_dom (Azul.Dom.create_body ())
-  | Some (m : my_data_model) ->
-      let click_cb = Azul.azul_register_button_on_click_callback on_click in
-      let click_data = Azul.azul_refany_create m in
-
-      let with_css css d        = Azul.Dom.with_css d css in
-      let with_child child d    = Azul.Dom.with_child d child in
-      let as_btn_type t b       = Azul.Button.with_button_type b t in
-      let on_click_ data cb b   = Azul.Button.with_on_click b data cb in
-
-      let label =
-        Azul.Dom.create_p_with_text (string_of_int m.counter)
-        |> with_css "font-size: 32px; margin: 0;"
-      in
-      let button_dom =
-        Azul.Button.create "Increase counter"
-        |> as_btn_type Azul.ButtonType.primary
-        |> on_click_ click_data click_cb
-        |> Azul.Button.dom
-      in
-      Azul.Dom.create_body ()
-      |> with_child (Azul.raw_dom label)
-      |> with_child button_dom
-      |> Azul.raw_dom
+let layout (m : my_data_model) : Azul.Dom.t =
+  let label =
+    Azul.Dom.p ~css:"font-size: 32px; margin: 0;" (Int.to_string m.counter)
+  in
+  let button =
+    Azul.Button.create "Increase counter"
+      ~btn_type:`Primary
+      ~on_click:(fun () ->
+          m.counter <- m.counter + 1;
+          `RefreshDom)
+  in
+  Azul.Dom.body ~children:[ label; button ]
 
 let () =
-  let data = Azul.azul_refany_create model in
-  let wco = Azul.azul_window_create_options_with_layout layout in
+  let model = { counter = 5 } in
+  let window = Azul.WindowCreateOptions.create ~layout () in
   let app_config = Azul.AppConfig.create () in
-  let app = Azul.App.create data (Azul.raw_app_config app_config) in
+  let app = Azul.App.create ~model ~app_config () in
 
-  Azul.azul_consume app_config;
-  Azul.App.run app wco
+  Azul.App.run app window
