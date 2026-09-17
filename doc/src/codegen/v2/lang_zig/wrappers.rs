@@ -892,6 +892,8 @@ fn format_call_args(
             let inner = trimmed.trim_end_matches("Vec").trim_end_matches("VecRef");
             let map_fn = if inner == "String" { "_asAzString" } else if inner == "RefAny" { "_asRefAny" } else { "_identity" };
             out.push(format!("_asAzVec({}, C.Az{}_create, C.Az{}_copyFromPtr, C.Az{}_fromItem, {})", safe_name, trimmed, trimmed, trimmed, map_fn));
+        } else if trimmed.ends_with("CallbackType") {
+            out.push(format!("_asCallback(C.Az{}, {})", trimmed, safe_name));
         } else {
             out.push(safe_name);
         }
@@ -980,7 +982,7 @@ fn map_arg_type(type_name: &str, ref_kind: ArgRefKind) -> String {
         return apply_ref_kind(zig.to_string(), ref_kind);
     }
 
-    if trimmed == "String" || trimmed == "RefAny" || trimmed.starts_with("Option") || trimmed.ends_with("Vec") || trimmed.ends_with("VecRef") {
+    if trimmed == "String" || trimmed == "RefAny" || trimmed.starts_with("Option") || trimmed.ends_with("Vec") || trimmed.ends_with("VecRef") || trimmed.ends_with("CallbackType") {
         return "anytype".to_string();
     }
 
