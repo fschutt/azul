@@ -1727,16 +1727,36 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR,
         })
         .collect();
 
-    for (idx, v) in e.variants.iter().enumerate() {
-        let mut lit = sanitize_identifier(&to_snake_case(&v.name));
-        if capability_names.contains(lit.as_str()) {
-            lit.push('_');
+    builder.line("type t =");
+    builder.indent();
+    for v in &e.variants {
+        let variant = sanitize_identifier(&crate::to_pascal_case(&v.name));
+        builder.line(&format!("| {}", variant));
+    }
+    builder.dedent();
+
+    if interface {
+        builder.line("val to_int : t -> int");
+        builder.line("val of_int : int -> t option");
+    } else {
+        builder.line("let to_int (x : t) : int =");
+        builder.indent();
+        builder.line("match x with");
+        for (idx, v) in e.variants.iter().enumerate() {
+            let variant = sanitize_identifier(&crate::to_pascal_case(&v.name));
+            builder.line(&format!("| {} -> {}", variant, idx));
         }
-        if interface {
-            builder.line(&format!("val {} : int", lit));
-        } else {
-            builder.line(&format!("let {} : int = {}", lit, idx));
+        builder.dedent();
+
+        builder.line("let of_int (x : int) : t option =");
+        builder.indent();
+        builder.line("match x with");
+        for (idx, v) in e.variants.iter().enumerate() {
+            let variant = sanitize_identifier(&crate::to_pascal_case(&v.name));
+            builder.line(&format!("| {} -> Some {}", idx, variant));
         }
+        builder.line("| _ -> None");
+        builder.dedent();
     }
 
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -1757,12 +1777,12 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR,
         match f.kind {
             FunctionKind::PartialEq => {
                 if interface {
-                    builder.line("val equal : int -> int -> bool");
+                    builder.line("val equal : t -> t -> bool");
                 } else {
-                    builder.line("let equal (a : int) (b : int) : bool =");
+                    builder.line("let equal (a : t) (b : t) : bool =");
                     builder.indent();
                     builder.line(&format!(
-                        "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
+                        "{} (Ctypes.allocate {} (to_int a)) (Ctypes.allocate {} (to_int b))",
                         raw, ffi, ffi
                     ));
                     builder.dedent();

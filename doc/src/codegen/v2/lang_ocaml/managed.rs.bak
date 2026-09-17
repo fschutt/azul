@@ -444,7 +444,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         if a.type_name.trim() == "RefAny" {
             // refany_get returns an option, we just extract the inner value via Obj.magic or similar.
             // But since the C side passes a raw pointer to a RefAny, we use azul_refany_get.
-            invoke_args.push(format!("(match azul_refany_get (Ctypes.from_voidp az_ref_any arg{}) with | Some x -> x | None -> Obj.magic ())", i));
+            invoke_args.push(format!("(match azul_refany_get (Ctypes.from_voidp az_refany arg{}) with | Some x -> x | None -> Obj.magic ())", i));
         } else {
             invoke_args.push(format!("arg{}", i));
         }
