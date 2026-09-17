@@ -116,7 +116,13 @@ const window = azul.WindowCreateOptions.create(layout).with({
 azul.App.create(model, azul.AppConfig.create()).run(window);
 ```
 
-Notice that you can pass plain JavaScript objects directly to `azul.App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `azul.Update.*` (or an `azul.Dom` for layout). Enums and helpers sit at the top level of the module (`azul.Update.RefreshDom`, `azul.ButtonType.Primary`).
+Notice that you can pass plain JavaScript objects directly to `azul.App.create` 
+and `.withOnClick`; the generated bindings automatically handle tracking and 
+unpacking the C handles for you. 
+
+Callbacks are plain functions `(data, info) => ...` returning `azul.Update.*` 
+(or an `azul.Dom` for layout). Enums and helpers sit at the top level of the
+module (`azul.Update.RefreshDom`, `azul.ButtonType.Primary`).
 
 ## Build and run
 
@@ -128,23 +134,34 @@ printf '{"type":"commonjs"}\n' > package.json
 deno run --allow-ffi --allow-read --allow-env hello-world.js
 ```
 
-`azul.js` looks for the native library (`libazul.dylib` / `libazul.so` /
-`azul.dll`) in this order:
+On startup, `azul.js` looks for the native library 
+(`libazul.dylib` / `libazul.so` / `azul.dll`) in this order:
 
-1. `$AZ_LIB` — explicit path to the library *file* (overrides everything),
+1. `$AZ_LIB` — explicit path to the library file (overrides everything),
 2. the directory containing `azul.js` itself,
 3. `$AZ_LIB_DIR` — directory containing the library,
 4. the current working directory,
 5. the system loader search path (`DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` / `PATH`).
 
-With the download steps above (library and `azul.js` in the same directory) it is
-found automatically - no environment variables needed.
+With the download steps above (library and `azul.js` in the same directory) 
+it is found automatically - no environment variables needed.
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
-1. `app.run(window)` opened a native window and ran the layout callback once with your data model.
-2. The returned DOM was styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the DOM. On click, the framework borrows your data model mutably, runs the click callback, observes the refresh return, and re-invokes the layout callback.
-4. The framework determines the diff between the previous frame's DOM and the current one, and only re-updates and re-paints the counter, not the entire window.
+1. `app.run(window)` opens a native window and runs the layout callback once with your data model.
+2. The returned DOM is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter 
+   set up in the DOM. On receiving a click event, the framework borrows your data model 
+   mutably, runs the click callback, observes the refresh return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one, 
+   and only re-updates and re-paints the counter, not the entire window.
 
-Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
+Congratulations! Once you've got the hello-world example running, you've already mastered 80% of 
+the framework. As you might have guessed, more complex UI and styling are only composing more Dom 
+objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or explore 
+what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!

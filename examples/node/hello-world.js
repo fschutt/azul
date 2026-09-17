@@ -1,6 +1,7 @@
 'use strict';
 
-const azul = require('azul'); // Use require('./azul.js') if downloaded manually
+// Use require('./azul.js') if downloaded manually
+const azul = require('azul');
 const model = { counter: 5 };
 
 function onClick(data, _info) {
