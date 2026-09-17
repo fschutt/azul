@@ -311,7 +311,16 @@ fn emit_invoker_registration(
     }
     builder.line("begin");
     builder.indent();
-    builder.line("ret = fn.call(*ptr_args)");
+    builder.line("unwrapped_args = []");
+    for (i, arg) in cb.args.iter().enumerate() {
+        let is_refany = arg.type_name.trim() == "RefAny" || arg.type_name.trim() == "AzRefAny" || arg.type_name.trim() == "az_ref_any";
+        if is_refany {
+            builder.line(&format!("unwrapped_args << Azul::RefAny.unwrap(ptr_args[{}])", i));
+        } else {
+            builder.line(&format!("unwrapped_args << ptr_args[{}]", i));
+        }
+    }
+    builder.line("ret = fn.call(*unwrapped_args)");
     if cb_has_return {
         builder.line("# Numeric returns (Update enum) → write32. Wrapper class");
         builder.line("# instances (e.g. `Dom` from a layout cb) → unwrap to the");

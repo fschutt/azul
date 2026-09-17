@@ -663,6 +663,11 @@ fn emit_method(
         }
         builder.indent();
         emit_callback_register_lines(builder, &visible_args, &arg_names);
+        for (n, a) in arg_names.iter().zip(visible_args.iter()) {
+            if a.type_name.trim() == "RefAny" || a.type_name.trim() == "az_ref_any" || a.type_name.trim() == "AzRefAny" {
+                builder.line(&format!("{} = {}.is_a?(Azul::RefAny) ? {} : Azul::RefAny.wrap({})", n, n, n, n));
+            }
+        }
         let mut call_args = vec!["@ptr".to_string()];
         for (i, name) in arg_names.iter().enumerate() {
             // Callback args have already been replaced by an FFI::Struct
@@ -727,6 +732,12 @@ fn emit_method(
     // `String` args go through `Azul._az_string` so user code can pass
     // plain Ruby strings directly. Other args go through `_unwrap` so
     // both wrapper instances and raw cdata are accepted.
+    for (n, a) in arg_names.iter().zip(visible_args.iter()) {
+        if a.type_name.trim() == "RefAny" || a.type_name.trim() == "az_ref_any" || a.type_name.trim() == "AzRefAny" {
+            builder.line(&format!("{} = {}.is_a?(Azul::RefAny) ? {} : Azul::RefAny.wrap({})", n, n, n, n));
+        }
+    }
+
     let call_args: Vec<String> = arg_names
         .iter()
         .zip(visible_args.iter())
