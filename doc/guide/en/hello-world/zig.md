@@ -99,79 +99,92 @@ const std = @import("std");
 const azul = @import("azul.zig");
 const C = azul.C;
 
+/// A generic, reusable wrapper for ANY data model
+pub fn AzulRef(comptime T: type) type {
+    return struct {
+        // Zig guarantees a unique memory address for this global per instantiated type T
+        var TYPE_TOKEN: u8 = 0;
+
+        pub fn typeId() u64 {
+            return @intFromPtr(&TYPE_TOKEN);
+        }
+
+        fn destructor(_: ?*anyopaque) callconv(.c) void {}
+
+        pub fn upcast(model: T) C.AzRefAny {
+            var local = model; // Take a local copy to push to the Azul heap
+            const name = @typeName(T);
+            return C.AzRefAny_newC(
+                .{ .ptr = @ptrCast(&local), .run_destructor = false },
+                @sizeOf(T),
+                @alignOf(T),
+                typeId(),
+                C.AzString_fromUtf8(name.ptr, name.len),
+                destructor,
+                0,
+                0,
+            );
+        }
+
+        pub fn downcast(refany: *const C.AzRefAny) ?*T {
+            if (!C.AzRefAny_isType(refany, typeId())) return null;
+            const ptr = C.AzRefAny_getDataPtr(refany) orelse return null;
+            return @ptrCast(@constCast(@alignCast(ptr)));
+        }
+    };
+}
+
+/// Ergonomic string helper to hide `.ptr` and `.len` verbosity
+inline fn azStr(s: []const u8) C.AzString {
+    return C.AzString_fromUtf8(s.ptr, s.len);
+}
+
 const MyDataModel = struct {
     counter: u32,
 };
 
-var MY_DATA_TYPE_TOKEN: u8 = 0;
-fn myDataTypeId() u64 {
-    return @intFromPtr(&MY_DATA_TYPE_TOKEN);
-}
-
-fn myDataDestructor(_: ?*anyopaque) callconv(.c) void {}
-
-fn myDataUpcast(model: MyDataModel) C.AzRefAny {
-
-    var local = model;
-    const type_name_bytes = "MyDataModel";
-    const type_name = C.AzString_fromUtf8(type_name_bytes.ptr, type_name_bytes.len);
-    return C.AzRefAny_newC(
-        .{ .ptr = @ptrCast(&local), .run_destructor = false },
-        @sizeOf(MyDataModel),
-        @alignOf(MyDataModel),
-        myDataTypeId(),
-        type_name,
-        myDataDestructor,
-        0,
-        0,
-    );
-}
-
-fn myDataDowncast(refany: *const C.AzRefAny) ?*MyDataModel {
-    if (!C.AzRefAny_isType(refany, myDataTypeId())) return null;
-    const ptr = C.AzRefAny_getDataPtr(refany) orelse return null;
-    return @constCast(@as(*const MyDataModel, @ptrCast(@alignCast(ptr))));
-}
+// We just pass our struct to the wrapper and let Zig generate the boilerplate
+const MyModelRef = AzulRef(MyDataModel);
 
 fn onClick(data: C.AzRefAny, _: C.AzCallbackInfo) callconv(.c) C.AzUpdate {
     var d = data;
-    const m = myDataDowncast(&d) orelse return C.AzUpdate_DoNothing;
+    const m = MyModelRef.downcast(&d) orelse return C.AzUpdate_DoNothing;
     m.counter += 1;
+    
+    // Quick tip: The new Zig `{t}` formatter is great for debugging enums!
+    // std.log.debug("Update action: {t}", .{C.AzUpdate_RefreshDom});
+    
     return C.AzUpdate_RefreshDom;
 }
 
 fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var d = data;
-    const m = myDataDowncast(&d) orelse return C.AzDom_createBody();
+    const m = MyModelRef.downcast(&d) orelse return C.AzDom_createBody();
 
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
-    const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
-    var label = C.AzDom_createPWithText(counter_str);
-    const css = "font-size: 32px; margin: 0;";
-    C.AzDom_setCss(&label, C.AzString_fromUtf8(css.ptr, css.len));
+    
+    var label = C.AzDom_createPWithText(azStr(slice));
+    C.AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"));
 
-    const btn_label_bytes = "Increase counter";
-    const btn_label = C.AzString_fromUtf8(btn_label_bytes.ptr, btn_label_bytes.len);
-    var button = C.AzButton_create(btn_label);
+    var button = C.AzButton_create(azStr("Increase counter"));
     C.AzButton_setButtonType(&button, C.AzButtonType_Primary);
-    const data_clone = C.AzRefAny_clone(&d);
-    C.AzButton_setOnClick(&button, data_clone, onClick);
-    const button_dom = C.AzButton_dom(button);
-
+    C.AzButton_setOnClick(&button, C.AzRefAny_clone(&d), onClick);
+    
     var body = C.AzDom_createBody();
     C.AzDom_addChild(&body, label);
-    C.AzDom_addChild(&body, button_dom);
+    C.AzDom_addChild(&body, C.AzButton_dom(button));
     return body;
 }
 
-pub fn main() !void {
-    const model = MyDataModel{ .counter = 5 };
-    const data = myDataUpcast(model);
+pub fn main(init: std.process.Init) !void {
+    // If your app required dynamic heap allocations, you'd pull the allocator directly from `init.gpa` here!
+    _ = init; 
+    
+    const data = MyModelRef.upcast(.{ .counter = 5 });
 
     var window = C.AzWindowCreateOptions_create(layout);
-    const title_bytes = "Hello World";
-    window.window_state.title = C.AzString_fromUtf8(title_bytes.ptr, title_bytes.len);
+    window.window_state.title = azStr("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
@@ -180,64 +193,19 @@ pub fn main() !void {
 }
 ```
 
-### Callbacks are bare C function pointers
+This snippet leverages advanced Zig features to erase boilerplate:
 
-`onClick` and `layout` are declared `callconv(.c)`, which makes them
-ABI-identical to the C typedefs `AzButtonOnClickCallbackType` and
-`AzLayoutCallbackType`. That means you pass the function *itself*:
+1. **`comptime` Type Reflection (`AzulRef`)**: By passing the type into a `comptime` function, Zig auto-generates a unique `TYPE_TOKEN`, uses `@typeName(T)` for the string name, and resolves sizes automatically.
+2. **String Ergonomics**: The inline `azStr` helper eliminates the visual noise of repeatedly converting string literals to C `AzString` pointer-and-length structs.
+3. **Pointer Cast Simplification**: By strictly defining the return type (`?*T`), we let Zig infer the destination types natively during the downcast. It neatly collapses into `@ptrCast(@constCast(@alignCast(ptr)))`.
 
-```zig
-C.AzButton_setOnClick(&button, data_clone, onClick);
-var window = C.AzWindowCreateOptions_create(layout);
-```
+### Zig 0.16.0 Notes
 
-Note that the typed `AzButton_setOnClick` takes the **bare fn pointer**,
-not an `AzCallback` struct. Older snippets that wrapped the pointer with
-`AzCallback_create(...)` predate the typed-callback API change and no
-longer compile — if you see a type error at the `setOnClick` call site,
-delete the wrapping and pass the function directly. There is no
-host-invoker, no closure allocation, and no hidden registry: the
-framework stores your pointer and calls straight back into your Zig
-code on the UI thread.
+If you are building your UI with Zig 0.16.0, keep these new language features in mind:
 
-### How RefAny works in Zig
-
-`RefAny` is Azul's type-erased, reference-counted box for your
-application state — the C header ships an `AZ_REFLECT` macro for it, and
-the Zig example hand-rolls the same three pieces in ~35 lines:
-
-- **Type identity** — `myDataTypeId()` returns the address of a global
-  `var`. Every Zig type you reflect gets its own token variable, so the
-  address is process-unique and stable, and `AzRefAny_isType` can verify
-  at run time that a downcast targets the right type.
-- **Upcast** — `AzRefAny_newC` *copies* `@sizeOf(MyDataModel)` bytes
-  into a refcounted heap allocation. Handing it a pointer to a stack
-  local is therefore fine; `run_destructor = false` tells libazul not to
-  free the caller's pointer (only the heap copy is destroyed, via your
-  destructor, when the last clone drops).
-- **Downcast** — `AzRefAny_isType` + `AzRefAny_getDataPtr` recover a
-  typed `*MyDataModel`. Both callbacks bail out gracefully (`orelse
-  return ...`) when the check fails.
-
-`AzRefAny_clone(&d)` bumps the (atomic) reference count — it does not
-deep-copy your struct. The clone's ownership moves into the button, so
-the framework can hand the same data back to `onClick` later. Data flow
-on click: framework matches the hit-test → calls `onClick` with the
-stored `RefAny` → your code downcasts, increments `counter`, returns
-`C.AzUpdate_RefreshDom` → the framework re-runs `layout`, which reads
-the new value.
-
-Two more things worth noticing:
-
-- **Strings** — `AzString_fromUtf8(ptr, len)` copies the bytes into a
-  refcounted heap buffer, which is why passing `std.fmt.bufPrint`
-  output from a stack buffer is safe: the `AzString` outlives your
-  stack frame.
-- **Typed CSS** — instead of parsing a CSS string, the example builds
-  the property programmatically: `AzStyleFontSize_px(32.0)` →
-  `AzCssProperty_fontSize` → `AzCssPropertyWithConditions_simple` →
-  `AzDom_addCssProperty`. (String CSS via `AzDom_setCss` works from Zig
-  too, exactly as in the [C guide](c.md).)
+- **"Juicy Main" Dependency Injection**: `main` now accepts `(init: std.process.Init)`. Rather than explicitly spinning up a `std.heap.GeneralPurposeAllocator`, `init` acts as a context object granting you boilerplate-free access to `init.gpa`. While Azul utilizes its own internal allocator for the C-layer `RefAny`, if your `MyDataModel` expands to include its own dynamically sized arrays (like `std.ArrayList`), pass `init.gpa` in.
+- **Buffered I/O ("Writergate")**: Zig recently overhauled the standard library I/O (`std.io` -> `std.Io`) to enforce mandatory buffering. If you write debugging tools in your app that print via a writer, explicitly call `.flush()`, or output may not appear.
+- **Enum Shorthand Formatting**: To debug enum returns like `AzUpdate` or `AzButtonType`, Zig 0.15.1+ includes a new `{t}` shorthand specifier. Passing `"{t}"` behaves identically to `@tagName(enum_val)`.
 
 ## Build and run
 
@@ -250,10 +218,7 @@ LD_LIBRARY_PATH=. zig build run
 zig build run
 ```
 
-The `zig build run` flow uses the downloaded `build.zig`, which adds the
-current directory to both the include path (for `azul.h`) and the
-library path (for `libazul`). If you prefer a single explicit command
-without `build.zig`, this is the invocation the end-to-end harness uses:
+If you prefer a single explicit command without `build.zig`, this is the invocation the end-to-end harness uses:
 
 ```sh
 # linux
