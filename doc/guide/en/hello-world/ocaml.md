@@ -32,7 +32,9 @@ under the hood. The bindings abstract away the need to interface with the C type
 
 ## Installation
 
-There is no opam package available on opam repository yet - install it manually from azul.rs: the bundle holds the generated units (`azul.ml`, the facade you `open`, plus one `azul_*.ml` / `.mli` per api.json module it includes), the opam file (`azul.opam`), the dune scaffolding (`dune` with both the `azul` library and the `hello_world` executable stanza, `dune-project`), and the counter example (`hello_world.ml`), so unpacking it gives a complete, ready-to-build dune project:
+The Azul OCaml bindings are distributed directly via `azul.rs`. The release bundle acts as a complete, ready-to-build Dune project containing the generated `azul` library, the `azul.opam` package definition, and the `hello_world.ml` counter example.
+
+To get started, install the required `ctypes` dependencies and download the bundle alongside the native `libazul` library for your platform:
 
 ```sh
 opam install ctypes ctypes-foreign dune
