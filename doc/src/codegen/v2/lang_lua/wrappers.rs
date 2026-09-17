@@ -218,9 +218,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
             "    function {}_methods:{}(data, fn)\n",
             class, smart_snake
         ));
-        out.push_str("        local data_ref = azul.refany_create(data)\n");
         out.push_str(&format!(
-            "        return self:{}(data_ref, fn)\n",
+            "        return self:{}(data, fn)\n",
             func.method_name
         ));
         out.push_str("    end\n");
@@ -614,6 +613,7 @@ fn emit_instance_method(
     // each one through `azul._az_string(...)`. Mirrors the auto-string
     // rule in Java/Kotlin/C#/Ruby/Node.
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+    let has_refany = func.args.iter().any(|a| a.type_name.trim() == "RefAny");
 
     // Consume-after-by-value (mirrors lang_java/kotlin/csharp's
     // `consume_after_call` walk landed in 62094b885). Any arg whose IR
@@ -675,7 +675,7 @@ fn emit_instance_method(
     // (Option/Result) are non-void so they bypass this entirely.
     let returns_self = func.return_type.is_none() && !consumed_self;
 
-    if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() && !needs_consume {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && unwrap_call.is_none() && !needs_consume {
         if returns_self {
             out.push_str(&format!(
                 "    function {}_methods:{}(...) C.{}(self, ...); return self end\n",
@@ -692,7 +692,7 @@ fn emit_instance_method(
         return;
     }
 
-    if !has_callback_arg(func) && !has_az_string && !needs_consume {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && !needs_consume {
         // Auto-unwrap only path: keep the varargs varadic, wrap the return.
         // `returns_self` is impossible here (unwrap_call only triggers on
         // Option/Result, which are non-void), so no chainable branch.
@@ -733,6 +733,11 @@ fn emit_instance_method(
         if is_az_string_owned_arg(a) {
             out.push_str(&format!(
                 "        {n} = azul._az_string({n})\n",
+                n = visible[i]
+            ));
+        } else if a.type_name.trim() == "RefAny" {
+            out.push_str(&format!(
+                "        if type({n}) ~= 'cdata' then {n} = azul.refany_create({n}) end\n",
                 n = visible[i]
             ));
         }
@@ -1075,6 +1080,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // passthrough to an enumerated form so we can route each through
     // `azul._az_string`.
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+    let has_refany = func.args.iter().any(|a| a.type_name.trim() == "RefAny");
 
     // Ownership plumbing (mirrors emit_instance_method):
     // * armed return  — owned by-value C returns never see the metatype __gc (LuaJIT arms it only
@@ -1088,7 +1094,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
         .and_then(|t| lua_finalizer_for(t, ir));
     let consumable = lua_consumable_arg_indices(func, ir);
 
-    if !has_callback_arg(func) && !has_az_string && consumable.is_empty() {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && consumable.is_empty() {
         out.push_str(&format!(
             "    {} = function(...) return {} end,\n",
             lua_method,
@@ -1116,6 +1122,11 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
             if is_az_string_owned_arg(a) {
                 out.push_str(&format!(
                     "        {n} = azul._az_string({n})\n",
+                    n = visible[i]
+                ));
+            } else if a.type_name.trim() == "RefAny" {
+                out.push_str(&format!(
+                    "        if type({n}) ~= 'cdata' then {n} = azul.refany_create({n}) end\n",
                     n = visible[i]
                 ));
             }
@@ -1262,6 +1273,11 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
         if is_az_string_owned_arg(a) {
             out.push_str(&format!(
                 "        {n} = azul._az_string({n})\n",
+                n = visible[i]
+            ));
+        } else if a.type_name.trim() == "RefAny" {
+            out.push_str(&format!(
+                "        if type({n}) ~= 'cdata' then {n} = azul.refany_create({n}) end\n",
                 n = visible[i]
             ));
         }

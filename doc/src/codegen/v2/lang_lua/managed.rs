@@ -125,10 +125,15 @@ fn emit_invoker_registration(out: &mut String, cb: &CallbackTypedefDef) {
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            if a.name.is_empty() {
+            let arg_name = if a.name.is_empty() {
                 format!("_arg{}", i)
             } else {
                 a.name.clone()
+            };
+            if a.type_name == "RefAny" {
+                format!("azul.refany_get({})", arg_name)
+            } else {
+                arg_name
             }
         })
         .collect();
