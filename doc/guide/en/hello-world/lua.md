@@ -111,11 +111,14 @@ local app = azul.App.create(model, azul.AppConfig.create())
 app:run(window)
 ```
 
-The Lua `App.create` and `with_on_click` wrappers automatically inject a trampoline that securely passes your plain Lua table (`model`) back into your callbacks.
+The Lua `App.create` and `with_on_click` wrappers automatically inject a 
+trampoline that securely passes your plain Lua table (`model`) back into your callbacks.
 
-There are two builder flavours, which compose freely: `add_*` / `set_*` mutate in place and return `self`, so you chain them top-down, whereas `with_*` consume `self` and return the new value. Plain Lua strings flow through the auto-string conversion, so `'Increase counter'` and `tostring(data.counter)` can be passed directly, and garbage collection is wired up - `AzApp`'s `__gc` metamethod calls `AzApp_delete` when `app` is collected. 
-
-(Note: While LuaJIT's `ffi` traditionally struggles with passing large structs by value on Linux x86-64, the Azul bindings automatically detect this and seamlessly route aggregate-heavy functions like `App.create` through a by-pointer C ABI, so it works flawlessly across all platforms).
+There are two builder flavours, which compose freely: `add_*` / `set_*` mutate in place 
+and return `self`, whereas `with_*` consume `self` and return the new value. Plain Lua 
+strings flow through the auto-string conversion, so `'Increase counter'` and `tostring(data.counter)` 
+can be passed directly. Garbage collection is wired up - `AzApp`'s `__gc` metamethod 
+calls `AzApp_delete` when `app` is collected.
 
 ## Build and run
 ```sh
@@ -125,11 +128,22 @@ DYLD_LIBRARY_PATH=. luajit hello-world.lua
 LD_LIBRARY_PATH=. luajit hello-world.lua
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
-1. `app:run(window)` opened a native window and ran the layout callback once with your data model.
-2. The returned DOM was styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the DOM. On click, the framework borrows your data model mutably, runs the click callback, observes the refresh return, and re-invokes the layout callback.
-4. The framework determines the diff between the previous frame's DOM and the current one, and only re-updates and re-paints the counter, not the entire window.
+1. `app:run(window)` opens a native window and runs the layout callback once with your data model.
+2. The returned DOM is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up in 
+   the DOM. On receiving a click event, the framework borrows your data model mutably, runs the 
+   click callback, observes the refresh return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one, 
+   and only re-updates and re-paints the counter, not the entire window.
 
-Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
+Congratulations! Once you've got the hello-world example running, you've already mastered 80% of 
+the framework. As you might have guessed, more complex UI and styling are only composing more Dom 
+objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or explore 
+what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!
