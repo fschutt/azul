@@ -99,52 +99,12 @@ const std = @import("std");
 const azul = @import("azul.zig");
 const C = azul.C;
 
-/// A generic, reusable wrapper for ANY data model
-pub fn AzulRef(comptime T: type) type {
-    return struct {
-        // Zig guarantees a unique memory address for this global per instantiated type T
-        var TYPE_TOKEN: u8 = 0;
-
-        pub fn typeId() u64 {
-            return @intFromPtr(&TYPE_TOKEN);
-        }
-
-        fn destructor(_: ?*anyopaque) callconv(.c) void {}
-
-        pub fn upcast(model: T) C.AzRefAny {
-            var local = model; // Take a local copy to push to the Azul heap
-            const name = @typeName(T);
-            return C.AzRefAny_newC(
-                .{ .ptr = @ptrCast(&local), .run_destructor = false },
-                @sizeOf(T),
-                @alignOf(T),
-                typeId(),
-                C.AzString_fromUtf8(name.ptr, name.len),
-                destructor,
-                0,
-                0,
-            );
-        }
-
-        pub fn downcast(refany: *const C.AzRefAny) ?*T {
-            if (!C.AzRefAny_isType(refany, typeId())) return null;
-            const ptr = C.AzRefAny_getDataPtr(refany) orelse return null;
-            return @ptrCast(@constCast(@alignCast(ptr)));
-        }
-    };
-}
-
-/// Ergonomic string helper to hide `.ptr` and `.len` verbosity
-inline fn azStr(s: []const u8) C.AzString {
-    return C.AzString_fromUtf8(s.ptr, s.len);
-}
-
 const MyDataModel = struct {
     counter: u32,
 };
 
-// We just pass our struct to the wrapper and let Zig generate the boilerplate
-const MyModelRef = AzulRef(MyDataModel);
+// 1. We pass our struct to the wrapper and let Zig generate the C-FFI boilerplate
+const MyModelRef = azul.AzulRef(MyDataModel);
 
 fn onClick(data: C.AzRefAny, _: C.AzCallbackInfo) callconv(.c) C.AzUpdate {
     var d = data;
@@ -164,10 +124,11 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     
-    var label = C.AzDom_createPWithText(azStr(slice));
-    C.AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"));
+    // 2. azul.azStr() neatly replaces the verbose slice-to-C-String conversions
+    var label = C.AzDom_createPWithText(azul.azStr(slice));
+    C.AzDom_setCss(&label, azul.azStr("font-size: 32px; margin: 0;"));
 
-    var button = C.AzButton_create(azStr("Increase counter"));
+    var button = C.AzButton_create(azul.azStr("Increase counter"));
     C.AzButton_setButtonType(&button, C.AzButtonType_Primary);
     C.AzButton_setOnClick(&button, C.AzRefAny_clone(&d), onClick);
     
@@ -184,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
     const data = MyModelRef.upcast(.{ .counter = 5 });
 
     var window = C.AzWindowCreateOptions_create(layout);
-    window.window_state.title = azStr("Hello World");
+    window.window_state.title = azul.azStr("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
@@ -195,9 +156,9 @@ pub fn main(init: std.process.Init) !void {
 
 This snippet leverages advanced Zig features to erase boilerplate:
 
-1. **`comptime` Type Reflection (`AzulRef`)**: By passing the type into a `comptime` function, Zig auto-generates a unique `TYPE_TOKEN`, uses `@typeName(T)` for the string name, and resolves sizes automatically.
-2. **String Ergonomics**: The inline `azStr` helper eliminates the visual noise of repeatedly converting string literals to C `AzString` pointer-and-length structs.
-3. **Pointer Cast Simplification**: By strictly defining the return type (`?*T`), we let Zig infer the destination types natively during the downcast. It neatly collapses into `@ptrCast(@constCast(@alignCast(ptr)))`.
+1. **`comptime` Type Reflection (`azul.AzulRef`)**: By passing your state struct into the `comptime` wrapper, the generated bindings auto-allocate a unique `TYPE_TOKEN`, use `@typeName(T)` for the string name, and generate the C-FFI `upcast()` and `downcast()` methods under the hood for you safely.
+2. **String Ergonomics (`azul.azStr`)**: The inline `azStr` helper shipped in the bindings eliminates the visual noise of repeatedly converting string literals to C `AzString` pointer-and-length structs.
+3. **Pointer Cast Simplification**: The generated `downcast()` returns an inferred `?*T` optional, safely hiding the dense `@ptrCast(@constCast(@alignCast(ptr)))` logic within the wrapper.
 
 ### Zig 0.16.0 Notes
 
