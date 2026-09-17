@@ -218,9 +218,20 @@ impl GenerationTargets {
 
         // 16. Lua (LuaJIT FFI) bindings
         println!("[16/35] Generating Lua bindings...");
+        let lua_bindings = super::lang_lua::generate(ir, &CodegenConfig::c_header())?;
         Self::write_string(
-            super::lang_lua::generate(ir, &CodegenConfig::c_header())?,
+            &lua_bindings,
             &codegen_dir.join("azul.lua"),
+        )?;
+        
+        let cffi_bindings = lua_bindings
+            .replace(
+                "if not jit then\n    error('azul.lua requires LuaJIT (the `ffi` module is not available in standard Lua)')\nend\n\nlocal ffi = require('ffi')",
+                "local ffi = require('cffi')"
+            );
+        Self::write_string(
+            &cffi_bindings,
+            &codegen_dir.join("azul_cffi.lua"),
         )?;
         // LuaRocks rejects a filename/content version mismatch, so the
         // file name must stay `azul-<version>-<rev>.rockspec` in sync
