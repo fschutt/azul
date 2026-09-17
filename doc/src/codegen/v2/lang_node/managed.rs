@@ -228,12 +228,15 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         b.line("if (!fn) return;");
         b.line("try {");
         b.indent();
-        let user_args: Vec<String> = closure_args
-            .iter()
-            .skip(1)
-            .take(cb.args.len())
-            .cloned()
-            .collect();
+        let mut user_args = Vec::new();
+        for (i, a) in cb.args.iter().enumerate() {
+            let var_name = closure_args[i + 1].clone();
+            if a.type_name.trim() == "RefAny" {
+                user_args.push(format!("refanyGet({})", var_name));
+            } else {
+                user_args.push(var_name);
+            }
+        }
         if cb_has_return {
             b.line(&format!("const ret = fn({});", user_args.join(", ")));
             b.line("if (ret === undefined || ret === null) return;");
@@ -458,9 +461,12 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("// callbacks so the releaser frees both on last-clone drop.");
     b.line("function refanyCreate(value) {");
     b.indent();
+    b.line("if (value && value.__isRefAny) return value;");
     b.line("_ensureHostInvokerInit();");
     b.line("const id = _allocHandle(value);");
-    b.line("return lib.AzRefAny_newHostHandle(id);");
+    b.line("const ret = lib.AzRefAny_newHostHandle(id);");
+    b.line("ret.__isRefAny = true;");
+    b.line("return ret;");
     b.dedent();
     b.line("}");
     b.blank();

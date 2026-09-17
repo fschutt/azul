@@ -374,12 +374,11 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.line(" */");
         b.line(&format!("{}(data, fn) {{", smart_snake));
         b.indent();
-        b.line("const __data = refanyCreate(data);");
         b.line(&format!(
             "const __cb = registerCallback('{}', fn);",
             wrapper_kind
         ));
-        b.line(&format!("return this.{}(__data, __cb);", func.method_name));
+        b.line(&format!("return this.{}(data, __cb);", func.method_name));
         b.dedent();
         b.line("}");
         b.blank();
@@ -1323,6 +1322,9 @@ fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
             let n = sanitize_js_identifier(&a.name);
             if is_az_string_owned_arg(a) {
                 return format!("_azString({n})", n = n);
+            }
+            if a.type_name.trim() == "RefAny" {
+                return format!("refanyCreate({n})", n = n);
             }
             // If the arg is a wrapper-class instance the user will pass
             // the wrapper directly; pull `._ptr` out so the FFI gets a
