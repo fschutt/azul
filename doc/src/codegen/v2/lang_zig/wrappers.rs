@@ -877,7 +877,24 @@ fn format_call_args(
         if is_self_arg(&a.name, self_arg_name) {
             continue;
         }
-        out.push(renamed_param(&a.name, reserved_names));
+        let safe_name = renamed_param(&a.name, reserved_names);
+        let trimmed = a.type_name.trim();
+        
+        if trimmed == "String" {
+            out.push(format!("_asAzString({})", safe_name));
+        } else if trimmed == "RefAny" {
+            out.push(format!("_asRefAny({})", safe_name));
+        } else if trimmed.starts_with("Option") {
+            let inner = trimmed.trim_start_matches("Option");
+            let map_fn = if inner == "String" { "_asAzString" } else if inner == "RefAny" { "_asRefAny" } else { "_identity" };
+            out.push(format!("_asAzOption({}, C.Az{}_some, C.Az{}_none, {})", safe_name, trimmed, trimmed, map_fn));
+        } else if trimmed.ends_with("Vec") || trimmed.ends_with("VecRef") {
+            let inner = trimmed.trim_end_matches("Vec").trim_end_matches("VecRef");
+            let map_fn = if inner == "String" { "_asAzString" } else if inner == "RefAny" { "_asRefAny" } else { "_identity" };
+            out.push(format!("_asAzVec({}, C.Az{}_create, C.Az{}_copyFromPtr, C.Az{}_fromItem, {})", safe_name, trimmed, trimmed, trimmed, map_fn));
+        } else {
+            out.push(safe_name);
+        }
     }
     out.join(", ")
 }
@@ -961,6 +978,10 @@ fn map_arg_type(type_name: &str, ref_kind: ArgRefKind) -> String {
     // names match the C-typedef names we'd otherwise reach for).
     if let Some(zig) = primitive_to_zig(trimmed) {
         return apply_ref_kind(zig.to_string(), ref_kind);
+    }
+
+    if trimmed == "String" || trimmed == "RefAny" || trimmed.starts_with("Option") || trimmed.ends_with("Vec") || trimmed.ends_with("VecRef") {
+        return "anytype".to_string();
     }
 
     // Everything else is assumed to be an FFI type from `azul.h`.
