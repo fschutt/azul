@@ -25,8 +25,6 @@ local window = azul.WindowCreateOptions.create(layout):with({
     window_state = {
         title = 'Hello World',
         size = { dimensions = { width = 400.0, height = 300.0 } },
-        flags = {
-        },
     },
 })
 
