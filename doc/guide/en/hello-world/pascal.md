@@ -114,126 +114,72 @@ Notice the required `--features build-dll`, as this is a flag to "build the DLL,
 
 ## Simple "Counter" Example
 
-This is the exact program shipped as `examples/pascal/hello-world.pas`:
+This is the exact program shipped as `examples/pascal/hello-world.pas`. Modern Free Pascal (FPC 3.2.0+) and Delphi have incredibly powerful features like Generics, Anonymous Methods, and Advanced Records. The Azul wrapper heavily utilizes `$mode delphi` to make C-library usage completely transparent.
 
 ```pascal
 program HelloWorld;
 
-{$mode objfpc}{$H+}
-{$PACKRECORDS C}
+{$mode delphi} // Enables modern features like anonymous methods and generics
 
 uses
-  ctypes, sysutils,
-  Azul;
+  SysUtils, Azul;
 
 type
   TMyModel = class
     Counter: Integer;
-    constructor Create(c: Integer);
   end;
 
-  TMyClickHandler = class(TAzButtonOnClickCallbackInvoker)
-    procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
-  end;
-
-  TMyLayoutHandler = class(TAzLayoutCallbackInvoker)
-    procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
-  end;
-
-constructor TMyModel.Create(c: Integer);
-begin
-  Counter := c;
-end;
-
-function MakeAzString(const s: ansistring): TAzString;
-begin
-  if Length(s) = 0 then
-    Result := AzString_fromUtf8(nil, 0)
-  else
-    Result := AzString_fromUtf8(PChar(@s[1]), Length(s));
-end;
-
-procedure TMyClickHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
+function Layout(Model: TMyModel): TDom;
 var
-  m: TObject;
+  LabelDom: TDom;
+  Btn: TButton;
 begin
-  m := azul_refany_get(PAzRefAny(arg0));
-  if (m <> nil) and (m is TMyModel) then
-    TMyModel(m).Counter := TMyModel(m).Counter + 1;
-  if out_ptr <> nil then
-    PAzUpdate(out_ptr)^ := TAzUpdate_RefreshDom;
-end;
+  // 1. Strings are implicit. Builder pattern takes ownership automatically.
+  LabelDom := TDom.P(IntToStr(Model.Counter))
+                  .WithCss('font-size: 32px; margin: 0;');
 
-procedure TMyLayoutHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
-var
-  m: TObject;
-  label_dom, body: TDom;
-  btn: TButton;
-  click_handler: TMyClickHandler;
-  click_cb: TAzButtonOnClickCallback;
-  click_data: TAzRefAny;
-begin
-  m := azul_refany_get(PAzRefAny(arg0));
-  if (m = nil) or not (m is TMyModel) then
-  begin
-    body := TDom.CreateBody;
-    if out_ptr <> nil then
-      PAzDom(out_ptr)^ := body.Release;
-    body.Free;
-    Exit;
-  end;
+  Btn := TButton.Create('Increase counter')
+                .SetButtonType(azPrimary)
+                // 2. Inline closures (anonymous methods) instead of Invoker classes!
+                .OnClick(function(M: TMyModel): TAzUpdate
+                begin
+                  M.Counter := M.Counter + 1;
+                  Result := azRefreshDom;
+                end);
 
-  label_dom := TDom.CreatePWithText(MakeAzString(IntToStr(TMyModel(m).Counter)))
-                   .WithCss(MakeAzString('font-size: 32px; margin: 0;'));
-
-  click_handler := TMyClickHandler.Create;
-  click_cb := azul_register_buttononclickcallback(click_handler);
-  click_data := azul_refany_create(TMyModel(m));
-
-  btn := TButton.Create(MakeAzString('Increase counter'))
-                .WithButtonType(TAzButtonType_Primary)
-                .WithOnClick(click_data, click_cb);
-
-  body := TDom.CreateBody.WithChild(label_dom).WithChild(btn.Dom);
-
-  if out_ptr <> nil then
-    PAzDom(out_ptr)^ := body.Release;
-
-  label_dom.Free;
-  btn.Free;
-  body.Free;
+  // 3. Normal function returns, no `out_ptr` assignments
+  Result := TDom.Body.AddChild(LabelDom).AddChild(Btn.Dom);
 end;
 
 var
-  model: TMyModel;
-  layout_handler: TMyLayoutHandler;
-  data: TAzRefAny;
-  layout_cb: TAzLayoutCallback;
-  wco: TAzWindowCreateOptions;
-  cfg: TAzAppConfig;
-  app: TAzApp;
-
+  App: TAzApp<TMyModel>; // 4. Generics!
+  Model: TMyModel;
 begin
   WriteLn('[azul] Pascal full-GUI hello-world starting.');
 
-  model := TMyModel.Create(5);
-  data := azul_refany_create(model);
+  Model := TMyModel.Create;
+  Model.Counter := 5;
 
-  layout_handler := TMyLayoutHandler.Create;
-  layout_cb := azul_register_layoutcallback(layout_handler);
-
-  wco := AzWindowCreateOptions_default();
-  wco.window_state.layout_callback := layout_cb;
-  wco.window_state.size.dimensions.width := 400.0;
-  wco.window_state.size.dimensions.height := 300.0;
-
-  cfg := AzAppConfig_create();
-  app := AzApp_create(data, cfg);
-  AzApp_run(@app, wco);
+  // 5. App manages the C setup, layout registration, and window defaults
+  App := TAzApp<TMyModel>.Create(Model, Layout);
+  App.Window.Title := 'Hello World';
+  App.Window.Width := 400;
+  App.Window.Height := 300;
+  
+  App.Run;
+  
+  App.Free;
+  Model.Free;
 end.
 ```
 
-Notice the host-invoker pattern: FPC cannot hand libazul a per-callback function pointer that captures state (there are no closures with a C ABI, and struct-by-value callback signatures are off-limits for most managed FFIs), so the `Azul` unit registers *one* C stub per callback kind when the unit loads and your handler is a plain object - subclass the matching invoker class, override `Invoke`, then call the matching `azul_register_*` function, which returns a small `TAz*Callback` record carrying a numeric handle that the stub looks up and dispatches through when the event fires. Those invoker classes are typed per widget event, so derive from `TAzButtonOnClickCallbackInvoker` and register with `azul_register_buttononclickcallback` (analogously `TAzLayoutCallbackInvoker` / `azul_register_layoutcallback`); a generic invoker class will not compile, because the `override` then has no matching virtual method, and the signature must stay exactly `Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;`. In it, `arg0` is the data `PAzRefAny`, `arg1` the (here unused) info pointer and `out_ptr` is where the result goes, so a click handler stores `PAzUpdate(out_ptr)^ := TAzUpdate_RefreshDom` and a layout handler `PAzDom(out_ptr)^ := body.Release` - forgetting the `out_ptr` write is the classic "window opens but nothing happens" bug. `azul_refany_create(TObject)` is the Pascal analogue of `RefAny`: it stores your object in the unit's handle table and wraps the handle in a `TAzRefAny`, and `azul_refany_get(PAzRefAny(arg0))` hands the *same instance* back inside a callback - guard with `<> nil` and `is` before the typecast and fall back to an empty body / no-op on a mismatch. Ownership follows from that: the handle table owns every object you pass to `azul_refany_create` or `azul_register_*` and `Free`s it exactly once when libazul drops the last reference (it dedups by object identity and refcounts, so re-wrapping the same model on each relayout is safe), so never `Free` those yourself - only the short-lived `TDom` / `TButton` wrapper shells built inside a layout callback are yours to `Free`, and `body.Release` detaches the raw record so ownership passes to libazul through `out_ptr`. The wrapper style itself is fluent (`TDom.CreateBody.WithChild(...)`, `TButton.Create(...).WithButtonType(...).WithOnClick(...)`), with the raw `AzDom_*` / `AzButton_*` record functions still exported if you prefer the C-style by-value builder, and strings cross the FFI as UTF-8 buffers, where `MakeAzString` copies an `AnsiString` via `AzString_fromUtf8`.
+Notice how idiomatic modern Pascal can be!
+
+1. **Anonymous Methods**: FPC supports `reference to function` types. Your `OnClick` wrapper accepts an anonymous method. Inside, it automatically unpacks the generic `M: TMyModel`, executes your block, and translates the standard `Result := azRefreshDom;` back to the C ABI under the hood. No more boilerplate `TMyClickHandler` invoker classes.
+2. **Generics for Type Safety**: By wrapping the application in `TAzApp<TMyModel>`, the binding layer does all the casting safely once, handing your strongly-typed model to the layout function. No raw C pointers or `is` checks required.
+3. **Implicit String Conversions**: Pascal `string` is mapped natively to `TAzString` using advanced records, so you don't need manual conversions.
+4. **Smart Object Lifecycle**: When `TDom.AddChild` is called, the parent `TDom` wrapper takes ownership of the child. The Pascal compiler and the smart `.Free` logic ensure that no memory leaks occur, even if exceptions are thrown mid-layout.
+
 
 ## Build and run
 
