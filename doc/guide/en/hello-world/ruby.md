@@ -56,7 +56,8 @@ gem install --user-install ffi -v 1.15.5
 # download the native library:
 wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
 wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
-# windows: download https://azul.rs/ui/release/$VERSION/azul.dll
+# windows (PowerShell)
+Invoke-WebRequest -Uri https://azul.rs/ui/release/$VERSION/azul.dll -OutFile azul.dll
 ```
 
 Then drop the generated `azul.rb` binding next to your script and run with `-I.`:

@@ -52,7 +52,8 @@ npm install koffi
 # download the native library into the working dir:
 wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
 wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
-# windows: download https://azul.rs/ui/release/$VERSION/azul.dll
+# windows (PowerShell)
+Invoke-WebRequest -Uri https://azul.rs/ui/release/$VERSION/azul.dll -OutFile azul.dll
 ```
 
 Then drop the generated `azul.js` binding next to your script:

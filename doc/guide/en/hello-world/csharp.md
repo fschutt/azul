@@ -26,9 +26,16 @@ default-search-keys:
 
 ## Introduction
 
-In order to use C# (.NET 8+) with the prebuilt `libazul` library, you need the rendered generated `Azul.cs` binding glue, which talks to `libazul` over P/Invoke. Internally, the bindings handle C# specific things such as making sure the objects are alive long enough and that the garbage collector doesn't accidentally move them - however, in regular C#, you'll never come across this, but for documentation completeness the internals are documented further down the page.
+In order to use C# (.NET 8+) with the prebuilt `libazul` library, you need the rendered 
+generated `Azul.cs` binding glue, which talks to `libazul` over P/Invoke. Internally, 
+the bindings handle C# specific things such as making sure the objects are alive long 
+enough and that the garbage collector doesn't accidentally move them. However, in 
+regular C#, you'll never come across this, so this is just documented here for completeness.
 
-Azul isn't (yet) on nuget.org, but you can install the `libazul` package by using the `azul.rs` mirror. It will pick the correct binary artifact for Linux/macOS/Windows and store it under `runtimes/<rid>/native`. The package ID is `Azul.Net`, the assembly and namespace are still `Azul`:
+Azul isn't (yet) on nuget.org, but you can install the `libazul` package by using 
+the `azul.rs` mirror. It will pick the correct binary artifact for Linux/macOS/Windows 
+and store it under `runtimes/<rid>/native`. The package ID is `Azul.Net`, the assembly 
+and namespace are still `Azul`:
 
 ```sh
 dotnet nuget add source https://azul.rs/ui/nuget/index.json --name azul
@@ -37,28 +44,30 @@ dotnet add package Azul.Net --version $VERSION
 
 Alternatively, you can install the native library and binding by hand:
 
-1. Download the native library from the [releases](https://azul.rs/ui/release/$VERSION) and keep it next to your binary (or on the loader path):
+1. Download the native library from the [release page](https://azul.rs/ui/release/$VERSION) 
+   and keep it next to your binary (or on the loader path):
 
    ```sh
    # macOS (Apple Silicon; Intel: libazul.x86_64.dylib)
    wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib
-   # linux
+   # Linux
    wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so
-   # windows
-   # download https://azul.rs/ui/release/$VERSION/azul.dll
+   # Windows (PowerShell)
+   Invoke-WebRequest -Uri "https://azul.rs/ui/release/$VERSION/azul.dll" -OutFile "azul.dll"
    ```
 
 2. Add the generated `Azul.cs` bindings to your project:
 
    ```sh
-   # Azul.cs ships with the GitHub release, not the site: it is far too
-   # large for the Pages artifact budget.
+   # Azul.cs ships with the GitHub release
    curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/Azul.cs
    # optional project scaffold:
    wget https://azul.rs/ui/release/$VERSION/Azul.csproj
    ```
 
-The generated `Azul.cs` installs a `DllImportResolver` which automatically discovers the native library in the current working directory when running `dotnet run`.
+The generated `Azul.cs` installs a `DllImportResolver` which automatically 
+discovers the native library in the current working directory when running 
+`dotnet run`.
 
 ### Building from source
 
