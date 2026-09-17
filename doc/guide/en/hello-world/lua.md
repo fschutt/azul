@@ -115,7 +115,7 @@ The Lua `App.create` and `with_on_click` wrappers automatically inject a trampol
 
 There are two builder flavours, which compose freely: `add_*` / `set_*` mutate in place and return `self`, so you chain them top-down, whereas `with_*` consume `self` and return the new value. Plain Lua strings flow through the auto-string conversion, so `'Increase counter'` and `tostring(data.counter)` can be passed directly, and garbage collection is wired up - `AzApp`'s `__gc` metamethod calls `AzApp_delete` when `app` is collected. 
 
-One caveat: on x86-64 SysV, LuaJIT's `ffi` cannot call a C function that takes an aggregate *by value*, which `App.create(.., AppConfig)` does - it works flawlessly on arm64/macOS and Windows, but there is no Lua-side workaround short of a by-pointer C ABI, so the E2E board therefore marks Lua as skipped on Linux x86-64.
+(Note: While LuaJIT's `ffi` traditionally struggles with passing large structs by value on Linux x86-64, the Azul bindings automatically detect this and seamlessly route aggregate-heavy functions like `App.create` through a by-pointer C ABI, so it works flawlessly across all platforms).
 
 ## Build and run
 ```sh

@@ -223,7 +223,10 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("            for _, t in ipairs(meta.aggs) do");
     builder.line("                total = total + ffi.sizeof(t)");
     builder.line("            end");
-    builder.line("            local big = total > 128");
+    builder.line("            -- LuaJIT x64 SysV throws 'NYI: cannot pass struct by value' for aggregates > 16 bytes.");
+    builder.line("            -- Since the FFI auto-converts cdata structs to pointers when the C signature expects a pointer,");
+    builder.line("            -- we can safely route ALL aggregate-heavy calls through Byref if it exists.");
+    builder.line("            local big = #meta.aggs > 0");
     builder.line("            local byname = name .. 'Byref'");
     builder.line("            if big and __az_fn_decls[byname] then");
     builder.line("                ffi.cdef(__az_fn_decls[byname])");
