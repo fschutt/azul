@@ -701,8 +701,8 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
                 if e.is_union {
                     return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
                 }
-                // Unit enums are `int` aliases.
-                return ocaml_ffi_type_name(trimmed);
+                // Unit enums use their ADT wrapper type `<Module>.t`
+                return format!("{}.t", ocaml_module_name(trimmed));
             }
             if ir.find_type_alias(trimmed).is_some()
                 || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
@@ -841,6 +841,22 @@ pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
 }
 
 /// Convert a `PascalCase` or `camelCase` name to `lower_snake_case`.
+pub fn to_pascal_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper_next = true;
+    for c in s.chars() {
+        if c == '_' {
+            upper_next = true;
+        } else if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub fn to_snake_case(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 4);
     let mut prev_lower_or_digit = false;
