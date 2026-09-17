@@ -297,7 +297,9 @@ the layout callback then re-runs, and the new value renders.
 
 Congratulations if you made it this far - now you've already mastered 80% of the framework. 
 As you might have guessed, more complex UI and styling are only composing more Dom objects 
-together and working with the various event filters. You can now start reading about the 
-[architecture patterns](../architecture.md) or explore what [methods the `AzDom` has to offer](../dom.md). 
+together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or 
+explore what [methods the `AzDom` has to offer](../dom.md). 
 
 See you in the next tutorial!
