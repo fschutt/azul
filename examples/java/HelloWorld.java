@@ -1,48 +1,28 @@
 package com.azul;
 
-import com.sun.jna.Pointer;
+class Counter {
+    public int count = 0;
+}
 
-public final class HelloWorld {
-
-    public static final class MyDataModel {
-        public int counter;
-        public MyDataModel(int counter) { this.counter = counter; }
+public class HelloWorld {
+    public static void main(String[] args) {
+        try (App app = App.create(new Counter(), HelloWorld::layout)) {
+            WindowCreateOptions options = WindowCreateOptions.create();
+            app.run(options);
+        }
     }
 
-    private static final MyDataModel MODEL = new MyDataModel(5);
+    public static Dom layout(Counter data, AzLayoutCallbackInfo info) {
+        String countStr = String.format("Count: %d", data.count);
+        Button btn = Button.create(countStr)
+            .withOnClick(data, HelloWorld::onClick);
+        
+        return Dom.createBody()
+            .withChild(btn.dom());
+    }
 
-    private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
-        (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
-            Object m = AzulHostInvoker.refanyGet(dataPtr);
-            int result = Update.DoNothing.value;
-            if (m instanceof MyDataModel) {
-                ((MyDataModel) m).counter += 1;
-                result = Update.RefreshDom.value;
-            }
-            outPtr.setInt(0, result);
-        };
-
-    private static final AzulHostInvoker.LayoutCallback LAYOUT =
-        (long id, Pointer dataPtr, Pointer infoPtr) -> {
-            Object recovered = AzulHostInvoker.refanyGet(dataPtr);
-            if (!(recovered instanceof MyDataModel)) {
-                return Dom.createBody();
-            }
-            MyDataModel m = (MyDataModel) recovered;
-            Dom label = Dom.createPWithText(String.valueOf(m.counter))
-                .withCss("font-size: 32px; margin: 0;");
-            Dom buttonDom = Button.create("Increase counter")
-                .withButtonType(ButtonType.Primary.value)
-                .onClick(m, ON_CLICK)
-                .dom();
-            return Dom.createBody()
-                .withChild(label)
-                .withChild(buttonDom);
-        };
-
-    public static void main(String[] args) {
-        try (App app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())) {
-            app.run(WindowCreateOptions.create(LAYOUT));
-        }
+    public static Update onClick(Counter data, AzCallbackInfo info) {
+        data.count++;
+        return Update.RefreshDom; 
     }
 }

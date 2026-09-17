@@ -722,6 +722,8 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
     builder.line(&format!("public class {} extends Structure {{", name));
     builder.indent();
+    builder.line(&format!("public {}() {{ super(); }}", name));
+    builder.line(&format!("public {}(Pointer p) {{ super(p); read(); }}", name));
 
     let mut field_names: Vec<String> = Vec::new();
 

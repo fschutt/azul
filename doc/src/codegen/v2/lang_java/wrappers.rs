@@ -233,7 +233,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // Phase J.1: generalize the Button.onClick hardcode to any widget
     // method with the `with_on_*(self, data: RefAny, callback: <Cb>)`
     // shape. The detector (`smart_callback_setter_info`) returns
-    // Some((smart_name, wrapper_name)) when the method matches the
+    // Some((smart_name, raw_cb)) when the method matches the
     // pattern AND the wrapper kind is in HOST_INVOKER_KINDS.
     //
     // This lights up CheckBox.onToggle(data, fn), TextInput.onTextInput(),
@@ -1259,6 +1259,39 @@ fn emit_wrapper_method(
         }
     }
 
+    if let Some((wrapper_name, raw_cb)) = crate::codegen::v2::managed_host_invoker::smart_callback_setter_info(func) {
+        let is_static = func.method_name == "new" || func.method_name == "create";
+        let jvm_name = if is_static { "create".to_string() } else { crate::codegen::v2::lang_java::snake_to_lower_camel(&func.method_name) };
+        let ret_ty = if func.return_type.as_deref() == Some(class_name) { class_name.to_string() } else { crate::codegen::v2::lang_java::map_jvm_type(func.return_type.as_deref().unwrap_or("void"), ir) };
+        builder.line(&format!("public <T> {} {}(T data, AzulHostInvoker.{}WithData<T> fn) {{", ret_ty, jvm_name, raw_cb));
+        builder.indent();
+        builder.line("Object __data = AzulHostInvoker.refanyCreate(data);");
+        builder.line(&format!("Az{}.ByValue __cb_raw = AzulHostInvoker.register{}((Class<T>) data.getClass(), fn);", raw_cb, raw_cb));
+        
+        let mut inner_args = Vec::new();
+        for a in &func.args {
+            if a.type_name == "RefAny" {
+                inner_args.push("new RefAny(__data)".to_string());
+            } else if a.type_name == raw_cb {
+                inner_args.push(format!("new {}(__cb_raw)", raw_cb));
+            } else if a.name != "self" {
+                inner_args.push(format!("{}", crate::codegen::v2::lang_java::snake_to_lower_camel(&a.name)));
+            }
+        }
+        let call_str = if is_static {
+            format!("{}.{}({})", class_name, jvm_name, inner_args.join(", "))
+        } else {
+            format!("this.{}({})", jvm_name, inner_args.join(", "))
+        };
+        if ret_ty == "void" {
+            builder.line(&format!("{};", call_str));
+        } else {
+            builder.line(&format!("return {};", call_str));
+        }
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
     builder.dedent();
     builder.line("}");
     builder.blank();

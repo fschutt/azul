@@ -420,6 +420,7 @@ fn emit_kt_data_typed_invoker_sam(
     // Subsequent args: wrapper class when available, else raw Pointer?.
     enum ArgKind {
         Wrapper(String),
+        Struct(String),
         RawPointer,
     }
     let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
@@ -427,6 +428,8 @@ fn emit_kt_data_typed_invoker_sam(
         let t = a.type_name.trim();
         let kind = if kt_managed_has_wrapper_class(t, ir) {
             ArgKind::Wrapper(t.to_string())
+        } else if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() {
+            ArgKind::Struct(t.to_string())
         } else {
             ArgKind::RawPointer
         };
@@ -478,6 +481,7 @@ fn emit_kt_data_typed_invoker_sam(
     for (kind, name) in &extra_args {
         let ty = match kind {
             ArgKind::Wrapper(t) => t.clone(),
+            ArgKind::Struct(t) => crate::codegen::v2::lang_java::ffi_type_name(t),
             ArgKind::RawPointer => "Pointer?".to_string(),
         };
         iface_params.push(format!("{}: {}", name, ty));
@@ -542,6 +546,11 @@ fn emit_kt_data_typed_invoker_sam(
                 // populates these slots; a null here would mean the
                 // underlying libazul thunk crashed already.
                 builder.line(&format!("val __{} = {}({}!!)", name, ty, name));
+                call_args.push(format!("__{}", name));
+            }
+            ArgKind::Struct(ty) => {
+                let ffi_ty = crate::codegen::v2::lang_java::ffi_type_name(ty);
+                builder.line(&format!("val __{} = {}({}!!)", name, ffi_ty, name));
                 call_args.push(format!("__{}", name));
             }
             ArgKind::RawPointer => {

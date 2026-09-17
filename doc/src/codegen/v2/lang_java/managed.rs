@@ -584,14 +584,17 @@ fn emit_data_typed_invoker_sam(
     // when the info slot remains a Pointer. ArgKind tags the form so
     // the emitter knows whether to construct or pass through.
     enum ArgKind {
-        Wrapper(String), // wrapper class name; emit `new <ty>(ptr)`
-        RawPointer,      // emit the raw `Pointer` (no wrap)
+        Wrapper(String),
+        Struct(String),
+        RawPointer,
     }
     let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
     for (i, a) in cb.args.iter().enumerate().skip(1) {
         let t = a.type_name.trim();
         let kind = if managed_has_wrapper_class(t, ir) {
             ArgKind::Wrapper(t.to_string())
+        } else if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() {
+            ArgKind::Struct(t.to_string())
         } else {
             ArgKind::RawPointer
         };
@@ -651,6 +654,7 @@ fn emit_data_typed_invoker_sam(
     for (kind, name) in &extra_args {
         let ty = match kind {
             ArgKind::Wrapper(t) => t.clone(),
+            ArgKind::Struct(t) => super::ffi_type_name(t),
             ArgKind::RawPointer => "Pointer".to_string(),
         };
         iface_params.push(format!("{} {}", ty, name));
@@ -721,10 +725,12 @@ fn emit_data_typed_invoker_sam(
                 b.line(&format!("{} __{} = new {}({});", ty, name, ty, name));
                 call_args.push(format!("__{}", name));
             }
+            ArgKind::Struct(ty) => {
+                let ffi_ty = super::ffi_type_name(ty);
+                b.line(&format!("{} __{} = new {}({});", ffi_ty, name, ffi_ty, name));
+                call_args.push(format!("__{}", name));
+            }
             ArgKind::RawPointer => {
-                // No-wrap path: pass the raw Pointer straight through.
-                // User wraps via Structure.newInstance themselves if
-                // they need to deref the underlying C struct.
                 call_args.push(name.clone());
             }
         }

@@ -1,17 +1,6 @@
 ---
-slug: hello-world/java
-title: Hello World [Java]
-language: en
-canonical_slug: hello-world/java
-audience: external
-maturity: mature
-guide_order: 16
-topic_only: false
-prerequisites: [hello-world]
-tracked_files:
-  - api.json
-  - examples/java/HelloWorld.java
-last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+title: Java
+weight: 30
 generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
@@ -108,55 +97,37 @@ Notice the required `--features build-dll`, as this is a flag to "build the DLL,
 ```java
 package com.azul;
 
-import com.sun.jna.Pointer;
+class Counter {
+    public int count = 0;
+}
 
-public final class HelloWorld {
-
-    public static final class MyDataModel {
-        public int counter;
-        public MyDataModel(int counter) { this.counter = counter; }
+public class HelloWorld {
+    public static void main(String[] args) {
+        try (App app = App.create(new Counter(), HelloWorld::layout)) {
+            WindowCreateOptions options = WindowCreateOptions.create();
+            app.run(options);
+        } // app.close() called automatically via AutoCloseable
     }
 
-    private static final MyDataModel MODEL = new MyDataModel(5);
+    public static Dom layout(Counter data, AzLayoutCallbackInfo info) {
+        String countStr = String.format("Count: %d", data.count);
+        Button btn = Button.create(countStr)
+            .withOnClick(data, HelloWorld::onClick);
+        
+        return Dom.createBody()
+            .withChild(btn.dom());
+    }
 
-    private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
-        (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
-            Object m = AzulHostInvoker.refanyGet(dataPtr);
-            int result = Update.DoNothing.value;
-            if (m instanceof MyDataModel) {
-                ((MyDataModel) m).counter += 1;
-                result = Update.RefreshDom.value;
-            }
-            outPtr.setInt(0, result);
-        };
-
-    private static final AzulHostInvoker.LayoutCallback LAYOUT =
-        (long id, Pointer dataPtr, Pointer infoPtr) -> {
-            Object recovered = AzulHostInvoker.refanyGet(dataPtr);
-            if (!(recovered instanceof MyDataModel)) {
-                return Dom.createBody();
-            }
-            MyDataModel m = (MyDataModel) recovered;
-            Dom label = Dom.createPWithText(String.valueOf(m.counter))
-                .withCss("font-size: 32px; margin: 0;");
-            Dom buttonDom = Button.create("Increase counter")
-                .withButtonType(ButtonType.Primary.value)
-                .onClick(m, ON_CLICK)
-                .dom();
-            return Dom.createBody()
-                .withChild(label)
-                .withChild(buttonDom);
-        };
-
-    public static void main(String[] args) {
-        try (App app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())) {
-            app.run(WindowCreateOptions.create(LAYOUT));
-        }
+    public static Update onClick(Counter data, AzCallbackInfo info) {
+        data.count++;
+        return Update.RefreshDom; 
     }
 }
 ```
 
-Notice that `AzulHostInvoker.refanyWrap` wraps your `MyDataModel` once and the *same* instance is handed back to every callback, so an `instanceof` guard is all that stands between you and your data - fall back to `Dom.createBody()` / `Update.DoNothing` on a mismatch. The typed `AzulHostInvoker.LayoutCallback` SAM returns a `Dom` directly and the host-invoker bridge splices its bytes into libazul's out-pointer for you, while click handlers use the event's typed SAM (`ButtonOnClickCallbackInvokerCallback` for `Button.onClick`) and write the `Update` int back through the out-pointer with `outPtr.setInt(0, ...)`. Everything else is the fluent wrapper API - `Dom.createBody().withChild(...)`, `Button.create(label).withButtonType(...).onClick(data, fn).dom()` - and `AzulString` decodes to a `java.lang.String` via `.toString()`. Finally, `try (App app = ...)` releases the native memory deterministically, because `close()` calls the C-side `delete`.
+Notice how much cleaner the typed API is. The `App.create` and `withOnClick` wrappers automatically use `AzulHostInvoker` under the hood to preserve object identity without any `Pointer` or manual `instanceof` downcasting checks.
+
+The typed layout callback returns a `Dom` directly, and click handlers return an integer `Update` ordinal. Using `try (App app = ...)` releases the native memory deterministically via Java's try-with-resources.
 
 ## Build and run
 

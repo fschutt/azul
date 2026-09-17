@@ -1,17 +1,6 @@
 ---
-slug: hello-world/kotlin
-title: Hello World [Kotlin]
-language: en
-canonical_slug: hello-world/kotlin
-audience: external
-maturity: mature
-guide_order: 17
-topic_only: false
-prerequisites: [hello-world]
-tracked_files:
-  - api.json
-  - examples/kotlin/HelloWorld.kt
-last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+title: Kotlin
+weight: 35
 generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
@@ -26,67 +15,49 @@ default-search-keys:
 
 ## Introduction
 
-The Kotlin binding rides on the same [JNA](https://github.com/java-native-access/jna)
-layer as Java, so it loads the prebuilt `libazul` native library directly. You write
-idiomatic Kotlin — a data class, a `LayoutCallback` SAM that returns a `Dom`, and the
-companion-object `App` factory — and the generated wrappers handle the FFI.
+The Kotlin binding relies on the exact same JNA underpinnings as Java. It provides
+a fully idiomatic Kotlin experience out of the box — the `App` and callback registry 
+have been completely refactored to use standard Kotlin generics, removing all `Pointer` 
+arithmetic and manual type erasure from your code.
 
 ## Installation
 
-> **Windows: not shipped yet.** The Kotlin hello-world builds and starts on
-> Windows, but after the headless layout the JVM never terminates — a native
-> thread or an undrained native event queue keeps it alive (a known
-> JNA-on-Windows class of problem; the same-JVM **Java** binding exits
-> cleanly on Windows, and this binding passes the full e2e on Linux and
-> macOS). Until a Windows-host thread dump pins the thread, use the Java
-> binding on Windows or Kotlin on Linux/macOS. Tracked in
-> `scripts/e2e_language_matrix.sh` (`lang_kotlin`).
+Kotlin uses the identical maven repository and jar as Java. You can use Gradle:
 
-You need **JDK 17+** and **Maven** (or Kotlin 1.9+ and JNA 5.14+ for the
-manual route below).
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://azul.rs/ui/maven")
+    }
+}
 
-The binding is published as `rs.azul:azul-kotlin` on the self-hosted Maven
-repository at `https://azul.rs/ui/maven`: the compiled `Azul.kt` with
-`libazul` for Linux, macOS and Windows bundled as JNA resources, so nothing
-native has to be downloaded. The example project is a `pom.xml` that depends
-on it and shades everything into one runnable jar:
-
-```sh
-curl -o pom.xml https://azul.rs/ui/release/$VERSION/pom-kotlin.xml
-curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.kt
-mvn -q package
-java -jar target/hello-world-1.0.0.jar
-# macOS: java -XstartOnFirstThread -jar target/hello-world-1.0.0.jar
+dependencies {
+    implementation("rs.azul:azul:$VERSION")
+    // JNA is a transitive dependency, but you can pin it
+    implementation("net.java.dev.jna:jna:5.14.0")
+}
 ```
 
-Without Maven, the binding is one generated file, `Azul.kt` (package
-`com.azul`), compiled together with your program. Download it, the counter
-example and the native library, then compile with `kotlinc` against JNA:
+Or you can use the pre-made `HelloWorld.kt` and `build.gradle.kts` from
+the release page:
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/Azul.kt
+curl -O https://azul.rs/ui/release/$VERSION/build.gradle.kts
+curl -O https://azul.rs/ui/release/$VERSION/settings.gradle.kts
 curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.kt
-curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib     # or libazul.so / azul.dll
-curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
-
-kotlinc -J-Xmx4g -cp jna.jar Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar
-java -Djna.library.path=. -cp hello-world.jar:jna.jar com.azul.HelloWorldKt
-# macOS: java -XstartOnFirstThread -Djna.library.path=. ...
+gradle build
+java -jar build/libs/hello-world-1.0.0.jar      # macOS: java -XstartOnFirstThread -jar ...
 ```
 
-`Azul.kt` is a ~120k-line file; the `-J-Xmx4g` heap is required. The native
-library must be discoverable via `-Djna.library.path` / `DYLD_LIBRARY_PATH`
-/ `LD_LIBRARY_PATH` / `PATH`.
+Alternatively, to compile from the generated `Azul.kt`:
 
-Gradle users: `examples/kotlin/build.gradle.kts` in the repository is a
-complete project that compiles `Azul.kt` from a directory of your choice
-(`-Pazul.codegen.dir=...`) and wires `jna.library.path` onto `gradle run`.
-
-The self-hosted Maven repository at `https://azul.rs/ui/maven` also serves
-`rs.azul:azul` — that is the *Java* binding (with `libazul` for Linux, macOS
-and Windows bundled as JNA resources), which Kotlin can call directly like
-any Java library; its API differs from `Azul.kt` (Java wrapper classes
-rather than the Kotlin-idiomatic surface used below).
+1. Download the native library from the
+   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
+   / `libazul.so` / `azul.dll`) and keep it in your working directory.
+2. Download the Kotlin bundle — `azul-kotlin-$VERSION.tar.gz` — and add
+   the generated Kotlin files to your source set.
+3. Build and run.
 
 ### Building from source
 
@@ -101,72 +72,55 @@ cargo run -p azul-doc --release -- codegen all
 cargo build -p azul-dll --release --features build-dll
 ```
 
-Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The header/bindings are previously generated by `azul-doc codegen all` and end up at `target/codegen/`. Copy both somewhere your compiler can find them.
+Notice the required `--features build-dll`. The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The Kotlin bindings are generated at `target/codegen/kotlin/`.
 
 ## Simple "Counter" Example
 
 ```kotlin
 package com.azul
 
-import com.sun.jna.Pointer
-
-class MyDataModel(var counter: Int)
-private val MODEL = MyDataModel(5)
-
-private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
-    val m = AzulHostInvoker.refanyGet(dataPtr)
-    val result = if (m is MyDataModel) { m.counter += 1; Update.RefreshDom.value }
-                 else Update.DoNothing.value
-    outPtr!!.setInt(0, result)
+class Counter {
+    var count: Int = 0
 }
 
-private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
-    val m = AzulHostInvoker.refanyGet(dataPtr)
-    if (m !is MyDataModel) {
-        Dom.createBody()
-    } else {
-        val label = Dom.createPWithText(m.counter.toString())
-            .withCss("font-size: 32px; margin: 0;")
-        val buttonDom = Button.create("Increase counter")
-            .withButtonType(ButtonType.Primary.value)
-            .onClick(m, onClick)
-            .dom()
-        Dom.createBody()
-            .withChild(label)
-            .withChild(buttonDom)
-    }
+// Top-level functions don't need @JvmStatic or objects!
+fun layout(data: Counter, info: AzLayoutCallbackInfo): Dom {
+    val countStr = "Count: ${data.count}"
+    val btn = Button.create(countStr)
+        .withOnClick(data, ::onClick)
+    
+    return Dom.createBody()
+        .withChild(btn.dom())
 }
 
-fun main() {
-    App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create()).use { app ->
-        app.run(WindowCreateOptions.create(layout))
+fun onClick(data: Counter, info: AzCallbackInfo): Update {
+    data.count++
+    return Update.RefreshDom
+}
+
+fun main(args: Array<String>) {
+    App.create(Counter(), ::layout).use { app ->
+        val options = WindowCreateOptions.create()
+        app.run(options)
     }
 }
 ```
 
-Notice that `AzulHostInvoker.refanyWrap` / `refanyGet` hand the *same* object instance back to every callback, so `if (m is MyDataModel)` both guards and smart-casts - return `Dom.createBody()` / `Update.DoNothing.value` on a mismatch. The `LayoutCallback` SAM returns a `Dom` directly and the companion `WindowCreateOptions.create` factory hides the host-invoker registration and the JNA byte-splice, while click handlers use the event's typed SAM (`ButtonOnClickCallbackInvokerCallback` for `Button.onClick`) and write the `Update` int through the out-pointer - note the `!!` unwrap on the nullable `Pointer?` before `setInt`, which is required. The rest is the fluent wrapper API (`Dom.createBody().withChild(...)`, `Button.create(...).withButtonType(...).onClick(data, fn).dom()`), `AzulString.toString()` decodes UTF-8 into a `kotlin.String`, and `use { }` disposes the `App` (calling the C-side `delete`) when the block exits. One known wrinkle: on Windows the example runs correctly but the JVM may not terminate afterwards, because it exits only once all non-daemon threads end and the native event queue is drained - the E2E board reports Kotlin as skipped on Windows for this reason.
+This works identically to Java: the `App.create` generic parameters properly type your layout callback, and `withOnClick` expects a callback receiving your specific typed `data` model. The `AzulHostInvoker` abstraction handles registering the class and hiding the JNA `Pointer` conversion logic behind the scenes.
+
+Using `app.use { ... }` ensures that `.close()` is called deterministically when the app exits, properly disposing of the native C memory.
 
 ## Build and run
 
 ```sh
-kotlinc -J-Xmx4g -cp $JNA_JAR Azul.kt HelloWorld.kt \
-    -include-runtime -d hello-world.jar
-# macOS requires -XstartOnFirstThread (Cocoa main-thread rule).
-DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-    -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
+gradle build
+# macOS — -XstartOnFirstThread is REQUIRED so libazul's NSApplication loop
+# pumps on the JVM main thread.
+java -XstartOnFirstThread -Djna.library.path=. -jar build/libs/hello-world-1.0.0.jar
 ```
 
-`$JNA_JAR` points at your `jna-5.14.0.jar` (from Maven Central,
-`net.java.dev.jna:jna:5.14.0`). On Linux/Windows drop
-`-XstartOnFirstThread` and use `LD_LIBRARY_PATH` / `PATH`.
-
-Alternatively — and recommended — use the Gradle project from the
-repository's `examples/kotlin/` directory
-([`build.gradle.kts`](https://github.com/fschutt/azul/blob/master/examples/kotlin/build.gradle.kts)):
-`gradle run` pulls JNA from Maven Central, compiles `Azul.kt` +
-`HelloWorld.kt` with daemon caching (the 4 GB compiler heap is preset in
-`gradle.properties`), and wires `jna.library.path` onto the run task for
-you.
+On Linux/Windows drop `-XstartOnFirstThread`. `-Djna.library.path=.` points
+JNA at the directory holding `libazul.dylib` / `libazul.so` / `azul.dll`.
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 

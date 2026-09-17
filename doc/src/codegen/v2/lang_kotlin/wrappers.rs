@@ -1260,6 +1260,34 @@ fn emit_static_factory(
     }
 
     builder.dedent();
+    if let Some((wrapper_name, raw_cb)) = crate::codegen::v2::managed_host_invoker::smart_callback_setter_info(func) {
+        let jvm_name = "create";
+        let ret_ty = if func.return_type.as_deref() == Some(class_name) { class_name.to_string() } else { crate::codegen::v2::lang_kotlin::map_kt_return(func.return_type.as_deref().unwrap_or("Unit"), ir) };
+        builder.line(&format!("fun <T: Any> {}(data: T, fn: AzulHostInvoker.{}WithData<T>): {} {{", jvm_name, raw_cb, ret_ty));
+        builder.indent();
+        builder.line("val __data = AzulHostInvoker.refanyCreate(data)");
+        builder.line(&format!("val __cb_raw = AzulHostInvoker.register{}(data::class.java, fn)", raw_cb));
+        
+        let mut inner_args = Vec::new();
+        for a in &func.args {
+            if a.type_name == "RefAny" {
+                inner_args.push("RefAny(__data)".to_string());
+            } else if a.type_name == raw_cb {
+                inner_args.push(format!("{}(__cb_raw)", raw_cb));
+            } else if a.name != "self" {
+                inner_args.push(format!("{}", crate::codegen::v2::lang_java::snake_to_lower_camel(&a.name)));
+            }
+        }
+        let call_str = format!("{}({})", jvm_name, inner_args.join(", "));
+        if ret_ty == "Unit" {
+            builder.line(&format!("{}", call_str));
+        } else {
+            builder.line(&format!("return {}", call_str));
+        }
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
     builder.line("}");
     builder.blank();
 }
@@ -1487,6 +1515,34 @@ fn emit_instance_method(
     }
 
     builder.dedent();
+    if let Some((wrapper_name, raw_cb)) = crate::codegen::v2::managed_host_invoker::smart_callback_setter_info(func) {
+        let jvm_name = crate::codegen::v2::lang_java::snake_to_lower_camel(&func.method_name);
+        let ret_ty = if func.return_type.as_deref() == Some(class_name) { class_name.to_string() } else { crate::codegen::v2::lang_kotlin::map_kt_return(func.return_type.as_deref().unwrap_or("Unit"), ir) };
+        builder.line(&format!("fun <T: Any> {}(data: T, fn: AzulHostInvoker.{}WithData<T>): {} {{", jvm_name, raw_cb, ret_ty));
+        builder.indent();
+        builder.line("val __data = AzulHostInvoker.refanyCreate(data)");
+        builder.line(&format!("val __cb_raw = AzulHostInvoker.register{}(data::class.java, fn)", raw_cb));
+        
+        let mut inner_args = Vec::new();
+        for a in &func.args {
+            if a.type_name == "RefAny" {
+                inner_args.push("RefAny(__data)".to_string());
+            } else if a.type_name == raw_cb {
+                inner_args.push(format!("{}(__cb_raw)", raw_cb));
+            } else if a.name != "self" {
+                inner_args.push(format!("{}", crate::codegen::v2::lang_java::snake_to_lower_camel(&a.name)));
+            }
+        }
+        let call_str = format!("this.{}({})", jvm_name, inner_args.join(", "));
+        if ret_ty == "Unit" {
+            builder.line(&format!("{}", call_str));
+        } else {
+            builder.line(&format!("return {}", call_str));
+        }
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
     builder.line("}");
     builder.blank();
 }

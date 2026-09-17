@@ -1,36 +1,27 @@
 package com.azul
 
-import com.sun.jna.Pointer
-
-class MyDataModel(var counter: Int)
-private val MODEL = MyDataModel(5)
-
-private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
-    val m = AzulHostInvoker.refanyGet(dataPtr)
-    val result = if (m is MyDataModel) { m.counter += 1; Update.RefreshDom.value }
-                 else Update.DoNothing.value
-    outPtr!!.setInt(0, result)
+class Counter {
+    var count: Int = 0
 }
 
-private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
-    val m = AzulHostInvoker.refanyGet(dataPtr)
-    if (m !is MyDataModel) {
-        Dom.createBody()
-    } else {
-        val label = Dom.createPWithText(m.counter.toString())
-            .withCss("font-size: 32px; margin: 0;")
-        val buttonDom = Button.create("Increase counter")
-            .withButtonType(ButtonType.Primary.value)
-            .onClick(m, onClick)
-            .dom()
-        Dom.createBody()
-            .withChild(label)
-            .withChild(buttonDom)
-    }
+// Top-level functions don't need @JvmStatic or objects!
+fun layout(data: Counter, info: AzLayoutCallbackInfo): Dom {
+    val countStr = "Count: ${data.count}"
+    val btn = Button.create(countStr)
+        .withOnClick(data, ::onClick)
+    
+    return Dom.createBody()
+        .withChild(btn.dom())
 }
 
-fun main() {
-    App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create()).use { app ->
-        app.run(WindowCreateOptions.create(layout))
+fun onClick(data: Counter, info: AzCallbackInfo): Update {
+    data.count++
+    return Update.RefreshDom
+}
+
+fun main(args: Array<String>) {
+    App.create(Counter(), ::layout).use { app ->
+        val options = WindowCreateOptions.create()
+        app.run(options)
     }
 }
