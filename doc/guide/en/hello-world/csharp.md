@@ -32,6 +32,8 @@ the bindings handle C# specific things such as making sure the objects are alive
 enough and that the garbage collector doesn't accidentally move them. However, in 
 regular C#, you'll never come across this, so this is just documented here for completeness.
 
+## Installation
+
 Azul isn't (yet) on nuget.org, but you can install the `libazul` package by using 
 the `azul.rs` mirror. It will pick the correct binary artifact for Linux/macOS/Windows 
 and store it under `runtimes/<rid>/native`. The package ID is `Azul.Net`, the assembly 

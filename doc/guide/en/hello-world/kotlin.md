@@ -1,6 +1,17 @@
 ---
-title: Kotlin
-weight: 35
+slug: hello-world/kotlin
+title: Hello World [Kotlin]
+language: en
+canonical_slug: hello-world/kotlin
+audience: external
+maturity: mature
+guide_order: 17
+topic_only: false
+prerequisites: [hello-world]
+tracked_files:
+  - api.json
+  - examples/kotlin/HelloWorld.kt
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
 generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
@@ -84,7 +95,7 @@ class Counter {
 }
 
 // Top-level functions don't need @JvmStatic or objects!
-fun layout(data: Counter, info: AzLayoutCallbackInfo): Dom {
+fun layout(data: Counter, info: LayoutCallbackInfo): Dom {
     val countStr = "Count: ${data.count}"
     val btn = Button.create(countStr)
         .withOnClick(data, ::onClick)
@@ -93,7 +104,7 @@ fun layout(data: Counter, info: AzLayoutCallbackInfo): Dom {
         .withChild(btn.dom())
 }
 
-fun onClick(data: Counter, info: AzCallbackInfo): Update {
+fun onClick(data: Counter, info: CallbackInfo): Update {
     data.count++
     return Update.RefreshDom
 }

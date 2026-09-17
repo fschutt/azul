@@ -1,6 +1,17 @@
 ---
-title: Java
-weight: 30
+slug: hello-world/java
+title: Hello World [Java]
+language: en
+canonical_slug: hello-world/java
+audience: external
+maturity: mature
+guide_order: 16
+topic_only: false
+prerequisites: [hello-world]
+tracked_files:
+  - api.json
+  - examples/java/HelloWorld.java
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
 generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
@@ -109,7 +120,7 @@ public class HelloWorld {
         } // app.close() called automatically via AutoCloseable
     }
 
-    public static Dom layout(Counter data, AzLayoutCallbackInfo info) {
+    public static Dom layout(Counter data, LayoutCallbackInfo info) {
         String countStr = String.format("Count: %d", data.count);
         Button btn = Button.create(countStr)
             .withOnClick(data, HelloWorld::onClick);
@@ -118,7 +129,7 @@ public class HelloWorld {
             .withChild(btn.dom());
     }
 
-    public static Update onClick(Counter data, AzCallbackInfo info) {
+    public static Update onClick(Counter data, CallbackInfo info) {
         data.count++;
         return Update.RefreshDom; 
     }
