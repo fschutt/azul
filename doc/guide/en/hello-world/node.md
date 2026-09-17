@@ -83,7 +83,8 @@ Notice the required `--features build-dll`. The DLL gets built in `target/releas
 ```javascript
 'use strict';
 
-const azul = require('azul'); // Use require('./azul.js') if downloaded manually
+// Use require('./azul.js') if downloaded manually
+const azul = require('azul');
 const model = { counter: 5 };
 
 function onClick(data, _info) {
@@ -112,13 +113,15 @@ const window = azul.WindowCreateOptions.create(layout).with({
     },
 });
 
-azul.App.create(model, azul.AppConfig.create()).run(window); JavaScript objects directly to `App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `Update.*` (or a `Dom` for layout). Enums and helpers sit at the top level of the module (`Update.RefreshDom`, `ButtonType.Primary`). Keep the `uncaughtException` handler: it logs exceptions thrown inside koffi callbacks before libffi can `SIGABRT` the process, which is otherwise an abort with no stack.
+azul.App.create(model, azul.AppConfig.create()).run(window);
+```
+
+Notice that you can pass plain JavaScript objects directly to `azul.App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `azul.Update.*` (or an `azul.Dom` for layout). Enums and helpers sit at the top level of the module (`azul.Update.RefreshDom`, `azul.ButtonType.Primary`).
 
 ## Build and run
 
 ```sh
 node hello-world.js
-# or:
 bun hello-world.js
 # Deno needs the permissions, and a package.json marking the CommonJS module:
 printf '{"type":"commonjs"}\n' > package.json
