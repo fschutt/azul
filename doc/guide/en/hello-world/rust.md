@@ -93,15 +93,27 @@ curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 ```
 
-In order for Rust to know where the downloaded dll lives, you need to set the AZ_LINK_PATH variable to the path of the dll. Azul's build.rs system is relatively smart and will figure out where the other files are that it needs. If you want to end up with a "single-binary" build, download the .a file and set that as your AZ_LINK_PATH. If AZ_LINK_PATH is not set, it will try to find and link against the system-installed library (i.e. the one installed by apt or brew above), so for those installation methods you don't need to set the environment variable at all - only if you used the curl method:
+In order for Rust to know where the downloaded dll lives, you need to set the `AZ_LINK_PATH`
+variable to the path of the dll. Azul's `build.rs` system is relatively smart and will figure 
+out where the other files are that it needs. 
+
+If you want to end up with a "single-binary" build, download the `.a` file and set that as 
+your `AZ_LINK_PATH`. 
 
 ```sh
 export AZ_LINK_PATH=/my/path/to/libazul.so
 ```
 
+If `AZ_LINK_PATH` is not set, it will try to find the system-installed 
+library (i.e. the one installed by apt or brew above) and link against it. So if you installed 
+`libazul` via brew or similar, then you don't need to set the environment variable at all - 
+only if you used the curl method.
+
 ### Installing the API bindings
 
-Now that you have prepared the precompiled library, you still need the generated API bindings. Currently, Azul is not on crates.io yet, but the bindings are available from azul.rs, so you can register azul.rs as a "registry" in cargo in your project like this:
+Now that you have prepared the precompiled library, you still need the generated API bindings. 
+Currently, Azul is not on crates.io, but the bindings are available from azul.rs, so you can 
+register azul.rs as a "registry" in cargo in your project like this:
 
 ```toml
 # .cargo/config.toml
@@ -123,7 +135,13 @@ azul = { version = "$VERSION", registry = "azul" }
 
 ### Building from source
 
-If you want to build the Azul DLL from source or link it as a "Rust crate" instead of using the precompiled .a library, you need to build the azul-dll project (under /dll), with `--features build-dll`. In order to do this however, you first need to actually generate the bindings again, so that the crate even compiles. The bindings are generated from the `api.json` in the root folder using the `azul-doc` binary.
+If you want to build the Azul DLL from source or link it as a "Rust crate" instead 
+of using the precompiled .a library, you need to build the azul-dll project (under /dll), 
+with `--features build-dll`. 
+
+In order to do this however, you first need to actually generate the bindings again, 
+so that the crate even compiles. The bindings are generated from the `api.json` in 
+the root folder using the `azul-doc` binary.
 
 ```sh
 git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul
@@ -142,13 +160,15 @@ struct DataModel {
     counter: usize,
 }
 
-extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
+extern "C" 
+fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let counter = match data.downcast_ref::<DataModel>() {
         Some(d) => format!("{}", d.counter),
         None => return Dom::create_body(),
     };
 
-    let label = Dom::create_p_with_text(counter.as_str()).with_css("font-size: 32px; margin: 0;");
+    let label = Dom::create_p_with_text(counter.as_str())
+        .with_css("font-size: 32px; margin: 0;");
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);
@@ -157,7 +177,8 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(label).with_child(button)
 }
 
-extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" 
+fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -177,7 +198,13 @@ fn main() {
 }
 ```
 
-Notice that `extern "C"` is used because every callback crosses the FFI boundary, even in the "Rust-native" case. You use `downcast_ref` (or `downcast_mut`) to recover your concrete struct from the type-erased `RefAny`. Building the UI is done using primitive node constructors like `Dom::create_p_with_text` and `Dom::create_body`, and styled with `with_css("...")`. Finally, `data.clone()` just bumps the reference count instead of doing a deep copy.
+Notice that `extern "C"` is used because every callback crosses the FFI boundary. 
+You use `downcast_ref` (or `downcast_mut`) to recover your concrete struct from 
+the type-erased `RefAny`. 
+
+Building the UI is done using primitive node constructors like `Dom::create_p_with_text` 
+and `Dom::create_body`, and styled with `with_css("...")`. Finally, `data.clone()` 
+just bumps the reference count instead of doing a deep copy.
 
 ## Build and run
 
@@ -185,11 +212,24 @@ Notice that `extern "C"` is used because every callback crosses the FFI boundary
 cargo run --release
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the 
+new value renders.
 
-1. `App::run` opened a native window and ran the layout callback once with your `RefAny`.
-2. The returned `Dom` was styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your `RefAny` mutably, runs `my_on_click`, observes the `Update::RefreshDom` return, and re-invokes the layout callback.
-4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
+1. `App::run` opens a native window and runs the layout callback once with your `RefAny`.
+2. The returned `Dom` is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event 
+   filter set up in the `Dom`. On click, the framework borrows your `RefAny` mutably, 
+   runs `my_on_click`, observes the `Update::RefreshDom` return, and re-invokes the 
+   layout callback.
+4. The framework determines the diff between the previous frame's `Dom` and the 
+   current one, and only re-updates and re-paints the counter, not the entire window.
 
-Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
+Congratulations - once you've got the hello-world example running, you've already 
+mastered 80% of the framework. As you might have guessed, more complex UI and styling 
+are only composing more Dom objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or 
+explore what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!
