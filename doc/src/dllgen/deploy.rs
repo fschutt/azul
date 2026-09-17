@@ -1544,7 +1544,7 @@ const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
         name.ends_with(".f90") || name == "Makefile" || name == "sources.txt"
     }),
     ("azul-ocaml", "ocaml", |name| {
-        name.ends_with(".ml") || name.ends_with(".mli")
+        name.ends_with(".ml") || name.ends_with(".mli") || name == "dune" || name == "dune-project" || name == "azul.opam"
     }),
 ];
 
@@ -3129,9 +3129,10 @@ mod tests {
         assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
         assert!(version_dir.join("azul-fortran/Makefile").is_file());
         assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
-        // The example's dune files go into the tarball, never the library-only ones.
-        assert!(!version_dir.join("azul-ocaml/dune").exists());
-        assert!(!version_dir.join("azul-ocaml/dune-project").exists());
+        // The complete opam project goes into the tarball.
+        assert!(version_dir.join("azul-ocaml/dune").exists());
+        assert!(version_dir.join("azul-ocaml/dune-project").exists());
+        assert!(version_dir.join("azul-ocaml/azul.opam").exists());
         assert_eq!(
             copy_generated_package(&version_dir, &tmp.path().join("nope"), "x", "fortran", |_| true)
                 .unwrap(),
