@@ -48,10 +48,10 @@ If you'd rather like to do it manually:
 
 ```sh
 npm install koffi
-# download the native library into the working dir:
+# Download the native library into the working dir:
 wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
 wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
-# windows (PowerShell)
+# Windows (PowerShell)
 Invoke-WebRequest -Uri https://azul.rs/ui/release/$VERSION/azul.dll -OutFile azul.dll
 ```
 
@@ -97,43 +97,37 @@ const {
 
 const model = { counter: 5 };
 
-function onClick(dataPtr, _info) {
-    const m = refanyGet(dataPtr);
-    if (m == null) return Update.DoNothing;
-    m.counter += 1;
+function onClick(data, _info) {
+    data.counter += 1;
     return Update.RefreshDom;
 }
 
-function layout(dataPtr, _info) {
-    const m = refanyGet(dataPtr);
-    if (m == null) return Dom.create_body();
-
-    const label = Dom.create_p_with_text(String(m.counter))
-        .with_css('font-size: 32px; margin: 0;');
+function layout(data, _info) {
+    const label = Dom.createPWithText(String(data.counter))
+        .withCss('font-size: 32px; margin: 0;');
 
     const button = Button.create('Increase counter')
-        .with_button_type(ButtonType.Primary)
-        .on_click(model, onClick);
+        .setButtonType(ButtonType.Primary)
+        .withOnClick(data, onClick)
+        .dom();
 
-    return Dom.create_body()
-        .with_child(label)
-        .with_child(button.dom());
+    return Dom.createBody()
+        .addChild(label)
+        .addChild(button);
 }
 
 process.on('uncaughtException', (e) => {
     console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
 });
 
-const window = WindowCreateOptions.createWithLayout(layout).with({
-    window_state: {
+const window = WindowCreateOptions.create(layout).with({
+    windowState: {
         title: 'Hello World',
-        size: { dimensions: { width: 400.0, height: 300.0 } },
-        flags: {
-        },
+        size: { dimensions: { width: 400.0, height: 300.0 } }
     },
 });
 
-App.create(refanyCreate(model), AppConfig.create()).run(window);
+App.create(model, AppConfig.create()).run(window);
 ```
 
 Notice that you can pass plain JavaScript objects directly to `App.create` and `.withOnClick`; the generated bindings automatically handle tracking and unpacking the C handles for you. Callbacks are plain functions `(data, info) => ...` returning `Update.*` (or a `Dom` for layout). Enums and helpers sit at the top level of the module (`Update.RefreshDom`, `ButtonType.Primary`). Keep the `uncaughtException` handler: it logs exceptions thrown inside koffi callbacks before libffi can `SIGABRT` the process, which is otherwise an abort with no stack.
