@@ -72,17 +72,7 @@ type counterModel struct {
 	Counter int
 }
 
-func onClick(data *azul.RefAny, _ *azul.CallbackInfo) azul.AzUpdate {
-	v, ok := azul.RefAnyGet(data)
-	if !ok {
-		return azul.AzUpdate_DoNothing
-	}
-	
-	model, ok := v.(*counterModel)
-	if !ok {
-		return azul.AzUpdate_DoNothing
-	}
-	
+func onClick(model *counterModel, _ *azul.CallbackInfo) azul.AzUpdate {
 	model.Counter++
 	return azul.AzUpdate_RefreshDom
 }
@@ -90,20 +80,14 @@ func onClick(data *azul.RefAny, _ *azul.CallbackInfo) azul.AzUpdate {
 func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
 	body := azul.NewDomCreateBody()
 
-	v, ok := azul.RefAnyGet(data)
-	if !ok {
-		return body
-	}
-	
-	model, ok := v.(*counterModel)
-	if !ok {
-		return body
-	}
+	// Retrieve the model to read the current state
+	v, _ := azul.RefAnyGet(data)
+	model := v.(*counterModel)
 
 	label := azul.NewDomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
 
 	button := azul.NewButtonCreate(azul.Str("Increase counter"))
-	button.OnClick(data, onClick)
+	button.OnClick(data, azul.Bind(onClick))
 
 	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
 	body.AddChild(label.Raw())
@@ -140,7 +124,7 @@ The generated `azul-go` package does all of the heavy lifting for you dynamicall
 
 1. **Dynamic Loading:** `azul.LoadLibrary(path)` dynamically opens the native shared library and wires up all of the Go wrappers using `purego`. This lets you seamlessly `go:embed` the `.dll` or `.so`, extract it to a temp folder, and load it dynamically without cluttering the user's system.
 2. **Callbacks:** `purego` dynamically allocates machine-code trampolines in executable memory at runtime. Your Go functions are safely injected across the C ABI, eliminating CGO entirely.
-3. **Data Model:** `azul.NewAppWithData()` wraps your struct in an `azul.RefAny` that holds a handle to the Go object. Using `azul.RefAnyGet(data)` safely retrieves the same instance, allowing you to type-assert and mutate it in-place.
+3. **Data Model:** `azul.NewAppWithData()` holds a handle to your Go object. The `azul.Bind()` helper uses Go 1.18 generics to automatically downcast the internal `RefAny` handle back into your exact model type and inject it into your callback. If it fails, it prints an error and safely aborts.
 4. **Strings:** Go strings cross the boundary seamlessly through `azul.Str(s)`, which copies the bytes into a refcounted `AzString` during the call. The original Go string can be safely garbage-collected immediately.
 
 When you run the app, `app.RunWindow(...)` opens a native window and invokes your layout callback. 

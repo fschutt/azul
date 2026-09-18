@@ -283,7 +283,7 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// call Close() on them; Clone() what you need to keep.");
     b.blank();
     b.line("package azul");
-    b.line("import (\n    \"runtime\"\n    \"sync\"\n    \"sync/atomic\"\n    \"unsafe\"\n    \"github.com/ebitengine/purego\"\n)");
+    b.line("import (\n    \"log\"\n    \"runtime\"\n    \"sync\"\n    \"sync/atomic\"\n    \"unsafe\"\n    \"github.com/ebitengine/purego\"\n)");
     b.blank();
 }
 
@@ -463,7 +463,25 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("    return azGoHandles.Load(id)");
     b.line("}");
     b.blank();
-}
+    b.line("// Bind automatically downcasts the RefAny to your specific model type T.");
+    b.line("// If the downcast fails, it logs an error and returns the zero value for the return type (e.g., AzUpdate_DoNothing, or nil for *Dom).");
+    b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(*RefAny, Ctx) Ret {");
+    b.line("    return func(r *RefAny, ctx Ctx) Ret {");
+    b.line("        var zero Ret");
+    b.line("        v, ok := RefAnyGet(r)");
+    b.line("        if !ok {");
+    b.line("            log.Printf(\"azul.Bind: failed to get inner data from RefAny\n\")");
+    b.line("            return zero");
+    b.line("        }");
+    b.line("        model, ok := v.(*T)");
+    b.line("        if !ok {");
+    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\n\", new(T), v)");
+    b.line("            return zero");
+    b.line("        }");
+    b.line("        return cb(model, ctx)");
+    b.line("    }");
+    b.line("}");
+    b.blank();}
 
 fn emit_register_fns(
     b: &mut CodeBuilder,
