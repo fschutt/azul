@@ -75,20 +75,19 @@ Alternatively, download it next to your project from the [release page](https://
 ```sh
 # Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-
 # macOS M1+
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-
 # macOS Intel
 curl -O https://azul.rs/ui/release/$VERSION/libazul.x86_64.dylib
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-
 # Windows
-curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-curl.exe -O https://azul.rs/ui/release/$VERSION/azul.h
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
+```
+
+Additionally, you need the C header:
+
+```sh
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
 ```
 
 ### Building from source
