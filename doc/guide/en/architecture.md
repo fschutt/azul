@@ -411,7 +411,7 @@ fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
 
 This way, once a decent amount of test coverage is done, the „internals“ of any widget
 are hidden from the outside completely. In the API of Azuls default widget set you'll often see `FooConfig` structs that carry the public "configuration" of said widget, which reflects this pattern. When all references to a `RefAny` are deleted, 
-the internal object is then destroyed, running either a default null or custom destructor function. Additionally, the framework can keep "heavy" `RefAny` objects alive between two `layout()` calls, e.g. for storing things like a video decoder handle or a map tile cache, where the cached data belongs neither in the application data model nor in the framework built-in as a primitive - read more in the [Merge Callbacks](./merge-callbacks.md) guide.
+the internal object is then destroyed, running either a default null or custom destructor function. Additionally, the framework can keep "heavy" `RefAny` objects alive between two `layout()` calls, e.g. for storing things like a video decoder handle or a map tile cache, where the cached data belongs neither in the application data model nor in the framework built-in as a primitive - read more in the [Merge Callbacks](./dom/merge-callbacks.md) guide.
 
 ### Building a State Graph
 
