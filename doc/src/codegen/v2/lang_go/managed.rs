@@ -388,13 +388,16 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.blank();
     b.line("// Str copies a Go string into a freshly allocated AzString. The returned");
     b.line("// value is consumed by whichever libazul call it is passed to.");
-    b.line("func Str(s string) AzString {");
+    b.line("func Str(s string) *String {");
     b.line("    b := []byte(s)");
     b.line("    ptr := &azGoEmptyByte");
     b.line("    if len(b) > 0 {");
     b.line("        ptr = &b[0]");
     b.line("    }");
-    b.line("    return AzString_fromUtf8(ptr, uintptr(len(b)))");
+    b.line("    raw := AzString_fromUtf8(ptr, uintptr(len(b)))");
+    b.line("    ret := &String{ inner: &raw }");
+    b.line("    runtime.SetFinalizer(ret, func(x *String) { x.Close() })");
+    b.line("    return ret");
     b.line("}");
     b.blank();
     b.line("// GoStr copies an AzString's UTF-8 bytes into a Go string. The AzString");
@@ -406,14 +409,7 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.line("    return string(unsafe.Slice((*byte)(s.Vec.Ptr), int(s.Vec.Len)))");
     b.line("}");
     b.blank();
-    b.line("// NewString wraps a Go string in a managed *String.");
-    b.line("func NewString(s string) *String {");
-    b.line("    inner := Str(s)");
-    b.line("    self := &String{ inner: &inner }");
-    b.line("    runtime.SetFinalizer(self, func(x *String) { x.Close() })");
-    b.line("    return self");
-    b.line("}");
-    b.blank();
+
     // A managed `*String` had no way to read its own text. The obvious name,
     // `String()`, is taken: api.json gives the class `Debug`, so the wrapper
     // generator emits a `String()` returning `AzString_toDbgString`, and two

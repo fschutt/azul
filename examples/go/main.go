@@ -23,19 +23,19 @@ func layout(model *counterModel, _ *azul.LayoutCallbackInfo) *azul.Dom {
 	button.OnClick(model, azul.Bind(onClick))
 
 	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
-	body.AddChild(label.Raw())
-	body.AddChild(button.Dom().Raw())
+	body.AddChild(label)
+	body.AddChild(button.Dom())
 	
 	return body
 }
 
 func main() {
-	if err := azul.LoadLibrary("../../target/release/libazul.dylib"); err != nil {
+	if err := azul.LoadLibrary(""); err != nil {
 		panic(err)
 	}
 
 	data := &counterModel{Counter: 5}
 	window := azul.NewWindowCreateOptions(azul.Bind(layout))
-	app := azul.AppCreate(data, azul.AppConfigCreate().Raw())
+	app := azul.AppCreate(data, azul.AppConfigCreate())
 	app.RunWindow(window)
 }

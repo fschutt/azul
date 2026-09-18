@@ -99,6 +99,23 @@ fn owned_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) ->
     Some(sanitize_identifier(t))
 }
 
+
+fn borrowed_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(String, bool)> {
+    let t = ret_ty.trim();
+    let is_ptr = t.starts_with('&') || t.starts_with('*');
+    if !is_ptr {
+        return None;
+    }
+    let base = t.trim_start_matches("&mut ").trim_start_matches("*mut ")
+                .trim_start_matches('&').trim_start_matches('*').trim();
+    let s = ir.find_struct(base)?;
+    if !should_emit_wrapper(s, ir, config) {
+        return None;
+    }
+    let has_del = has_destructor(base, ir);
+    Some((sanitize_identifier(base), has_del))
+}
+
 fn emit_header(b: &mut CodeBuilder) {
     b.line("// ============================================================================");
     b.line("// wrappers.go - Idiomatic Go wrappers (heap-owning types implementing io.Closer).");
@@ -311,8 +328,8 @@ fn emit_static_factory(
         b.line(&format!("// {}", d));
     }
 
-    let params = format_params(&f.args, self_arg, /* skip_self */ false, ir);
-    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false, ir);
+    let params = format_params(&f.args, self_arg, /* skip_self */ false, ir, config);
+    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false, ir, config);
 
     let returns_self = f
         .return_type
@@ -327,13 +344,25 @@ fn emit_static_factory(
             .as_deref()
             .and_then(|rt| owned_wrapper_return(rt, ir, config))
     };
+    let borrowed_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| borrowed_wrapper_return(rt, ir, config))
+    };
 
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => match &owned_wrapper {
-            Some(w) => format!("*{}", w),
-            None => map_return_type(rt, ir),
+        (Some(rt), false) => {
+            if let Some(w) = &owned_wrapper {
+                format!("*{}", w)
+            } else if let Some((w, _)) = &borrowed_wrapper {
+                format!("*{}", w)
+            } else {
+                map_return_type(rt, ir)
+            }
         },
     };
 
@@ -394,8 +423,8 @@ fn emit_instance_method(
         b.line(&format!("// {}", d));
     }
 
-    let params = format_params(&f.args, self_arg, /* skip_self */ true, ir);
-    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true, ir);
+    let params = format_params(&f.args, self_arg, /* skip_self */ true, ir, config);
+    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true, ir, config);
 
     let returns_self = f
         .return_type
@@ -410,13 +439,25 @@ fn emit_instance_method(
             .as_deref()
             .and_then(|rt| owned_wrapper_return(rt, ir, config))
     };
+    let borrowed_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| borrowed_wrapper_return(rt, ir, config))
+    };
 
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => match &owned_wrapper {
-            Some(w) => format!("*{}", w),
-            None => map_return_type(rt, ir),
+        (Some(rt), false) => {
+            if let Some(w) = &owned_wrapper {
+                format!("*{}", w)
+            } else if let Some((w, _)) = &borrowed_wrapper {
+                format!("*{}", w)
+            } else {
+                map_return_type(rt, ir)
+            }
         },
     };
 
@@ -479,6 +520,18 @@ fn emit_instance_method(
         emit_boxed_return(b, "ret", w, &call);
         consume_self(b);
         b.line("return ret");
+    } else if let Some((w, has_del)) = &borrowed_wrapper {
+        b.line(&format!("raw_ret := {}", call));
+        b.line("if raw_ret == nil {");
+        b.line("    return nil");
+        b.line("}");
+        if *has_del {
+            b.line(&format!("ret := &{}{{ inner: raw_ret, borrowed: true }}", w));
+        } else {
+            b.line(&format!("ret := &{}{{ inner: *raw_ret }}", w));
+        }
+        consume_self(b);
+        b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
         consume_self(b);
@@ -504,6 +557,7 @@ fn format_params(
     self_arg: &str,
     skip_self: bool,
     ir: &CodegenIR,
+    config: &CodegenConfig,
 ) -> String {
     let mut out = Vec::new();
     // When skip_self is set this is an instance method — the first IR
@@ -521,7 +575,7 @@ fn format_params(
         out.push(format!(
             "{} {}",
             sanitize_identifier(&a.name),
-            map_arg_type(&a.type_name, a.ref_kind, ir)
+            map_arg_type(&a.type_name, a.ref_kind, ir, config)
         ));
     }
     out.join(", ")
@@ -532,6 +586,7 @@ fn format_call_args(
     self_arg: &str,
     skip_self: bool,
     ir: &CodegenIR,
+    config: &CodegenConfig,
 ) -> String {
     let mut out = Vec::new();
     let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
@@ -548,6 +603,18 @@ fn format_call_args(
         if go_value_type(&a.type_name, ir) == "AzRefAny" {
             // Unpack the wrapper's RefAny back into the raw AzRefAny by value
             out.push(format!("*RefAnyWrap({}).inner", var_name));
+        } else if let Some(s) = ir.find_struct(&a.type_name) {
+            if should_emit_wrapper(s, ir, config) {
+                if a.ref_kind == super::super::ir::ArgRefKind::Owned {
+                    out.push(format!("{}.Raw()", var_name));
+                } else if has_destructor(&s.name, ir) {
+                    out.push(format!("{}.inner", var_name));
+                } else {
+                    out.push(format!("&{}.inner", var_name));
+                }
+            } else {
+                out.push(var_name);
+            }
         } else {
             out.push(var_name);
         }
@@ -563,10 +630,15 @@ fn is_self_arg(name: &str, self_arg: &str) -> bool {
 }
 
 /// Go-native type of an argument as the raw layer spells it.
-pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String {
+pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR, config: &CodegenConfig) -> String {
     let base = go_value_type(type_name, ir);
     if base == "AzRefAny" {
         return "any".to_string();
+    }
+    if let Some(s) = ir.find_struct(type_name) {
+        if should_emit_wrapper(s, ir, config) {
+            return format!("*{}", sanitize_identifier(&s.name));
+        }
     }
     match ref_kind {
         ArgRefKind::Owned => base,
