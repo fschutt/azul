@@ -232,7 +232,13 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     let self_arg = to_snake_case(&s.name);
 
     // Constructors & static factories.
+    let has_factory = super::super::managed_host_invoker::layout_callback_factory_info(s, ir).is_some();
     for f in ir.functions_for_class(&s.name) {
+        if has_factory && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod) {
+            if f.method_name == "create" || f.method_name == "new" {
+                continue; // Suppressed in favor of smart factory in managed.rs
+            }
+        }
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
                 emit_static_factory(b, &go_name, f, &self_arg, ir, config, has_delete);

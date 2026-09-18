@@ -645,22 +645,30 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("// ============================================================================");
     b.line("// Smart factories and setters (Go-native surface)");
     b.line("// ============================================================================");
-    b.blank();
-    // Smart layout factory. Field path `window_state.layout_callback`
-    // matches `managed_host_invoker::layout_callback_factory_info`
-    // (WindowCreateOptions is the only class matching the pattern today);
-    // kept literal here because cgo needs the concrete field-access
-    // expression anyway.
-    b.line("// NewWindowCreateOptions builds WindowCreateOptions whose layout callback");
-    b.line("// is the given Go function (host-invoker registered, ctx-preserving).");
-    b.line("func NewWindowCreateOptions(fn LayoutCallbackFunc) *WindowCreateOptions {");
-    b.line("    wco := AzWindowCreateOptions_createDefault()");
-    b.line("    wco.WindowState.LayoutCallback = RegisterLayoutCallback(fn)");
-    b.line("    self := &WindowCreateOptions{ inner: &wco }");
-    b.line("    runtime.SetFinalizer(self, func(x *WindowCreateOptions) { x.Close() })");
-    b.line("    return self");
-    b.line("}");
-    b.blank();
+    // Smart layout factories (derived via layout_callback_factory_info).
+    // Replaces the old hard-coded NewWindowCreateOptions override.
+    for s in ir.structs.iter().filter(|s| super::wrappers::should_emit_wrapper(s, ir, config)) {
+        if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
+            let wrapper_class = info.class_name.clone();
+            let register_fn = format!("Register{}", info.callback_wrapper);
+            let fn_name = format!("{}Create", wrapper_class);
+            b.line(&format!("// {} builds {} whose layout callback", fn_name, wrapper_class));
+            b.line("// is the given Go function (host-invoker registered, ctx-preserving).");
+            b.line(&format!("func {}(fn {}Func) *{} {{", fn_name, info.callback_wrapper, wrapper_class));
+            b.line(&format!("    wco := Az{}_createDefault()", wrapper_class));
+            let mut field_path = "wco".to_string();
+            for part in info.field_path {
+                field_path.push_str(".");
+                field_path.push_str(&super::snake_to_pascal(&part));
+            }
+            b.line(&format!("    {} = {}(fn)", field_path, register_fn));
+            b.line(&format!("    self := &{}{{ inner: &wco }}", wrapper_class));
+            b.line(&format!("    runtime.SetFinalizer(self, func(x *{}) {{ x.Close() }})", wrapper_class));
+            b.line("    return self");
+            b.line("}");
+            b.blank();
+        }
+    }
 
     b.blank();
 
