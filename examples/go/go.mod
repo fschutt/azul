@@ -1,7 +1,7 @@
-module github.com/azul/examples/hello-world
+module azul.rs/examples/hello-world
 
 go 1.21
 
-require github.com/azul/azul-go v0.0.0-00010101000000-000000000000
+require azul.rs/azul-go v0.0.0-00010101000000-000000000000
 
-replace github.com/azul/azul-go => ../azul-go
+replace azul.rs/azul-go => ../azul-go

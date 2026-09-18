@@ -28,7 +28,7 @@
 //!                  for a handful of static shims, but the Go side names
 //!                  only shim functions and `C.uint64_t`.
 //! 5. `azul.go`   — package doc + the `#cgo LDFLAGS` directive.
-//! 6. `go.mod`    — `module github.com/azul/azul-go` + Go 1.21 directive.
+//! 6. `go.mod`    — `module azul.rs/azul-go` + Go 1.21 directive.
 //!
 //! # Build-time requirements (cgo)
 //!

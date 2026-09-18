@@ -123,7 +123,7 @@ package main
 import (
 	"fmt"
 
-	azul "github.com/azul/azul-go"
+	azul "azul.rs/azul-go"
 )
 
 type counterModel struct {

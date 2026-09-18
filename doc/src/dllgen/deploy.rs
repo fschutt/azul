@@ -1508,12 +1508,12 @@ pub fn copy_language_bindings(
 }
 
 /// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
-/// `main.go`: `main.go` imports `github.com/azul/azul-go`, and this `replace`
+/// `main.go`: `main.go` imports `azul.rs/azul-go`, and this `replace`
 /// resolves it to the `azul-go/` directory shipped alongside — no `go mod
 /// init`, no `go mod edit`, no registry.
 pub fn go_example_mod() -> String {
     "// go.mod for the azul hello-world. `main.go` imports the generated\n\
-     // github.com/azul/azul-go package; the replace below points at the copy\n\
+     // azul.rs/azul-go package; the replace below points at the copy\n\
      // shipped in ./azul-go (from the same release), so `go build .` works\n\
      // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
      // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
@@ -1522,9 +1522,9 @@ pub fn go_example_mod() -> String {
      \n\
      go 1.21\n\
      \n\
-     require github.com/azul/azul-go v0.0.0\n\
+     require azul.rs/azul-go v0.0.0\n\
      \n\
-     replace github.com/azul/azul-go => ./azul-go\n"
+     replace azul.rs/azul-go => ./azul-go\n"
         .to_string()
 }
 
@@ -3081,8 +3081,8 @@ mod tests {
         assert!(!version_dir.join("azul-go/NOTES.txt").exists());
         let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
         assert!(gomod.contains("module hello-world\n"), "{gomod}");
-        assert!(gomod.contains("require github.com/azul/azul-go v0.0.0\n"), "{gomod}");
-        assert!(gomod.contains("replace github.com/azul/azul-go => ./azul-go\n"), "{gomod}");
+        assert!(gomod.contains("require azul.rs/azul-go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("replace azul.rs/azul-go => ./azul-go\n"), "{gomod}");
     }
 
     /// No codegen output → nothing written, `Ok(0)` (the caller warns).
