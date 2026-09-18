@@ -287,7 +287,7 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// call Close() on them; Clone() what you need to keep.");
     b.blank();
     b.line("package azul");
-    b.line("import (\n    \"log\"\n    \"runtime\"\n    \"sync\"\n    \"sync/atomic\"\n    \"unsafe\"\n    \"github.com/ebitengine/purego\"\n)");
+    b.line("import (\n    \"fmt\"\n    \"log\"\n    \"runtime\"\n    \"sync\"\n    \"sync/atomic\"\n    \"unsafe\"\n    \"github.com/ebitengine/purego\"\n)");
     b.blank();
 }
 
@@ -466,6 +466,10 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("    return azGoHandles.Load(id)");
     b.line("}");
     b.blank();
+    b.line("type azGoLogger interface {");
+    b.line("    Log(AppLogLevel, *String)");
+    b.line("}");
+    b.blank();
     b.line("// Bind automatically downcasts the RefAny to your specific model type T.");
     b.line("// If the downcast fails, it logs an error and returns the zero value for the return type (e.g., AzUpdate_DoNothing, or nil for *Dom).");
     b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(any, Ctx) any {");
@@ -473,7 +477,12 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("        var zero Ret");
     b.line("        model, ok := data.(*T)");
     b.line("        if !ok {");
-    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\\n\", new(T), data)");
+    b.line("            msg := fmt.Sprintf(\"azul.Bind: type assertion failed, expected %T, got %T\", new(T), data)");
+    b.line("            if l, isLogger := any(ctx).(azGoLogger); isLogger {");
+    b.line("                l.Log(AppLogLevel_Error, Str(msg))");
+    b.line("            } else {");
+    b.line("                log.Print(msg)");
+    b.line("            }");
     b.line("            return zero");
     b.line("        }");
     b.line("        return cb(model, ctx)");
@@ -584,7 +593,12 @@ fn emit_register_fns(
                 b.line(&format!("        }} else if v, ok := ret.({c}); ok {{", c = go_native(r)));
                 b.line("            out = v");
                 b.line("        } else {");
-                b.line(&format!("            log.Printf(\"azul: callback returned junk value %T, expected {c} or nil\\n\", ret)", c = go_native(r)));
+                b.line(&format!("            msg := fmt.Sprintf(\"azul: callback returned junk value %T, expected {c} or nil\", ret)", c = go_native(r)));
+                b.line("            var logger azGoLogger");
+                for nm in &names {
+                    b.line(&format!("            if l, ok := any({}).(azGoLogger); ok {{ logger = l }}", nm));
+                }
+                b.line("            if logger != nil { logger.Log(AppLogLevel_Error, Str(msg)) } else { log.Print(msg) }");
                 b.line("            out = 0");
                 b.line("        }");
                 b.line(&format!("        *(*{c})(args[{n}]) = out", c = go_native(r), n = n_args));
@@ -606,7 +620,12 @@ fn emit_register_fns(
                 }
                 b.line("            runtime.SetFinalizer(v, nil)");
                 b.line("        } else {");
-                b.line(&format!("            log.Printf(\"azul: callback returned junk value %T, expected *{r} or nil\\n\", ret)"));
+                b.line(&format!("            msg := fmt.Sprintf(\"azul: callback returned junk value %T, expected *{r} or nil\", ret)"));
+                b.line("            var logger azGoLogger");
+                for nm in &names {
+                    b.line(&format!("            if l, ok := any({}).(azGoLogger); ok {{ logger = l }}", nm));
+                }
+                b.line("            if logger != nil { logger.Log(AppLogLevel_Error, Str(msg)) } else { log.Print(msg) }");
                 b.line("        }");
             }
         }

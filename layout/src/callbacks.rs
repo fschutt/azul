@@ -1923,8 +1923,18 @@ impl CallbackInfo {
 
     /// Emit an informational message. Same destinations as [`CallbackInfo::warn`];
     /// use it for things worth seeing in a trace but not worth alarming anyone.
-    pub fn log(&mut self, message: impl Into<AzString>) {
-        azul_core::diagnostics::emit(alloc::format!("[azul][info] {}", message.into().as_str()));
+    pub fn log(&mut self, level: azul_core::resources::AppLogLevel, message: impl Into<AzString>) {
+        let level_str = match level {
+            azul_core::resources::AppLogLevel::Off => "off",
+            azul_core::resources::AppLogLevel::Error => "error",
+            azul_core::resources::AppLogLevel::Warn => "warn",
+            azul_core::resources::AppLogLevel::Info => "info",
+            azul_core::resources::AppLogLevel::Debug => "debug",
+            azul_core::resources::AppLogLevel::Trace => "trace",
+        };
+        if level != azul_core::resources::AppLogLevel::Off {
+            azul_core::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+        }
     }
 
     /// Update a node's accessibility STATE and/or VALUE without rebuilding.
