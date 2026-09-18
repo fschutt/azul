@@ -20,22 +20,18 @@ default-search-keys:
   - Button
 ---
 
-# Hello world in Zig
+# Hello world [Zig]
 
-The example below uses the generated, idiomatic `azul.zig` wrapper layer, taking full advantage of comptime type reflection and native slice integration.
+To use `libazul` from Zig (0.16+), you will need:
 
-You need **Zig 0.14 or newer** (the example is tested against **0.16**).
-
-## Installation
-
-There is no package-manager story for Zig yet — you download the bundle
-(the binding `azul.zig` + `azul_c.zig`, a minimal `build.zig`, the counter
-example, and `azul.h` for reference) plus the native library into one
-directory and run `zig build run` there:
+- The `libazul` native library from the release page
+- The `azul.zig` and `azul_c.zip` wrapper layer, which gives you full "native" Zig experience 
+  and hides the "C" layer beneath
+- A minimal `build.zig` and the `hello-world.zig` for your project
 
 ```sh
 curl -LO https://azul.rs/ui/release/$VERSION/azul-zig-$VERSION.tar.gz
-tar xzf azul-zig-$VERSION.tar.gz          # azul.zig, azul_c.zig, build.zig, hello-world.zig, azul.h
+tar xzf azul-zig-$VERSION.tar.gz # azul.zig, build.zig, hello-world.zig, azul.h
 
 # linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so

@@ -59,7 +59,6 @@ pub const C_DECLS_FILE: &str = "azul_c.zig";
 /// Generate the full `azul_c.zig` source.
 pub fn generate_c_decls(ir: &CodegenIR, config: &CodegenConfig) -> String {
     let mut out = String::with_capacity(4 << 20);
-    emit_header(&mut out);
 
     out.push_str("// ---- Types ------------------------------------------------------------------\n\n");
     for s in &ir.structs {

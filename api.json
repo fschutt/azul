@@ -6405,7 +6405,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated azul.zig + azul_c.zig (the C ABI pre-translated to Zig, no @cImport) + build.zig, then `zig build run` links -lazul from /usr/lib",
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated the generated azul.zig (containing the C ABI pre-translated to Zig, no @cImport) + build.zig, then `zig build run` links -lazul from /usr/lib",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6611,7 +6611,6 @@
                         }
                     ],
                     "bundle": {
-                        "azul.h": "azul.h",
                         "azul.zig": "azul.zig",
                         "azul_c.zig": "azul_c.zig",
                         "build.zig": "build.zig",

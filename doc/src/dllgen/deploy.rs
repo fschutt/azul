@@ -1078,11 +1078,6 @@ const BINDING_FILES: &[BindingFile] = &[
         source: BindingSource::Codegen,
     },
     BindingFile {
-        dst: "azul_c.zig",
-        src: "azul_c.zig",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
         dst: "build.zig",
         src: "build.zig",
         source: BindingSource::Codegen,
@@ -3115,7 +3110,7 @@ mod tests {
         for f in ["azul.f90", "azul_types_css.f90", "azul_ffi_dom.f90", "Makefile", "sources.txt"] {
             fs::write(codegen.join("fortran").join(f), b"x").unwrap();
         }
-        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project"] {
+        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project", "azul.opam"] {
             fs::write(codegen.join("ocaml").join(f), b"x").unwrap();
         }
 
@@ -3125,7 +3120,7 @@ mod tests {
                 copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
             })
             .collect();
-        assert_eq!(copied, [5, 5]);
+        assert_eq!(copied, [5, 6]);
         assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
         assert!(version_dir.join("azul-fortran/Makefile").is_file());
         assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
@@ -3157,6 +3152,5 @@ mod tests {
             .any(|b| b.dst == "hello-world.cpp" && b.src == "cpp/cpp20/hello-world.cpp"));
         // The Go package is a directory now; no flat `package azul` files.
         assert!(!BINDING_FILES.iter().any(|b| b.src.starts_with("go/") && b.src != "go/main.go"));
-        assert!(BINDING_FILES.iter().any(|b| b.dst == "azul_c.zig"));
     }
 }
