@@ -95,6 +95,8 @@ fn arg_go_name(i: usize, t: &str) -> String {
 fn arg_go_type(t: &str, wrapper_types: &[String]) -> String {
     if t == "usize" {
         "uint".to_string()
+    } else if t == "RefAny" {
+        "any".to_string()
     } else if wrapper_types.iter().any(|w| w.as_str() == t) {
         format!("*{}", t)
     } else {
@@ -441,6 +443,9 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.line("// entry and the Go GC may collect it. Store a POINTER (e.g. *MyModel) if");
     b.line("// callbacks should observe mutations across invocations.");
     b.line("func RefAnyWrap(value any) *RefAny {");
+    b.line("    if r, ok := value.(*RefAny); ok {");
+    b.line("        return r");
+    b.line("    }");
     b.line("    id := azGoNewHandle(value)");
     b.line("    var inner AzRefAny");
     b.line("    azGoRefAnyNewHostHandle(id, unsafe.Pointer(&inner))");
@@ -465,17 +470,12 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.blank();
     b.line("// Bind automatically downcasts the RefAny to your specific model type T.");
     b.line("// If the downcast fails, it logs an error and returns the zero value for the return type (e.g., AzUpdate_DoNothing, or nil for *Dom).");
-    b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(*RefAny, Ctx) Ret {");
-    b.line("    return func(r *RefAny, ctx Ctx) Ret {");
+    b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(any, Ctx) Ret {");
+    b.line("    return func(data any, ctx Ctx) Ret {");
     b.line("        var zero Ret");
-    b.line("        v, ok := RefAnyGet(r)");
+    b.line("        model, ok := data.(*T)");
     b.line("        if !ok {");
-    b.line("            log.Printf(\"azul.Bind: failed to get inner data from RefAny\n\")");
-    b.line("            return zero");
-    b.line("        }");
-    b.line("        model, ok := v.(*T)");
-    b.line("        if !ok {");
-    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\n\", new(T), v)");
+    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\n\", new(T), data)");
     b.line("            return zero");
     b.line("        }");
     b.line("        return cb(model, ctx)");
@@ -526,8 +526,7 @@ fn emit_register_fns(
             b.line("// wrapper type exists for this return type yet.");
         }
         match &rk {
-            RetKind::Enum(r) => b.line(&format!("type {}Func func({}) Az{}", k.wrapper, sig, r)),
-            RetKind::Wrapper(r) => b.line(&format!("type {}Func func({}) *{}", k.wrapper, sig, r)),
+            RetKind::Enum(_) | RetKind::Wrapper(_) => b.line(&format!("type {}Func func({}) any", k.wrapper, sig)),
             RetKind::Void | RetKind::OutParam(_) => {
                 b.line(&format!("type {}Func func({})", k.wrapper, sig))
             }
@@ -550,6 +549,9 @@ fn emit_register_fns(
                     "        {} := uint(*(*uintptr)(args[{}]))",
                     nm, i
                 ));
+            } else if t == "RefAny" {
+                b.line(&format!("        {}_wrap := &RefAny{{ inner: (*AzRefAny)(args[{}]), borrowed: true }}", nm, i));
+                b.line(&format!("        {}, _ := RefAnyGet({}_wrap)", nm, nm));
             } else if wrapper_types.iter().any(|w| w == t) {
                 let has_del = ir
                     .functions
@@ -576,34 +578,37 @@ fn emit_register_fns(
         match &rk {
             RetKind::Void => b.line(&format!("        fn({})", call_args)),
             RetKind::OutParam(_) => b.line(&format!("        fn({}, args[{}])", call_args, n_args)),
-            RetKind::Enum(r) => b.line(&format!(
-                "        *(*{c})(args[{n}]) = fn({a})",
-                c = go_native(r),
-                n = n_args,
-                a = call_args
-            )),
+            RetKind::Enum(r) => {
+                b.line(&format!("        ret := fn({})", call_args));
+                b.line(&format!("        var out {c}", c = go_native(r)));
+                b.line("        if ret == nil {");
+                b.line("            out = 0");
+                b.line(&format!("        }} else if v, ok := ret.({c}); ok {{", c = go_native(r)));
+                b.line("            out = v");
+                b.line("        } else {");
+                b.line(&format!("            log.Printf(\"azul: callback returned junk value %T, expected {c} or nil\\n\", ret)", c = go_native(r)));
+                b.line("            out = 0");
+                b.line("        }");
+                b.line(&format!("        *(*{c})(args[{n}]) = out", c = go_native(r), n = n_args));
+            }
             RetKind::Wrapper(r) => {
                 let has_del = ir
                     .functions
                     .iter()
                     .any(|f| f.class_name == *r && f.kind == FunctionKind::Delete);
                 b.line(&format!("        ret := fn({})", call_args));
-                b.line("        if ret != nil {");
+                b.line("        if ret == nil {");
+                b.line("            // do nothing, out parameter is already zero-initialized");
+                b.line(&format!("        }} else if v, ok := ret.(*{r}); ok {{"));
                 if has_del {
-                    b.line(&format!(
-                        "            *(*{})(args[{}]) = *ret.inner",
-                        go_native(r),
-                        n_args
-                    ));
-                    b.line("            ret.inner = nil");
+                    b.line(&format!("            *(*{})(args[{}]) = *v.inner", go_native(r), n_args));
+                    b.line("            v.inner = nil");
                 } else {
-                    b.line(&format!(
-                        "            *(*{})(args[{}]) = ret.inner",
-                        go_native(r),
-                        n_args
-                    ));
+                    b.line(&format!("            *(*{})(args[{}]) = v.inner", go_native(r), n_args));
                 }
-                b.line("            runtime.SetFinalizer(ret, nil)");
+                b.line("            runtime.SetFinalizer(v, nil)");
+                b.line("        } else {");
+                b.line(&format!("            log.Printf(\"azul: callback returned junk value %T, expected *{r} or nil\\n\", ret)"));
                 b.line("        }");
             }
         }
@@ -639,27 +644,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("    return self");
     b.line("}");
     b.blank();
-    b.line("// NewAppWithData creates an App whose app data is an arbitrary Go value");
-    b.line("// (wrapped via RefAnyWrap). Pass nil config for the default AppConfig.");
-    b.line("func NewAppWithData(data any, config *AppConfig) *App {");
-    b.line("    var cfg AzAppConfig");
-    b.line("    if config != nil {");
-    b.line("        cfg = *config.inner");
-    b.line("        config.inner = nil");
-    b.line("        runtime.SetFinalizer(config, nil)");
-    b.line("    } else {");
-    b.line("        cfg = AzAppConfig_create()");
-    b.line("    }");
-    b.line("    ref := RefAnyWrap(data)");
-    b.line("    inner := *ref.inner");
-    b.line("    ref.inner = nil");
-    b.line("    runtime.SetFinalizer(ref, nil)");
-    b.line("    app_val := AzApp_create(inner, cfg)");
-    b.line("    self := &App{ inner: &app_val }");
-    b.line("    runtime.SetFinalizer(self, func(x *App) { x.Close() })");
-    b.line("    return self");
-    b.line("}");
-    b.blank();
+
     b.line("// RunWindow consumes win and enters the main loop.");
     b.line("func (self *App) RunWindow(win *WindowCreateOptions) {");
     b.line("    inner := *win.inner");
@@ -704,7 +689,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
             ));
             b.line("// cloned; the caller's RefAny stays valid.");
             b.line(&format!(
-                "func (self *{}) {}(data *RefAny, fn {}Func) {{",
+                "func (self *{}) {}(data any, fn {}Func) {{",
                 go_name, method, cb_ty
             ));
             let self_has_del = ir
@@ -717,7 +702,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
                 "&self.inner"
             };
             b.line(&format!(
-                "    {}({}, AzRefAny_clone(data.inner), Register{}(fn))",
+                "    {}({}, AzRefAny_clone(RefAnyWrap(data).inner), Register{}(fn))",
                 f.c_name,
                 self_expr,
                 cb_ty

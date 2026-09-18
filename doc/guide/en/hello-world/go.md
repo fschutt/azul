@@ -113,7 +113,7 @@ func main() {
 		panic(err)
 	}
 
-	app := azul.NewAppWithData(&counterModel{Counter: 5}, nil)
+	app := azul.NewApp(&counterModel{Counter: 5}, nil)
 	app.RunWindow(azul.NewWindowCreateOptions(layout))
 }
 ```
@@ -124,7 +124,7 @@ The generated `azul-go` package does all of the heavy lifting for you dynamicall
 
 1. **Dynamic Loading:** `azul.LoadLibrary(path)` dynamically opens the native shared library and wires up all of the Go wrappers using `purego`. This lets you seamlessly `go:embed` the `.dll` or `.so`, extract it to a temp folder, and load it dynamically without cluttering the user's system.
 2. **Callbacks:** `purego` dynamically allocates machine-code trampolines in executable memory at runtime. Your Go functions are safely injected across the C ABI, eliminating CGO entirely.
-3. **Data Model:** `azul.NewAppWithData()` holds a handle to your Go object. The `azul.Bind()` helper uses Go 1.18 generics to automatically downcast the internal `RefAny` handle back into your exact model type and inject it into your callback. If it fails, it prints an error and safely aborts.
+3. **Data Model:** `azul.NewApp(data, config)` takes an `any` and automatically manages a handle to your Go object. The `azul.Bind()` helper uses Go 1.18 generics to automatically downcast the internal handle back into your exact model type and inject it into your callback. If it fails, it prints an error and safely aborts.
 4. **Strings:** Go strings cross the boundary seamlessly through `azul.Str(s)`, which copies the bytes into a refcounted `AzString` during the call. The original Go string can be safely garbage-collected immediately.
 
 When you run the app, `app.RunWindow(...)` opens a native window and invokes your layout callback. 

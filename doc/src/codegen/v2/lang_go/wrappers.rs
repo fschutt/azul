@@ -312,7 +312,7 @@ fn emit_static_factory(
     }
 
     let params = format_params(&f.args, self_arg, /* skip_self */ false, ir);
-    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false);
+    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false, ir);
 
     let returns_self = f
         .return_type
@@ -395,7 +395,7 @@ fn emit_instance_method(
     }
 
     let params = format_params(&f.args, self_arg, /* skip_self */ true, ir);
-    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true);
+    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true, ir);
 
     let returns_self = f
         .return_type
@@ -531,6 +531,7 @@ fn format_call_args(
     args: &[super::super::ir::FunctionArg],
     self_arg: &str,
     skip_self: bool,
+    ir: &CodegenIR,
 ) -> String {
     let mut out = Vec::new();
     let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
@@ -543,7 +544,13 @@ fn format_call_args(
         if is_self_arg(&a.name, self_arg) {
             continue;
         }
-        out.push(sanitize_identifier(&a.name));
+        let var_name = sanitize_identifier(&a.name);
+        if go_value_type(&a.type_name, ir) == "AzRefAny" {
+            // Unpack the wrapper's RefAny back into the raw AzRefAny by value
+            out.push(format!("*RefAnyWrap({}).inner", var_name));
+        } else {
+            out.push(var_name);
+        }
     }
     out.join(", ")
 }
@@ -558,6 +565,9 @@ fn is_self_arg(name: &str, self_arg: &str) -> bool {
 /// Go-native type of an argument as the raw layer spells it.
 pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String {
     let base = go_value_type(type_name, ir);
+    if base == "AzRefAny" {
+        return "any".to_string();
+    }
     match ref_kind {
         ArgRefKind::Owned => base,
         ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
