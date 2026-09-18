@@ -644,8 +644,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-      - name: Install cross-compiler
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
       - name: Fetch bundle and build
         shell: bash
         run: |
@@ -655,15 +653,11 @@ jobs:
           
           curl -LO "$BASE/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
           tar xzf "azul-go-$VERSION.tar.gz"
-          curl -O "$BASE/ui/release/$VERSION/azul.dll.lib"
           
           # Cross compile to Windows
           export GOOS=windows
           export GOARCH=amd64
-          export CGO_ENABLED=1
-          export CC=x86_64-w64-mingw32-gcc
-          export CGO_CFLAGS="-I."
-          export CGO_LDFLAGS="azul.dll.lib"
+          export CGO_ENABLED=0
           
           go build -o hello-world.exe .
           

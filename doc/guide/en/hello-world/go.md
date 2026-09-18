@@ -12,7 +12,7 @@ tracked_files:
   - api.json
   - examples/go/main.go
 last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
-generated_at: 2026-09-16T00:00:00Z
+generated_at: 2026-09-18T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -24,38 +24,32 @@ default-search-keys:
 
 In order to use the `libazul` library from Go, you will need to install the
 Go bindings from `azul.rs/ui/go`, which provide a fully idiomatic wrapper over the C API.
-Internally, they automatically handles CGO trampolines, pointer conversions 
-and GC memory management for you.
+Internally, they use `ebitengine/purego` to dynamically load the shared library and handle callback trampolines at runtime, meaning **CGO is entirely disabled**.
 
-Because this relies on `cgo`, you will need a C compiler at build time 
-(`gcc` on Linux, Xcode Command Line Tools on macOS, or MinGW on Windows) 
-in addition to Go (1.21+), and `CGO_ENABLED=1`. 
+Because this relies on `purego`, **you do not need a C compiler to build or cross-compile your app**, making single-binary deployments and cross-platform builds trivial.
 
 ## Installation
 
 The easiest way to get started is to download the pre-packaged bundle, which 
-contains `main.go`, `go.mod`, the generated `azul-go/` directory, and `azul.h`:
+contains `main.go`, `go.mod`, and the generated `azul-go/` directory:
 
 ```sh
 curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
 tar xzf azul-go-$VERSION.tar.gz
 
-# Linux (requires gcc on PATH)
+# Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -lpthread -lm -ldl" go build -o hello-world .
-LD_LIBRARY_PATH=. ./hello-world
+CGO_ENABLED=0 go build -o hello-world .
+./hello-world
 
-# macOS (requires Xcode CLT: xcode-select --install)
+# macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation" go build -o hello-world .
-DYLD_LIBRARY_PATH=. ./hello-world
+CGO_ENABLED=0 go build -o hello-world .
+./hello-world
 
-# Windows (requires MinGW gcc on PATH)
+# Windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-set CGO_ENABLED=1
-set CGO_CFLAGS=-I.
-set CGO_LDFLAGS=azul.dll.lib
+set CGO_ENABLED=0
 go build -o hello-world.exe .
 hello-world.exe
 ```
@@ -70,6 +64,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 
 	azul "azul.rs/ui/go"
 )
@@ -118,7 +113,23 @@ func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
 	return body
 }
 
+func getLibPath() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "azul.dll"
+	case "darwin":
+		return "libazul.dylib"
+	default:
+		return "libazul.so"
+	}
+}
+
 func main() {
+	// Dynamically load the embedded/downloaded shared library
+	if err := azul.LoadLibrary(getLibPath()); err != nil {
+		panic(err)
+	}
+
 	app := azul.NewAppWithData(&counterModel{Counter: 5}, nil)
 	app.RunWindow(azul.NewWindowCreateOptions(layout))
 }
@@ -126,38 +137,33 @@ func main() {
 
 ### How it works
 
-The generated `azul-go` package does all of the heavy `cgo` lifting for you:
+The generated `azul-go` package does all of the heavy lifting for you dynamically at runtime:
 
-1. **Callbacks:** It automatically emits the `//export` C-ABI trampolines and fn-pointer cast helpers, so your callbacks are plain Go functions.
-2. **Data Model:** `azul.NewAppWithData()` wraps your struct in an `azul.RefAny` that holds a handle to the Go object. Using `azul.RefAnyGet(data)` safely retrieves the same instance, allowing you to type-assert and mutate it in-place.
-3. **Strings:** Go strings cross the boundary seamlessly through `azul.Str(s)`, which copies the bytes into a refcounted `AzString` during the call. The original Go string can be safely garbage-collected immediately.
+1. **Dynamic Loading:** `azul.LoadLibrary(path)` dynamically opens the native shared library and wires up all of the Go wrappers using `purego`. This lets you seamlessly `go:embed` the `.dll` or `.so`, extract it to a temp folder, and load it dynamically without cluttering the user's system.
+2. **Callbacks:** `purego` dynamically allocates machine-code trampolines in executable memory at runtime. Your Go functions are safely injected across the C ABI, eliminating CGO entirely.
+3. **Data Model:** `azul.NewAppWithData()` wraps your struct in an `azul.RefAny` that holds a handle to the Go object. Using `azul.RefAnyGet(data)` safely retrieves the same instance, allowing you to type-assert and mutate it in-place.
+4. **Strings:** Go strings cross the boundary seamlessly through `azul.Str(s)`, which copies the bytes into a refcounted `AzString` during the call. The original Go string can be safely garbage-collected immediately.
 
 When you run the app, `app.RunWindow(...)` opens a native window and invokes your layout callback. 
 
 The framework continuously queries whether anything matches the event filters set up in the DOM. On click, the framework borrows your data model mutably, runs the click callback, observes the `.RefreshDom` return value, and automatically re-invokes the layout callback to render the new state.
 
-
 ### Cross-compilation
 
-While compiling from scratch is not necessary since `libazul` is pre-compiled, cross-compiling Go with `cgo` still requires a C cross-compiler for the target platform to handle the CGO trampolines and linking. 
+Cross-compilation is completely native and frictionless. Because the bindings are 100% pure Go, you don't need a C cross-compiler (like `mingw-w64`) or any special environment variables.
 
-For example, to compile a Windows executable from a Linux or macOS host, you must install the `mingw-w64` toolchain and instruct Go to use it:
+For example, to compile a Windows executable from a Linux or macOS host, simply use `GOOS=windows` and instruct Go to disable CGO:
 
 ```sh
-# Ensure you have the mingw-w64 compiler installed (e.g., sudo apt install gcc-mingw-w64-x86-64)
+# Fetch the Go package and the Windows DLL target
 curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
 tar xzf azul-go-$VERSION.tar.gz
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 
-# Set the target OS/ARCH and provide the C cross-compiler
+# Cross compile to Windows NATIVELY (no mingw required!)
 export GOOS=windows
 export GOARCH=amd64
-export CGO_ENABLED=1
-export CC=x86_64-w64-mingw32-gcc
-
-# Link against the import library
-export CGO_CFLAGS="-I."
-export CGO_LDFLAGS="azul.dll.lib"
+export CGO_ENABLED=0
 
 go build -o hello-world.exe .
 ```
