@@ -153,6 +153,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_layout_callback_thunk,
     setter_fn:      AzApp_setLayoutCallbackInvoker,
     from_handle_fn: AzLayoutCallback_createFromHostHandle,
+    from_handle_byref_fn: AzLayoutCallback_createFromHostHandleByref,
 }
 
 impl Default for LayoutCallback {
@@ -191,6 +192,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_virtual_view_callback_thunk,
     setter_fn:      AzApp_setVirtualViewCallbackInvoker,
     from_handle_fn: AzVirtualViewCallback_createFromHostHandle,
+    from_handle_byref_fn: AzVirtualViewCallback_createFromHostHandleByref,
 }
 
 impl VirtualViewCallback {

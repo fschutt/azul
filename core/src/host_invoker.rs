@@ -335,6 +335,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
     ) => {
         $crate::impl_managed_callback! {
             wrapper:        $wrapper,
@@ -345,7 +346,8 @@ macro_rules! impl_managed_callback {
             invoker_ty:     $invoker_ty,
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
-            from_handle_fn: $from_handle_fn,
+            from_handle_fn:       $from_handle_fn,
+            $( from_handle_byref_fn: $from_handle_byref_fn, )?
             extra_args:     [],
         }
     };
@@ -364,6 +366,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
         extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
         /// Process-global slot for this callback kind's host-side invoker.
@@ -518,6 +521,18 @@ macro_rules! impl_managed_callback {
         pub extern "C" fn $from_handle_fn(handle: u64) -> $wrapper {
             <$wrapper>::create_from_host_handle(handle)
         }
+
+        $(
+        #[no_mangle]
+        #[doc(hidden)]
+        pub unsafe extern "C" fn $from_handle_byref_fn(handle: u64, out: *mut $wrapper) { unsafe {
+            if !out.is_null() {
+                core::ptr::write(out, <$wrapper>::create_from_host_handle(handle));
+            }
+        }}
+        )?
+
+
     };
 }
 
@@ -629,6 +644,7 @@ mod tests {
         thunk_fn:       az_test_fake_thunk,
         setter_fn:      az_test_fake_set_invoker,
         from_handle_fn: az_test_fake_from_handle,
+        from_handle_byref_fn: az_test_fake_from_handle_byref,
     }
 
     #[test]
@@ -646,3 +662,10 @@ mod tests {
 #[cfg(test)]
 #[path = "host_invoker_test.rs"]
 mod host_invoker_test;
+
+#[no_mangle]
+pub unsafe extern "C" fn AzRefAny_newHostHandleByref(id: u64, out: *mut RefAny) { unsafe {
+    if !out.is_null() {
+        core::ptr::write(out, host_handle_to_refany(id));
+    }
+}}
