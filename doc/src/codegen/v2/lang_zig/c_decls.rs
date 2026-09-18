@@ -839,9 +839,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn azul_zig_imports_the_pretranslation_instead_of_cimport() {
+    fn azul_zig_embeds_the_pretranslation_instead_of_cimport() {
         let z = super::super::generate(&fixture_ir(), &CodegenConfig::c_header()).unwrap();
-        assert!(z.contains("pub const C = @import(\"azul_c.zig\");\n"), "{z}");
+        assert!(z.contains("pub const C = struct {\n"), "{z}");
         // Only the prose header may mention @cImport; no code line does.
         assert!(
             !z.lines().any(|l| !l.trim_start().starts_with("//") && l.contains("@cImport")),
