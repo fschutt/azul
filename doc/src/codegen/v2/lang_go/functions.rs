@@ -47,7 +47,7 @@ use super::types::{go_pointer_to, go_value_type};
 use super::{ffi_type_name, primitive_to_cgo, primitive_to_go, sanitize_identifier};
 
 /// Maximum number of C functions referenced by one generated Go file.
-pub const CHUNK: usize = 1500;
+pub const CHUNK: usize = 150000;
 
 // ============================================================================
 // Call plan
