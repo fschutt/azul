@@ -45,13 +45,12 @@ curl -O https://azul.rs/ui/release/$VERSION/libazul.so
 CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -lpthread -lm -ldl" go build -o hello-world .
 LD_LIBRARY_PATH=. ./hello-world
 
-# macos (requires Xcode CLT: xcode-select --install)
+# macOS (requires Xcode CLT: xcode-select --install)
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation" go build -o hello-world .
 DYLD_LIBRARY_PATH=. ./hello-world
 
-
-# windows (requires MinGW gcc on PATH)
+# Windows (requires MinGW gcc on PATH)
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 set CGO_ENABLED=1
@@ -61,11 +60,10 @@ go build -o hello-world.exe .
 hello-world.exe
 ```
 
-If you prefer to manage the module yourself, you can install the library system-wide and simply run `go get azul.rs/ui/go`.
+If you prefer to manage the module yourself, you can install the library 
+system-wide and simply run `go get azul.rs/ui/go`.
 
 ## Simple "Counter" Example
-
-This is the exact `main.go` shipped in the release. Notice how it imports `azul.rs/ui/go` and uses pure Go types and methods:
 
 ```go
 package main
