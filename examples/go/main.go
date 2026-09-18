@@ -37,5 +37,5 @@ func main() {
 	data := &counterModel{Counter: 5}
 	window := azul.NewWindowCreateOptions(azul.Bind(layout))
 	app := azul.AppCreate(data, azul.AppConfigCreate())
-	app.RunWindow(window)
+	app.Run(window)
 }

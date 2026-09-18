@@ -6,7 +6,7 @@
 //!   `AzApp_set<Kind>Invoker` / `Az<Kind>_createFromHostHandle` / `AzRefAny_newHostHandle` exports
 //!   are NOT in `azul.h`, so this file declares them), a handle registry (`sync.Map` + atomic
 //!   counter), the per-kind `Register<Kind>(fn)` helpers, `RefAnyWrap`/`RefAnyGet`, string helpers,
-//!   smart factories (`NewWindowCreateOptions`, `NewAppWithData`, `RunWindow`, per-widget
+//!   smart factories (`NewWindowCreateOptions`, `NewAppWithData`, `Run`, per-widget
 //!   `On<Event>` setters), and the cross-package `Raw()` accessors.
 //! * `callbacks_export.go` — the `//export` trampolines, one per invoker *arity* (total pointer
 //!   parameters after the `uint64` handle). Files containing `//export` must not define anything in
@@ -662,13 +662,6 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     b.line("}");
     b.blank();
 
-    b.line("// RunWindow consumes win and enters the main loop.");
-    b.line("func (self *App) RunWindow(win *WindowCreateOptions) {");
-    b.line("    inner := *win.inner");
-    b.line("    win.inner = nil");
-    b.line("    runtime.SetFinalizer(win, nil)");
-    b.line("    AzApp_run(self.inner, inner)");
-    b.line("}");
     b.blank();
 
     // Per-widget On<Event> smart setters: for every instance method
@@ -737,7 +730,7 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
     b.line("//");
     b.line("// Raw() hands out the underlying Go-native Az* value and disarms the");
     b.line("// wrapper's finalizer (ownership transfer): pass the result to a consuming");
-    b.line("// libazul parameter (AddChild, RunWindow, ...). Clone() the wrapper first");
+    b.line("// libazul parameter (AddChild, Run, ...). Clone() the wrapper first");
     b.line("// if you still need it afterwards.");
     b.blank();
     for t in wrapper_types {
