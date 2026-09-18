@@ -31,15 +31,13 @@ default-search-keys:
 
 ## Introduction
 
-The C++ binding for Azul is a thin, header-only wrapper over the [C ABI](c.md): same DLL, 
-same `azul.h` underneath, but on top you get RAII types, builder methods, integration with 
-`std::string` / `std::optional` / `std::expected` / `std::span`, and template-based reflection. 
-The wrapper is generated separately for each C++ standard, so it scales from `-std=c++03` 
-(Colvin-Gibbons move emulation) all the way to `-std=c++23` (deducing `this`, `std::expected`).
+In order to use Azul from C++, you first need to install the native compiled `libazul` library
+as well as the C bindings. The C++ bindings are then "extensions" of the C API, which add 
+RAII types, builder methods and integration with the C++ standard container types on top.
 
 Since C++ has shifted significantly between standards, there is one wrapper header per 
-standard rather than a single "C++ header". Pick the one that matches what you compile with; 
-the sections after the example list what each header adds.
+standard rather than a single "C++ header". Pick the one that matches what you compile with,
+see below for the C++ features each header supports.
 
 ### Installation
 
