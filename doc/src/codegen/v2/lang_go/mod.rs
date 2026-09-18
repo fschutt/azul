@@ -138,10 +138,8 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("//   wrappers.go     idiomatic wrappers with Close()/finalizers (no cgo).");
     b.line("//   callbacks*.go   Go functions as libazul callbacks (host-invoker pattern).");
     b.line("//");
-    b.line("// Build-time requirements (cgo):");
-    b.line("//   * a working C compiler (gcc / clang / MinGW) on the host,");
-    b.line("//   * `azul.h` reachable on the C include path (CGO_CFLAGS=-I...),");
-    b.line("//   * `libazul.{so,dylib}` (or `azul.dll`) on the linker path (CGO_LDFLAGS=-L...).");
+    b.line("// Build-time requirements:");
+    b.line("//   * None. This package uses purego and does not require cgo or a C compiler.");
     b.line("//");
     b.line("// Runtime requirements:");
     b.line("//   * the same `libazul.{so,dylib}` (or `azul.dll`) reachable through");
@@ -156,14 +154,34 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("package azul");
     b.blank();
 
-    // The cgo prelude MUST be a single comment block (no blank lines)
-    // immediately followed by `import "C"`. This file carries only the
-    // package-wide linker directive; it names no C symbol.
-    b.line("/*");
-    b.line(&format!("#cgo LDFLAGS: -l{}", LIB_NAME));
-    b.line("#include <stdint.h>");
-    b.line("*/");
-    b.line("import \"C\"");
+
+    b.line("import (");
+    b.line("    \"errors\"");
+    b.line("    \"github.com/ebitengine/purego\"");
+    b.line(")");
+    b.blank();
+    
+    b.line("// LoadLibrary dynamically loads the Azul C library from the given path.");
+    b.line("// You must call this before using any other functions in this package.");
+    b.line("// If path is empty, purego will attempt to find the library in the standard system paths.");
+    b.line("func LoadLibrary(path string) error {");
+    b.line("    var lib uintptr");
+    b.line("    var err error");
+    b.line("    if path == \"\" {");
+    b.line("        lib, err = purego.Dlopen(\"azul\", purego.RTLD_NOW|purego.RTLD_GLOBAL)");
+    b.line("    } else {");
+    b.line("        lib, err = purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_GLOBAL)");
+    b.line("    }");
+    b.line("    if err != nil {");
+    b.line("        return err");
+    b.line("    }");
+    b.line("    if lib == 0 {");
+    b.line("        return errors.New(\"failed to load Azul library\")");
+    b.line("    }");
+    b.line("    initFunctions(lib)");
+    b.line("    initCallbacks(lib)");
+    b.line("    return nil");
+    b.line("}");
     b.blank();
 
     Ok(b.finish())

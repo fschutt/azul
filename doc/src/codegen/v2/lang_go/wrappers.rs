@@ -698,7 +698,7 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
                 FunctionKind::Default => {
                     b.line(&format!("// {bare}Default is the Rust Default."));
                     b.line(&format!("func {bare}Default() {ffi} {{"));
-                    b.line(&format!("    return {ffi}_default()"));
+                    b.line(&format!("    return {ffi}_createDefault()"));
                     b.line("}");
                 }
                 FunctionKind::PartialEq => {
