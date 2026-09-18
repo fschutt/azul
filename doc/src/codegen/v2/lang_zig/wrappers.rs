@@ -368,8 +368,11 @@ fn emit_unit_enum_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             out.push_str(&format!("/// {}\n", d));
         }
     }
-    out.push_str(&format!("pub const {} = struct {{\n", zig_name));
-    out.push_str("    /// The raw FFI enum, as exposed by `@cImport`.\n");
+    out.push_str(&format!("pub const {} = enum(C.{}) {{\n", zig_name, ffi_name));
+    for v in &e.variants {
+        out.push_str(&format!("    {} = C.{}_{},\n", v.name, ffi_name, v.name));
+    }
+    out.push_str("    _,\n\n");
     out.push_str(&format!("    pub const Raw = C.{};\n\n", ffi_name));
     emit_trait_methods_raw(out, &e.name, &ffi_name, ir);
 

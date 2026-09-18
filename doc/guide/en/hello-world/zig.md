@@ -52,18 +52,18 @@ const MyDataModel = struct {
 // 1. Generate a strongly-typed reference wrapper for our model
 const MyModelRef = azul.ReflectModel(MyDataModel).Ref;
 
-// 2. Callbacks are strongly typed and receive our wrapper directly
-fn onClick(model: MyModelRef, _: azul.C.AzCallbackInfo) azul.C.AzUpdate {
+// 2. Callbacks are pure Zig! They receive wrapper types directly.
+fn onClick(model: MyModelRef, _: azul.CallbackInfo) azul.Update {
     const m = model.get();
     m.counter += 1;
-    return azul.C.AzUpdate_RefreshDom;
+    return .RefreshDom;
 }
 
-fn layout(model: MyModelRef, _: azul.C.AzLayoutCallbackInfo) azul.C.AzDom {
+fn layout(model: MyModelRef, _: azul.LayoutCallbackInfo) azul.Dom {
     const m = model.get();
 
     var buf: [16]u8 = undefined;
-    const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return azul.C.AzDom_createBody();
+    const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return azul.Dom.createBody();
     
     // 3. Azul wrappers automatically convert Zig slices to C strings
     var label = azul.Dom.createPWithText(slice);
@@ -78,7 +78,7 @@ fn layout(model: MyModelRef, _: azul.C.AzLayoutCallbackInfo) azul.C.AzDom {
     var body = azul.Dom.createBody();
     body.addChild(label.inner);
     body.addChild(button.dom().inner);
-    return body.inner;
+    return body;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -104,7 +104,7 @@ This snippet leverages advanced Zig features to erase boilerplate:
 
 1. **`comptime` Type Reflection (`azul.ReflectModel`)**: By passing your state struct into the `comptime` wrapper, the bindings generate a smart-pointer `Ref` type for you.
 2. **Native Slice Integration**: You can pass Zig string slices directly to wrapper functions like `Dom.createPWithText("string")`. The codegen leverages `anytype` behind the scenes to do zero-cost conversions to C FFI boundaries.
-3. **Strongly Typed Callbacks**: Instead of wrestling with raw `AzRefAny` pointers and downcasting inside every callback, `setOnClick` uses `comptime` introspection to generate C-ABI shims for your functions, letting you write perfectly typed callbacks.
+3. **Pure Zig Callbacks**: Instead of wrestling with raw `AzRefAny` pointers and downcasting inside every callback, `setOnClick` uses `comptime` introspection to generate C-ABI shims for your functions, letting you write perfectly typed callbacks with pure Zig inputs and outputs. You can return `.RefreshDom` or wrapper structs directly!
 
 ### Zig 0.16.0 Notes
 

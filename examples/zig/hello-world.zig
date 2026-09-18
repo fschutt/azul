@@ -7,17 +7,17 @@ const MyDataModel = struct {
 
 const MyModelRef = azul.ReflectModel(MyDataModel).Ref;
 
-fn onClick(model: MyModelRef, _: azul.C.AzCallbackInfo) azul.C.AzUpdate {
+fn onClick(model: MyModelRef, _: azul.CallbackInfo) azul.Update {
     const m = model.get();
     m.counter += 1;
-    return azul.C.AzUpdate_RefreshDom;
+    return .RefreshDom;
 }
 
-fn layout(model: MyModelRef, _: azul.C.AzLayoutCallbackInfo) azul.C.AzDom {
+fn layout(model: MyModelRef, _: azul.LayoutCallbackInfo) azul.Dom {
     const m = model.get();
 
     var buf: [16]u8 = undefined;
-    const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return azul.C.AzDom_createBody();
+    const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return azul.Dom.createBody();
     
     var label = azul.Dom.createPWithText(slice);
     label.setCss("font-size: 32px; margin: 0;");
@@ -29,7 +29,7 @@ fn layout(model: MyModelRef, _: azul.C.AzLayoutCallbackInfo) azul.C.AzDom {
     var body = azul.Dom.createBody();
     body.addChild(label.inner);
     body.addChild(button.dom().inner);
-    return body.inner;
+    return body;
 }
 
 pub fn main(init: std.process.Init) !void {
