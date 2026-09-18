@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	azul "azul.rs/azul-go"
+	azul "azul.rs/ui/go"
 )
 
 
