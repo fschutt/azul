@@ -74,6 +74,25 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         emit_struct(&mut b, s, ir);
     }
 
+
+    b.line("// ============================================================================");
+    b.line("// Ergonomic Type Aliases");
+    b.line("// ============================================================================");
+    for e in &ir.enums {
+        if config.should_include_type(&e.name) && e.generic_params.is_empty() {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&e.name), ffi_type_name(&e.name)));
+        }
+    }
+    for s in &ir.structs {
+        if config.should_include_type(&s.name) && s.generic_params.is_empty() && !super::wrappers::should_emit_wrapper(s, ir, config) {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&s.name), ffi_type_name(&s.name)));
+        }
+    }
+    for c in &ir.callback_typedefs {
+        if config.should_include_type(&c.name) {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&c.name), ffi_type_name(&c.name)));
+        }
+    }
     Ok(b.finish())
 }
 
@@ -340,7 +359,7 @@ fn emit_unit_enum_body(b: &mut CodeBuilder, go_name: &str, doc: &[String], varia
         b.line("const (");
         b.indent();
         for (i, v) in variants.iter().enumerate() {
-            b.line(&format!("{}_{} {} = {}", go_name, v, go_name, i));
+            b.line(&format!("{}_{} {} = {}", if go_name.starts_with("Az") { &go_name[2..] } else { go_name }, v, go_name, i));
         }
         b.dedent();
         b.line(")");

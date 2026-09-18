@@ -300,11 +300,11 @@ fn emit_static_factory(
 ) {
     // `new` becomes `New<Type>` so users write `azul.NewApp(...)`.
     let method_label = if f.method_name == "new" {
-        format!("New{}", go_name)
+        go_name.to_string()
     } else {
         // `default` -> `Default`, `from_string` -> `FromString`, etc.
         let pascal = idiomatic_method_name(&f.method_name);
-        format!("New{}{}", go_name, pascal)
+        format!("{}{}", go_name, pascal)
     };
 
     for d in &f.doc {

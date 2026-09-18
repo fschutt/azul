@@ -6458,6 +6458,34 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+
+  go:
+    name: Publish Go bindings
+    needs: build_dll_linux
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v4
+        with:
+          name: azul-dll-linux
+          path: dll-share
+
+      - name: Publish to azul-go
+        run: |
+          cd dll-share/codegen/go
+          git init
+          git checkout -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update Go bindings for $GITHUB_REF_NAME"
+          # Push to the azul-go repo (assumes AZUL_GO_PAT is a repository secret)
+          git push --force "https://${{ secrets.AZUL_GO_PAT }}@github.com/fschutt/azul-go.git" main
+
   npm:
     # Builds and publishes the Node binding (FFI loader via koffi).
     name: npm (node binding)

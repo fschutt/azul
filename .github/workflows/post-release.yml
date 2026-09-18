@@ -651,8 +651,11 @@ jobs:
           VERSION="${{ needs.resolve.outputs.version }}"
           BASE="${{ needs.resolve.outputs.base_url }}"
           
-          curl -LO "$BASE/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
-          tar xzf "azul-go-$VERSION.tar.gz"
+          # Test Go compilation
+          git clone https://github.com/fschutt/azul-go ./azul-go
+          cd examples/go
+          go mod edit -replace azul.rs/ui/go=../azul-go
+          go mod tidy
           
           # Cross compile to Windows
           export GOOS=windows

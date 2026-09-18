@@ -241,6 +241,8 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut b = CodeBuilder::new(&config.indent);
 
     emit_header(&mut b);
+
+
     emit_cgo_preamble(&mut b, &kinds, &arities);
     emit_registry(&mut b);
     emit_string_helpers(&mut b);
@@ -470,12 +472,12 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.blank();
     b.line("// Bind automatically downcasts the RefAny to your specific model type T.");
     b.line("// If the downcast fails, it logs an error and returns the zero value for the return type (e.g., AzUpdate_DoNothing, or nil for *Dom).");
-    b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(any, Ctx) Ret {");
-    b.line("    return func(data any, ctx Ctx) Ret {");
+    b.line("func Bind[T any, Ctx any, Ret any](cb func(*T, Ctx) Ret) func(any, Ctx) any {");
+    b.line("    return func(data any, ctx Ctx) any {");
     b.line("        var zero Ret");
     b.line("        model, ok := data.(*T)");
     b.line("        if !ok {");
-    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\n\", new(T), data)");
+    b.line("            log.Printf(\"azul.Bind: type assertion failed, expected %T, got %T\\n\", new(T), data)");
     b.line("            return zero");
     b.line("        }");
     b.line("        return cb(model, ctx)");

@@ -30,31 +30,28 @@ Because this relies on `purego`, **you do not need a C compiler to build or cros
 
 ## Installation
 
-The easiest way to get started is to download the pre-packaged bundle, which 
-contains `main.go`, `go.mod`, and the generated `azul-go/` directory:
+The easiest way to get started is to create a new module and fetch the bindings using `go get`:
 
 ```sh
-curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
-tar xzf azul-go-$VERSION.tar.gz
+mkdir hello-world && cd hello-world
+go mod init hello-world
+go get azul.rs/ui/go
+```
 
+Then download the pre-compiled native library for your platform into the same folder:
+
+```sh
 # Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-go build -o hello-world .
-./hello-world
 
 # macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-go build -o hello-world .
-./hello-world
 
 # Windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-go build -o hello-world.exe .
-hello-world.exe
 ```
 
-If you prefer to manage the module yourself, you can install the library 
-system-wide and simply run `go get azul.rs/ui/go`.
+You can now compile your Go code normally without needing `cgo` or a C compiler!
 
 ## Simple "Counter" Example
 
@@ -72,22 +69,17 @@ type counterModel struct {
 	Counter int
 }
 
-func onClick(model *counterModel, _ *azul.CallbackInfo) azul.AzUpdate {
+func onClick(model *counterModel, _ *azul.CallbackInfo) azul.Update {
 	model.Counter++
-	return azul.AzUpdate_RefreshDom
+	return azul.Update_RefreshDom
 }
 
-func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
-	body := azul.NewDomCreateBody()
+func layout(model *counterModel, _ *azul.LayoutCallbackInfo) *azul.Dom {
+	body := azul.DomCreateBody()
+	label := azul.DomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
 
-	// Retrieve the model to read the current state
-	v, _ := azul.RefAnyGet(data)
-	model := v.(*counterModel)
-
-	label := azul.NewDomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
-
-	button := azul.NewButtonCreate(azul.Str("Increase counter"))
-	button.OnClick(data, azul.Bind(onClick))
+	button := azul.ButtonCreate(azul.Str("Increase counter"))
+	button.OnClick(model, azul.Bind(onClick))
 
 	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
 	body.AddChild(label.Raw())
@@ -113,8 +105,10 @@ func main() {
 		panic(err)
 	}
 
-	app := azul.NewApp(&counterModel{Counter: 5}, nil)
-	app.RunWindow(azul.NewWindowCreateOptions(layout))
+	data := &counterModel{Counter: 5}
+	window := azul.NewWindowCreateOptions(azul.Bind(layout))
+	app := azul.AppCreate(data, azul.AppConfigCreate().Raw())
+	app.RunWindow(window)
 }
 ```
 
@@ -138,9 +132,12 @@ Cross-compilation is completely native and frictionless. Because the bindings ar
 For example, to compile a Windows executable from a Linux or macOS host, simply use `GOOS=windows` and instruct Go to disable CGO:
 
 ```sh
-# Fetch the Go package and the Windows DLL target
-curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
-tar xzf azul-go-$VERSION.tar.gz
+# Fetch the Go package
+mkdir hello-world && cd hello-world
+go mod init hello-world
+go get azul.rs/ui/go
+
+# Fetch the Windows DLL target
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 
 # Cross compile to Windows NATIVELY (no mingw required!)
