@@ -20,24 +20,27 @@ default-search-keys:
   - Button
 ---
 
-# Hello world in Go
+# Hello world [Go]
 
-The Go bindings provide a fully idiomatic wrapper over the Azul C API. The generated `azul.rs/ui/go` package automatically handles CGO trampolines, pointer conversions, and memory management for you.
+In order to use the `libazul` library from Go, you will need to install the
+Go bindings from `azul.rs/ui/go`, which provide a fully idiomatic wrapper over the C API.
+Internally, they automatically handles CGO trampolines, pointer conversions 
+and GC memory management for you.
 
-Because this relies on `cgo`, you will need a **C compiler** at build time (`gcc` on Linux, Xcode Command Line Tools on macOS, or MinGW on Windows) in addition to Go 1.21+, and `CGO_ENABLED=1`. 
-
-> [!WARNING]
-> Cross-compiling `cgo` programs is generally painful — build on the target platform if you can.
+Because this relies on `cgo`, you will need a C compiler at build time 
+(`gcc` on Linux, Xcode Command Line Tools on macOS, or MinGW on Windows) 
+in addition to Go (1.21+), and `CGO_ENABLED=1`. 
 
 ## Installation
 
-The easiest way to get started is to download the pre-packaged bundle, which contains `main.go`, `go.mod`, the generated `azul-go/` directory, and `azul.h`:
+The easiest way to get started is to download the pre-packaged bundle, which 
+contains `main.go`, `go.mod`, the generated `azul-go/` directory, and `azul.h`:
 
 ```sh
 curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
 tar xzf azul-go-$VERSION.tar.gz
 
-# linux (requires gcc on PATH)
+# Linux (requires gcc on PATH)
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
 CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -lpthread -lm -ldl" go build -o hello-world .
 LD_LIBRARY_PATH=. ./hello-world
@@ -134,5 +137,31 @@ The generated `azul-go` package does all of the heavy `cgo` lifting for you:
 When you run the app, `app.RunWindow(...)` opens a native window and invokes your layout callback. 
 
 The framework continuously queries whether anything matches the event filters set up in the DOM. On click, the framework borrows your data model mutably, runs the click callback, observes the `.RefreshDom` return value, and automatically re-invokes the layout callback to render the new state.
+
+
+### Cross-compilation
+
+While compiling from scratch is not necessary since `libazul` is pre-compiled, cross-compiling Go with `cgo` still requires a C cross-compiler for the target platform to handle the CGO trampolines and linking. 
+
+For example, to compile a Windows executable from a Linux or macOS host, you must install the `mingw-w64` toolchain and instruct Go to use it:
+
+```sh
+# Ensure you have the mingw-w64 compiler installed (e.g., sudo apt install gcc-mingw-w64-x86-64)
+curl -LO https://azul.rs/ui/release/$VERSION/azul-go-$VERSION.tar.gz
+tar xzf azul-go-$VERSION.tar.gz
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
+
+# Set the target OS/ARCH and provide the C cross-compiler
+export GOOS=windows
+export GOARCH=amd64
+export CGO_ENABLED=1
+export CC=x86_64-w64-mingw32-gcc
+
+# Link against the import library
+export CGO_CFLAGS="-I."
+export CGO_LDFLAGS="azul.dll.lib"
+
+go build -o hello-world.exe .
+```
 
 Congratulations! Once you've got the hello-world example running, you've already mastered 80% of the framework. You can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md).

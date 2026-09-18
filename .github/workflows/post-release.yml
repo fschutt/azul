@@ -633,3 +633,42 @@ jobs:
           # The action runs `script` line-by-line in separate shells. We pass a
           # single script file to preserve state and variables between steps.
           script: bash "$GITHUB_WORKSPACE/scripts/verify_apk_launch.sh"
+
+  go_cross_compile:
+    name: "go cross-compile (Linux -> Windows)"
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Install cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Fetch bundle and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.resolve.outputs.version }}"
+          BASE="${{ needs.resolve.outputs.base_url }}"
+          
+          curl -LO "$BASE/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
+          tar xzf "azul-go-$VERSION.tar.gz"
+          curl -O "$BASE/ui/release/$VERSION/azul.dll.lib"
+          
+          # Cross compile to Windows
+          export GOOS=windows
+          export GOARCH=amd64
+          export CGO_ENABLED=1
+          export CC=x86_64-w64-mingw32-gcc
+          export CGO_CFLAGS="-I."
+          export CGO_LDFLAGS="azul.dll.lib"
+          
+          go build -o hello-world.exe .
+          
+          if [ ! -f "hello-world.exe" ]; then
+            echo "::error::Cross-compiled executable not found!"
+            exit 1
+          fi
+          echo "Cross-compilation successful!"
