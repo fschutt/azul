@@ -24,7 +24,7 @@ default-search-keys:
 
 In order to use the `libazul` library from Go, you will need to install the
 Go bindings from `azul.rs/ui/go`, which provide a fully idiomatic wrapper over the C API.
-Internally, they use `ebitengine/purego` to dynamically load the shared library and handle callback trampolines at runtime, meaning **CGO is entirely disabled**.
+Internally, they use `ebitengine/purego` to dynamically load the shared library and handle callback trampolines at runtime.
 
 Because this relies on `purego`, **you do not need a C compiler to build or cross-compile your app**, making single-binary deployments and cross-platform builds trivial.
 
@@ -39,17 +39,16 @@ tar xzf azul-go-$VERSION.tar.gz
 
 # Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-CGO_ENABLED=0 go build -o hello-world .
+go build -o hello-world .
 ./hello-world
 
 # macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-CGO_ENABLED=0 go build -o hello-world .
+go build -o hello-world .
 ./hello-world
 
 # Windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-set CGO_ENABLED=0
 go build -o hello-world.exe .
 hello-world.exe
 ```
@@ -163,8 +162,6 @@ curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 # Cross compile to Windows NATIVELY (no mingw required!)
 export GOOS=windows
 export GOARCH=amd64
-export CGO_ENABLED=0
-
 go build -o hello-world.exe .
 ```
 

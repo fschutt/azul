@@ -657,7 +657,6 @@ jobs:
           # Cross compile to Windows
           export GOOS=windows
           export GOARCH=amd64
-          export CGO_ENABLED=0
           
           go build -o hello-world.exe .
           
