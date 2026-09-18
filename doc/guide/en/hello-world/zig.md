@@ -1,7 +1,23 @@
 ---
-slug: zig
-title: Zig
-guide_order: 11
+slug: hello-world/zig
+title: Hello World [Zig]
+language: en
+canonical_slug: hello-world/zig
+audience: external
+maturity: mature
+guide_order: 22
+topic_only: false
+prerequisites: [hello-world]
+tracked_files:
+  - api.json
+  - examples/zig/hello-world.zig
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
+default-search-keys:
+  - App
+  - AppConfig
+  - Dom
+  - Button
 ---
 
 # Hello world in Zig
