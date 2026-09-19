@@ -7575,6 +7575,15 @@ impl WaylandWindow {
                                     match cpu_state.acquire_slot() {
                                         Some(slot) => {
                                             cpu_state.catch_up_slot(slot);
+                                            {
+                                                let stride = cpu_state.stride.max(0) as usize;
+                                                bb_probe(
+                                                    "after-catch-up",
+                                                    slot,
+                                                    cpu_state.slot_buffer_mut(slot),
+                                                    stride,
+                                                );
+                                            }
                                             if !cpu_state.slots[slot].valid {
                                                 // A never-filled slot (fresh
                                                 // pool after a resize with no
@@ -7738,6 +7747,12 @@ impl WaylandWindow {
                                         if cpu_state.needs_commit_swizzle() {
                                             let stride = cpu_state.stride.max(0) as usize;
                                             let h = cpu_state.height.max(0) as usize;
+                                            bb_probe(
+                                                "after-render",
+                                                slot,
+                                                cpu_state.slot_buffer_mut(slot),
+                                                stride,
+                                            );
                                             let swizzle_rects = if full_render {
                                                 // A genuinely full render
                                                 // wrote every pixel.
@@ -7778,6 +7793,12 @@ impl WaylandWindow {
                                                 stride,
                                                 h,
                                                 &int_rects,
+                                            );
+                                            bb_probe(
+                                                "after-swizzle",
+                                                slot,
+                                                cpu_state.slot_buffer_mut(slot),
+                                                stride,
                                             );
                                         }
                                     }
@@ -11232,6 +11253,30 @@ mod decoration_mode_tests {
         assert_eq!(xdg_decoration_mode(true, D::NoControls), 1);
         assert_eq!(xdg_decoration_mode(true, D::None), 1, "frameless");
         assert_eq!(xdg_decoration_mode(false, D::None), 1);
+    }
+}
+
+/// `AZ_BB_PROBE=x,y`: print the four bytes of one buffer pixel of a slot
+/// at a named stage of the native-backbuffer frame (after catch-up, after
+/// the render, after the commit swizzle). A pool-order (ARGB8888) slot holds
+/// B,G,R,A; the renderer writes R,G,B,A. Diagnostic only.
+fn bb_probe(stage: &str, slot: usize, buf: &[u8], stride: usize) {
+    let Ok(spec) = std::env::var("AZ_BB_PROBE") else {
+        return;
+    };
+    let mut it = spec.split(',').filter_map(|v| v.trim().parse::<usize>().ok());
+    let (Some(x), Some(y)) = (it.next(), it.next()) else {
+        return;
+    };
+    let o = y * stride + x * 4;
+    if o + 4 <= buf.len() {
+        eprintln!(
+            "[bb] PROBE {stage} slot={slot} ({x},{y}) = [{},{},{},{}]",
+            buf[o],
+            buf[o + 1],
+            buf[o + 2],
+            buf[o + 3]
+        );
     }
 }
 
