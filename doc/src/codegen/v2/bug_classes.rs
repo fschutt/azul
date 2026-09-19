@@ -1642,9 +1642,13 @@ fn equality_is_always_paired_with_a_consistent_hash() {
     assert_none("equality without a consistent hash", offenders);
 }
 
-/// Copying a value that owns libazul memory never frees it twice: C++ must not
-/// expose a raw `delete_()` next to its destructor, and every owning Fortran
-/// wrapper defines `assignment(=)`.
+/// The binding never frees a value twice on its own: C++ must not expose a raw
+/// `delete_()` next to the destructor that frees the value too, and an owning
+/// Fortran wrapper that is FINALIZED (`final ::`) needs a defined
+/// `assignment(=)` - intrinsic assignment would copy the handle, and both
+/// copies would be finalized. The Fortran binding finalizes nothing: a value
+/// is freed by an explicit `%delete()`, which clears `owned` (so a second
+/// `delete` of the same variable is a no-op).
 #[test]
 fn copies_of_owning_values_are_never_freed_twice() {
     let outputs = shipped_outputs();
@@ -1658,25 +1662,32 @@ fn copies_of_owning_values_are_never_freed_twice() {
         }
     }
     if let Some(files) = outputs.get("fortran") {
-        // A wrapper type owns its handle through `logical :: owned`; without
-        // a defined `assignment(=)`, `b = a` copies the handle and the flag,
-        // and the two `delete`s free it twice.
+        // A finalized owning wrapper without a defined `assignment(=)`: `b = a`
+        // copies the handle and the flag, and both are finalized.
         let mut bad = Vec::new();
         let mut total = 0;
         for (path, text) in files {
             let lower = text.to_ascii_lowercase();
             for chunk in lower.split("\n  type ::").skip(1) {
                 let body = chunk.split("end type").next().unwrap_or("");
-                if body.contains(":: owned") {
+                if body.contains(":: owned") && body.contains("final ::") {
                     total += 1;
                     if !body.contains("assignment(=)") {
                         bad.push(format!("{path}: {}", body.lines().next().unwrap_or("").trim()));
                     }
                 }
             }
+            // `delete` must clear the flag, or deleting a variable twice frees twice.
+            for chunk in lower.split("\n  subroutine ").skip(1) {
+                let body = chunk.split("end subroutine").next().unwrap_or("");
+                let name = body.split('(').next().unwrap_or("").trim();
+                if name.ends_with("_delete") && body.contains("%owned") && !body.contains("%owned = .false.") {
+                    bad.push(format!("{path}: {name} leaves `owned` set"));
+                }
+            }
         }
         if !bad.is_empty() {
-            offenders.push(summarize("fortran", "owning wrapper types have no assignment(=)", &bad, total));
+            offenders.push(summarize("fortran", "owning wrappers freed twice", &bad, total));
         }
     }
     assert_none("double frees through copies", offenders);

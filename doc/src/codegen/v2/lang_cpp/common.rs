@@ -188,6 +188,14 @@ pub fn is_constructor_or_default(func: &FunctionDef) -> bool {
     matches!(func.kind, FunctionKind::Constructor) || func.kind.is_default_constructor()
 }
 
+/// Is `func` one of a wrapper class's instance methods: anything but a
+/// constructor, the Default constructor, or `_delete`. The destructor owns
+/// the `_delete` call; a public `delete_()` next to it freed the value a
+/// second time when the object went out of scope.
+pub fn is_wrapper_method(func: &FunctionDef) -> bool {
+    !is_constructor_or_default(func) && func.kind != FunctionKind::Delete
+}
+
 /// Check if callback substitution should be applied for a function
 /// True for any "user-facing" function (constructors, instance methods both
 /// const and mut, static methods); skipped for trait-generated functions and

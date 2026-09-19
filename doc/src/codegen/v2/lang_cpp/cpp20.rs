@@ -924,7 +924,7 @@ fn emit_method_declarations(
         .functions
         .iter()
         .filter(|f| f.class_name == class_name)
-        .filter(|f| !is_constructor_or_default(f))
+        .filter(|f| is_wrapper_method(f))
         .collect();
 
     if methods.is_empty() {
@@ -1057,7 +1057,7 @@ fn generate_method_implementations_shared(
         .functions
         .iter()
         .filter(|f| f.class_name == *class_name)
-        .filter(|f| !is_constructor_or_default(f))
+        .filter(|f| is_wrapper_method(f))
     {
         let cpp_fn_name = escape_method_name(&func.method_name);
         let c_fn_name = &func.c_name;

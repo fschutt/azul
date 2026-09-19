@@ -172,7 +172,11 @@ There are a few Fortran-specific things in this example:
    match the binding's interfaces exactly (`class(*), intent(inout)` for the model,
    `intent(inout)` for `info`); a mismatch is a compile error.
 5. Methods like `with_css` or `with_child` change the object in place and are called
-   with `call`. `button%dom()` turns the button into a `dom_t`.
+   with `call`. `button%dom()` turns the button into a `dom_t`. An argument such a
+   method takes by value moves into the result: after `call body%with_child(label)`,
+   `label`'s value belongs to `body`, so don't pass `label` on again or `%delete()` it.
+   Values nothing took are yours to `%delete()`; a second `%delete()` of the same
+   variable does nothing.
 6. A callback that returns an invalid result, such as an `integer` that is not an
    `Update` value or a `dom_t` that was never assigned, does not reach the engine.
    The binding logs the problem and uses the default result instead:
