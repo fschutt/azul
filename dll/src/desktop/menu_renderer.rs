@@ -689,12 +689,22 @@ impl SystemStyleMenuExt for SystemStyle {
         // the wrong face is the most visible way to not look like the desktop.
         // Falls back to the UI font, which is what those desktops mean by
         // "unset" anyway.
+        // The system reports the size in POINTS. A typographic point is 1/72
+        // inch and a CSS pixel 1/96, so on Linux and Windows the point size is
+        // 4/3 as many pixels (KDE's "Noto Sans,10" is 13.3px); used as pixels
+        // it made every menu a quarter smaller than the desktop's. On macOS a
+        // Cocoa point already IS a logical pixel.
+        let px_per_pt = if matches!(self.platform, azul_css::system::Platform::MacOs) {
+            1.0
+        } else {
+            azul_css::props::basic::pixel::PT_TO_PX
+        };
         let font_size = self
             .fonts
             .menu_font_size
             .as_option()
             .or(self.fonts.ui_font_size.as_option())
-            .copied()
+            .map(|pt| pt * px_per_pt)
             .unwrap_or(14.0);
         let font_family = self
             .fonts
@@ -928,6 +938,46 @@ mod menu_stylesheet_tests {
         assert!(
             !css.contains("UiFace"),
             "the UI font must not override the menu font when both are set"
+        );
+    }
+
+    /// The value of every font-size declaration in the menu stylesheet, as
+    /// printed ("16px").
+    fn font_sizes(css: &str) -> Vec<String> {
+        const KEY: &str = "StyleFontSize { inner: ";
+        css.match_indices(KEY)
+            .filter_map(|(i, _)| {
+                let rest = &css[i + KEY.len()..];
+                rest.find(' ').map(|end| rest[..end].to_string())
+            })
+            .collect()
+    }
+
+    /// The desktop reports its menu font in POINTS ("Noto Sans,10" on KDE);
+    /// CSS pixels are 1/96 inch, points 1/72. Laid out as pixels, a Breeze
+    /// menu came out at 10px instead of 13.3px - visibly smaller and tighter
+    /// than every other menu on the desktop. On macOS a Cocoa point IS a
+    /// logical pixel, so there the number stays.
+    #[test]
+    fn the_menu_font_size_is_the_desktops_point_size_in_css_pixels() {
+        let mut kde = defaults::kde_breeze_light();
+        kde.fonts.menu_font_size = OptionF32::Some(12.0);
+        let sizes = font_sizes(&css_text(&kde));
+        assert!(
+            sizes.iter().any(|s| s == "16px"),
+            "12pt must be laid out at 16px on Linux, got {sizes:?}"
+        );
+        assert!(
+            !sizes.iter().any(|s| s == "12px"),
+            "the point size must not be used as a pixel size, got {sizes:?}"
+        );
+
+        let mut mac = defaults::macos_modern_light();
+        mac.fonts.menu_font_size = OptionF32::Some(13.0);
+        let sizes = font_sizes(&css_text(&mac));
+        assert!(
+            sizes.iter().any(|s| s == "13px"),
+            "a macOS point is a logical pixel: 13pt stays 13px, got {sizes:?}"
         );
     }
 
