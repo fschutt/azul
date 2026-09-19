@@ -100,12 +100,17 @@ conf_c() {
   local out="$WORK_DIR/c"; mkdir -p "$out"
   local bin="$out/conformance"
   if [ "$IS_MACOS" = 1 ]; then
-    "$CC" -std=c11 -g -O0 -w -I"$CODEGEN_DIR" "$CONF_DIR/c/conformance.c" -L"$RELEASE_DIR" -lazul -o "$bin" || return 1
+    # An rpath, not DYLD_LIBRARY_PATH alone: macOS strips DYLD_* variables
+    # from protected binaries (lldb), so under --memtest the program would
+    # not find libazul.
+    "$CC" -std=c11 -g -O0 -w -I"$CODEGEN_DIR" "$CONF_DIR/c/conformance.c" -L"$RELEASE_DIR" -lazul \
+      -Wl,-rpath,"$RELEASE_DIR" -o "$bin" || return 1
   elif [ "$IS_WINDOWS" = 1 ]; then
     bin="$bin.exe"
     "$CC" -std=c11 -g -O0 -w -I"$CODEGEN_DIR" "$CONF_DIR/c/conformance.c" "$RELEASE_DIR/azul.dll.lib" -o "$bin" || return 1
   else
-    "$CC" -std=c11 -g -O0 -w -I"$CODEGEN_DIR" "$CONF_DIR/c/conformance.c" -L"$RELEASE_DIR" -lazul -lpthread -lm -ldl -o "$bin" || return 1
+    "$CC" -std=c11 -g -O0 -w -I"$CODEGEN_DIR" "$CONF_DIR/c/conformance.c" -L"$RELEASE_DIR" -lazul -lpthread -lm -ldl \
+      -Wl,-rpath,"$RELEASE_DIR" -o "$bin" || return 1
   fi
   run c "$bin"
 }
