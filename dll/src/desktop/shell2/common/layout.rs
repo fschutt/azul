@@ -986,6 +986,43 @@ pub fn regenerate_layout(
             azul_core::task::Instant::now(),
         );
 
+        // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
+        // match to an old one (it is a fresh mount: state, focus and scroll on
+        // its old counterpart are dropped). Diagnostic only.
+        if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
+            let matched: std::collections::BTreeSet<usize> = diff_result
+                .node_moves
+                .iter()
+                .map(|m| m.new_node_id.index())
+                .collect();
+            let describe = |nd: &azul_core::dom::NodeData| {
+                let classes: Vec<String> = nd
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .map(|c| format!("{c:?}"))
+                    .collect();
+                format!("{:?} {}", nd.get_node_type(), classes.join(" "))
+            };
+            let unmatched: Vec<String> = (0..new_node_data.len())
+                .filter(|i| !matched.contains(i))
+                .map(|i| format!("#{i} {}", describe(&new_node_data[i])))
+                .collect();
+            eprintln!(
+                "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
+                old_node_data.len(),
+                new_node_data.len(),
+                matched.len(),
+                unmatched.len(),
+                unmatched
+                    .iter()
+                    .take(60)
+                    .map(|u| u.chars().take(90).collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            );
+        }
+
         // Execute state migration for matched nodes with merge callbacks
         if !diff_result.node_moves.is_empty() {
             let mut old_node_data_mut = old_node_data.clone();
