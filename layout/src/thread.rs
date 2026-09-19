@@ -197,6 +197,7 @@ impl ThreadSender {
         let Some(ts) = self.ptr.lock().ok() else {
             return false;
         };
+        // direct-cb-call: the thread channel's send function, not a callback wrapper.
         (ts.send_fn.cb)(
             std::ptr::from_ref(ts.ptr.as_ref()).cast::<core::ffi::c_void>(),
             msg,
@@ -313,17 +314,23 @@ impl WriteBackCallback {
             ctx: OptionRefAny::None,
         }
     }
+}
 
-    /// Invoke the callback
-    #[must_use]
-    pub fn invoke(
-        &self,
-        thread_data: RefAny,
-        writeback_data: RefAny,
-        callback_info: CallbackInfo,
-    ) -> Update {
-        (self.cb)(thread_data, writeback_data, callback_info)
-    }
+// Host-invoker plumbing (see azul_core::host_invoker): the data written back
+// comes BEFORE the `CallbackInfo`, whose context the thunk reads.
+azul_core::impl_managed_callback! {
+    wrapper:        WriteBackCallback,
+    pre_args:       [writeback_data: RefAny],
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: WRITE_BACK_INVOKER,
+    invoker_ty:     AzWriteBackCallbackInvoker,
+    thunk_fn:       az_write_back_callback_thunk,
+    setter_fn:      AzApp_setWriteBackCallbackInvoker,
+    from_handle_fn: AzWriteBackCallback_createFromHostHandle,
+    from_handle_byref_fn: AzWriteBackCallback_createFromHostHandleByref,
+    extra_args:     [],
 }
 
 impl core::fmt::Debug for WriteBackCallback {
@@ -637,6 +644,7 @@ impl ThreadInner {
     /// Returns true if the Thread has been finished, false otherwise
     #[must_use]
     pub fn is_finished(&self) -> bool {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.check_thread_finished_fn.cb)(
             std::ptr::from_ref(self.dropcheck.as_ref()).cast::<core::ffi::c_void>(),
         )
@@ -644,6 +652,7 @@ impl ThreadInner {
 
     /// Send a message to the thread
     pub fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.send_thread_msg_fn.cb)(
             std::ptr::from_ref(self.sender.as_ref()).cast::<core::ffi::c_void>(),
             msg,
@@ -652,6 +661,7 @@ impl ThreadInner {
 
     /// Try to receive a message from the thread (non-blocking)
     pub fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.receive_thread_msg_fn.cb)(
             std::ptr::from_ref(self.receiver.as_ref()).cast::<core::ffi::c_void>(),
         )
@@ -678,6 +688,7 @@ impl ThreadInner {
 
 impl Drop for ThreadInner {
     fn drop(&mut self) {
+        // direct-cb-call: the thread's destructor, not a callback wrapper.
         (self.thread_destructor_fn.cb)(self);
     }
 }

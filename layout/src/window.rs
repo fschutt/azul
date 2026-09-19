@@ -7698,7 +7698,7 @@ impl LayoutWindow {
                     let cb =
                         crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
                     let refany = core_callback.refany.clone();
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (cb.cb)(refany, info)))
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
                         .ok()
                 }
                 _ => None,
@@ -8101,7 +8101,7 @@ impl LayoutWindow {
         let callback_data = virtual_view_node.refany.clone();
 
         // Invoke the user's VirtualView callback
-        let callback_return = (virtual_view_node.callback.cb)(callback_data, callback_info);
+        let callback_return = virtual_view_node.callback.invoke(callback_data, callback_info);
 
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
@@ -9133,7 +9133,7 @@ impl LayoutWindow {
                                 t,
                             };
                             let rendered =
-                                (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info);
+                                cfg.caret_tween.invoke(cfg.caret_tween_data.clone(), info);
                             if trk.reveal {
                                 caret_reveal = Some((trk.from, current, rendered));
                             }
@@ -9203,7 +9203,7 @@ impl LayoutWindow {
                                 t,
                             };
                             let out =
-                                (cfg.selection_tween.cb)(cfg.selection_tween_data.clone(), info);
+                                cfg.selection_tween.invoke(cfg.selection_tween_data.clone(), info);
                             let out: Vec<LogicalRect> = out.into_library_owned_vec();
                             // Contract: the interpolator must return exactly
                             // one rect per current rect; anything else falls
@@ -9269,7 +9269,7 @@ impl LayoutWindow {
                                 current,
                                 t,
                             };
-                            (cfg.caret_tween.cb)(cfg.caret_tween_data, info)
+                            cfg.caret_tween.invoke(cfg.caret_tween_data, info)
                         }
                     }
                     None => current,
@@ -14473,7 +14473,7 @@ impl LayoutWindow {
                 // "is the app's own code slow": writeback callbacks carry a
                 // cb:<name> span, same as timers and event callbacks.
                 let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-                let callback_update = (callback.cb)(
+                let callback_update = callback.invoke(
                     unsafe { (*writeback_data_ptr).clone() },
                     data_inner.clone(),
                     callback_info,
@@ -14567,7 +14567,7 @@ impl LayoutWindow {
             );
 
             let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-            let callback_update = (callback.cb)(data, callback_info, result);
+            let callback_update = callback.invoke(data, callback_info, result);
             drop(cb_span);
             update.max_self(callback_update);
 
@@ -14734,7 +14734,7 @@ impl LayoutWindow {
         // attaches as "recent actions".
         crate::journal::record(hit_dom_node, callback.cb as usize);
         let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-        let update = (callback.cb)(data.clone(), callback_info);
+        let update = callback.invoke(data.clone(), callback_info);
         drop(cb_span);
 
         // Extract changes from the Arc<Mutex>

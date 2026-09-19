@@ -334,6 +334,13 @@ impl Default for VideoSetup {
     }
 }
 
+impl azul_core::host_invoker::HostOut for VideoSetup {
+    /// Shares nothing: owns no pool, no thread.
+    fn unwritten() -> Self {
+        Self::new()
+    }
+}
+
 impl VideoSetup {
     /// A setup that shares nothing
     #[must_use]

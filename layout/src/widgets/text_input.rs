@@ -569,6 +569,15 @@ pub struct OnTextInputReturn {
     pub valid: TextInputValid,
 }
 
+impl azul_core::host_invoker::HostOut for OnTextInputReturn {
+    fn unwritten() -> Self {
+        Self {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        }
+    }
+}
+
 /// Whether the text input accepted or rejected the most recent edit.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]

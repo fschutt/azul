@@ -669,14 +669,12 @@ fn call_layout(
         safe_area: azul_css::system::SafeAreaInsets::default(),
     };
 
-    let mut info =
+    let info =
         LayoutCallbackInfo::new(&ref_data, window_state.size.clone(), window_state.theme);
-    // Same wiring as the desktop shell: the host-invoker thunk reads
-    // `info.get_ctx()` to find its host handle. Without this the
-    // macro-generated thunk returns the kind's default (empty body).
-    info.set_callable_ptr(&layout_callback.ctx);
-
-    (layout_callback.cb)(app_data.clone(), info)
+    // `invoke` hands the host-invoker thunk its host handle (through
+    // `info.get_ctx()`); calling `cb` directly would return the kind's
+    // default (empty body).
+    layout_callback.invoke(app_data.clone(), info)
 }
 
 /// Debug-print the DOM tree structure at startup.

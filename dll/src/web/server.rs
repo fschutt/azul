@@ -611,7 +611,7 @@ fn try_invoke_callback(
     drop(app_data_locked);
 
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        (cb.cb)(app_data_clone, info)
+        cb.invoke(app_data_clone, info)
     })) {
         Ok(update) => update,
         Err(_) => {

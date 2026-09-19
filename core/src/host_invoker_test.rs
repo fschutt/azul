@@ -448,6 +448,12 @@ mod autotest_generated {
 
     const DEFAULT_RET: AutoRet = AutoRet(0xDEAD);
 
+    impl crate::host_invoker::HostOut for AutoRet {
+        fn unwritten() -> Self {
+            DEFAULT_RET
+        }
+    }
+
     #[repr(C)]
     #[derive(Debug)]
     struct AutoInfo {

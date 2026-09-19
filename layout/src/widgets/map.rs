@@ -1380,6 +1380,13 @@ pub struct MapSetup {
     pub max_in_flight: u32,
 }
 
+impl azul_core::host_invoker::HostOut for MapSetup {
+    /// Shares nothing: owns no pool, no thread.
+    fn unwritten() -> Self {
+        Self::new()
+    }
+}
+
 impl Default for MapSetup {
     fn default() -> Self {
         Self::new()

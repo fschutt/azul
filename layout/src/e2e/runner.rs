@@ -4719,9 +4719,9 @@ mod tests {
             runner.service(&changes, false);
 
             let t = Duration::from_millis(STEP_MS * step).div(&Duration::from_millis(DURATION_MS));
-            let expected = (azul_core::resources::SystemAnimations::default()
+            let expected = azul_core::resources::SystemAnimations::default()
                 .caret_tween
-                .cb)(
+                .invoke(
                 RefAny::new(()),
                 CaretTweenInfo {
                     past: from,

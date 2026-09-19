@@ -313,36 +313,283 @@ pub trait HostCtxCarrier {
     fn install_host_ctx(&mut self, ctx: &crate::refany::OptionRefAny);
 }
 
+/// The return type of a host-invoked callback kind, as the host writes it:
+/// through an out-pointer, with a plain C copy that never drops what `out`
+/// held before.
+///
+/// So what the thunk pre-fills `out` with must own nothing - a default that
+/// owns memory (a `RefAny` clone, an image) would leak on every call the host
+/// answers. The kind's own fallback (`default_ret`) is only built when the
+/// host is missing, panics, or leaves `out` [`is_unwritten`](Self::is_unwritten).
+pub trait HostOut: Sized {
+    /// `out` before the host writes it. Must own nothing.
+    fn unwritten() -> Self;
+    /// Whether `out` still holds [`unwritten`](Self::unwritten), i.e. the
+    /// host did not answer and the thunk returns the kind's fallback (the
+    /// unwritten value is then never dropped). `false` for a type any of
+    /// whose values the host may legitimately return.
+    fn is_unwritten(&self) -> bool {
+        false
+    }
+}
+
+impl HostOut for () {
+    fn unwritten() -> Self {}
+}
+
+impl HostOut for crate::callbacks::Update {
+    fn unwritten() -> Self {
+        Self::DoNothing
+    }
+}
+
+impl HostOut for crate::callbacks::TimerCallbackReturn {
+    /// A timer whose host never answers stops rather than firing forever.
+    fn unwritten() -> Self {
+        Self::terminate_unchanged()
+    }
+}
+
+impl HostOut for crate::callbacks::VirtualViewReturn {
+    fn unwritten() -> Self {
+        Self::default()
+    }
+}
+
+impl HostOut for crate::dom::Dom {
+    /// Built from `const` empty slices: owns no heap memory.
+    fn unwritten() -> Self {
+        Self::create_body()
+    }
+}
+
+impl HostOut for crate::geom::LogicalRect {
+    /// A NaN origin: no host answers with one.
+    fn unwritten() -> Self {
+        Self::new(
+            crate::geom::LogicalPosition::new(f32::NAN, f32::NAN),
+            crate::geom::LogicalSize::zero(),
+        )
+    }
+    fn is_unwritten(&self) -> bool {
+        self.origin.x.is_nan()
+    }
+}
+
+impl HostOut for crate::geom::LogicalRectVec {
+    /// Empty: an unallocated vector.
+    fn unwritten() -> Self {
+        Self::from_const_slice(&[])
+    }
+    fn is_unwritten(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl HostOut for AzString {
+    fn unwritten() -> Self {
+        Self::from_const_str("")
+    }
+}
+
+impl HostOut for RefAny {
+    /// A handle to nothing: a null `RefCount` never touches memory on drop.
+    fn unwritten() -> Self {
+        RefAny {
+            sharing_info: crate::refany::RefCount {
+                ptr: core::ptr::null(),
+                run_destructor: false,
+            },
+            instance_id: 0,
+        }
+    }
+    fn is_unwritten(&self) -> bool {
+        self.sharing_info.ptr.is_null()
+    }
+}
+
+impl HostOut for crate::resources::ImageRef {
+    /// A handle to nothing, never dropped (`ImageRef`'s drop dereferences
+    /// `copies`).
+    fn unwritten() -> Self {
+        Self {
+            data: core::ptr::null(),
+            copies: core::ptr::null(),
+            id: 0,
+            run_destructor: false,
+        }
+    }
+    fn is_unwritten(&self) -> bool {
+        self.data.is_null()
+    }
+}
+
+impl HostOut for crate::db::DbValue {
+    fn unwritten() -> Self {
+        Self::Null
+    }
+}
+
+impl HostOut for crate::events::CustomE2eOpResult {
+    /// "Not my op", with a static empty payload.
+    fn unwritten() -> Self {
+        Self::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The invocation slot: how a callee finds the context of the wrapper that
+// invoked it when no argument of its kind carries one.
+// ---------------------------------------------------------------------------
+
+/// The data argument of a callback kind: a `RefAny` by value (every kind but
+/// one) or `&mut RefAny` (`MarginBoxCallback`). Either way the host invoker
+/// receives a pointer to the `RefAny` itself.
+pub trait DataArg {
+    fn data_ptr(&self) -> *const RefAny;
+}
+
+impl DataArg for RefAny {
+    fn data_ptr(&self) -> *const RefAny {
+        self
+    }
+}
+
+impl DataArg for &mut RefAny {
+    fn data_ptr(&self) -> *const RefAny {
+        &**self
+    }
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// The callback function libazul is invoking on this thread right now,
+    /// with its wrapper's context. Set by every macro-generated
+    /// `<Wrapper>::invoke`, restored when that call returns.
+    static INVOCATION: core::cell::RefCell<Option<(usize, crate::refany::OptionRefAny)>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// Marks one callback invocation on this thread; dropping it restores the
+/// invocation that was running before (callbacks nest).
+#[must_use = "the invocation ends when this guard drops"]
+#[derive(Debug)]
+pub struct Invocation {
+    #[cfg(feature = "std")]
+    prev: Option<(usize, crate::refany::OptionRefAny)>,
+}
+
+/// Records that `callee` - the wrapper's `cb`, as a function address - is
+/// being invoked with the wrapper's `ctx`, until the returned guard drops.
+pub fn enter_invocation(callee: usize, ctx: &crate::refany::OptionRefAny) -> Invocation {
+    #[cfg(feature = "std")]
+    {
+        let entry = Some((callee, ctx.clone()));
+        let prev = INVOCATION.try_with(|s| s.replace(entry)).ok().flatten();
+        Invocation { prev }
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = (callee, ctx);
+        Invocation {}
+    }
+}
+
+impl Drop for Invocation {
+    fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        {
+            let prev = self.prev.take();
+            // The replaced entry drops after the slot is released: dropping a
+            // host handle calls the host's releaser, which may run a callback.
+            let current = INVOCATION.try_with(|s| s.replace(prev)).ok().flatten();
+            drop(current);
+        }
+    }
+}
+
+/// The context of the running invocation of `callee` on this thread, or
+/// `None` when the innermost invocation is of another function (a callee
+/// never sees a context that was not meant for it).
+#[must_use]
+pub fn invocation_ctx(callee: usize) -> crate::refany::OptionRefAny {
+    #[cfg(feature = "std")]
+    {
+        INVOCATION
+            .try_with(|s| match &*s.borrow() {
+                Some((c, ctx)) if *c == callee => ctx.clone(),
+                _ => crate::refany::OptionRefAny::None,
+            })
+            .unwrap_or(crate::refany::OptionRefAny::None)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = callee;
+        crate::refany::OptionRefAny::None
+    }
+}
+
+/// C-ABI: the context of the wrapper whose callback `callee` libazul is
+/// invoking on this thread right now. A binding's C-ABI trampoline calls it
+/// with its own address to find the closure it stands for, for the callback
+/// kinds whose arguments carry no context (an info type without `get_ctx`).
+#[no_mangle]
+pub extern "C" fn AzApp_getInvocationCtx(callee: *const c_void) -> crate::refany::OptionRefAny {
+    invocation_ctx(callee as usize)
+}
+
+/// Out-pointer twin of [`AzApp_getInvocationCtx`] for FFIs that cannot
+/// receive a struct by value.
+///
+/// # Safety
+///
+/// `out` must be null or valid for writing one `OptionRefAny`.
+#[no_mangle]
+pub unsafe extern "C" fn AzApp_getInvocationCtxByref(
+    callee: *const c_void,
+    out: *mut crate::refany::OptionRefAny,
+) {
+    if !out.is_null() {
+        unsafe { core::ptr::write(out, invocation_ctx(callee as usize)) };
+    }
+}
+
 /// Macro that expands to the per-callback-kind boilerplate:
 ///
 /// a static thunk
 /// (compiled into libazul) that the framework calls with by-value args, a
-/// `<Wrapper>::create_from_host_handle(u64)` constructor, and an
-/// `AzApp_set<Kind>Invoker` setter the host calls once at module load.
+/// `<Wrapper>::create_from_host_handle(u64)` constructor, an
+/// `AzApp_set<Kind>Invoker` setter the host calls once at module load, and
+/// `<Wrapper>::invoke`, the only way engine code may call the wrapper.
 ///
 /// All identifiers are passed in explicitly so we don't need a proc-macro
-/// dependency just to concatenate idents. Codegen emits invocations of this
-/// macro from `ir.callback_typedefs`.
+/// dependency just to concatenate idents.
 ///
-/// Caller responsibilities:
+/// The per-kind invoker receives the host handle, then EVERY argument of the
+/// callback by pointer in declared order, then an out-pointer for the return
+/// value - the signature `managed_host_invoker::invoker_c_arg_list` declares
+/// for every binding.
 ///
-/// - The wrapper type must have public fields `cb: <typedef>` and `ctx: OptionRefAny` — that's the
-///   standard shape every callback wrapper in the framework already follows.
-/// - `info_ty` must expose a `.get_ctx() -> OptionRefAny` method (also standard for `*CallbackInfo`
-///   types).
-/// - `default_ret` is returned when:
-///   - the framework invokes the thunk with `OptionRefAny::None` ctx (host called the typedef
-///     directly without going through this path),
-///   - the ctx isn't a host-handle (host registered the wrapper but the ctx came from somewhere
-///     else),
-///   - or no invoker has been registered yet for this kind. Pick a value that can't be confused
-///     with a "real" return — typically the kind's "do nothing" / "empty body" default.
+/// Where the thunk finds the host handle (the wrapper's context):
+///
+/// - `info_ty` forms: in an info argument that implements [`HostCtxCarrier`]
+///   and has `get_ctx()`; `invoke` installs the wrapper's context there.
+/// - the `ctx_field` form, for kinds none of whose arguments can carry a
+///   context: in the invocation slot ([`invocation_ctx`]) `invoke` sets.
+///
+/// Every `invoke` also sets the invocation slot, so a binding's own C
+/// trampoline can read the context of ANY kind through
+/// [`AzApp_getInvocationCtx`].
+///
+/// `default_ret` is returned when the context is not a host handle, no
+/// invoker is registered, the host panics, or it leaves `out` unwritten (see
+/// [`HostOut`]). It is only built then, so it may own memory and may read the
+/// callback's arguments (the fresh dataset of a merge, the current caret
+/// rectangle): a missing host degrades to "no callback", not to garbage.
 #[macro_export]
 macro_rules! impl_managed_callback {
-    // Form 1: simple two-argument callbacks `(RefAny, info) -> ret` —
-    // matches `Callback`, `LayoutCallback`, `ButtonOnClickCallback`,
-    // and the bulk of widget event callbacks. Identical to the
-    // extras-form below with an empty extra-args list.
+    // Form 1: `(RefAny, info) -> ret` - `Callback`, `LayoutCallback`,
+    // `ButtonOnClickCallback` and most widget callbacks.
     (
         wrapper:        $wrapper:ty,
         info_ty:        $info_ty:ty,
@@ -357,6 +604,7 @@ macro_rules! impl_managed_callback {
     ) => {
         $crate::impl_managed_callback! {
             wrapper:        $wrapper,
+            pre_args:       [],
             info_ty:        $info_ty,
             return_ty:      $ret,
             default_ret:    $default,
@@ -364,16 +612,13 @@ macro_rules! impl_managed_callback {
             invoker_ty:     $invoker_ty,
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
-            from_handle_fn:       $from_handle_fn,
+            from_handle_fn: $from_handle_fn,
             $( from_handle_byref_fn: $from_handle_byref_fn, )?
             extra_args:     [],
         }
     };
-    // Form 2: callbacks that take additional state after info — e.g.
+    // Form 2: `(RefAny, info, extras...) -> ret` - e.g.
     // `CheckBoxOnToggleCallback(RefAny, CallbackInfo, CheckBoxState)`.
-    // The extras list is forwarded by reference into the host invoker
-    // so libffi-style runtimes never have to handle aggregate-by-value
-    // returns OR aggregate-by-value args.
     (
         wrapper:        $wrapper:ty,
         info_ty:        $info_ty:ty,
@@ -387,26 +632,176 @@ macro_rules! impl_managed_callback {
         $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
         extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
+        $crate::impl_managed_callback! {
+            wrapper:        $wrapper,
+            pre_args:       [],
+            info_ty:        $info_ty,
+            return_ty:      $ret,
+            default_ret:    $default,
+            invoker_static: $invoker_static,
+            invoker_ty:     $invoker_ty,
+            thunk_fn:       $thunk_fn,
+            setter_fn:      $setter_fn,
+            from_handle_fn: $from_handle_fn,
+            $( from_handle_byref_fn: $from_handle_byref_fn, )?
+            extra_args:     [ $( $extra_name : $extra_ty ),* ],
+        }
+    };
+    // Form 3: `(RefAny, pre..., info, extras...) -> ret` - arguments before the
+    // info, e.g. `WriteBackCallback(RefAny, RefAny, CallbackInfo)`.
+    (
+        wrapper:        $wrapper:ty,
+        pre_args:       [ $( $pre_name:ident : $pre_ty:ty ),* $(,)? ],
+        info_ty:        $info_ty:ty,
+        return_ty:      $ret:ty,
+        default_ret:    $default:expr,
+        invoker_static: $invoker_static:ident,
+        invoker_ty:     $invoker_ty:ident,
+        thunk_fn:       $thunk_fn:ident,
+        setter_fn:      $setter_fn:ident,
+        from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
+    ) => {
+        $crate::impl_managed_callback! {
+            @expand
+            wrapper:        $wrapper,
+            ctx_field:      ctx,
+            data:           [data: $crate::refany::RefAny],
+            args:           [ $( $pre_name : $pre_ty, )* info: $info_ty $( , $extra_name : $extra_ty )* ],
+            ctx_from:       [ info info ],
+            return_ty:      $ret,
+            default_ret:    $default,
+            invoker_static: $invoker_static,
+            invoker_ty:     $invoker_ty,
+            thunk_fn:       $thunk_fn,
+            setter_fn:      $setter_fn,
+            from_handle_fn: $from_handle_fn,
+            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            rest:           [],
+        }
+    };
+    // Form 4: kinds none of whose arguments carry a context (`DbMergeCallback
+    // (RefAny, DbConflict)`, `DatasetMergeCallback(RefAny, RefAny)`,
+    // `MarginBoxCallback(&mut RefAny, PageInfo)`, ...): the thunk reads the
+    // context from the invocation slot `invoke` sets. `ctx_field` is the
+    // wrapper's `OptionRefAny` field; `rest` fills any further fields of
+    // `create_from_host_handle`'s wrapper.
+    (
+        wrapper:        $wrapper:ty,
+        ctx_field:      $ctx_field:ident,
+        data:           $data:ident : $data_ty:ty,
+        args:           [ $( $arg:ident : $arg_ty:ty ),* $(,)? ],
+        return_ty:      $ret:ty,
+        default_ret:    $default:expr,
+        invoker_static: $invoker_static:ident,
+        invoker_ty:     $invoker_ty:ident,
+        thunk_fn:       $thunk_fn:ident,
+        setter_fn:      $setter_fn:ident,
+        from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        $( rest: $rest:expr, )?
+    ) => {
+        $crate::impl_managed_callback! {
+            @expand
+            wrapper:        $wrapper,
+            ctx_field:      $ctx_field,
+            data:           [$data: $data_ty],
+            args:           [ $( $arg : $arg_ty ),* ],
+            ctx_from:       [ invocation ],
+            return_ty:      $ret,
+            default_ret:    $default,
+            invoker_static: $invoker_static,
+            invoker_ty:     $invoker_ty,
+            thunk_fn:       $thunk_fn,
+            setter_fn:      $setter_fn,
+            from_handle_fn: $from_handle_fn,
+            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            rest:           [ $( $rest )? ],
+        }
+    };
+
+    // Form 5: a kind with no data argument (`RegisterComponentLibraryFn`,
+    // `fn() -> ComponentLibrary`): like form 4, the context comes from the
+    // invocation slot.
+    (
+        wrapper:        $wrapper:ty,
+        ctx_field:      $ctx_field:ident,
+        args:           [ $( $arg:ident : $arg_ty:ty ),* $(,)? ],
+        return_ty:      $ret:ty,
+        default_ret:    $default:expr,
+        invoker_static: $invoker_static:ident,
+        invoker_ty:     $invoker_ty:ident,
+        thunk_fn:       $thunk_fn:ident,
+        setter_fn:      $setter_fn:ident,
+        from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        $( rest: $rest:expr, )?
+    ) => {
+        $crate::impl_managed_callback! {
+            @expand
+            wrapper:        $wrapper,
+            ctx_field:      $ctx_field,
+            data:           [],
+            args:           [ $( $arg : $arg_ty ),* ],
+            ctx_from:       [ invocation ],
+            return_ty:      $ret,
+            default_ret:    $default,
+            invoker_static: $invoker_static,
+            invoker_ty:     $invoker_ty,
+            thunk_fn:       $thunk_fn,
+            setter_fn:      $setter_fn,
+            from_handle_fn: $from_handle_fn,
+            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            rest:           [ $( $rest )? ],
+        }
+    };
+
+    // Where a thunk reads its host handle from.
+    (@thunk_ctx [ info $info:ident ] $thunk_fn:ident) => {
+        $info.get_ctx()
+    };
+    (@thunk_ctx [ invocation ] $thunk_fn:ident) => {
+        $crate::host_invoker::invocation_ctx($thunk_fn as usize)
+    };
+    // What `invoke` installs besides the invocation slot.
+    (@install [ info $info:ident ] $ctx:expr) => {
+        let mut $info = $info;
+        <_ as $crate::host_invoker::HostCtxCarrier>::install_host_ctx(&mut $info, $ctx);
+    };
+    (@install [ invocation ] $ctx:expr) => {};
+
+    (
+        @expand
+        wrapper:        $wrapper:ty,
+        ctx_field:      $ctx_field:ident,
+        data:           [ $( $data:ident : $data_ty:ty )? ],
+        args:           [ $( $arg:ident : $arg_ty:ty ),* ],
+        ctx_from:       [ $( $ctx_from:tt )* ],
+        return_ty:      $ret:ty,
+        default_ret:    $default:expr,
+        invoker_static: $invoker_static:ident,
+        invoker_ty:     $invoker_ty:ident,
+        thunk_fn:       $thunk_fn:ident,
+        setter_fn:      $setter_fn:ident,
+        from_handle_fn: $from_handle_fn:ident,
+        from_handle_byref_fn: [ $( $from_handle_byref_fn:ident )? ],
+        rest:           [ $( $rest:expr )? ],
+    ) => {
         /// Process-global slot for this callback kind's host-side invoker.
         pub static $invoker_static: $crate::host_invoker::InvokerSlot =
             $crate::host_invoker::InvokerSlot::new();
 
-        /// Pointer-arg variant of this callback kind's typedef.
-        ///
-        /// The host's libffi closure casts to this signature (which all
-        /// managed-FFI runtimes can handle — args and return are passed
-        /// by pointer, no aggregate-by-value anywhere). The static thunk
-        /// in libazul does the by-value plumbing on the C ABI side.
-        ///
-        /// `LuaJIT` FFI in particular cannot return aggregates larger than
-        /// 8 bytes from a callback, so we use an out-pointer for the
-        /// return value uniformly across kinds — even for `Update` which
-        /// would fit in a register, so the macro stays homogeneous.
+        /// Pointer-arg variant of this callback kind's typedef: the host
+        /// handle, every argument by pointer in declared order, and an
+        /// out-pointer for the return value. Every managed-FFI runtime can
+        /// call this shape (no aggregate by value anywhere; LuaJIT FFI in
+        /// particular cannot return aggregates larger than 8 bytes from a
+        /// callback, so even an `Update` return goes through `out`).
         pub type $invoker_ty = extern "C" fn(
             handle: u64,
-            data: *const $crate::refany::RefAny,
-            info: *const $info_ty,
-            $( $extra_name : *const $extra_ty , )*
+            $( $data: *const $crate::refany::RefAny, )?
+            $( $arg : *const $arg_ty , )*
             out: *mut $ret,
         );
 
@@ -416,30 +811,24 @@ macro_rules! impl_managed_callback {
             $invoker_static.set(invoker as usize);
         }
 
-        /// Static thunk compiled into libazul. The framework calls this
-        /// with by-value args; we extract the host handle from `info.ctx`,
-        /// allocate space for the return value on our stack, and forward
-        /// pointers to the registered invoker.
+        /// Static thunk compiled into libazul: the `cb` of every wrapper
+        /// `create_from_host_handle` builds. Finds the host handle in the
+        /// wrapper's context and forwards pointers to the registered invoker.
         extern "C" fn $thunk_fn(
-            data: $crate::refany::RefAny,
-            info: $info_ty,
-            $( $extra_name : $extra_ty , )*
+            $( $data: $data_ty, )?
+            $( $arg : $arg_ty , )*
         ) -> $ret {
-            // Wrapper name as a null-terminated C string. `stringify!`
-            // expands `$wrapper:ty` to e.g. `Callback`,
-            // `ButtonOnClickCallback`, etc. — matching what the host's
+            // The wrapper name as a C string: what the generic invoker's
             // dispatch table keys on.
             const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
 
             // AUDIT: this thunk is `extern "C"` and dispatches into arbitrary
-            // host code (via a transmuted invoker pointer). A panic escaping the
-            // dispatch would unwind across the FFI boundary (UB), so run the
-            // whole body inside `catch_unwind` and fall back to `$default` on a
-            // panic. `catch_unwind` needs `std`; `no_std` builds use
-            // `panic = "abort"` where unwinding cannot occur. The body captures
-            // `data`/`info`/extras by move (they are consumed either way).
-            let body = move || -> $ret {
-                let ctx = info.get_ctx();
+            // host code (via a transmuted invoker pointer). A panic escaping it
+            // would unwind across the FFI boundary (UB), so the body runs
+            // inside `catch_unwind`, with `default_ret` on a panic. The body
+            // BORROWS the arguments, so `default_ret` can still read them.
+            let body = || -> $ret {
+                let ctx = $crate::impl_managed_callback!(@thunk_ctx [ $( $ctx_from )* ] $thunk_fn);
                 let handle = match ctx {
                     $crate::refany::OptionRefAny::Some(ref refany) => {
                         match $crate::host_invoker::refany_to_host_handle(refany) {
@@ -451,66 +840,65 @@ macro_rules! impl_managed_callback {
                 };
                 let invoker_addr = $invoker_static.get();
                 if invoker_addr == 0 {
-                    // Per-kind invoker not registered — fall back to the
-                    // generic invoker for hosts that wired up only the
-                    // single `AzApp_setGenericInvoker` slot (or for custom
-                    // user-defined kinds emitted by a downstream
-                    // `impl_managed_callback!` whose host hasn't shipped a
-                    // per-kind invoker setter yet).
+                    // Per-kind invoker not registered: fall back to the
+                    // generic invoker, for hosts that wired up only
+                    // `AzApp_setGenericInvoker`.
                     let generic_addr = $crate::host_invoker::GENERIC_INVOKER.get();
                     if generic_addr == 0 {
                         return $default;
                     }
                     // SAFETY: GENERIC_INVOKER only ever holds an address that
-                    // came from `invoker as usize` in `AzApp_setGenericInvoker`,
-                    // whose parameter is typed as `AzGenericInvoker`.
+                    // came from `invoker as usize` in `AzApp_setGenericInvoker`.
                     let generic: $crate::host_invoker::AzGenericInvoker =
                         unsafe { core::mem::transmute(generic_addr) };
-
-                    // Build the args array: pointers to each by-value frame
-                    // arg, in declared order (data, info, extras…). Lifetime
-                    // is the scope of this thunk; the host MUST NOT retain
-                    // these pointers past the call. Array size is inferred
-                    // (2 base args + however many extras the macro forwarded).
-                    let args = [
-                        &raw const data as *const core::ffi::c_void,
-                        &raw const info as *const core::ffi::c_void,
-                        $( & $extra_name as *const _ as *const core::ffi::c_void , )*
+                    // One pointer per argument, in declared order; valid for
+                    // the duration of this call only.
+                    let args: &[*const core::ffi::c_void] = &[
+                        $( $crate::host_invoker::DataArg::data_ptr(&$data) as *const core::ffi::c_void, )?
+                        $( &raw const $arg as *const core::ffi::c_void , )*
                     ];
-
-                    let mut out: $ret = $default;
+                    let mut out = core::mem::ManuallyDrop::new(
+                        <$ret as $crate::host_invoker::HostOut>::unwritten(),
+                    );
                     generic(
                         handle,
                         KIND_STR.as_ptr() as *const core::ffi::c_char,
                         args.as_ptr(),
                         args.len(),
-                        &raw mut out as *mut core::ffi::c_void,
+                        &raw mut *out as *mut core::ffi::c_void,
                     );
-                    return out;
+                    if $crate::host_invoker::HostOut::is_unwritten(&*out) {
+                        return $default;
+                    }
+                    return core::mem::ManuallyDrop::into_inner(out);
                 }
                 // SAFETY: $invoker_static only ever holds a value that came from
-                // `invoker as usize` in `$setter_fn`, where `invoker` has type
-                // `$invoker_ty`.
+                // `invoker as usize` in `$setter_fn`, typed `$invoker_ty`.
                 let invoker: $invoker_ty = unsafe { core::mem::transmute(invoker_addr) };
-
-                // Pre-fill `out` with the kind's default so a host that fails
-                // to write to the out-pointer (e.g. a buggy invoker) leaves us
-                // with a sane value rather than uninitialized memory.
-                let mut out: $ret = $default;
+                // Pre-filled with a value that owns nothing (the host overwrites
+                // it without dropping it), held in `ManuallyDrop` until the host
+                // returned: an unwritten sentinel may not be droppable.
+                let mut out = core::mem::ManuallyDrop::new(
+                    <$ret as $crate::host_invoker::HostOut>::unwritten(),
+                );
                 invoker(
                     handle,
-                    &raw const data,
-                    &raw const info,
-                    $( & $extra_name as *const $extra_ty , )*
-                    &raw mut out,
+                    $( $crate::host_invoker::DataArg::data_ptr(&$data), )?
+                    $( &raw const $arg , )*
+                    &raw mut *out,
                 );
-                out
+                if $crate::host_invoker::HostOut::is_unwritten(&*out) {
+                    return $default;
+                }
+                core::mem::ManuallyDrop::into_inner(out)
             };
 
             #[cfg(feature = "std")]
             {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(body))
-                    .unwrap_or($default)
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+                    Ok(out) => out,
+                    Err(_) => $default,
+                }
             }
             #[cfg(not(feature = "std"))]
             {
@@ -520,34 +908,49 @@ macro_rules! impl_managed_callback {
 
         impl $wrapper {
             /// Build a wrapper whose `cb` is the static thunk above and
-            /// whose `ctx` carries the host's `u64` handle. The host
-            /// language is responsible for keeping its id→callable table
+            /// whose context carries the host's `u64` handle. The host
+            /// language is responsible for keeping its id->callable table
             /// in sync with the releaser registered via
             /// `AzApp_setHostHandleReleaser`.
             #[must_use] pub fn create_from_host_handle(handle: u64) -> Self {
                 Self {
                     cb: $thunk_fn,
-                    ctx: $crate::refany::OptionRefAny::Some(
+                    $ctx_field: $crate::refany::OptionRefAny::Some(
                         $crate::host_invoker::host_handle_to_refany(handle),
                     ),
+                    $( ..$rest )?
                 }
             }
 
-            /// Invoke the wrapped callback with this wrapper's host ctx
-            /// installed into `info` first (see
-            /// [`$crate::host_invoker::HostCtxCarrier`]). Engine code that
-            /// forwards a user callback from inside another callback MUST
-            /// use this instead of `(self.cb)(..)`, otherwise the thunk of a
-            /// managed-language callback sees the outer callback's ctx
-            /// (`None`) and returns the default without calling the host.
+            /// What this kind returns when its callee cannot answer (no host
+            /// handle, no invoker, a host exception): the host-invoker thunk's
+            /// own fallback, for bindings whose C trampolines need the same
+            /// answer.
+            #[allow(unused_variables)]
+            pub fn fallback_return(
+                $( $data: &$data_ty, )?
+                $( $arg : &$arg_ty , )*
+            ) -> $ret {
+                $default
+            }
+
+            /// Invoke the wrapped callback with this wrapper's context where
+            /// the callee looks for it: the invocation slot, and the info
+            /// argument for kinds that have one (see
+            /// [`$crate::host_invoker::HostCtxCarrier`]). Engine code MUST
+            /// call a wrapper through this, never `(self.cb)(..)`: a
+            /// managed-language callback reached any other way sees no
+            /// context and returns its default without calling the host.
             pub fn invoke(
                 &self,
-                data: $crate::refany::RefAny,
-                mut info: $info_ty,
-                $( $extra_name : $extra_ty , )*
+                $( $data: $data_ty, )?
+                $( $arg : $arg_ty , )*
             ) -> $ret {
-                <$info_ty as $crate::host_invoker::HostCtxCarrier>::install_host_ctx(&mut info, &self.ctx);
-                (self.cb)(data, info $( , $extra_name )* )
+                $crate::impl_managed_callback!(@install [ $( $ctx_from )* ] &self.$ctx_field);
+                let _invocation =
+                    $crate::host_invoker::enter_invocation(self.cb as usize, &self.$ctx_field);
+                // direct-cb-call: this is `invoke` itself.
+                (self.cb)($( $data, )? $( $arg ),* )
             }
         }
 
@@ -566,8 +969,6 @@ macro_rules! impl_managed_callback {
             }
         }}
         )?
-
-
     };
 }
 
@@ -652,6 +1053,12 @@ mod tests {
     // its `extern "C"` boundary.
     #[derive(PartialEq, Debug)]
     struct FakeRet(u32);
+
+    impl crate::host_invoker::HostOut for FakeRet {
+        fn unwritten() -> Self {
+            FakeRet(0)
+        }
+    }
 
     struct FakeInfo;
     impl crate::host_invoker::HostCtxCarrier for FakeInfo {

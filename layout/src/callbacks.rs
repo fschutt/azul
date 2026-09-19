@@ -4436,8 +4436,8 @@ impl CallbackInfo {
 
     #[must_use]
     pub fn get_current_time(&self) -> task::Instant {
-        let cb = self.get_system_time_fn();
-        (cb.cb)()
+        let get_system_time_fn = self.get_system_time_fn();
+        (get_system_time_fn.cb)()
     }
 
     /// Get immutable reference to the renderer resources
@@ -7198,6 +7198,29 @@ impl RenderImageCallback {
             cb: self.cb as usize,
             ctx: self.ctx,
         }
+    }
+}
+
+// Host-invoker plumbing (see azul_core::host_invoker). Without a host to ask,
+// the node renders an empty image.
+azul_core::impl_managed_callback! {
+    wrapper:        RenderImageCallback,
+    info_ty:        RenderImageCallbackInfo,
+    return_ty:      ImageRef,
+    default_ret:    ImageRef::null_image(0, 0, azul_core::resources::RawImageFormat::BGRA8, Vec::new()),
+    invoker_static: RENDER_IMAGE_INVOKER,
+    invoker_ty:     AzRenderImageCallbackInvoker,
+    thunk_fn:       az_render_image_callback_thunk,
+    setter_fn:      AzApp_setRenderImageCallbackInvoker,
+    from_handle_fn: AzRenderImageCallback_createFromHostHandle,
+    from_handle_byref_fn: AzRenderImageCallback_createFromHostHandleByref,
+}
+
+impl azul_core::host_invoker::HostCtxCarrier for RenderImageCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // SAFETY: `ctx` is the invoking wrapper's own field, alive for the
+        // whole `RenderImageCallback::invoke` call that installs it.
+        unsafe { self.set_callable_ptr(ctx) };
     }
 }
 

@@ -2455,6 +2455,23 @@ impl DatasetMergeCallback {
     }
 }
 
+// Host-invoker plumbing (see core/src/host_invoker.rs). Without a host to ask,
+// the fresh dataset wins - what a node without a merge callback does.
+crate::impl_managed_callback! {
+    wrapper:        DatasetMergeCallback,
+    ctx_field:      callable,
+    data:           new_data: RefAny,
+    args:           [old_data: RefAny],
+    return_ty:      RefAny,
+    default_ret:    new_data.clone(),
+    invoker_static: DATASET_MERGE_INVOKER,
+    invoker_ty:     AzDatasetMergeCallbackInvoker,
+    thunk_fn:       az_dataset_merge_callback_thunk,
+    setter_fn:      AzApp_setDatasetMergeCallbackInvoker,
+    from_handle_fn: AzDatasetMergeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDatasetMergeCallback_createFromHostHandleByref,
+}
+
 impl_option!(
     DatasetMergeCallback,
     OptionDatasetMergeCallback,

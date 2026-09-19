@@ -733,6 +733,28 @@ impl DbMergeCallback {
     }
 }
 
+// Host-invoker plumbing (see core/src/host_invoker.rs). Without a host to ask,
+// the conflict resolves as last-write-wins - never as a deletion (a null
+// merge result deletes the key).
+crate::impl_managed_callback! {
+    wrapper:        DbMergeCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [conflict: DbConflict],
+    return_ty:      DbValue,
+    default_ret:    if conflict.remote_modified_ms >= conflict.local_modified_ms {
+                        conflict.remote.clone()
+                    } else {
+                        conflict.local.clone()
+                    },
+    invoker_static: DB_MERGE_INVOKER,
+    invoker_ty:     AzDbMergeCallbackInvoker,
+    thunk_fn:       az_db_merge_callback_thunk,
+    setter_fn:      AzApp_setDbMergeCallbackInvoker,
+    from_handle_fn: AzDbMergeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDbMergeCallback_createFromHostHandleByref,
+}
+
 /// Why a database operation failed.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

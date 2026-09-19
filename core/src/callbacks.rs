@@ -250,6 +250,23 @@ impl CaretTweenCallback {
     }
 }
 
+// Host-invoker plumbing (see core/src/host_invoker.rs). `CaretTweenInfo`
+// carries no context, so the thunk reads it from the invocation slot.
+crate::impl_managed_callback! {
+    wrapper:        CaretTweenCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [info: CaretTweenInfo],
+    return_ty:      LogicalRect,
+    default_ret:    info.current,
+    invoker_static: CARET_TWEEN_INVOKER,
+    invoker_ty:     AzCaretTweenCallbackInvoker,
+    thunk_fn:       az_caret_tween_callback_thunk,
+    setter_fn:      AzApp_setCaretTweenCallbackInvoker,
+    from_handle_fn: AzCaretTweenCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCaretTweenCallback_createFromHostHandleByref,
+}
+
 /// Inputs for one selection-tween evaluation.
 ///
 /// Carries the full PAST and CURRENT selection band geometry: all rectangles
@@ -288,6 +305,23 @@ impl SelectionTweenCallback {
             ctx: OptionRefAny::None,
         }
     }
+}
+
+// Host-invoker plumbing. An empty result means "not animated": the framework
+// then renders `info.current`.
+crate::impl_managed_callback! {
+    wrapper:        SelectionTweenCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [info: SelectionTweenInfo],
+    return_ty:      LogicalRectVec,
+    default_ret:    info.current.clone(),
+    invoker_static: SELECTION_TWEEN_INVOKER,
+    invoker_ty:     AzSelectionTweenCallbackInvoker,
+    thunk_fn:       az_selection_tween_callback_thunk,
+    setter_fn:      AzApp_setSelectionTweenCallbackInvoker,
+    from_handle_fn: AzSelectionTweenCallback_createFromHostHandle,
+    from_handle_byref_fn: AzSelectionTweenCallback_createFromHostHandleByref,
 }
 
 /// Trapezoidal velocity profile: velocity ramps up HARD over the first
