@@ -28,10 +28,30 @@ use super::{
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory},
+        ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
     },
+    functions::ruby_attach_name,
+    managed::is_refany_arg,
     types::{should_emit_struct, snake_case},
 };
+
+/// The IR function of `kind` declared on `class` (the `_delete` /
+/// `_clone` / `_partialEq` / `_hash` / `_toDbgString` export), if any.
+/// Every `Native.az_*` call the wrappers emit is spelled from the
+/// returned `c_name` via [`ruby_attach_name`] — the same converter
+/// `functions.rs` used to declare it — so a wrapper can never call an
+/// attach that does not exist (the old `snake_case(class)` spelling
+/// broke on `GLintVec` / `TessellatedGPUSvgNode` / `XWindowTypeVec`).
+fn class_fn<'a>(ir: &'a CodegenIR, class: &str, kind: FunctionKind) -> Option<&'a FunctionDef> {
+    ir.functions
+        .iter()
+        .find(|f| f.class_name == class && f.kind == kind)
+}
+
+/// Ruby attach name of the `kind` export on `class`, if the IR has one.
+fn class_fn_rb(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String> {
+    class_fn(ir, class, kind).map(|f| ruby_attach_name(&f.c_name))
+}
 
 // ============================================================================
 // Public entry point
@@ -87,8 +107,13 @@ fn emit_class_wrapper(
     config: &CodegenConfig,
 ) {
     let class_name = &s.name;
-    let prefixed = config.apply_prefix(class_name); // e.g. "AzApp"
+    // Ruby-side snake form of the class name; only used to recognise the
+    // api.json convention of naming the receiver arg after the class.
     let snake = snake_case(class_name); // e.g. "app"
+    // `emit_wrappers` only calls us for classes in `collect_delete_targets`,
+    // so the Delete export exists; spell its attach name from the C symbol.
+    let delete_rb = class_fn_rb(ir, class_name, FunctionKind::Delete)
+        .unwrap_or_else(|| ruby_attach_name(&format!("{}_delete", config.apply_prefix(class_name))));
 
     builder.line(&format!("class {}", class_name));
     builder.indent();
@@ -132,7 +157,7 @@ fn emit_class_wrapper(
     // and the finalizer would never fire.
     builder.line("def self.finalize(ptr)");
     builder.indent();
-    builder.line(&format!("proc {{ Native.az_{}_delete(ptr) }}", snake));
+    builder.line(&format!("proc {{ Native.{}(ptr) }}", delete_rb));
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -177,8 +202,9 @@ fn emit_class_wrapper(
         builder.indent();
         builder.line("fn = fn_arg || block");
         builder.line("raise ArgumentError, 'callback fn required' unless fn");
-        builder.line("data_ref = Azul::RefAny.wrap(data)");
-        builder.line(&format!("self.{}(data_ref, fn)", func.method_name));
+        // The delegate wraps `data` (idempotently) and hands libazul a
+        // clone, so any Ruby object or an existing Azul::RefAny works.
+        builder.line(&format!("self.{}(data, fn)", ruby_method_name(&func.method_name)));
         builder.dedent();
         builder.line("end");
         builder.blank();
@@ -206,7 +232,7 @@ fn emit_class_wrapper(
     // without touching this emitter.
     let factory_info = super::super::managed_host_invoker::layout_callback_factory_info(s, ir);
     if let Some(info) = factory_info.as_ref() {
-        let default_ruby = native_function_name(&info.default_c_name);
+        let default_ruby = ruby_attach_name(&info.default_c_name);
         builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
         builder.line("# the host-invoker registration and struct-field splice happen");
         builder.line("# internally. Replaces the manual register_callback +");
@@ -237,7 +263,7 @@ fn emit_class_wrapper(
             // so no write-back is required.
             let mut parent_var = "wco".to_string();
             for (i, seg) in info.field_path.iter().enumerate().take(depth - 1) {
-                let parent_type = format!("Az{}", info.field_types[i]);
+                let parent_type = config.apply_prefix(&info.field_types[i]);
                 let lvl_var = format!("__lvl{}", i);
                 builder.line(&format!(
                     "{lvl} = Native::{ty}.new({parent}[:{seg}].to_ptr)",
@@ -292,7 +318,7 @@ fn emit_class_wrapper(
                 continue;
             }
         }
-        emit_method(builder, func, &prefixed, &snake, ir, config);
+        emit_method(builder, func, class_name, &snake, ir, config);
         emitted_any_method = true;
     }
 
@@ -310,7 +336,7 @@ fn emit_class_wrapper(
 
     // Phase I.1.6 (Ruby): if this wrapper's underlying struct is a Vec
     // (ptr/len/cap/destructor shape), include Enumerable + emit `each`.
-    emit_rb_each_if_vec(builder, s, ir);
+    emit_rb_each_if_vec(builder, s, ir, config);
 
     builder.dedent();
     builder.line(&format!("end # class {}", class_name));
@@ -320,7 +346,12 @@ fn emit_class_wrapper(
 /// codegen-emitted Vec shape (fields [ptr, len, cap, destructor]),
 /// `include Enumerable` and emit a `def each` that iterates via FFI
 /// pointer arithmetic. Pure type-driven (no name allowlist).
-fn emit_rb_each_if_vec(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_rb_each_if_vec(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let Some(elem_rust) = detect_vec_elem_type(s) else {
         return;
     };
@@ -373,23 +404,16 @@ fn emit_rb_each_if_vec(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         // heap allocations and survives the Vec being closed.
         // Mirrors Java/Kotlin/C# Vec-iterator clone-via-_clone
         // pattern (commit 4edb65d7c).
-        let elem_prefixed = format!("Az{}", elem_rust);
-        let elem_snake = super::types::snake_case(&elem_rust);
-        let has_clone = ir
-            .functions
-            .iter()
-            .any(|f| f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy));
+        let elem_prefixed = config.apply_prefix(&elem_rust);
+        let clone_rb = class_fn_rb(ir, &elem_rust, FunctionKind::DeepCopy);
         builder.line(&format!("elem_size = Native::{}.size", elem_prefixed));
         builder.line("(0...n).each do |i|");
         builder.indent();
-        if has_clone {
+        if let Some(clone_rb) = clone_rb {
             // Clone via the C export. `Native.az_<elem>_clone`
             // returns a fresh FFI::Struct whose internal heap
             // allocations are independent of the Vec's buffer.
-            builder.line(&format!(
-                "yield Native.az_{}_clone(buf + i * elem_size)",
-                elem_snake
-            ));
+            builder.line(&format!("yield Native.{}(buf + i * elem_size)", clone_rb));
         } else {
             // No _clone available — fall back to the borrowed
             // overlay shape and rely on the user not retaining
@@ -445,24 +469,32 @@ fn emit_rb_to_s_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &Code
     if matches!(s.category, TypeCategory::String) {
         return;
     }
-    let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
-    if !has_dbg {
+    if !s.traits.is_debug {
         return;
     }
-    let snake = snake_case(&s.name);
-    builder.line(&format!("# String repr routed through {}.", dbg_sym));
+    let Some(dbg) = class_fn(ir, &s.name, FunctionKind::DebugToString) else {
+        return;
+    };
+    // The returned AzString is owned by us: free it through the IR's
+    // String-category `_delete` export once decoded.
+    let Some(string_delete_rb) = string_delete_rb(ir) else {
+        return;
+    };
+    builder.line(&format!("# String repr routed through {}.", dbg.c_name));
     builder.line("def to_s");
     builder.indent();
     builder.line("return '' if @ptr.nil?");
-    builder.line(&format!("az_str = Native.az_{}_to_dbg_string(@ptr)", snake));
+    builder.line(&format!("az_str = Native.{}(@ptr)", ruby_attach_name(&dbg.c_name)));
     // az_str is an AzString::ByValue FFI::Struct. Decode via vec.ptr/.len.
     builder.line("vec_ptr = az_str[:vec][:ptr]");
     builder.line("vec_len = az_str[:vec][:len]");
     builder.line("return '' if vec_ptr.null? || vec_len.zero?");
     builder.line("out = vec_ptr.read_bytes(vec_len).force_encoding('UTF-8')");
     // Free the AzString via the FFI struct's address.
-    builder.line("Native.az_string_delete(FFI::Pointer.new(az_str.to_ptr.address))");
+    builder.line(&format!(
+        "Native.{}(FFI::Pointer.new(az_str.to_ptr.address))",
+        string_delete_rb
+    ));
     builder.line("out");
     builder.dedent();
     builder.line("end");
@@ -473,31 +505,41 @@ fn emit_rb_to_s_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &Code
 /// Phase I.2.5 (Ruby): override `==` / `eql?` / `hash` routed through
 /// the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
 fn emit_rb_eq_hash_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
-    let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
-    let snake = snake_case(&s.name);
+    let eq_fn = if s.traits.is_partial_eq {
+        class_fn(ir, &s.name, FunctionKind::PartialEq)
+    } else {
+        None
+    };
+    let hash_fn = if s.traits.is_hash {
+        class_fn(ir, &s.name, FunctionKind::Hash)
+    } else {
+        None
+    };
+    let has_eq = eq_fn.is_some();
+    let has_hash = hash_fn.is_some();
 
-    if has_eq {
-        builder.line(&format!("# Equality routed through {}.", eq_sym));
+    if let Some(eq) = eq_fn {
+        builder.line(&format!("# Equality routed through {}.", eq.c_name));
         builder.line("def ==(other)");
         builder.indent();
         builder.line("return false unless other.is_a?(self.class)");
         builder.line("return @ptr == other.ptr if @ptr.nil? || other.ptr.nil?");
-        builder.line(&format!("Native.az_{}_partial_eq(@ptr, other.ptr)", snake));
+        builder.line(&format!(
+            "Native.{}(@ptr, other.ptr)",
+            ruby_attach_name(&eq.c_name)
+        ));
         builder.dedent();
         builder.line("end");
         builder.line("alias_method :eql?, :==");
         builder.blank();
     }
 
-    if has_hash {
-        builder.line(&format!("# Hash routed through {}.", hash_sym));
+    if let Some(h) = hash_fn {
+        builder.line(&format!("# Hash routed through {}.", h.c_name));
         builder.line("def hash");
         builder.indent();
         builder.line("return 0 if @ptr.nil?");
-        builder.line(&format!("Native.az_{}_hash(@ptr)", snake));
+        builder.line(&format!("Native.{}(@ptr)", ruby_attach_name(&h.c_name)));
         builder.dedent();
         builder.line("end");
         builder.blank();
@@ -568,13 +610,13 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
 fn emit_method(
     builder: &mut CodeBuilder,
     func: &FunctionDef,
-    prefixed: &str,
+    class_name: &str,
     type_snake: &str,
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) {
     let ruby_method = ruby_method_name(&func.method_name);
-    let native_call = native_function_name(&func.c_name);
+    let native_call = ruby_attach_name(&func.c_name);
 
     // Phase I.4.4 (Ruby): treat DeepCopy as an instance method too, so
     // `dom.clone` works (instead of the awkward `Dom.clone(dom)`
@@ -585,13 +627,11 @@ fn emit_method(
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
     let idiom = classify_return(func, ir);
-    // `return_type` is the unprefixed IR name (e.g. "App"); `prefixed` is
-    // "AzApp". Strip the leading prefix off `prefixed` for the comparison.
-    let owning_class = prefixed.strip_prefix("Az").unwrap_or(prefixed).to_string();
+    // `return_type` and `class_name` are both unprefixed IR names.
     let returns_self_type = func
         .return_type
         .as_deref()
-        .map(|t| t.trim() == owning_class)
+        .map(|t| t.trim() == class_name)
         .unwrap_or(false);
 
     // Does the C call MOVE self? Only when api.json declares
@@ -605,7 +645,7 @@ fn emit_method(
             .args
             .iter()
             .find(|a| a.name == "self" || a.name == type_snake)
-            .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
             .unwrap_or(false);
 
     // Plain returns of a DIFFERENT type that has an emitted wrapper class
@@ -642,14 +682,21 @@ fn emit_method(
     // Names of args we should mark consumed after the C call: owned-by-
     // value wrapper-class instances. The C side moves them; the
     // wrapper's `ObjectSpace` finalizer must not fire on the now-
-    // transferred memory. Callback args are skipped — they've already
-    // been replaced by FFI::Struct values via `_register_callback` and
-    // those FFI::Struct values are not wrappers themselves.
+    // transferred memory. Skipped:
+    //   * callback args — already replaced by FFI::Struct values via
+    //     `_register_callback`, not wrappers;
+    //   * Owned `String` args — `_az_string` COPIES the Ruby bytes, the
+    //     Ruby String is never moved (and `_consume` on it is a no-op);
+    //   * RefAny args — passed to C as a CLONE (see `arg_pass_expr`), so
+    //     the caller's wrapper keeps its own refcount and stays usable.
     let consumed_names: Vec<String> = visible_args
         .iter()
         .zip(arg_names.iter())
         .filter(|(a, _)| {
-            a.callback_info.is_none() && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+            a.callback_info.is_none()
+                && matches!(a.ref_kind, ArgRefKind::Owned)
+                && !is_az_string_owned_arg(a)
+                && !is_refany_arg(a, ir)
         })
         .map(|(_, n)| n.clone())
         .collect();
@@ -663,28 +710,10 @@ fn emit_method(
         }
         builder.indent();
         emit_callback_register_lines(builder, &visible_args, &arg_names);
-        for (n, a) in arg_names.iter().zip(visible_args.iter()) {
-            if a.type_name.trim() == "RefAny" || a.type_name.trim() == "az_ref_any" || a.type_name.trim() == "AzRefAny" {
-                builder.line(&format!("{} = {}.is_a?(Azul::RefAny) ? {} : Azul::RefAny.wrap({})", n, n, n, n));
-            }
-        }
+        emit_refany_wrap_lines(builder, &visible_args, &arg_names, ir);
         let mut call_args = vec!["@ptr".to_string()];
-        for (i, name) in arg_names.iter().enumerate() {
-            // Callback args have already been replaced by an FFI::Struct
-            // value; pass them as-is. Other args go through _unwrap so
-            // both wrapper instances and raw cdata are accepted.
-            //
-            // Auto-string-conversion: Owned `String` args go through
-            // `Azul._az_string` (defined in managed.rs preamble) so
-            // user code can pass plain Ruby strings directly. Pure
-            // type-driven; no method-name allowlist.
-            if visible_args[i].callback_info.is_some() {
-                call_args.push(name.clone());
-            } else if is_az_string_owned_arg(visible_args[i]) {
-                call_args.push(format!("Azul._az_string({})", name));
-            } else {
-                call_args.push(unwrap_expr(name));
-            }
+        for (name, a) in arg_names.iter().zip(visible_args.iter()) {
+            call_args.push(arg_pass_expr(a, name, ir));
         }
         let call = format!("Native.{}({})", native_call, call_args.join(", "));
         // Consume self exactly when the C ABI takes it by value (see
@@ -698,7 +727,6 @@ fn emit_method(
             &call,
             &func.return_type,
             returns_self_type,
-            prefixed,
             &consumed_names,
             consumes_self,
             idiom,
@@ -727,29 +755,11 @@ fn emit_method(
     }
     builder.indent();
     emit_callback_register_lines(builder, &visible_args, &arg_names);
-    // For static calls we forward the user-supplied args. Callback args
-    // are already wrapper structs (from `_register_callback`); Owned
-    // `String` args go through `Azul._az_string` so user code can pass
-    // plain Ruby strings directly. Other args go through `_unwrap` so
-    // both wrapper instances and raw cdata are accepted.
-    for (n, a) in arg_names.iter().zip(visible_args.iter()) {
-        if a.type_name.trim() == "RefAny" || a.type_name.trim() == "az_ref_any" || a.type_name.trim() == "AzRefAny" {
-            builder.line(&format!("{} = {}.is_a?(Azul::RefAny) ? {} : Azul::RefAny.wrap({})", n, n, n, n));
-        }
-    }
-
+    emit_refany_wrap_lines(builder, &visible_args, &arg_names, ir);
     let call_args: Vec<String> = arg_names
         .iter()
         .zip(visible_args.iter())
-        .map(|(n, a)| {
-            if a.callback_info.is_some() {
-                n.clone()
-            } else if is_az_string_owned_arg(a) {
-                format!("Azul._az_string({})", n)
-            } else {
-                unwrap_expr(n)
-            }
-        })
+        .map(|(n, a)| arg_pass_expr(a, n, ir))
         .collect();
     let call = format!("Native.{}({})", native_call, call_args.join(", "));
     emit_method_body_static(
@@ -757,7 +767,6 @@ fn emit_method(
         &call,
         &func.return_type,
         returns_self_type,
-        prefixed,
         &consumed_names,
         idiom,
         wrap_class.as_deref(),
@@ -774,7 +783,7 @@ fn emit_method(
 /// FFI::Struct the C-ABI takes.
 fn emit_callback_register_lines(
     builder: &mut CodeBuilder,
-    args: &[&super::super::ir::FunctionArg],
+    args: &[&FunctionArg],
     arg_names: &[String],
 ) {
     if !args.iter().any(|a| a.callback_info.is_some()) {
@@ -798,6 +807,57 @@ fn emit_callback_register_lines(
     }
 }
 
+/// Emit `name = Azul::<RefAny>.wrap(name)` for every arg whose IR type is
+/// the `TypeCategory::RefAny` struct. `wrap` is idempotent (an existing
+/// wrapper passes through, a raw struct is adopted, any other Ruby value
+/// gets a fresh host handle), so callers may pass plain objects or an
+/// `Azul::RefAny` they hold on to.
+fn emit_refany_wrap_lines(
+    builder: &mut CodeBuilder,
+    args: &[&FunctionArg],
+    arg_names: &[String],
+    ir: &CodegenIR,
+) {
+    for (a, n) in args.iter().zip(arg_names.iter()) {
+        if is_refany_arg(a, ir) {
+            builder.line(&format!(
+                "{n} = Azul::{t}.wrap({n})",
+                n = n,
+                t = a.type_name.trim()
+            ));
+        }
+    }
+}
+
+/// The expression that puts one wrapper-method argument on the C call.
+///
+/// * callback args — already an `Az<Kind>` FFI::Struct from
+///   `_register_callback`, passed as-is;
+/// * Owned `String` args — `Azul._az_string(x)` copies the Ruby bytes
+///   into an owned AzString;
+/// * RefAny args — `Native.<RefAny_clone>(x.ptr)`: libazul gets its own
+///   refcount, the caller's `Azul::RefAny` keeps its own (finalizer →
+///   `_delete`). Never a by-value move of a struct Ruby still aliases.
+///   Falls back to a plain move only if the IR had no `_clone` export
+///   for the RefAny struct (then `consumed_names` would have to include
+///   it — it does not today because api.json always has one);
+/// * everything else — `(x.respond_to?(:ptr) ? x.ptr : x)` so wrapper
+///   instances and raw FFI values are both accepted.
+fn arg_pass_expr(a: &FunctionArg, name: &str, ir: &CodegenIR) -> String {
+    if a.callback_info.is_some() {
+        return name.to_string();
+    }
+    if is_az_string_owned_arg(a) {
+        return format!("Azul._az_string({})", name);
+    }
+    if is_refany_arg(a, ir) && matches!(a.ref_kind, ArgRefKind::Owned) {
+        if let Some(clone_rb) = class_fn_rb(ir, a.type_name.trim(), FunctionKind::DeepCopy) {
+            return format!("Native.{}({}.ptr)", clone_rb, name);
+        }
+    }
+    unwrap_expr(name)
+}
+
 /// Emit the body of an instance method (`def foo ... end`). The
 /// `consumed_names` are owned-by-value wrapper-typed args that the C
 /// side took ownership of; we tag them as consumed after the call so
@@ -807,13 +867,11 @@ fn emit_method_body_instance(
     call: &str,
     return_type: &Option<String>,
     returns_self_type: bool,
-    prefixed: &str,
     consumed_names: &[String],
     consumes_self: bool,
     idiom: ReturnIdiom,
     wrap_class: Option<&str>,
 ) {
-    let _ = prefixed;
     // Phase I.5.3 (Ruby): Option<T>/Result<T,E> auto-unwrap at the
     // wrapper boundary. Detected via classify_return; the AzOption /
     // AzResult FFI structs already expose to_opt / unwrap methods
@@ -897,7 +955,6 @@ fn emit_method_body_static(
     call: &str,
     return_type: &Option<String>,
     returns_self_type: bool,
-    prefixed: &str,
     consumed_names: &[String],
     idiom: ReturnIdiom,
     wrap_class: Option<&str>,
@@ -914,7 +971,6 @@ fn emit_method_body_static(
         };
         return;
     }
-    let _ = prefixed;
     match return_type {
         None => {
             builder.line(call);
@@ -1026,80 +1082,45 @@ fn unwrap_expr(name: &str) -> String {
 /// `String` arg at the C ABI accepts a plain Ruby string at the wrapper
 /// level. The call site routes the value through `Azul._az_string`
 /// (emitted from `managed.rs`). Pure type-driven; no method-name
-/// allowlist.
-fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+/// allowlist. `_az_string` only knows how to build the IR's
+/// `TypeCategory::String` struct (there is exactly one), hence the
+/// name check on top of the category.
+fn is_az_string_owned_arg(a: &FunctionArg) -> bool {
+    a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+}
+
+/// Ruby attach name of the `_delete` export of the IR's
+/// `TypeCategory::String` struct (used to free AzStrings we own).
+fn string_delete_rb(ir: &CodegenIR) -> Option<String> {
+    let s = ir
+        .structs
+        .iter()
+        .find(|s| matches!(s.category, TypeCategory::String))?;
+    class_fn_rb(ir, &s.name, FunctionKind::Delete)
 }
 
 // ============================================================================
 // Naming helpers
 // ============================================================================
 
-/// Ruby method names use snake_case. The IR's `method_name` is camelCase
-/// (e.g. `addChild`) or already snake-ish — normalise either to snake.
+/// Ruby method names use snake_case. The IR's `method_name` is the
+/// api.json key (already snake_case, e.g. `create_p_with_text`);
+/// `snake_case` (= the shared `to_snake_case`) is a no-op on those and
+/// normalises a camelCase name if one ever appears.
 fn ruby_method_name(method: &str) -> String {
-    camel_to_snake(method)
+    snake_case(method)
 }
 
 /// Argument names from the IR are usually already snake_case; if they
 /// aren't, normalise. Also append a trailing `_` if the name collides
 /// with a Ruby keyword.
 fn ruby_arg_name(name: &str) -> String {
-    let snake = camel_to_snake(name);
+    let snake = snake_case(name);
     if RUBY_RESERVED.contains(&snake.as_str()) {
         format!("{}_", snake)
     } else {
         snake
     }
-}
-
-/// Convert a C-ABI symbol (`AzApp_create`, `AzDom_addChild`) into the
-/// snake_case Ruby attach_function name (`az_app_create`, `az_dom_add_child`).
-///
-/// Mirrors `functions::ruby_attach_name`. Duplicated here to avoid a
-/// cross-module dependency on a private helper.
-fn native_function_name(c_name: &str) -> String {
-    let mut out = String::with_capacity(c_name.len() + 4);
-    let mut prev_was_lower = false;
-    let mut prev_was_underscore = false;
-    for (i, c) in c_name.chars().enumerate() {
-        if c == '_' {
-            out.push('_');
-            prev_was_lower = false;
-            prev_was_underscore = true;
-            continue;
-        }
-        if c.is_ascii_uppercase() {
-            if i != 0 && prev_was_lower && !prev_was_underscore {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-            prev_was_lower = false;
-        } else {
-            out.push(c);
-            prev_was_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
-        }
-        prev_was_underscore = false;
-    }
-    out
-}
-
-fn camel_to_snake(input: &str) -> String {
-    let mut out = String::with_capacity(input.len() + 4);
-    let mut prev_was_lower = false;
-    for (i, c) in input.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i != 0 && prev_was_lower {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-            prev_was_lower = false;
-        } else {
-            out.push(c);
-            prev_was_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
-        }
-    }
-    out
 }
 
 const RUBY_RESERVED: &[&str] = &[

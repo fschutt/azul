@@ -4,10 +4,21 @@
 //! the binding's source files are bundled directly. The version comes from
 //! `ir.api_version` (the api.json release key), never hard-coded.
 //!
-//! The `s.files` list embeds prebuilt native libraries under
-//! `lib/native/<rid>/` so users can `gem install azul` and get a working
-//! binary for every supported platform without compiling. Add new RIDs
-//! here when we publish for additional platforms.
+//! Layout (FLAT — this is what CI's "Assemble gem" step packs and what
+//! the loader emitted by `mod.rs` searches: `AZ_LIB_DIR`, then the
+//! directory of `azul.rb`):
+//!
+//! ```text
+//! azul.gemspec
+//! lib/azul.rb
+//! lib/libazul.so        (Linux)
+//! lib/libazul.dylib     (macOS, when available)
+//! lib/azul.dll          (Windows, when available)
+//! ```
+//!
+//! Only the libraries present at `gem build` time are packed (`select`
+//! on existence), so one gemspec serves every platform bundle. There is
+//! no `lib/native/<rid>/` tree: the loader never looked there.
 
 /// Build the `azul.gemspec` file content. `version` = `ir.api_version`.
 pub fn generate_gemspec(version: &str) -> String {
@@ -30,14 +41,16 @@ pub fn generate_gemspec(version: &str) -> String {
     // ~> 1.15 dependency still supports 2.6).
     s.push_str("  s.required_ruby_version = '>= 2.6'\n");
     s.push('\n');
+    // Flat layout next to azul.rb — the loader in azul.rb searches
+    // AZ_LIB_DIR and then File.dirname(__FILE__), i.e. this `lib/`.
+    s.push_str("  # Flat layout: azul.rb finds the native library next to itself\n");
+    s.push_str("  # (or via AZ_LIB_DIR). Only libraries present at build time are packed.\n");
     s.push_str("  s.files = [\n");
     s.push_str("    'lib/azul.rb',\n");
-    s.push_str("    'lib/native/x86_64-linux/libazul.so',\n");
-    s.push_str("    'lib/native/aarch64-linux/libazul.so',\n");
-    s.push_str("    'lib/native/x86_64-darwin/libazul.dylib',\n");
-    s.push_str("    'lib/native/aarch64-darwin/libazul.dylib',\n");
-    s.push_str("    'lib/native/x86_64-mingw32/azul.dll',\n");
-    s.push_str("  ]\n");
+    s.push_str("    'lib/libazul.so',\n");
+    s.push_str("    'lib/libazul.dylib',\n");
+    s.push_str("    'lib/azul.dll',\n");
+    s.push_str("  ].select { |f| File.exist?(File.join(__dir__, f)) }\n");
     s.push_str("  s.require_paths = ['lib']\n");
     s.push('\n');
     s.push_str("  s.add_runtime_dependency 'ffi', '~> 1.15'\n");

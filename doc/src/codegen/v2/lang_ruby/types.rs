@@ -1053,17 +1053,9 @@ fn emit_ruby_unwrap_body(
     builder.line("def err?; self[:tag] != 0; end");
 }
 
-pub(crate) fn snake_case(input: &str) -> String {
-    let mut out = String::with_capacity(input.len() + 4);
-    for (i, c) in input.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i != 0 {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+/// Ruby-side identifier snake_case (class-name snake forms, callback
+/// symbols). This is the shared `managed_host_invoker::to_snake_case`;
+/// C-symbol → `attach_function` names go through
+/// `functions::ruby_attach_name` instead (see its docs for why the two
+/// must not be mixed).
+pub(crate) use super::super::managed_host_invoker::to_snake_case as snake_case;
