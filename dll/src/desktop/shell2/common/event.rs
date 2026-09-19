@@ -3480,6 +3480,22 @@ macro_rules! impl_platform_window_getters {
             &mut self.$field.scrollbar_drag_state
         }
         fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+            // The scroll manager keeps its own view of the drag (see
+            // `ScrollManager::begin_thumb_drag`): the fade it drives must know
+            // the bar is being held. Every start and end of a drag goes
+            // through here so the two never disagree.
+            if let Some(lw) = self.$field.layout_window.as_mut() {
+                let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+                match state.as_ref().map(|s| s.hit_id) {
+                    Some(azul_core::hit_test::ScrollbarHitId::VerticalThumb(dom, node)) => lw
+                        .scroll_manager
+                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Vertical, now),
+                    Some(azul_core::hit_test::ScrollbarHitId::HorizontalThumb(dom, node)) => lw
+                        .scroll_manager
+                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Horizontal, now),
+                    Some(_) | None => lw.scroll_manager.end_thumb_drag(now),
+                }
+            }
             self.$field.scrollbar_drag_state = state;
         }
         fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
@@ -12672,7 +12688,7 @@ pub trait PlatformWindow {
         if self.get_scrollbar_drag_state().is_none() {
             return None;
         }
-        *self.get_scrollbar_drag_state_mut() = None;
+        self.set_scrollbar_drag_state(None);
         self.get_common_mut().update_unsynced_state(|ws| {
             apply_pointer_button_state(&mut ws.mouse_state, position, button, false);
         });

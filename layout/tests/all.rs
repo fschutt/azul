@@ -284,6 +284,8 @@ mod scroll_degenerate_ifc;
 mod scroll_id_identity;
 #[path = "scroll_shift_ghost.rs"]
 mod scroll_shift_ghost;
+#[path = "scrollbar_fade_during_drag.rs"]
+mod scrollbar_fade_during_drag;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
 #[path = "selection_handles.rs"]

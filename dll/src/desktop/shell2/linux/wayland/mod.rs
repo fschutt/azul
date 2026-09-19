@@ -4550,7 +4550,7 @@ impl WaylandWindow {
         } else {
             // End scrollbar drag if active
             if self.common.scrollbar_drag_state.is_some() {
-                self.common.scrollbar_drag_state = None;
+                PlatformWindow::set_scrollbar_drag_state(self, None);
                 self.request_redraw();
                 return;
             }

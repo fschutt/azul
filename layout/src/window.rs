@@ -11908,27 +11908,41 @@ impl LayoutWindow {
                 continue; // Skip anonymous boxes
             };
 
-            // Calculate current opacity from ScrollManager
-            let vertical_opacity = if scrollbar_info.needs_vertical {
+            // Calculate current opacity from ScrollManager. A bar whose thumb
+            // the user is holding is pinned fully visible: its activity stamp
+            // only moves with the scroll position, and a thumb held still
+            // produces none, so the fade would otherwise take the bar away
+            // under the pointer.
+            use azul_core::dom::ScrollbarOrientation;
+            let vertical_opacity = if !scrollbar_info.needs_vertical {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical)
+            {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
-            let horizontal_opacity = if scrollbar_info.needs_horizontal {
+            let horizontal_opacity = if !scrollbar_info.needs_horizontal {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(
+                dom_id,
+                node_id,
+                ScrollbarOrientation::Horizontal,
+            ) {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
             // Track whether any scrollbar is actively fading (0 < opacity < 1).

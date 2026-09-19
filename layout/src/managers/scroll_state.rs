@@ -386,6 +386,16 @@ pub struct ScrollManager {
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
     scroll_dirty: bool,
+    /// The scrollbar thumb the user is currently holding, if any: set at the
+    /// press that starts a thumb drag, cleared at the release that ends it.
+    ///
+    /// The shell keeps the drag's geometry (`ScrollbarDragState`); this is
+    /// the manager's own view of it, so that everything the manager drives —
+    /// the fade in particular — can ask "is this bar being held?" without
+    /// reaching into the shell. A held bar never fades: `last_activity` is
+    /// only refreshed by scroll-position changes, and a thumb held still
+    /// produces none.
+    thumb_drag: Option<(DomId, NodeId, ScrollbarOrientation)>,
     /// Scroll-direction preference, applied ONCE in [`Self::record_scroll_input`]
     /// (the single chokepoint every platform's wheel/axis event flows through).
     ///
@@ -1137,6 +1147,55 @@ impl ScrollManager {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
+    }
+
+    /// The user pressed the thumb of `orientation`'s scrollbar on `node_id`
+    /// and is dragging it. The bar counts as active for as long as the drag
+    /// lasts (see [`Self::thumb_drag`]).
+    pub fn begin_thumb_drag(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        now: Instant,
+    ) {
+        self.thumb_drag = Some((dom_id, node_id, orientation));
+        self.touch_activity(dom_id, node_id, now);
+    }
+
+    /// The thumb drag ended (release, or the pointer/window went away). The
+    /// bar's activity stamp restarts from `now`, so the fade delay is counted
+    /// from the release and not from the last scroll the drag produced.
+    pub fn end_thumb_drag(&mut self, now: Instant) {
+        if let Some((dom_id, node_id, _)) = self.thumb_drag.take() {
+            self.touch_activity(dom_id, node_id, now);
+        }
+    }
+
+    /// The scrollbar thumb being held right now, if any.
+    #[must_use]
+    pub fn thumb_drag(&self) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
+        self.thumb_drag
+    }
+
+    /// Whether `orientation`'s scrollbar on `node_id` is being held.
+    #[must_use]
+    pub fn is_thumb_dragged(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+    ) -> bool {
+        self.thumb_drag == Some((dom_id, node_id, orientation))
+    }
+
+    /// Record activity on a node without moving it: the fade delay restarts
+    /// from `now`. A node the manager has never scrolled has no state and
+    /// therefore no visible bar to keep alive; nothing is created for it.
+    fn touch_activity(&mut self, dom_id: DomId, node_id: NodeId, now: Instant) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.last_activity = now;
+        }
     }
 
     /// Returns the internal scroll state for a node
