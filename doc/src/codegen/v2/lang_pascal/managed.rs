@@ -24,6 +24,8 @@
 //!      - `TAz<K>ModelFunc<T>`   plain function, typed model only
 //!      - `TAz<K>Ref<T>` / `TAz<K>ModelRef<T>`  `reference to function` twins,
 //!        only on FPC >= 3.3.1 / Delphi (`{$IF FPC_FULLVERSION >= 30301}`)
+//!    Generic METHODS (`On<Event><T>`) need FPC 3.2.0+ (`GENERIC_METHOD_GUARD`);
+//!    every `On<Event>` also takes a ready `TAz<K>Invoker`, the FPC 3.0.x path,
 //!    and the two dispatch classes `TAz<K>Wrapper` (Event/Proc) and
 //!    `TAz<K>TypedWrapper<T>` (Func/ModelFunc/Ref/ModelRef, does the
 //!    `RefAny -> T` downcast and reports a mismatch through the kind's
@@ -77,6 +79,13 @@ use super::{
 /// trunk + Delphi feature), so those overloads are compiled out there.
 pub const FUNCREF_GUARD: &str = "{$IF FPC_FULLVERSION >= 30301}";
 pub const FUNCREF_GUARD_END: &str = "{$ENDIF}";
+
+/// Preprocessor guard around generic METHODS (`function OnClick<T: class>`).
+/// They arrived in FPC 3.2.0; everything else in the unit (generic classes,
+/// generic procedural types, `TAz<App><T>`) also compiles on FPC 3.0.x, where
+/// the typed callbacks go through the `On<Event>(TAz<K>Invoker)` overload
+/// instead: `.OnClick(TAz<K>TypedWrapper<TMyModel>.Create(OnIncrease))`.
+pub const GENERIC_METHOD_GUARD: &str = "{$IF FPC_FULLVERSION >= 30200}";
 
 // ============================================================================
 // Callback signature model (shared by the managed prelude and wrappers.rs)
@@ -325,6 +334,9 @@ pub(super) fn typed_wrapper_class(kind: &str) -> String {
 }
 pub(super) fn register_fn(kind: &str) -> String {
     format!("azul_register_{}", kind_low(kind))
+}
+pub(super) fn invoker_class(kind: &str) -> String {
+    format!("TAz{}Invoker", kind)
 }
 
 // ============================================================================

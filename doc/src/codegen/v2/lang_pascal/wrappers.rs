@@ -3,7 +3,9 @@
 //! For every IR struct that has a matching `<TypeName>_delete` C function,
 //! we emit a `T<TypeName> = class` (descended from `TObject`) that:
 //!
-//! 1. Holds the underlying FFI record (`TAzTypeName`) by value in a private `FRaw` field.
+//! 1. Holds the underlying FFI record (`TAzTypeName`) by value in a protected `FRaw` field
+//!    (protected, not private: FPC 3.0 compiles a generic subclass such as
+//!    `TAzApp<T>` in the specializing unit, where private fields are invisible).
 //! 2. Provides one Pascal constructor per IR `FunctionKind::Constructor` / `Default` function.
 //!    Naming (see [`constructor_pascal_names`]): `new` / `create` -> `Create`; `create_<x>` /
 //!    `new_<x>` -> `<X>` (`create_body` -> `Body`, `create_p` -> `P`); a trailing `_with_<arg>`
@@ -265,7 +267,7 @@ fn emit_wrapper_class_decl(
     }
 
     builder.line(&format!("{} = class(TObject)", class_name));
-    builder.line("private");
+    builder.line("protected");
     builder.indent();
     builder.line(&format!("FRaw: {};", raw_record));
     builder.line("FOwned: Boolean;");
@@ -344,15 +346,15 @@ fn emit_wrapper_class_decl(
         }
         let Some(sig) = smart_setter_sig(&kind, ir, targets) else { continue };
         for (generic, ty, guard) in smart_setter_overloads(&sig) {
-            if guard {
-                builder.line(managed::FUNCREF_GUARD);
+            if let Some(g) = guard {
+                builder.line(g);
             }
             let tparams = if generic { "<T: class>" } else { "" };
             builder.line(&format!(
                 "function {}{}(Callback: {}): {}; overload;",
                 name, tparams, ty, class_name
             ));
-            if guard {
+            if guard.is_some() {
                 builder.line(managed::FUNCREF_GUARD_END);
             }
         }
@@ -723,20 +725,27 @@ fn smart_setter_sig(kind: &str, ir: &CodegenIR, targets: &BTreeSet<String>) -> O
 
 /// `(generic?, parameter type, needs the function-reference guard?)` for
 /// every overload of a smart setter.
-fn smart_setter_overloads(sig: &managed::CallbackSig) -> Vec<(bool, String, bool)> {
+/// Every `On<Event>` overload as `(generic, parameter type, version guard)`.
+/// The `TAz<K>Invoker` overload takes a ready dispatcher object (on FPC 3.0.x
+/// the only typed form: `TAz<K>TypedWrapper<T>.Create(Fn)`); the generic
+/// methods need FPC 3.2.0+, the `reference to` ones FPC 3.3.1+.
+fn smart_setter_overloads(sig: &managed::CallbackSig) -> Vec<(bool, String, Option<&'static str>)> {
     let k = &sig.kind;
     let mut out = vec![
-        (false, managed::event_type(k), false),
-        (false, managed::proc_type(k), false),
+        (false, managed::event_type(k), None),
+        (false, managed::proc_type(k), None),
+        (false, managed::invoker_class(k), None),
     ];
     if sig.model_arg.is_some() {
-        out.push((true, format!("{}<T>", managed::func_type(k)), false));
+        let g = Some(managed::GENERIC_METHOD_GUARD);
+        let r = Some(managed::FUNCREF_GUARD);
+        out.push((true, format!("{}<T>", managed::func_type(k)), g));
         if sig.has_model_only_form() {
-            out.push((true, format!("{}<T>", managed::model_func_type(k)), false));
+            out.push((true, format!("{}<T>", managed::model_func_type(k)), g));
         }
-        out.push((true, format!("{}<T>", managed::ref_type(k)), true));
+        out.push((true, format!("{}<T>", managed::ref_type(k)), r));
         if sig.has_model_only_form() {
-            out.push((true, format!("{}<T>", managed::model_ref_type(k)), true));
+            out.push((true, format!("{}<T>", managed::model_ref_type(k)), r));
         }
     }
     out
@@ -756,8 +765,8 @@ fn emit_smart_setter_impl(
         _ => "@FRaw",
     };
     for (generic, ty, guard) in smart_setter_overloads(sig) {
-        if guard {
-            builder.line(managed::FUNCREF_GUARD);
+        if let Some(g) = guard {
+            builder.line(g);
         }
         let tparam = if generic { "<T>" } else { "" };
         builder.line(&format!(
@@ -768,6 +777,9 @@ fn emit_smart_setter_impl(
         builder.indent();
         let dispatcher = if generic {
             format!("{}<T>.Create(Callback)", managed::typed_wrapper_class(kind))
+        } else if ty == managed::invoker_class(kind) {
+            // A ready dispatcher: the handle table owns it from here on.
+            "Callback".to_string()
         } else {
             format!("{}.Create(Callback)", managed::wrapper_class(kind))
         };
@@ -785,7 +797,7 @@ fn emit_smart_setter_impl(
         builder.line("Result := Self;");
         builder.dedent();
         builder.line("end;");
-        if guard {
+        if guard.is_some() {
             builder.line(managed::FUNCREF_GUARD_END);
         }
         builder.blank();
