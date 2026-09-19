@@ -2501,8 +2501,6 @@ jobs:
 
       - name: Build demos (best-effort)
         env:
-          AZ_LINK_PATH: ${{ github.workspace }}/libazul-prebuilt
-          AZ_LINK_STATIC: "1"
           CARGO_PROFILE_RELEASE_LTO: "off"
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -2515,6 +2513,16 @@ jobs:
                 libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
                 libazul-prebuilt/azul.pyd 2>/dev/null
           echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
+          # Name the archive FILE, not the directory: build_link.rs links a named
+          # file as-is, while a directory search would also find the stub libazul
+          # cdylib this job builds into target/ (a shared library wins over a .a).
+          for f in libazul.a azul.lib; do
+            if [ -f "libazul-prebuilt/$f" ]; then
+              export AZ_LINK_PATH="$GITHUB_WORKSPACE/libazul-prebuilt/$f"
+              break
+            fi
+          done
+          echo "AZ_LINK_PATH=${AZ_LINK_PATH:-<unset: no static archive in the artifact>}"
           ENGINE_PATHS="core layout css dll api.json Cargo.toml Cargo.lock"
           prev_manifest=""
           if gh release download "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
