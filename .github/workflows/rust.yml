@@ -586,12 +586,6 @@ jobs:
         with:
           toolchain: 1.91.0
 
-      - name: Run azul-doc tests
-        run: |
-          set -o pipefail
-          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
-          ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
-
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -606,11 +600,19 @@ jobs:
       - name: Download generated bindings (built once by codegen_linux)
         # The examples lint checks every example and guide call site against
         # the symbols the generator emitted. Without this tree it used to skip
-        # itself and still print [ok]; it now fails instead.
+        # itself and still print [ok]; it now fails instead. The bug-class
+        # tests (codegen::v2::bug_classes) read it too, so it comes BEFORE the
+        # test step: they fail on a missing tree rather than skip.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
+
+      - name: Run azul-doc tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Double-drop invariant + guide links (azul-doc)
         run: azul-doc check

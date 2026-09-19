@@ -58,6 +58,8 @@
 //! The Python generator uses its own `PythonConfig` that extends the base config
 //! with Python-specific options.
 
+#[cfg(test)]
+mod bug_classes;
 pub mod config;
 pub mod generator;
 pub mod ir;

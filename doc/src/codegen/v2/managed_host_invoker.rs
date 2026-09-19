@@ -499,7 +499,7 @@ pub fn return_c_typename(cb: &CallbackTypedefDef) -> Option<String> {
 /// `printf("%zu", sizeof(AzDom))` against `target/codegen/azul.h` (2026-09-19:
 /// AzDom grew 240 -> 280 and AzVirtualViewReturn 280 -> 320 without this
 /// table following, which truncated every Dom a Perl layout callback returned).
-pub fn return_c_size(cb: &CallbackTypedefDef) -> Option<usize> {
+pub fn return_c_size(cb: &CallbackTypedefDef, _ir: &super::ir::CodegenIR) -> Option<usize> {
     let rt = return_c_typename(cb)?;
     Some(match rt.as_str() {
         "AzDom" => 280,
