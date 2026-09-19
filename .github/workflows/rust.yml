@@ -6482,9 +6482,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Update Go bindings for $GITHUB_REF_NAME"
+          git commit -m "Update Go bindings for $GITHUB_REF_NAME (v$AZUL_VERSION)"
+          # `go get azul.rs/ui/go` resolves through the go-import page on the
+          # site (scripts/build_registry_mirrors.sh build_go) to this repo; the
+          # v<version> tag is what `@latest` and `@v$AZUL_VERSION` select.
+          git tag -f "v$AZUL_VERSION"
           # Push to the azul-go repo (assumes AZUL_GO_PAT is a repository secret)
-          git push --force "https://${{ secrets.AZUL_GO_PAT }}@github.com/fschutt/azul-go.git" main
+          git push --force "https://${{ secrets.AZUL_GO_PAT }}@github.com/fschutt/azul-go.git" main "v$AZUL_VERSION"
 
   npm:
     # Builds and publishes the Node binding (FFI loader via koffi).

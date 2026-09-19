@@ -45,8 +45,8 @@ gradle build
 java -jar build/libs/hello-world-1.0.0.jar
 ```
 
-Kotlin uses the identical maven repository and jar as Java 
-in the `build.gradle.kts`:
+Kotlin has its own artifact (`rs.azul:azul-kotlin`, the compiled `Azul.kt`) in the same
+self-hosted maven repository as the Java jar; add it in the `build.gradle.kts`:
 
 ```kotlin
 repositories {
@@ -57,7 +57,7 @@ repositories {
 }
 
 dependencies {
-    implementation("rs.azul:azul:$VERSION")
+    implementation("rs.azul:azul-kotlin:$VERSION")
     // JNA is a transitive dependency, but you can pin it
     implementation("net.java.dev.jna:jna:5.14.0")
 }

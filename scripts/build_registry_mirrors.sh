@@ -82,6 +82,34 @@ first() { ls -1 "$1" 2>/dev/null | head -1; }
 # Maven — static maven2 layout. Fixes the java.md / kotlin.md instructions.
 #   repositories { maven { url "https://azul.rs/ui/maven" } }  +  rs.azul:azul:<V>
 # --------------------------------------------------------------------------
+# Go — `go get azul.rs/ui/go` needs nothing but ONE static page: the go tool
+# (and proxy.golang.org on its behalf) fetches https://azul.rs/ui/go?go-get=1
+# and reads the `go-import` meta tag naming the git repo that backs the import
+# path. A static host serves ui/go/index.html for that URL (the query string is
+# ignored), so this works unchanged on GitHub Pages or Cloudflare Pages — no
+# server, no rewrite rule. The repo itself is github.com/fschutt/azul-go, which
+# the rust.yml `go` job force-pushes and tags v<V> on every deploy.
+build_go() {
+  local dir="$SITE/ui/go"
+  mkdir -p "$dir"
+  cat > "$dir/index.html" <<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="go-import" content="azul.rs/ui/go git https://github.com/fschutt/azul-go">
+<meta name="go-source" content="azul.rs/ui/go https://github.com/fschutt/azul-go https://github.com/fschutt/azul-go/tree/main{/dir} https://github.com/fschutt/azul-go/blob/main{/dir}/{file}#L{line}">
+<meta http-equiv="refresh" content="0; url=https://azul.rs/ui/guide/hello-world/go">
+<title>azul.rs/ui/go</title>
+</head>
+<body>
+<p>Go bindings for <a href="https://azul.rs/">azul</a>: <code>go get azul.rs/ui/go</code> (source: <a href="https://github.com/fschutt/azul-go">github.com/fschutt/azul-go</a>, v$V).</p>
+</body>
+</html>
+HTML
+  echo "  [go] published ui/go/index.html (go-import -> github.com/fschutt/azul-go, v$V)"
+}
+
 build_maven() {
   # The maven job uploads THREE jars: azul-$V.jar (classes + JNA natives),
   # azul-$V-sources.jar and azul-$V-javadoc.jar. `ls | head -1` sorted them
@@ -1211,6 +1239,7 @@ echo "==> Building self-hosted registry mirrors under $SITE (v$V)"
 # verbatim. Harmless under the static (Actions) Pages path too.
 touch "$SITE/.nojekyll"
 FAILED=""
+build_go
 build_maven || FAILED="$FAILED maven"
 build_pypi
 build_npm

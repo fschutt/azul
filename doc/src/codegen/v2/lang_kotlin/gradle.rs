@@ -31,7 +31,7 @@ pub const DEFAULT_AZUL_VERSION: &str = "0.2.0";
 /// Maven artifact id of the published Kotlin binding, as the guide's
 /// `implementation("rs.azul:azul:$VERSION")` names it. Overridable per build
 /// with `-Pazul.artifact=`.
-pub const DEFAULT_AZUL_ARTIFACT: &str = "azul";
+pub const DEFAULT_AZUL_ARTIFACT: &str = "azul-kotlin";
 
 pub fn build_gradle_kts_with_version(version: &str) -> String {
     format!(

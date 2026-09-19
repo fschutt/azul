@@ -19,7 +19,7 @@ group = "com.azul.examples"
 version = "1.0.0"
 
 val azulVersion = (findProperty("azul.version") as String?) ?: "0.2.0"
-val azulArtifact = (findProperty("azul.artifact") as String?) ?: "azul"
+val azulArtifact = (findProperty("azul.artifact") as String?) ?: "azul-kotlin"
 
 // Directory holding a generated Azul.kt (null = use the maven artifact).
 val azulCodegenDir: String? = (findProperty("azul.codegen.dir") as String?)
