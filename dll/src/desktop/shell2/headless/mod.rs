@@ -1327,27 +1327,38 @@ impl CpuBackend {
                 .with_clear_color(clear_color)
                 .with_virtual_view_display_lists(vview_dls);
 
-        if is_incremental && !all_damage.is_empty() {
-            // Incremental: render only damaged regions
-            let _ = cpurender::render_display_list_damaged(
-                display_list,
-                &mut output,
-                dpi_factor,
-                renderer_resources,
-                &layout_window.font_manager,
-                &mut self.glyph_cache,
-                &render_state,
-                &all_damage,
-            );
-            // Exits paint ON TOP of the restored live pixels; their current
-            // rects are inside `all_damage` by construction.
-            if zombies_active {
-                layout_window.composite_zombies_cpu(
+        // An INCREMENTAL frame paints exactly its damage - and nothing when it
+        // has none: the target already holds this frame (a scroll step that
+        // rounds to zero device pixels, a GPU-only value change that moved
+        // nothing). Choosing the branch by "damage is non-empty" sent such a
+        // frame into the FULL repaint below while it still reported empty
+        // damage; on a native ARGB8888 commit-swizzle pool that rewrote the
+        // whole buffer in renderer byte order and nothing converted it (the
+        // UI turned orange after a scroll), and everywhere else it was a
+        // wasted full repaint at the tail of every smooth scroll.
+        if is_incremental {
+            if !all_damage.is_empty() {
+                // Incremental: render only damaged regions
+                let _ = cpurender::render_display_list_damaged(
+                    display_list,
                     &mut output,
                     dpi_factor,
                     renderer_resources,
+                    &layout_window.font_manager,
                     &mut self.glyph_cache,
+                    &render_state,
+                    &all_damage,
                 );
+                // Exits paint ON TOP of the restored live pixels; their current
+                // rects are inside `all_damage` by construction.
+                if zombies_active {
+                    layout_window.composite_zombies_cpu(
+                        &mut output,
+                        dpi_factor,
+                        renderer_resources,
+                        &mut self.glyph_cache,
+                    );
+                }
             }
         } else {
             // Full render
@@ -9092,6 +9103,70 @@ mod tests {
             painted > 0.0,
             "scrolling repainted NOTHING — the newly exposed strip must still be painted, or \
              scrolled-in content is stale pixels"
+        );
+    }
+
+    /// A scroller whose bar is hidden, so a scroll step that moves no whole
+    /// device pixel changes nothing at all on screen.
+    extern "C" fn harness_layout_scroll_no_bar(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let mut container = Dom::create_div().with_css(
+            "width: 200px; height: 100px; overflow-y: scroll; scrollbar-width: none;",
+        );
+        for i in 0..20 {
+            let bg = if i % 2 == 0 { "#c83c3c" } else { "#3c78c8" };
+            container = container.with_child(
+                Dom::create_div()
+                    .with_css(&format!("height: 20px; background-color: {bg};")),
+            );
+        }
+        Dom::create_body().with_child(container)
+    }
+
+    /// THE WRITES-WITHIN-DAMAGE LAW for a frame that has nothing to repaint.
+    ///
+    /// A scroll step smaller than half a device pixel shifts no pixel and
+    /// damages nothing. The incremental renderer then fell into its FULL
+    /// repaint branch (the branch is chosen by "damage is non-empty", not by
+    /// "this frame is incremental") while still reporting empty damage. On a
+    /// native ARGB8888 commit-swizzle pool that wrote every pixel of the
+    /// compositor's buffer in renderer byte order and nothing converted them:
+    /// the whole window turned R<->B swapped the next time that buffer was
+    /// shown (blue UI turning orange after scrolling, KDE Wayland). On every
+    /// other target it was a wasted full repaint per smooth-scroll tail frame.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_frame_with_nothing_to_repaint_writes_no_pixel_outside_its_damage() {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, harness_layout_scroll_no_bar);
+        window.regenerate_layout().expect("initial layout");
+        // 10.6 rounds to 11 device pixels; so does 11.2. The step between them
+        // is larger than half a pixel (the fast path takes it) yet shifts by
+        // round(11.2) - round(10.6) = 0 pixels: nothing moves, nothing is
+        // exposed - a frame with nothing to repaint.
+        scroll_frame_to(&mut window, 10.6);
+        window.regenerate_layout().expect("scroll to 10.6");
+
+        const MARK: [u8; 4] = [1, 2, 3, 4];
+        {
+            let frame = window.cpu_backend.last_frame.as_mut().expect("retained frame");
+            for px in frame.data_mut().chunks_exact_mut(4) {
+                px.copy_from_slice(&MARK);
+            }
+        }
+        scroll_frame_to(&mut window, 11.2);
+        window.regenerate_layout().expect("zero-pixel scroll step");
+
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        assert!(
+            matches!(&damage, FrameDamage::Rects(rs) if rs.is_empty()),
+            "premise: the step must be an incremental frame with nothing to repaint, got \
+             {damage:?}"
+        );
+        let frame = window.cpu_backend.last_frame.as_ref().expect("retained frame");
+        let written = frame.data().chunks_exact(4).filter(|px| *px != MARK).count();
+        assert_eq!(
+            written, 0,
+            "a frame that reports no damage wrote {written} pixels (a full repaint)"
         );
     }
 
