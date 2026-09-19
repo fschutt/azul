@@ -1609,7 +1609,11 @@ fn equality_is_always_paired_with_a_consistent_hash() {
             || l.contains("todbgstring(")
             || h.lines().any(|l| {
                 let t = l.trim().trim_end_matches(';').trim_end_matches('}').trim();
+                // A constant: its own line, or an expression body
+                // (`fun hashCode(): Int = 0`, `GetHashCode() => 0;`).
                 matches!(t, "return 0" | "0" | "= 0" | "=> 0" | "return 1")
+                    || t.ends_with(" = 0")
+                    || t.ends_with("=> 0")
             })
     };
     let outputs = shipped_outputs();

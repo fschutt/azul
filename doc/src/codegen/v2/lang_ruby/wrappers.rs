@@ -544,11 +544,14 @@ fn emit_rb_eq_hash_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &C
         builder.line("end");
         builder.blank();
     } else if has_eq {
-        // == / hash contract: equal values must hash equal. Fall back
-        // to pointer-address hash.
+        // == compares VALUES (the C `_partialEq`) and the type has no C
+        // `_hash`: equal values must hash equal, so the only hash that keeps
+        // the contract is a constant (a pointer address differs between two
+        // equal values).
+        builder.line("# Constant: equal values must hash equal, and the type has no value hash.");
         builder.line("def hash");
         builder.indent();
-        builder.line("@ptr.nil? ? 0 : @ptr.address.hash");
+        builder.line("0");
         builder.dedent();
         builder.line("end");
         builder.blank();

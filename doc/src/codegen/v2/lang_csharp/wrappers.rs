@@ -879,8 +879,12 @@ fn emit_cs_equals_hashcode_if_supported(
         builder.line("}");
         builder.blank();
     } else if has_eq {
-        // equals/hashCode contract.
-        builder.line("public override int GetHashCode() => _inner.GetHashCode();");
+        // Equals compares VALUES (the C `_partialEq`) and the type has no C
+        // `_hash`: equal values must hash equal, so the only hash that keeps
+        // the contract is a constant (the struct's own hash includes its
+        // pointers, which differ between two equal values).
+        builder.line("/// <summary>Constant: equal values must hash equal, and the type has no value hash.</summary>");
+        builder.line("public override int GetHashCode() => 0;");
         builder.blank();
     }
 }

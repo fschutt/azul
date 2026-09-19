@@ -869,13 +869,15 @@ fn emit_equals_hashcode_if_supported(
         builder.line("}");
         builder.blank();
     } else if has_eq {
-        // Contract requires hashCode override when equals is overridden.
-        // Fall back to a Pointer-based hash so the contract holds.
-        builder.line("/** Identity-based hashCode to honor the equals/hashCode contract. */");
+        // equals compares VALUES (the C `_partialEq`) and the type has no C
+        // `_hash`: equal values must hash equal, so the only hash that keeps
+        // the contract is a constant (a pointer's hash differs between two
+        // equal values; a debug string may print fields equality ignores).
+        builder.line("/** Constant: equal values must hash equal, and the type has no value hash. */");
         builder.line("@Override");
         builder.line("public int hashCode() {");
         builder.indent();
-        builder.line("return ptr == null ? 0 : ptr.hashCode();");
+        builder.line("return 0;");
         builder.dedent();
         builder.line("}");
         builder.blank();

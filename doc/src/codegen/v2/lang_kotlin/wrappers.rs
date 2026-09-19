@@ -1249,11 +1249,12 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.line("}");
         builder.blank();
     } else if has_eq {
-        // equals/hashCode contract: when equals is overridden, hashCode
-        // must be too. Fall back to identity.
-        // `ptr` is non-nullable — `ptr?.` would emit an
-        // UNNECESSARY_SAFE_CALL warning in every user build.
-        builder.line("override fun hashCode(): Int = ptr.hashCode()");
+        // equals compares VALUES (the C `_partialEq`) and the type has no C
+        // `_hash`: equal values must hash equal, so the only hash that keeps
+        // the contract is a constant (a pointer's hash differs between two
+        // equal values).
+        builder.line("/** Constant: equal values must hash equal, and the type has no value hash. */");
+        builder.line("override fun hashCode(): Int = 0");
         builder.blank();
     }
 }
