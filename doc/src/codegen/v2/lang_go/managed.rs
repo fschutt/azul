@@ -170,7 +170,21 @@ fn go_param_names(k: &Kind, ir: &CodegenIR) -> Vec<String> {
         let mut name = if (i == 0 && is_refany_type(t, ir)) || t.ends_with("CallbackInfo") {
             arg_go_name(i, t, ir)
         } else if !ir_name.is_empty() && ir_name != "_" {
-            lower_camel(ir_name)
+            // IR names are Rust snake_case (`input_index`); Go parameters are
+            // lowerCamel (`inputIndex`).
+            let mut camel = String::with_capacity(ir_name.len());
+            let mut upper_next = false;
+            for c in ir_name.chars() {
+                if c == '_' {
+                    upper_next = true;
+                } else if upper_next {
+                    camel.extend(c.to_uppercase());
+                    upper_next = false;
+                } else {
+                    camel.push(c);
+                }
+            }
+            lower_camel(&camel)
         } else {
             arg_go_name(i, t, ir)
         };

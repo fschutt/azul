@@ -1190,7 +1190,8 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         let fn_args: Vec<CallbackArg> = info
             .fn_args
             .iter()
-            .map(|(ty, ref_kind)| CallbackArg {
+            .map(|(name, ty, ref_kind)| CallbackArg {
+                name: name.clone(),
                 arg_type: ty.clone(),
                 ref_kind: if ref_kind == "value" {
                     None

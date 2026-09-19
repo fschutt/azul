@@ -1190,7 +1190,7 @@ impl<'a> IRBuilder<'a> {
                         .iter()
                         .map(|arg_data| {
                             FunctionArg {
-                                name: String::new(), // CallbackArgData doesn't have a name field
+                                name: arg_data.name.clone().unwrap_or_default(),
                                 type_name: arg_data.r#type.clone(),
                                 ref_kind: match arg_data.ref_kind {
                                     crate::api::RefKind::Ref => ArgRefKind::Ref,

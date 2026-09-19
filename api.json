@@ -11702,6 +11702,7 @@
                                     "type": "ListViewState"
                                 },
                                 {
+                                    "name": "column_clicked",
                                     "type": "usize"
                                 }
                             ],
@@ -11724,6 +11725,7 @@
                                     "type": "ListViewState"
                                 },
                                 {
+                                    "name": "row_clicked",
                                     "type": "usize"
                                 }
                             ],
@@ -20752,13 +20754,16 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "icon_data",
                                     "type": "OptionRefAny"
                                 },
                                 {
+                                    "name": "original_icon_node",
                                     "type": "NodeData",
                                     "ref_kind": "ref"
                                 },
                                 {
+                                    "name": "system_style",
                                     "type": "SystemStyle",
                                     "ref_kind": "ref"
                                 }
@@ -22069,12 +22074,15 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_id_to_remove",
                                     "type": "NodeGraphNodeId"
                                 }
                             ],
@@ -22088,15 +22096,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "input",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "input_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22110,12 +22122,15 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "drag_amount",
                                     "type": "GraphDragAmount"
                                 }
                             ],
@@ -22129,15 +22144,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "output",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "output_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22151,18 +22170,23 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "new_node_type",
                                     "type": "NodeTypeId"
                                 },
                                 {
+                                    "name": "new_node_id",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "new_node_position",
                                     "type": "NodeGraphNodePosition"
                                 }
                             ],
@@ -22176,21 +22200,27 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "input",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "input_index",
                                     "type": "usize"
                                 },
                                 {
+                                    "name": "output",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "output_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22204,21 +22234,27 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_id",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "field_id",
                                     "type": "usize"
                                 },
                                 {
+                                    "name": "node_type",
                                     "type": "NodeTypeId"
                                 },
                                 {
+                                    "name": "new_value",
                                     "type": "NodeTypeFieldValue"
                                 }
                             ],
@@ -22232,15 +22268,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_dragged",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "drag_amount",
                                     "type": "NodeDragAmount"
                                 }
                             ],
@@ -31890,6 +31930,9 @@
                                 },
                                 {
                                     "type": "LogicalSize"
+                                },
+                                {
+                                    "type": "MeasureDomMode"
                                 }
                             ],
                             "returns": {
@@ -32656,6 +32699,15 @@
                     },
                     "OnNodeAddedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeAddedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32679,6 +32731,15 @@
                     },
                     "OnNodeDraggedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeDraggedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32702,6 +32763,15 @@
                     },
                     "OnNodeConnectedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeConnectedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32725,6 +32795,15 @@
                     },
                     "OnNodeFieldEditedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeFieldEditedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32748,6 +32827,15 @@
                     },
                     "OnNodeOutputDisconnectedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeOutputDisconnectedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32771,6 +32859,15 @@
                     },
                     "OnNodeRemovedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeRemovedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32794,6 +32891,15 @@
                     },
                     "OnNodeInputDisconnectedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeInputDisconnectedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -32810,6 +32916,232 @@
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputNodeAndIndexVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OutputNodeAndIndex",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputNodeAndIndexVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputNodeAndIndex",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MeasureDomMode": {
+                        "external": "azul_core::callbacks::MeasureDomMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Extent": {},
+                                "ShrinkToFit": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeId",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeIdInfoMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeIdInfoMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeFieldVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeField",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputConnectionVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputConnectionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputConnection",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeIdNodeMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeIdNodeMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdInfoMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeIdInfoMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -53532,7 +53864,12 @@
                         "external": "azul_core::resources::AnimationFunction",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "struct_fields": [
                             {
@@ -68719,6 +69056,15 @@
                     },
                     "OnNodeFieldEdited": {
                         "external": "azul_layout::widgets::node_graph::OnNodeFieldEdited",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -68760,6 +69106,15 @@
                     },
                     "OnNodeInputDisconnected": {
                         "external": "azul_layout::widgets::node_graph::OnNodeInputDisconnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -68783,6 +69138,15 @@
                     },
                     "OnNodeDragged": {
                         "external": "azul_layout::widgets::node_graph::OnNodeDragged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -68824,6 +69188,15 @@
                     },
                     "OnNodeGraphDragged": {
                         "external": "azul_layout::widgets::node_graph::OnNodeGraphDragged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -68923,6 +69296,15 @@
                     },
                     "OnNodeOutputDisconnected": {
                         "external": "azul_layout::widgets::node_graph::OnNodeOutputDisconnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -68967,6 +69349,15 @@
                     },
                     "OnNodeConnected": {
                         "external": "azul_layout::widgets::node_graph::OnNodeConnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -69014,6 +69405,9 @@
                     },
                     "NodeGraph": {
                         "external": "azul_layout::widgets::node_graph::NodeGraph",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone"
@@ -69109,6 +69503,15 @@
                     },
                     "OnNodeRemoved": {
                         "external": "azul_layout::widgets::node_graph::OnNodeRemoved",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -69132,6 +69535,15 @@
                     },
                     "OnNodeAdded": {
                         "external": "azul_layout::widgets::node_graph::OnNodeAdded",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -69169,6 +69581,15 @@
                     },
                     "OnNodeGraphDraggedCallback": {
                         "external": "azul_layout::widgets::node_graph::OnNodeGraphDraggedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -69392,6 +69813,32 @@
                                 },
                                 "y": {
                                     "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputConnectionVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::OutputConnectionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OutputConnection",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -96725,6 +97172,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundContentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96737,6 +97185,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundRepeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96783,6 +97232,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MenuItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96795,6 +97245,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccessibilityStateVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96807,6 +97258,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPropertyWithConditionsVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96819,6 +97271,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NormalizedLinearColorStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96831,6 +97284,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "F32Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96877,6 +97331,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundSizeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96906,6 +97361,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StringVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96935,6 +97391,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96964,6 +97421,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StringPairVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -96976,6 +97434,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MimeTypeDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97022,6 +97481,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssRuleBlockVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97068,6 +97528,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AttributeTypeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97097,6 +97558,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleFilterVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97109,6 +97571,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U32Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97206,6 +97669,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ParentWithNodeDepthVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97235,6 +97699,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CoreCallbackDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97264,6 +97729,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CascadeInfoVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97276,6 +97742,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U8Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97288,6 +97755,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeHierarchyItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97317,6 +97785,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundPositionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97329,6 +97798,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VirtualKeyCodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97375,6 +97845,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgVertexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97387,6 +97858,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VideoFrameVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97450,6 +97922,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ListViewRowVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97462,6 +97935,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GLuintVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97474,6 +97948,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleTransformVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97486,6 +97961,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TagIdToNodeIdMappingVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97532,6 +98008,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U16Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97544,6 +98021,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GridTrackSizingVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97556,6 +98034,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssDeclarationVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97619,6 +98098,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DynamicSelectorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97648,6 +98128,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NormalizedRadialColorStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97694,6 +98175,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccessibilityActionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97706,6 +98188,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GLintVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97735,6 +98218,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97798,6 +98282,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleFontFamilyVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97895,6 +98380,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IdOrClassVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97907,6 +98393,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "XmlNodeChildVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97919,6 +98406,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97931,6 +98419,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPathSelectorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -97943,6 +98432,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VertexAttributeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98189,6 +98679,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DebugMessageVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98418,6 +98909,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ShapePointVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98828,6 +99320,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VideoModeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98841,6 +99334,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ScanCodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99268,6 +99762,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MonitorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99315,6 +99810,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "XWindowTypeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99956,6 +100452,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ContentGroupVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99986,6 +100483,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyledNodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99999,6 +100497,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SelectionRangeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100209,6 +100708,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DocumentSelectionSpanVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100419,6 +100919,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DocumentTextEditVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100432,6 +100933,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101097,6 +101599,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TimerIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101344,6 +101847,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ThreadIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101373,6 +101877,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyledTextRunVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101615,6 +102120,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TabletDeviceInfoVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102198,6 +102704,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PageSetupOverrideVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102211,6 +102718,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PageBreakPositionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102224,6 +102732,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MarginBoxContentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102450,6 +102959,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HidDeviceVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102659,6 +103169,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SelectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103082,6 +103593,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HttpHeaderVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103094,6 +103606,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FmtArgVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103566,6 +104079,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "JsonVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103774,6 +104288,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DirEntryVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104015,6 +104530,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "JsonKeyValueVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104045,6 +104561,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NamedFontVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104492,6 +105009,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ExternalResourceVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104522,6 +105040,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeHierarchyItemIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104901,6 +105420,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CalcAstItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105131,6 +105651,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GridAreaDefinitionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105323,6 +105844,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDataFieldVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105369,6 +105891,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDefVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105737,6 +106260,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentLibraryVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105766,6 +106290,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDataModelVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105974,6 +106499,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentEnumModelVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106200,6 +106726,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentEnumVariantVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106392,6 +106919,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentCallbackArgVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106405,6 +106933,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentFieldOverrideVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106831,6 +107360,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgPathElementVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107040,6 +107570,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgPathVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107427,6 +107958,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonTabVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107618,6 +108150,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TreeViewNodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107647,6 +108180,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RouteVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107860,6 +108394,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TouchPointVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108069,6 +108604,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LogicalRectVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108286,6 +108822,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LayoutRectVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108507,6 +109044,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbValueVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108899,6 +109437,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LoadedFontVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108928,6 +109467,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FluentLoadErrorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109331,6 +109871,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccordionSectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109543,6 +110084,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPropertyVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109750,6 +110292,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IcuStringVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109958,6 +110501,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IdentifiedSelectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109987,6 +110531,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FullWindowStateVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110568,6 +111113,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonGalleryCellVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110580,6 +111126,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110770,6 +111317,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonGroupVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111001,6 +111549,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyframeStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111214,6 +111763,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyframesVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111430,6 +111980,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleAnimationVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111642,6 +112193,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FrameConsumerVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111672,6 +112224,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TrayIconImageVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111863,6 +112416,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StatusBarSegmentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112248,6 +112802,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "BackstageNavItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112260,6 +112815,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StatusBarViewVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112645,6 +113201,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "QuickAccessActionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112888,6 +113445,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomNodeIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112918,6 +113476,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PointerSeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113110,6 +113669,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyboardSeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113498,6 +114058,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HidReportVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113710,6 +114271,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FilePathVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113922,6 +114484,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbIndexSchemaVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114134,6 +114697,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbStoreSchemaVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114346,6 +114910,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbCollectionScopeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114359,6 +114924,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputOutputTypeIdInfoMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114371,6 +114937,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeTypeIdInfoMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114383,6 +114950,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputOutputTypeIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114426,6 +114994,10 @@
                     },
                     "NodeIdNodeMapVec": {
                         "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114446,10 +115018,164 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `NodeIdNodeMapVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `NodeIdNodeMapVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_id_node_map_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_id_node_map_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "node_id_node_map_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `NodeIdNodeMapVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "NodeIdNodeMap"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `NodeIdNodeMapVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const NodeIdNodeMap"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNodeIdNodeMap"
+                                },
+                                "fn_body": "node_id_node_map_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `NodeIdNodeMapVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVecSlice"
+                                },
+                                "fn_body": "node_id_node_map_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeIdNodeMapVecSlice"
+                                },
+                                "fn_body": "node_id_node_map_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "InputOutputTypeIdVec": {
                         "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114470,6 +115196,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `InputOutputTypeIdVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `InputOutputTypeIdVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_output_type_id_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_output_type_id_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "input_output_type_id_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `InputOutputTypeIdVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "InputOutputTypeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `InputOutputTypeIdVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const InputOutputTypeId"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionInputOutputTypeId"
+                                },
+                                "fn_body": "input_output_type_id_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `InputOutputTypeIdVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVecSlice"
+                                },
+                                "fn_body": "input_output_type_id_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdVecSlice"
+                                },
+                                "fn_body": "input_output_type_id_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "InputOutputTypeIdVecDestructor": {
@@ -114508,6 +115384,10 @@
                     },
                     "InputOutputTypeIdInfoMapVec": {
                         "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114528,10 +115408,164 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `InputOutputTypeIdInfoMapVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `InputOutputTypeIdInfoMapVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `InputOutputTypeIdInfoMapVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "InputOutputTypeIdInfoMap"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `InputOutputTypeIdInfoMapVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const InputOutputTypeIdInfoMap"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionInputOutputTypeIdInfoMap"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `InputOutputTypeIdInfoMapVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVecSlice"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputOutputTypeIdInfoMapVecSlice"
+                                },
+                                "fn_body": "input_output_type_id_info_map_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "NodeTypeIdInfoMapVec": {
                         "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114552,6 +115586,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `NodeTypeIdInfoMapVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `NodeTypeIdInfoMapVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `NodeTypeIdInfoMapVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "NodeTypeIdInfoMap"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `NodeTypeIdInfoMapVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const NodeTypeIdInfoMap"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNodeTypeIdInfoMap"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `NodeTypeIdInfoMapVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVecSlice"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeIdInfoMapVecSlice"
+                                },
+                                "fn_body": "node_type_id_info_map_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "NodeIdNodeMapVecDestructorType": {
@@ -114559,6 +115743,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeIdNodeMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114588,6 +115773,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeTypeFieldVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114600,6 +115786,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputConnectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114609,6 +115796,10 @@
                     },
                     "OutputNodeAndIndexVec": {
                         "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114629,10 +115820,164 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `OutputNodeAndIndexVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `OutputNodeAndIndexVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "output_node_and_index_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "output_node_and_index_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "output_node_and_index_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `OutputNodeAndIndexVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "OutputNodeAndIndex"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `OutputNodeAndIndexVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const OutputNodeAndIndex"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionOutputNodeAndIndex"
+                                },
+                                "fn_body": "output_node_and_index_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `OutputNodeAndIndexVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVecSlice"
+                                },
+                                "fn_body": "output_node_and_index_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputNodeAndIndexVecSlice"
+                                },
+                                "fn_body": "output_node_and_index_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "OutputConnectionVec": {
                         "external": "azul_layout::widgets::node_graph::OutputConnectionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114653,10 +115998,164 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `OutputConnectionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OutputConnectionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `OutputConnectionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputConnectionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "output_connection_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "output_connection_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "output_connection_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `OutputConnectionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "OutputConnection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputConnectionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `OutputConnectionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const OutputConnection"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputConnectionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionOutputConnection"
+                                },
+                                "fn_body": "output_connection_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `OutputConnectionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputConnectionVecSlice"
+                                },
+                                "fn_body": "output_connection_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OutputConnectionVecSlice"
+                                },
+                                "fn_body": "output_connection_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "InputNodeAndIndexVec": {
                         "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114677,6 +116176,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `InputNodeAndIndexVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `InputNodeAndIndexVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_node_and_index_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_node_and_index_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "input_node_and_index_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `InputNodeAndIndexVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "InputNodeAndIndex"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `InputNodeAndIndexVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const InputNodeAndIndex"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionInputNodeAndIndex"
+                                },
+                                "fn_body": "input_node_and_index_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `InputNodeAndIndexVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVecSlice"
+                                },
+                                "fn_body": "input_node_and_index_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputNodeAndIndexVecSlice"
+                                },
+                                "fn_body": "input_node_and_index_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "NodeTypeFieldVecDestructor": {
@@ -114701,6 +116350,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputNodeAndIndexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114713,6 +116363,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "OutputConnectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114742,6 +116393,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "OutputNodeAndIndexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114768,6 +116420,10 @@
                     },
                     "NodeTypeFieldVec": {
                         "external": "azul_layout::widgets::node_graph::NodeTypeFieldVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114788,6 +116444,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `NodeTypeFieldVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "NodeTypeFieldVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `NodeTypeFieldVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeFieldVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_type_field_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "node_type_field_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "node_type_field_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `NodeTypeFieldVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "NodeTypeField"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeFieldVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `NodeTypeFieldVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const NodeTypeField"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeFieldVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNodeTypeField"
+                                },
+                                "fn_body": "node_type_field_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `NodeTypeFieldVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeFieldVecSlice"
+                                },
+                                "fn_body": "node_type_field_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeTypeFieldVecSlice"
+                                },
+                                "fn_body": "node_type_field_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "OutputNodeAndIndexVecDestructor": {
@@ -114809,6 +116615,10 @@
                     },
                     "InputConnectionVec": {
                         "external": "azul_layout::widgets::node_graph::InputConnectionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -114829,6 +116639,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `InputConnectionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "InputConnectionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `InputConnectionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputConnectionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_connection_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "input_connection_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "input_connection_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `InputConnectionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "InputConnection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputConnectionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `InputConnectionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const InputConnection"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputConnectionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionInputConnection"
+                                },
+                                "fn_body": "input_connection_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `InputConnectionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputConnectionVecSlice"
+                                },
+                                "fn_body": "input_connection_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InputConnectionVecSlice"
+                                },
+                                "fn_body": "input_connection_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -121426,7 +123386,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "enum_fields": [
                             {
@@ -121685,6 +123646,15 @@
                     },
                     "OptionOnNodeRemoved": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeRemoved",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121706,6 +123676,15 @@
                     },
                     "OptionOnNodeOutputDisconnected": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeOutputDisconnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121727,6 +123706,15 @@
                     },
                     "OptionOnNodeConnected": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeConnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121748,6 +123736,15 @@
                     },
                     "OptionOnNodeAdded": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeAdded",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121769,6 +123766,15 @@
                     },
                     "OptionOnNodeDragged": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeDragged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121790,6 +123796,15 @@
                     },
                     "OptionOnNodeGraphDragged": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeGraphDragged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121811,6 +123826,15 @@
                     },
                     "OptionOnNodeFieldEdited": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeFieldEdited",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121832,6 +123856,15 @@
                     },
                     "OptionOnNodeInputDisconnected": {
                         "external": "azul_layout::widgets::node_graph::OptionOnNodeInputDisconnected",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -121846,6 +123879,218 @@
                                 "None": {},
                                 "Some": {
                                     "type": "OnNodeInputDisconnected"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionInputOutputTypeId": {
+                        "external": "azul_layout::widgets::node_graph::OptionInputOutputTypeId",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "InputOutputTypeId",
+                                    "doc": [
+                                        "Some value of type InputOutputTypeId"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOutputConnection": {
+                        "external": "azul_layout::widgets::node_graph::OptionOutputConnection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "OutputConnection",
+                                    "doc": [
+                                        "Some value of type OutputConnection"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionInputNodeAndIndex": {
+                        "external": "azul_layout::widgets::node_graph::OptionInputNodeAndIndex",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "InputNodeAndIndex",
+                                    "doc": [
+                                        "Some value of type InputNodeAndIndex"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionInputConnection": {
+                        "external": "azul_layout::widgets::node_graph::OptionInputConnection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "InputConnection",
+                                    "doc": [
+                                        "Some value of type InputConnection"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNodeTypeField": {
+                        "external": "azul_layout::widgets::node_graph::OptionNodeTypeField",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "NodeTypeField",
+                                    "doc": [
+                                        "Some value of type NodeTypeField"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionInputOutputTypeIdInfoMap": {
+                        "external": "azul_layout::widgets::node_graph::OptionInputOutputTypeIdInfoMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "InputOutputTypeIdInfoMap",
+                                    "doc": [
+                                        "Some value of type InputOutputTypeIdInfoMap"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNodeIdNodeMap": {
+                        "external": "azul_layout::widgets::node_graph::OptionNodeIdNodeMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "NodeIdNodeMap",
+                                    "doc": [
+                                        "Some value of type NodeIdNodeMap"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNodeTypeIdInfoMap": {
+                        "external": "azul_layout::widgets::node_graph::OptionNodeTypeIdInfoMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "NodeTypeIdInfoMap",
+                                    "doc": [
+                                        "Some value of type NodeTypeIdInfoMap"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOutputNodeAndIndex": {
+                        "external": "azul_layout::widgets::node_graph::OptionOutputNodeAndIndex",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "OutputNodeAndIndex",
+                                    "doc": [
+                                        "Some value of type OutputNodeAndIndex"
+                                    ]
                                 }
                             }
                         ],
@@ -126735,6 +128980,7 @@
                                     "ref_kind": "ref"
                                 },
                                 {
+                                    "name": "indent",
                                     "type": "usize"
                                 }
                             ],
@@ -127426,7 +129672,24 @@
             "webtransport": {
                 "classes": {
                     "WebTransport": {
-                        "external": "azul_dll::unified::webtransport::WebTransport"
+                        "external": "azul_dll::unified::webtransport::WebTransport",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     },
                     "WtReliability": {
                         "doc": [
