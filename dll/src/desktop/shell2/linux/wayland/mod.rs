@@ -4364,6 +4364,15 @@ impl WaylandWindow {
 
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
+        // Surface-local position of every real motion event: the one place a
+        // trace can be lined up against injected input and screen-space tools.
+        log_trace!(
+            LogCategory::Input,
+            "[Wayland] pointer motion ({:.1},{:.1}) left_down={}",
+            x,
+            y,
+            self.common.current_window_state().mouse_state.left_down
+        );
 
         // While the pointer is over an open menu popup, forward motion to the
         // popup (just tracks the popup-relative cursor for a later click/Return)
@@ -4475,6 +4484,14 @@ impl WaylandWindow {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
+        log_trace!(
+            LogCategory::Input,
+            "[Wayland] pointer button {:#x} {} at ({:.1},{:.1})",
+            button,
+            if is_down { "down" } else { "up" },
+            position.x,
+            position.y
+        );
 
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("wayland.handle_pointer_button");
