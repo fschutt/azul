@@ -3229,6 +3229,26 @@ jobs:
           bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
             | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
 
+      # The generated conformance programs (azul-doc codegen renders ONE plan -
+      # every constant, derive round-trip, variant constructor, Vec and
+      # callback kind - into every binding): each shipped binding in this
+      # family must pass its whole plan.
+      - name: Conformance programs (generated, gates the shipped tier)
+        shell: bash
+        run: bash scripts/conformance.sh ${{ matrix.family.langs }}
+
+      # The same programs as memtests: a debugger run (crashes, double frees)
+      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
+      # which the Windows runner lacks.
+      - name: Conformance memtest (crash + leak)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && ! command -v gdb >/dev/null; then
+            sudo apt-get install -y -qq gdb
+          fi
+          bash scripts/conformance.sh --memtest ${{ matrix.family.langs }}
+
       - name: Upload language binding board
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -3591,6 +3611,26 @@ jobs:
           E2E_LANG_TIMEOUT=600 RUST_BACKTRACE=full \
           bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
             | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
+
+      # The generated conformance programs (azul-doc codegen renders ONE plan -
+      # every constant, derive round-trip, variant constructor, Vec and
+      # callback kind - into every binding): each shipped binding in this
+      # family must pass its whole plan.
+      - name: Conformance programs (generated, gates the shipped tier)
+        shell: bash
+        run: bash scripts/conformance.sh ${{ matrix.family.langs }}
+
+      # The same programs as memtests: a debugger run (crashes, double frees)
+      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
+      # which the Windows runner lacks.
+      - name: Conformance memtest (crash + leak)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && ! command -v gdb >/dev/null; then
+            sudo apt-get install -y -qq gdb
+          fi
+          bash scripts/conformance.sh --memtest ${{ matrix.family.langs }}
 
       - name: Upload language binding board
         if: always()

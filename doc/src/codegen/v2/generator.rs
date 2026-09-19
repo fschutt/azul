@@ -539,6 +539,16 @@ impl GenerationTargets {
             &codegen_dir.join("node/package.json"),
         )?;
 
+        // Conformance programs: the same plan (every constant, derive, variant,
+        // Vec and callback kind) rendered per binding; each doubles as that
+        // binding's memtest. See `conformance`.
+        println!("[conformance] Generating conformance programs...");
+        let plan = super::conformance::ConformancePlan::build(ir);
+        Self::write_string(
+            super::conformance::c::render(&plan),
+            &codegen_dir.join("conformance/c/conformance.c"),
+        )?;
+
         Ok(())
     }
 

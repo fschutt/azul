@@ -61,6 +61,7 @@
 #[cfg(test)]
 mod bug_classes;
 pub mod config;
+pub mod conformance;
 pub mod generator;
 pub mod ir;
 pub mod ir_builder;
