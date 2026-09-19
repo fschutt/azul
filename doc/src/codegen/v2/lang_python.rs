@@ -2431,8 +2431,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Types that use C-API directly don't get wrapper structs
-        if struct_def.category.uses_capi_directly() {
+        // Types with a hand-written C-API alias (PyO3 conversions on the C
+        // type itself) don't get wrapper structs. This is Python's own list
+        // (`CAPI_TYPE_ALIASES`), not the IR's `Vec` category: every Vec is
+        // `TypeCategory::Vec`, and only these few have hand-written impls.
+        if is_capi_type_alias(&struct_def.name) {
             return false;
         }
 

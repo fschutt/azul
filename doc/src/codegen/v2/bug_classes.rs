@@ -229,12 +229,16 @@ fn every_enum_variant_has_a_constructor_with_a_free_name() {
         .filter(|f| f.kind == FunctionKind::EnumVariantConstructor)
         .map(|f| (f.class_name.as_str(), f.method_name.as_str()))
         .collect();
+    // A variant is constructible through its C symbol, whether the IR
+    // generated it or api.json declares it by hand (`CssProperty.caret_color`
+    // is `AzCssProperty_caretColor`, the name the generated one would take).
+    let symbols: BTreeSet<&str> = ir().functions.iter().map(|f| f.c_name.as_str()).collect();
     let mut offenders = Vec::new();
     for e in ir().enums.iter().filter(|e| e.generic_params.is_empty()) {
         for v in &e.variants {
             let base = lower_first(&v.name);
-            let found = ctors.contains(&(e.name.as_str(), base.as_str()))
-                || ctors.contains(&(e.name.as_str(), format!("{base}Variant").as_str()));
+            let found = symbols.contains(format!("Az{}_{base}", e.name).as_str())
+                || symbols.contains(format!("Az{}_{base}Variant", e.name).as_str());
             if !found {
                 offenders.push(format!("{}::{}: no variant constructor", e.name, v.name));
             }

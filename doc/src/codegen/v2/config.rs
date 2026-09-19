@@ -768,12 +768,6 @@ pub struct PythonConfig {
 
     /// Types to skip in Python (recursive types, etc.)
     pub skip_types: BTreeSet<String>,
-
-    /// Types that need callback trampolines
-    pub callback_types: BTreeSet<String>,
-
-    /// Types that need VecRef→list conversion
-    pub vecref_types: BTreeSet<String>,
 }
 
 impl Default for PythonConfig {
@@ -794,36 +788,6 @@ impl PythonConfig {
     /// - Python-specific type filtering
     pub fn python_extension() -> Self {
         let skip_types: BTreeSet<String> = BTreeSet::new();
-
-        // VecRef types that need special handling
-        let vecref_types: BTreeSet<String> = [
-            "GLuintVecRef",
-            "GLintVecRef",
-            "GLenumVecRef",
-            "U8VecRef",
-            "U16VecRef",
-            "U32VecRef",
-            "I32VecRef",
-            "F32VecRef",
-            "Refstr",
-            "RefstrVecRef",
-            "TessellatedSvgNodeVecRef",
-            "TessellatedColoredSvgNodeVecRef",
-            "OptionU8VecRef",
-            "OptionI16VecRef",
-            "OptionI32VecRef",
-            "OptionF32VecRef",
-            "OptionFloatVecRef",
-            "GLintVecRefMut",
-            "GLint64VecRefMut",
-            "GLbooleanVecRefMut",
-            "GLfloatVecRefMut",
-            "U8VecRefMut",
-            "F32VecRefMut",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
 
         Self {
             base: CodegenConfig {
@@ -852,8 +816,6 @@ impl PythonConfig {
             generate_pyclass: true,
             generate_pymethods: true,
             skip_types,
-            callback_types: BTreeSet::new(), // Populated by IR builder
-            vecref_types,
         }
     }
 }

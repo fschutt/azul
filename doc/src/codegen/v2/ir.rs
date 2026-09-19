@@ -107,7 +107,7 @@ impl CodegenIR {
     /// must agree on it, so none of them may re-derive it from the name.
     pub fn is_value_aggregate(&self, type_name: &str) -> bool {
         let name = type_name.trim();
-        if name.ends_with("CallbackType") || name.ends_with("FnType") {
+        if self.callback_typedefs.iter().any(|c| c.name == name) {
             return false;
         }
         if let Some(s) = self.find_struct(name) {
@@ -123,6 +123,49 @@ impl CodegenIR {
             }
         }
         self.find_enum(name).is_some_and(|e| e.is_union)
+    }
+
+    /// The element type of a `Vec` (the `ptr` / `len` / `cap` / `destructor`
+    /// layout): `ptr`'s pointee, e.g. `DomVec` -> `Dom`, `U8Vec` -> `u8`.
+    pub fn vec_element(&self, type_name: &str) -> Option<&str> {
+        let s = self.find_struct(type_name.trim())?;
+        if s.category != TypeCategory::Vec {
+            return None;
+        }
+        s.fields
+            .iter()
+            .find(|f| f.name == "ptr")
+            .map(|f| f.type_name.as_str())
+    }
+
+    /// The element type of a borrowed slice (`VecRef` category, `*VecRef` /
+    /// `*VecRefMut`). `ptr` is untyped (`c_void`) in api.json, so the element
+    /// is the name's prefix resolved against the API: a type (`GLuintVecRef` ->
+    /// `GLuint`, `TessellatedSvgNodeVecRef` -> `TessellatedSvgNode`) or,
+    /// lowercased, a primitive (`U8VecRef` -> `u8`). `None` when the prefix
+    /// names nothing the API knows (`RefstrVecRef`: `Refstr` is a Rust `&str`).
+    pub fn vecref_element(&self, type_name: &str) -> Option<String> {
+        let name = type_name.trim();
+        let s = self.find_struct(name)?;
+        if s.category != TypeCategory::VecRef {
+            return None;
+        }
+        let prefix = name
+            .strip_suffix("VecRefMut")
+            .or_else(|| name.strip_suffix("VecRef"))?;
+        if self.find_struct(prefix).is_some()
+            || self.find_enum(prefix).is_some()
+            || self.find_type_alias(prefix).is_some()
+        {
+            return Some(prefix.to_string());
+        }
+        let lower = prefix.to_ascii_lowercase();
+        matches!(
+            lower.as_str(),
+            "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize"
+                | "f32" | "f64" | "bool"
+        )
+        .then_some(lower)
     }
 
     /// Find functions for a specific class
@@ -903,17 +946,6 @@ impl TypeCategory {
         )
     }
 
-    /// Check if this type uses the C-API type directly (no wrapper)
-    pub fn uses_capi_directly(&self) -> bool {
-        matches!(
-            self,
-            TypeCategory::Primitive
-                | TypeCategory::String
-                | TypeCategory::Vec
-                | TypeCategory::RefAny
-        )
-    }
-
     /// Check if this is a callback-related type that needs trampolines
     pub fn is_callback_related(&self) -> bool {
         matches!(
@@ -929,7 +961,7 @@ impl TypeCategory {
             TypeCategory::VecRef => "VecRef (raw slice pointer)",
             TypeCategory::Primitive => "primitive type",
             TypeCategory::String => "string type (AzString)",
-            TypeCategory::Vec => "vec type (AzU8Vec, etc.)",
+            TypeCategory::Vec => "vec type (ptr/len/cap/destructor layout)",
             TypeCategory::Option => "option type (Some/None wrapper)",
             TypeCategory::Result => "result type (Ok/Err wrapper)",
             TypeCategory::RefAny => "RefAny (opaque callback data)",

@@ -2038,9 +2038,23 @@ impl RustGenerator {
             .map(|f| f.class_name.as_str())
             .collect();
 
+        // Two aliases of one monomorph (`LayoutGridAutoColumnsValue` and
+        // `LayoutGridAutoRowsValue` are both `CssPropertyValue<GridAutoTracks>`)
+        // are ONE Rust type: the first gets the inherent methods, a second
+        // `impl` block would define `clone` / `create_default` twice. Every
+        // alias still reaches them (same type), and every alias keeps its own
+        // C exports.
+        let mut monomorphs: BTreeSet<String> = BTreeSet::new();
         for class_name in class_names {
             if !config.should_include_type(class_name) {
                 continue;
+            }
+            if let Some(a) = ir.find_type_alias(class_name) {
+                if !a.generic_args.is_empty()
+                    && !monomorphs.insert(format!("{}<{}>", a.target, a.generic_args.join(",")))
+                {
+                    continue;
+                }
             }
 
             let prefixed_name = config.apply_prefix(class_name);
