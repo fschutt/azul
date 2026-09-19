@@ -1,20 +1,20 @@
 package com.azul
 
 class Counter {
-    var count: Int = 0
+    var count: Int = 5
 }
 
-// Top-level functions don't need @JvmStatic or objects!
-fun layout(data: Counter, info: AzLayoutCallbackInfo): Dom {
-    val countStr = "Count: ${data.count}"
-    val btn = Button.create(countStr)
+fun layout(data: Counter, info: LayoutCallbackInfo): Dom {
+    val countStr = "${data.count}"
+    val btn = Button.create("Increase counter")
         .withOnClick(data, ::onClick)
     
     return Dom.createBody()
+        .withChild(Dom.createPWithText(countStr))
         .withChild(btn.dom())
 }
 
-fun onClick(data: Counter, info: AzCallbackInfo): Update {
+fun onClick(data: Counter, info: CallbackInfo): Update {
     data.count++
     return Update.RefreshDom
 }

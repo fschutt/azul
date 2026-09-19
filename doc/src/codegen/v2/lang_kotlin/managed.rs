@@ -16,10 +16,11 @@
 use super::{
     super::{
         generator::CodeBuilder,
-        ir::CodegenIR,
+        ir::{CallbackTypedefDef, CodegenIR},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+        managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type},
     },
-    ffi_type_name, user_enum_type_name, LIBRARY_NAME,
+    ffi_type_name, kotlin_class_name, user_enum_type_name, LIBRARY_NAME,
 };
 
 /// Append the host-invoker block to the existing `Azul.kt` body.
@@ -46,7 +47,9 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("fun invoke(id: Long)");
     builder.dedent();
     builder.line("}");
-    builder.line("@JvmStatic external fun AzApp_setHostHandleReleaser(fn: HostHandleReleaserCallback)");
+    builder.line(
+        "@JvmStatic external fun AzApp_setHostHandleReleaser(fn: HostHandleReleaserCallback)",
+    );
     builder.line("@JvmStatic external fun AzRefAny_newHostHandle(id: Long): AzRefAny.ByValue");
     builder.line("@JvmStatic external fun AzRefAny_getHostHandle(refanyPtr: Pointer?): Long");
     builder.blank();
@@ -247,14 +250,10 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         emit_kt_typed_invoker_sam(builder, cb, ir);
     }
 
-    // Phase CC-1 (Kotlin): Data<T>-typed SAM bridge. Mirrors
-    // `lang_java/managed::emit_data_typed_invoker_sam` (commit
-    // 533df7ab5). The user writes
+    // Phase CC-1 (Kotlin): Data<T>-typed SAM bridge. The user writes
     //   (data: MyDataModel, info: LayoutCallbackInfo) -> Dom
-    // instead of unpacking `Pointer dataPtr` themselves. Per the
-    // user-locked CC-1 scope: iterate all HOST_INVOKER_KINDS at
-    // once; fall back per-kind (skip emit) on non-conforming
-    // signatures; don't abort the whole arc.
+    // instead of unpacking `Pointer dataPtr` themselves. Kinds whose
+    // signature does not fit `kt_data_typed_sam_shape` are skipped.
     for cb in host_invoker_kinds(ir) {
         emit_kt_data_typed_invoker_sam(builder, cb, ir);
     }
@@ -269,42 +268,22 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
 /// only differences are language syntax (`fun interface`, `as Any`
 /// boxing) and Kotlin's strict-null requirement on the platform-type
 /// Pointer args.
-fn emit_kt_typed_invoker_sam(
-    builder: &mut super::super::generator::CodeBuilder,
-    cb: &super::super::ir::CallbackTypedefDef,
-    ir: &super::super::ir::CodegenIR,
-) {
-    use super::super::ir::FunctionKind;
+fn emit_kt_typed_invoker_sam(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
-    let cb_has_return = has_return(cb);
-    if !cb_has_return {
+    if !has_return(cb) {
         return;
     }
-    let Some(ret_ty) = cb.return_type.as_deref() else {
+    let Some(ret_ty) = cb.return_type.as_deref().map(str::trim) else {
         return;
     };
-    let ret_ty = ret_ty.trim();
-    let Some(ret_struct) = ir.find_struct(ret_ty) else {
-        return;
-    };
-    if !ir
-        .functions
-        .iter()
-        .any(|f| f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete))
-    {
-        return;
-    }
-    if matches!(
-        ret_struct.category,
-        super::super::ir::TypeCategory::Recursive
-            | super::super::ir::TypeCategory::VecRef
-            | super::super::ir::TypeCategory::DestructorOrClone
-            | super::super::ir::TypeCategory::GenericTemplate
-    ) {
+    // The bridge splices the returned wrapper's bytes into `outPtr`, so
+    // the return type must have a wrapper class — the same predicate that
+    // decides whether `wrappers.rs` emits one.
+    if !has_wrapper_class(ret_ty, ir) {
         return;
     }
 
-    let wrapper_class = ret_ty.to_string();
+    let wrapper_class = kotlin_class_name(ret_ty);
     let ffi_ret = ffi_type_name(ret_ty);
     let cb_ffi = ffi_type_name(wrapper);
     let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
@@ -392,46 +371,78 @@ fn emit_kt_typed_invoker_sam(
     builder.blank();
 }
 
-/// Phase CC-1 (Kotlin): emit `<Wrapper>WithData<T>` typed SAM +
-/// generic `register<Wrapper>(klass: Class<T>, typed: ...)` overload.
-/// Mirror of `lang_java/managed::emit_data_typed_invoker_sam`. Same
-/// conformance probe: first arg must be `RefAny`; non-wrapper-class
-/// args fall back to `Pointer?`; return must be void / enum /
-/// wrapper struct (skip otherwise).
-fn emit_kt_data_typed_invoker_sam(
-    builder: &mut super::super::generator::CodeBuilder,
-    cb: &super::super::ir::CallbackTypedefDef,
-    ir: &super::super::ir::CodegenIR,
-) {
-    use super::super::ir::FunctionKind;
-    let wrapper = wrapper_name(cb);
-    let cb_ffi = ffi_type_name(wrapper);
-    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+/// How one positional arg of a `<Kind>WithData<T>` SAM reaches the user.
+/// Every host-invoker arg arrives as a `const T*` (see
+/// `managed_host_invoker::invoker_c_arg_list`); the bridge dereferences it
+/// into the most useful Kotlin shape the IR allows.
+pub(super) enum KtSamArg {
+    /// A wrapper class exists: `X(ptr)`. Non-owning (`owned = false`) when
+    /// the type has a `_delete` — the engine owns the pointee for the
+    /// duration of the callback, so the wrapper must never free it.
+    Wrapper { class: String, has_delete: bool },
+    /// Plain-old-data struct without a wrapper class: the raw JNA
+    /// `Structure` read over the engine's memory (`AzNumberInputState`).
+    PodStruct(String),
+    /// Fieldless `repr(C)` enum: a C `int` on the wire → `X.fromInt(...)`.
+    UnitEnum(String),
+    /// Primitive: read the value at offset 0 (`getLong(0)` for `usize`).
+    Primitive { kt: String, getter: String },
+    /// Tagged unions and anything the IR does not know: the `Pointer?`.
+    RawPointer,
+}
 
-    // Probe #1: first arg = RefAny.
-    let first = cb.args.first();
-    if first
-        .map(|a| a.type_name.trim() != "RefAny")
-        .unwrap_or(true)
-    {
-        return;
-    }
+/// How the SAM's return value is written back through `outPtr`.
+pub(super) enum KtSamRet {
+    Void,
+    /// Fieldless enum → `outPtr.setInt(0, value)`.
+    UnitEnum,
+    /// Wrapper class → bytes spliced into `outPtr`, wrapper consumed (`Dom`).
+    Wrapper(String),
+    /// POD struct without a wrapper (`AzOnTextInputReturn`) → bytes spliced.
+    PodStruct(String),
+}
 
-    // Subsequent args: wrapper class when available, else raw Pointer?.
-    enum ArgKind {
-        Wrapper(String),
-        Struct(String),
-        RawPointer,
+pub(super) struct KtDataSamShape {
+    /// `(arg kind, SAM parameter name)` for `cb.args[1..]`.
+    pub extra_args: Vec<(KtSamArg, String)>,
+    pub ret: KtSamRet,
+    /// Kotlin return type of the SAM's `invoke`.
+    pub return_decl: String,
+}
+
+/// THE predicate for "a `<Kind>WithData<T>` typed SAM is emitted for this
+/// callback kind": `args[0]` must be the engine's `RefAny` (the host-handle
+/// carrier the bridge resolves to `T`) and the return must be void, a unit
+/// enum, a wrapper class or a POD struct. The smart setters and the
+/// application factory in `wrappers.rs` key on this same function, so they
+/// can never reference a SAM that was not emitted.
+pub(super) fn kt_data_typed_sam_shape(
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+) -> Option<KtDataSamShape> {
+    let first = cb.args.first()?;
+    if !is_refany_type(&first.type_name, ir) {
+        return None;
     }
-    let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
+    let mut extra_args = Vec::new();
     for (i, a) in cb.args.iter().enumerate().skip(1) {
         let t = a.type_name.trim();
-        let kind = if kt_managed_has_wrapper_class(t, ir) {
-            ArgKind::Wrapper(t.to_string())
-        } else if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() {
-            ArgKind::Struct(t.to_string())
+        let kind = if has_wrapper_class(t, ir) {
+            KtSamArg::Wrapper {
+                class: kotlin_class_name(t),
+                has_delete: has_delete_function(t, ir),
+            }
+        } else if let Some((kt, getter)) = kt_primitive_pointer_read(t) {
+            KtSamArg::Primitive {
+                kt: kt.to_string(),
+                getter: getter.to_string(),
+            }
+        } else if ir.find_enum(t).is_some_and(|e| !e.is_union) {
+            KtSamArg::UnitEnum(user_enum_type_name(t))
+        } else if ir.find_struct(t).is_some() {
+            KtSamArg::PodStruct(ffi_type_name(t))
         } else {
-            ArgKind::RawPointer
+            KtSamArg::RawPointer
         };
         let name = if a.name.is_empty() {
             format!("arg{}", i)
@@ -440,29 +451,72 @@ fn emit_kt_data_typed_invoker_sam(
         };
         extra_args.push((kind, name));
     }
-
-    // Probe #2: return type plumbing.
-    enum RetShape {
-        Void,
-        Enum,
-        WrapperStruct,
-    }
-    let (return_decl, ret_shape) = match cb.return_type.as_deref().map(str::trim) {
-        None => ("Unit".to_string(), RetShape::Void),
-        Some("void") => ("Unit".to_string(), RetShape::Void),
+    let (return_decl, ret) = match cb.return_type.as_deref().map(str::trim) {
+        None | Some("void") | Some("()") => ("Unit".to_string(), KtSamRet::Void),
         Some(rt) => {
-            if kt_managed_has_wrapper_class(rt, ir) {
-                (rt.to_string(), RetShape::WrapperStruct)
-            } else if ir.find_enum(rt).is_some() {
-                // Unit enums are emitted unprefixed (`Update`) — see
-                // `user_enum_type_name` in lang_java/mod.rs.
-                (user_enum_type_name(rt), RetShape::Enum)
+            if has_wrapper_class(rt, ir) {
+                (kotlin_class_name(rt), KtSamRet::Wrapper(ffi_type_name(rt)))
+            } else if ir.find_enum(rt).is_some_and(|e| !e.is_union) {
+                (user_enum_type_name(rt), KtSamRet::UnitEnum)
+            } else if ir.find_struct(rt).is_some() {
+                (ffi_type_name(rt), KtSamRet::PodStruct(ffi_type_name(rt)))
             } else {
-                return;
+                return None;
             }
         }
     };
-    let _ = std::marker::PhantomData::<FunctionKind>;
+    Some(KtDataSamShape {
+        extra_args,
+        ret,
+        return_decl,
+    })
+}
+
+/// `(Kotlin type, JNA Pointer getter)` for a primitive IR type that the
+/// invoker passes by pointer. `bool` is read as a byte by the emitter.
+fn kt_primitive_pointer_read(rust_type: &str) -> Option<(&'static str, &'static str)> {
+    Some(match rust_type {
+        "u8" | "i8" => ("Byte", "getByte"),
+        "u16" | "i16" => ("Short", "getShort"),
+        "u32" | "i32" => ("Int", "getInt"),
+        "u64" | "i64" | "usize" | "isize" => ("Long", "getLong"),
+        "f32" => ("Float", "getFloat"),
+        "f64" => ("Double", "getDouble"),
+        "bool" => ("Boolean", "getByte"),
+        _ => return None,
+    })
+}
+
+/// The Kotlin parameter type a [`KtSamArg`] shows to the user.
+pub(super) fn kt_sam_arg_type(kind: &KtSamArg) -> String {
+    match kind {
+        KtSamArg::Wrapper { class, .. } => class.clone(),
+        KtSamArg::PodStruct(ffi) => ffi.clone(),
+        KtSamArg::UnitEnum(name) => name.clone(),
+        KtSamArg::Primitive { kt, .. } => kt.clone(),
+        KtSamArg::RawPointer => "Pointer?".to_string(),
+    }
+}
+
+/// Emit `<Kind>WithData<T>` (typed SAM) + the generic
+/// `register<Kind>(klass: Class<T>, typed: <Kind>WithData<T>)` overload for
+/// one host-invoker kind, driven by [`kt_data_typed_sam_shape`]. The user
+/// writes `(data: MyModel, info: CallbackInfo) -> Update` instead of
+/// unpacking `Pointer`s; the bridge resolves the host handle, checks the
+/// runtime class, wraps every arg, invalidates the borrowed wrappers after
+/// the call (they alias engine memory that is gone once the callback
+/// returns) and writes the result through `outPtr`.
+fn emit_kt_data_typed_invoker_sam(
+    builder: &mut CodeBuilder,
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
+    let wrapper = wrapper_name(cb);
+    let cb_ffi = ffi_type_name(wrapper);
+    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+    let Some(shape) = kt_data_typed_sam_shape(cb, ir) else {
+        return;
+    };
 
     // === Typed SAM (fun interface) ===
     builder.line("/**");
@@ -478,18 +532,13 @@ fn emit_kt_data_typed_invoker_sam(
     builder.line(&format!("fun interface {}WithData<T> {{", wrapper));
     builder.indent();
     let mut iface_params = vec!["data: T".to_string()];
-    for (kind, name) in &extra_args {
-        let ty = match kind {
-            ArgKind::Wrapper(t) => t.clone(),
-            ArgKind::Struct(t) => crate::codegen::v2::lang_java::ffi_type_name(t),
-            ArgKind::RawPointer => "Pointer?".to_string(),
-        };
-        iface_params.push(format!("{}: {}", name, ty));
+    for (kind, name) in &shape.extra_args {
+        iface_params.push(format!("{}: {}", name, kt_sam_arg_type(kind)));
     }
     builder.line(&format!(
         "fun invoke({}): {}",
         iface_params.join(", "),
-        return_decl
+        shape.return_decl
     ));
     builder.dedent();
     builder.line("}");
@@ -505,7 +554,8 @@ fn emit_kt_data_typed_invoker_sam(
         " * `{}InvokerCallback` that performs refanyGet, runtime-class",
         wrapper
     ));
-    builder.line(" * check, arg-wrap, and outPtr-write internally.");
+    builder.line(" * check, arg-wrap, and outPtr-write internally. Wrappers handed to the");
+    builder.line(" * callback borrow engine memory and are invalidated when it returns.");
     builder.line(" */");
     builder.line(&format!(
         "@JvmStatic fun <T : Any> register{}(klass: Class<T>, typed: {}WithData<T>): {}.ByValue {{",
@@ -516,64 +566,90 @@ fn emit_kt_data_typed_invoker_sam(
     // Raw lambda param list mirrors `<Wrapper>InvokerCallback`'s SAM:
     // (id, arg0, ..., [outPtr]) — outPtr omitted on void-return kinds.
     let mut raw_lambda_args = vec!["id".to_string(), "arg0".to_string()];
-    for (_kind, name) in &extra_args {
+    for (_kind, name) in &shape.extra_args {
         raw_lambda_args.push(name.clone());
     }
     if has_return(cb) {
         raw_lambda_args.push("outPtr".to_string());
     }
 
-    // Use an `inv@` label on the SAM lambda so the early-skip on
-    // type mismatch can `return@inv` cleanly. Kotlin SAM lambdas
-    // don't have an implicit name we can label-return to.
+    // `inv@` label: the early-skip on an unknown/mismatched host handle
+    // `return@inv`s out of the SAM lambda before anything is wrapped.
     builder.line(&format!("val raw = {} inv@{{", raw_sam));
     builder.indent();
     builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
     builder.line("val __data = refanyGet(arg0)");
-    // Kotlin's `Class<T>.isInstance(null)` returns false → null
-    // payloads silently skip dispatch. Match Java's semantics.
-    builder.line("if (__data != null && !klass.isInstance(__data)) return@inv");
-    // Build wrapper-class args; pass Pointer args through.
+    // An unknown id (0 / already released) or a foreign type never reaches
+    // the user; the engine then reads the default the thunk pre-filled.
+    builder.line("if (__data == null || !klass.isInstance(__data)) return@inv");
+    builder.line("val __typed: T = klass.cast(__data)");
     let mut call_args = vec!["__typed".to_string()];
-    builder.line("@Suppress(\"UNCHECKED_CAST\")");
-    builder.line("val __typed = __data as T");
-    for (kind, name) in &extra_args {
+    let mut borrowed: Vec<String> = Vec::new();
+    for (kind, name) in &shape.extra_args {
         match kind {
-            ArgKind::Wrapper(ty) => {
-                // Wrapper class constructors take non-null `Pointer`;
-                // the SAM args are platform-typed `Pointer?`. Force-
-                // unwrap with `!!` — the C-side invoker thunk always
-                // populates these slots; a null here would mean the
-                // underlying libazul thunk crashed already.
-                builder.line(&format!("val __{} = {}({}!!)", name, ty, name));
+            KtSamArg::Wrapper { class, has_delete } => {
+                // The SAM args are platform-typed `Pointer?`; the C thunk
+                // always fills these slots, so `!!` documents the contract.
+                if *has_delete {
+                    builder.line(&format!(
+                        "val __{} = {}({}!!, owned = false)",
+                        name, class, name
+                    ));
+                } else {
+                    builder.line(&format!("val __{} = {}({}!!)", name, class, name));
+                }
+                call_args.push(format!("__{}", name));
+                borrowed.push(format!("__{}", name));
+            }
+            KtSamArg::PodStruct(ffi) => {
+                builder.line(&format!(
+                    "val __{n} = (Structure.newInstance({f}::class.java, {n}!!) as {f}).also {{ it.read() }}",
+                    n = name,
+                    f = ffi
+                ));
                 call_args.push(format!("__{}", name));
             }
-            ArgKind::Struct(ty) => {
-                let ffi_ty = crate::codegen::v2::lang_java::ffi_type_name(ty);
-                builder.line(&format!("val __{} = {}({}!!)", name, ffi_ty, name));
+            KtSamArg::UnitEnum(enum_name) => {
+                builder.line(&format!(
+                    "val __{n} = {e}.fromInt({n}!!.getInt(0))",
+                    n = name,
+                    e = enum_name
+                ));
                 call_args.push(format!("__{}", name));
             }
-            ArgKind::RawPointer => {
+            KtSamArg::Primitive { kt, getter } => {
+                if kt == "Boolean" {
+                    builder.line(&format!(
+                        "val __{n} = {n}!!.getByte(0) != 0.toByte()",
+                        n = name
+                    ));
+                } else {
+                    builder.line(&format!("val __{n} = {n}!!.{g}(0)", n = name, g = getter));
+                }
+                call_args.push(format!("__{}", name));
+            }
+            KtSamArg::RawPointer => {
                 call_args.push(name.clone());
             }
         }
     }
-    match ret_shape {
-        RetShape::Void => {
+    if !borrowed.is_empty() {
+        builder.line("try {");
+        builder.indent();
+    }
+    match &shape.ret {
+        KtSamRet::Void => {
             builder.line(&format!("typed.invoke({})", call_args.join(", ")));
         }
-        RetShape::Enum => {
+        KtSamRet::UnitEnum => {
             builder.line(&format!(
                 "val __result = typed.invoke({})",
                 call_args.join(", ")
             ));
-            // `enum class Update(val value: Int)` — `.value` is
-            // already `Int`; no `.toLong()` conversion needed (and
-            // `Pointer.setInt` rejects Long).
+            // `enum class X(val value: Int)` — `.value` is already `Int`.
             builder.line("outPtr?.setInt(0, __result.value)");
         }
-        RetShape::WrapperStruct => {
-            let ffi_ret = ffi_type_name(&return_decl);
+        KtSamRet::Wrapper(ffi_ret) => {
             builder.line(&format!(
                 "val __result = typed.invoke({})",
                 call_args.join(", ")
@@ -586,8 +662,28 @@ fn emit_kt_data_typed_invoker_sam(
             builder.line("__raw.read()");
             builder.line("val sz = __raw.size()");
             builder.line("outPtr?.write(0, __raw.pointer.getByteArray(0, sz), 0, sz)");
+            // libazul takes ownership of the struct bytes via outPtr.
             builder.line("__result.__consume()");
         }
+        KtSamRet::PodStruct(_) => {
+            builder.line(&format!(
+                "val __result = typed.invoke({})",
+                call_args.join(", ")
+            ));
+            builder.line("__result.write()");
+            builder.line("val sz = __result.size()");
+            builder.line("outPtr?.write(0, __result.pointer.getByteArray(0, sz), 0, sz)");
+        }
+    }
+    if !borrowed.is_empty() {
+        builder.dedent();
+        builder.line("} finally {");
+        builder.indent();
+        for b in &borrowed {
+            builder.line(&format!("{}.__consume()", b));
+        }
+        builder.dedent();
+        builder.line("}");
     }
     builder.dedent();
     builder.line("}");
@@ -597,31 +693,9 @@ fn emit_kt_data_typed_invoker_sam(
     builder.blank();
 }
 
-/// Mirror of `lang_kotlin/wrappers.rs::has_kt_wrapper_class` kept
-/// local to managed.rs so the helper there can stay private.
-fn kt_managed_has_wrapper_class(type_name: &str, ir: &super::super::ir::CodegenIR) -> bool {
-    use super::super::ir::{FunctionKind, TypeCategory};
-    let Some(s) = ir.find_struct(type_name) else {
-        return false;
-    };
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    let has_delete = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete));
-    let has_methods = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut));
-    has_delete || has_methods
-}
-
-fn lower_first(name: &str) -> String {
+/// `LayoutCallback` → `layoutCallback`: the invoker/field naming used by both
+/// the host-invoker object and the wrapper emitter.
+pub(super) fn lower_first(name: &str) -> String {
     let mut chars = name.chars();
     match chars.next() {
         Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
