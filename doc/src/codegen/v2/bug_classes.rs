@@ -415,29 +415,84 @@ fn every_user_facing_callback_typedef_has_a_ctx_carrying_wrapper() {
     );
 }
 
-/// S5: every callback kind with a wrapper can dispatch to a host closure:
-/// libazul has a host-invoker thunk for it.
+/// Every `impl_managed_callback!` site in the engine, by wrapper name: the
+/// callback kinds libazul has a host-invoker thunk (and
+/// `Az<Kind>_createFromHostHandle`, `AzApp_set<Kind>Invoker`) for.
+fn engine_thunk_kinds() -> BTreeSet<String> {
+    let mut engine = BTreeSet::new();
+    for dir in ["core/src", "layout/src", "dll/src"] {
+        for entry in walkdir::WalkDir::new(repo_root().join(dir))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
+        {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // The macro definition and its own test fakes.
+            if name == "host_invoker.rs" || name == "host_invoker_test.rs" {
+                continue;
+            }
+            let Ok(src) = std::fs::read_to_string(path) else { continue };
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find("impl_managed_callback!") {
+                rest = &rest[i + "impl_managed_callback!".len()..];
+                // A macro site opens with `{` and names its wrapper first;
+                // prose that merely mentions the macro does not.
+                let body = rest.trim_start();
+                let Some(body) = body.strip_prefix('{') else { continue };
+                let Some(after) = body.trim_start().strip_prefix("wrapper:") else { continue };
+                let ident: String = after
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if !ident.is_empty() {
+                    engine.insert(ident);
+                }
+            }
+        }
+    }
+    engine
+}
+
+/// S5: libazul has a host-invoker thunk for exactly the callback wrappers
+/// (by structure). A wrapper without one cannot carry a managed closure: its
+/// kind silently returns the default in every managed binding. The kinds the
+/// codegen emits registration for are the same set, derived from the IR.
 #[test]
 fn every_callback_wrapper_is_host_invokable() {
-    let kinds: BTreeSet<&str> = super::managed_host_invoker::HOST_INVOKER_KINDS
-        .iter()
-        .copied()
+    let wrappers: BTreeSet<String> = wrapper_of_typedef().into_values().collect();
+    let engine = engine_thunk_kinds();
+    let codegen: BTreeSet<String> = super::managed_host_invoker::host_invoker_kinds(ir())
+        .map(|cb| super::managed_host_invoker::wrapper_name(cb).to_string())
         .collect();
     assert_none(
-        "callback wrappers without a host-invoker thunk",
-        wrapper_of_typedef()
-            .into_values()
-            .filter(|w| !kinds.contains(w.as_str()))
-            .map(|w| format!("{w}: managed bindings cannot register a closure for it")),
+        "callback wrappers vs host-invoker thunks",
+        wrappers
+            .difference(&engine)
+            .map(|w| format!("{w}: no impl_managed_callback! site, managed bindings cannot register a closure for it"))
+            .chain(
+                engine
+                    .difference(&wrappers)
+                    .map(|w| format!("{w}: engine thunk for a type that is not a callback wrapper")),
+            )
+            .chain(
+                wrappers
+                    .symmetric_difference(&codegen)
+                    .map(|w| format!("{w}: codegen's host-invoker kinds disagree with the wrapper structs")),
+            ),
     );
 }
 
-/// S7 (IR side): a callback argument is recognized by its type (a callback
-/// typedef that has a wrapper, or the wrapper itself), never by a name suffix.
+/// S7 (IR side): an argument is a callback argument exactly when its type is
+/// a callback wrapper (by structure) or the typedef one wraps - in both
+/// directions, so a name that merely looks like a callback is not one - and
+/// its `callback_info` names that wrapper and typedef.
 #[test]
 fn callback_arguments_are_recognised_by_type() {
     let wrapped = wrapper_of_typedef();
-    let wrappers: BTreeSet<String> = wrapped.values().cloned().collect();
+    let typedef_of: BTreeMap<&str, &str> =
+        wrapped.iter().map(|(t, w)| (w.as_str(), t.as_str())).collect();
     let mut offenders = Vec::new();
     for f in &ir().functions {
         if f.kind.is_trait_function() || f.kind == FunctionKind::EnumVariantConstructor {
@@ -448,19 +503,208 @@ fn callback_arguments_are_recognised_by_type() {
             if f.is_receiver_arg(a) || f.class_name == t {
                 continue; // a method ON the wrapper, not a callback argument
             }
-            let is_cb = wrapped.contains_key(t) || wrappers.contains(t);
-            if is_cb && a.callback_info.is_none() {
-                offenders.push(format!("{}: argument `{}: {t}` has no callback_info", f.c_name, a.name));
+            let expect = match (wrapped.get(t), typedef_of.get(t)) {
+                (Some(w), _) => Some((t, w.as_str())),
+                (_, Some(td)) => Some((*td, t)),
+                _ => None,
+            };
+            match (expect, &a.callback_info) {
+                (Some(_), None) => offenders.push(format!(
+                    "{}: argument `{}: {t}` has no callback_info",
+                    f.c_name, a.name
+                )),
+                (None, Some(ci)) => offenders.push(format!(
+                    "{}: argument `{}: {t}` is not a callback, but has callback_info ({} / {})",
+                    f.c_name, a.name, ci.callback_typedef_name, ci.callback_wrapper_name
+                )),
+                (Some((td, w)), Some(ci))
+                    if ci.callback_typedef_name != td || ci.callback_wrapper_name != w =>
+                {
+                    offenders.push(format!(
+                        "{}: argument `{}: {t}` has callback_info {} / {}, the structure says {td} / {w}",
+                        f.c_name, a.name, ci.callback_typedef_name, ci.callback_wrapper_name
+                    ))
+                }
+                _ => {}
             }
         }
     }
     assert_none("callback arguments", offenders);
 }
 
-/// S17: no API function takes the raw function-pointer typedef of a callback
-/// that has a wrapper - the context a managed closure lives in is lost at the
-/// C boundary. The wrapper's own constructor (`Callback::create(cb)`, which
-/// builds a context-free wrapper from a C function) is the one exception.
+/// S5 (engine side): engine code calls a callback wrapper only through its
+/// macro-generated `invoke`, which hands the callee the wrapper's context (the
+/// info argument and the invocation slot). `(w.cb)(..)` on a wrapper skips
+/// that: a managed-language callback returns its default without ever reaching
+/// the host - VirtualView callbacks did, for every managed binding.
+///
+/// A direct `(<receiver>.cb)(..)` is fine when every api.json struct field and
+/// function argument named like the receiver's last segment holds a type that
+/// is NOT a callback wrapper (a clock function, a destructor). A receiver
+/// api.json does not name needs a `direct-cb-call: <why>` comment on that line
+/// or one of the three above.
+#[test]
+fn engine_calls_callback_wrappers_through_invoke() {
+    // A wrapper, or a typedef one holds (the IR presents such an argument as
+    // its wrapper, see `no_api_function_drops_a_callback_context`).
+    let wrappers: BTreeSet<String> = wrapper_of_typedef()
+        .into_iter()
+        .flat_map(|(typedef, wrapper)| [typedef, wrapper])
+        .collect();
+    // name -> whether some api.json field or argument of that name is a wrapper
+    let mut field_is_wrapper: BTreeMap<&str, bool> = BTreeMap::new();
+    for c in classes().values() {
+        for (name, ty, _) in fields(c) {
+            *field_is_wrapper.entry(name).or_insert(false) |= wrappers.contains(ty);
+        }
+        for f in c.constructors.iter().chain(c.functions.iter()).flat_map(|m| m.values()) {
+            for (name, ty) in f.fn_args.iter().flat_map(|m| m.iter()) {
+                if name == "self" {
+                    continue;
+                }
+                let ty = ty.trim_start_matches('&').trim_start_matches("mut ").trim();
+                *field_is_wrapper.entry(name.as_str()).or_insert(false) |= wrappers.contains(ty);
+            }
+        }
+    }
+    let mut offenders = Vec::new();
+    for dir in ["core/src", "layout/src", "dll/src"] {
+        for entry in walkdir::WalkDir::new(repo_root().join(dir))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
+        {
+            let path = entry.path();
+            let file = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if file.ends_with("_test.rs") || path.components().any(|c| c.as_os_str() == "tests") {
+                continue;
+            }
+            let Ok(src) = std::fs::read_to_string(path) else { continue };
+            // Unit tests call callbacks directly on purpose.
+            let src = match src.find("\n#[cfg(test)]") {
+                Some(i) => &src[..i],
+                None => src.as_str(),
+            };
+            let lines: Vec<&str> = src.lines().collect();
+            let mut at = 0;
+            while let Some(i) = src[at..].find(".cb)(") {
+                let pos = at + i;
+                at = pos + 1;
+                let line_no = src[..pos].matches('\n').count();
+                if lines[line_no].trim_start().starts_with("//") {
+                    continue;
+                }
+                let marked = (line_no.saturating_sub(3)..=line_no)
+                    .any(|l| lines.get(l).is_some_and(|t| t.contains("direct-cb-call:")));
+                if marked {
+                    continue;
+                }
+                // The receiver's last segment, across line breaks: `x.field`
+                // or a bare local `x`.
+                let before = src[..pos].trim_end();
+                let ident: String = before
+                    .chars()
+                    .rev()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                let is_field = before[..before.len() - ident.len()].trim_end().ends_with('.');
+                let verdict = if ident.is_empty() { None } else { field_is_wrapper.get(ident.as_str()).copied() };
+                let _ = is_field;
+                let rel = path.strip_prefix(repo_root()).unwrap_or(path).display().to_string();
+                match verdict {
+                    Some(false) => {}
+                    Some(true) => offenders.push(format!(
+                        "{rel}:{}: `.{ident}.cb` is a callback wrapper - call `.{ident}.invoke(..)`",
+                        line_no + 1
+                    )),
+                    None => offenders.push(format!(
+                        "{rel}:{}: `{ident}.cb` called directly - use `invoke` for a callback wrapper, \
+                         or say why not in a `direct-cb-call:` comment",
+                        line_no + 1
+                    )),
+                }
+            }
+        }
+    }
+    assert_none("direct callback-wrapper calls in engine code", offenders);
+}
+
+/// The API functions of `ir()` whose callback arguments the shadow C API
+/// covers: every constructor/method except those of the wrapper itself
+/// (`Callback::create(cb)` BUILDS the wrapper), with each such argument's
+/// wrapper.
+fn callback_taking_functions() -> Vec<(&'static FunctionDef, Vec<String>)> {
+    let wrapped = wrapper_of_typedef();
+    let wrappers: BTreeSet<&str> = wrapped.values().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for f in &ir().functions {
+        if !matches!(
+            f.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        ) {
+            continue;
+        }
+        let cbs: Vec<String> = f
+            .args
+            .iter()
+            .filter(|a| !f.is_receiver_arg(a))
+            .filter_map(|a| {
+                let t = a.type_name.trim();
+                if wrappers.contains(t) {
+                    Some(t.to_string())
+                } else {
+                    wrapped.get(t).cloned()
+                }
+            })
+            .filter(|w| *w != f.class_name)
+            .collect();
+        if !cbs.is_empty() {
+            out.push((f, cbs));
+        }
+    }
+    out
+}
+
+/// S17 (generated side): every API function that takes a callback - typed as
+/// its wrapper, or as the raw typedef api.json declares for a generic
+/// `C: Into<Wrapper>` source argument - is exported with the shadow C API
+/// beside it: `<fn>WithCtx` (function pointer + context) and `<fn>Struct` (the
+/// whole wrapper), so every binding can hand libazul a closure's context.
+#[test]
+fn every_callback_argument_has_the_ctx_shadow_api() {
+    let exports = exported_functions();
+    let mut offenders = Vec::new();
+    for (f, wrappers) in callback_taking_functions() {
+        let missing: Vec<String> = ["WithCtx", "Struct"]
+            .iter()
+            .map(|s| format!("{}{s}", f.c_name))
+            .filter(|n| !exports.contains(n))
+            .collect();
+        if !missing.is_empty() {
+            offenders.push(format!(
+                "{} (takes {}): azul.h lacks {}",
+                f.c_name,
+                wrappers.join(", "),
+                missing.join(", ")
+            ));
+        }
+    }
+    assert_none("callback-taking functions without the ctx shadow API", offenders);
+}
+
+/// S17 (IR side): the IR presents every callback argument of an API function
+/// as its WRAPPER, whatever api.json declares - a raw typedef there comes
+/// from a generic `C: Into<Wrapper>` source argument, whose body accepts the
+/// wrapper too - so every emitter's raw / `WithCtx` / `Struct` path applies
+/// and no binding is left with only the context-free function pointer. The
+/// wrapper's own constructor (`Callback::create(cb)`, which builds a
+/// context-free wrapper from a C function) is the one exception.
 #[test]
 fn no_api_function_drops_a_callback_context() {
     let wrapped = wrapper_of_typedef();
@@ -1283,7 +1527,9 @@ fn every_constant_reaches_every_binding() {
 }
 
 /// No generated binding carries a placeholder instead of API: a
-/// `SKIPPED` marker is an item the emitter silently gave up on.
+/// `SKIPPED` marker is an item the emitter silently gave up on, an
+/// "ABI-completeness stub" a callback trampoline that returns the default
+/// instead of calling the application.
 #[test]
 fn generated_code_has_no_skipped_placeholders() {
     let mut offenders = Vec::new();
@@ -1293,7 +1539,7 @@ fn generated_code_has_no_skipped_placeholders() {
             .flat_map(|(path, text)| {
                 text.lines()
                     .enumerate()
-                    .filter(|(_, l)| l.contains("SKIPPED"))
+                    .filter(|(_, l)| l.contains("SKIPPED") || l.contains("ABI-completeness stub"))
                     .map(move |(n, l)| format!("{path}:{}: {}", n + 1, l.trim()))
             })
             .collect();
