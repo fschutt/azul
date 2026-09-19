@@ -1016,7 +1016,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/v/$(basename "$LIB_PATH")"
       ;;
     crystal)
-      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe" \
+        "$REPO_ROOT/examples/crystal/hello-world-e2e.dwarf"
       rm -rf "$REPO_ROOT/examples/crystal/lib"
       rm -f "$REPO_ROOT/examples/crystal/$(basename "$LIB_PATH")"
       ;;
@@ -1682,11 +1683,11 @@ lang_swift() {
   local f; f="$(log_path swift)"
   (
     set -x
-    # The example does `import Azul`, so that module is built first: the
-    # generated package sources (one file per api.json module, so swiftc
-    # compiles them in parallel; the one-file azul.swift the website ships is
-    # the same code and takes 2.5x longer) against azul.h through the module
-    # map that exposes it as CAzul. Its library is AzulSwift: `Azul.dll` /
+    # The example does `import Azul`, so that module is built first: its
+    # sources, one file per API area (what the release ships as Azul/, and
+    # what `swiftc -j` compiles in parallel), against azul.h through the module
+    # map that exposes it as CAzul (the tracked examples/swift/module.modulemap
+    # is the generated one). Its library is AzulSwift: `Azul.dll` /
     # `libAzul.dylib` would be libazul's file on a case-insensitive file system.
     rm -rf "$REPO_ROOT/examples/swift/Azul"
     cp -R "$CODEGEN_DIR/swift/Sources/Azul" "$REPO_ROOT/examples/swift/Azul" || exit 1
