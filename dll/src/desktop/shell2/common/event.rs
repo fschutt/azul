@@ -740,6 +740,22 @@ fn apply_focus_restyle(
 }
 
 /// `:focus` / `:focus-within` restyle of ONE DOM for nodes of THAT DOM.
+/// The events that carry a focus TRANSITION and therefore name their own
+/// node (the one that lost focus for `Blur` / `FocusOut` / `Change`, the one
+/// that gained it for `Focus` / `FocusIn`) - as opposed to the focus-filter
+/// events that are aimed at whichever node is focused when they fire.
+const fn is_focus_transition(event_type: azul_core::events::EventType) -> bool {
+    use azul_core::events::EventType;
+    matches!(
+        event_type,
+        EventType::Blur
+            | EventType::FocusOut
+            | EventType::Change
+            | EventType::Focus
+            | EventType::FocusIn
+    )
+}
+
 fn apply_focus_restyle_in_dom(
     layout_window: &mut LayoutWindow,
     dom_id: DomId,
@@ -8877,13 +8893,28 @@ pub trait PlatformWindow {
                             // Focus events fire on the focused node only - of
                             // the SEAT that produced the event (9b-ii-a-i-d):
                             // a second seat's keys go to its own focus.
+                            //
+                            // EXCEPT the focus TRANSITION itself, which names
+                            // its node: `Blur` / `FocusOut` / `Change` are aimed
+                            // at the node that just LOST focus, `Focus` /
+                            // `FocusIn` at the one that gained it. By the time
+                            // they are dispatched the focus manager already
+                            // points at the new node, so planning them on
+                            // "whatever is focused now" sent FocusLost to the
+                            // NEW node (which has no such handler) and never to
+                            // the old one: a widget's `on_focus_lost` hook never
+                            // ran, and the `RefreshDom` it returned never
+                            // happened. A key or typed text is aimed at the
+                            // focused node by event determination, so there
+                            // the seat's focus and the target agree.
                             let event_seat = azul_layout::managers::hover::seat_of_event(event);
-                            let seat_focus =
-                                if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                    focused_node
-                                } else {
-                                    layout_window.focus_manager.focused_node_for(event_seat)
-                                };
+                            let seat_focus = if is_focus_transition(event.event_type) {
+                                Some(event.target)
+                            } else if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                focused_node
+                            } else {
+                                layout_window.focus_manager.focused_node_for(event_seat)
+                            };
                             if let Some(ref focused) = seat_focus {
                                 let dom_id = focused.dom;
                                 if let Some(node_id) = focused.node.into_crate_internal() {

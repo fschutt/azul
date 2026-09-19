@@ -1616,8 +1616,28 @@ impl Runner {
                             }
                         }
                         EventFilter::Focus(_) => {
-                            // Focus events fire on the focused node only.
-                            let Some(focused) = focused_node else {
+                            // Focus events fire on the focused node only -
+                            // except the focus TRANSITION itself, which names
+                            // its node: `Blur` / `FocusOut` / `Change` are aimed
+                            // at the node that just LOST focus, `Focus` /
+                            // `FocusIn` at the one that gained it, and by the
+                            // time they are dispatched the focus manager
+                            // already points at the new node. (Mirror of the
+                            // shell's `dispatch_events_propagated`.)
+                            let is_transition = matches!(
+                                event.event_type,
+                                azul_core::events::EventType::Blur
+                                    | azul_core::events::EventType::FocusOut
+                                    | azul_core::events::EventType::Change
+                                    | azul_core::events::EventType::Focus
+                                    | azul_core::events::EventType::FocusIn
+                            );
+                            let focused = if is_transition {
+                                Some(event.target)
+                            } else {
+                                focused_node
+                            };
+                            let Some(focused) = focused else {
                                 continue;
                             };
                             let Some(node_id) = focused.node.into_crate_internal() else {
@@ -5301,6 +5321,96 @@ mod tests {
             filters.contains(&EventFilter::Hover(HoverEventFilter::Click)),
             "the a11y default action must resolve to the same activation filter keyboard \
              activation reaches, got {filters:?}",
+        );
+    }
+
+    /// FocusLost goes to the node that LOST focus.
+    ///
+    /// The focus transition is dispatched after the focus manager already
+    /// points at the new node. Planning the `Blur` on "whatever is focused
+    /// now" handed FocusLost to the NEW node (which has no such handler) and
+    /// never to the old one - so a widget's `on_focus_lost` hook never ran
+    /// and the `RefreshDom` it asked for never happened (AzWidgets' TextArea
+    /// after a Tab).
+    #[test]
+    fn focus_lost_reaches_the_node_that_lost_it() {
+        use azul_core::{
+            dom::{IdOrClass, TabIndex},
+            events::FocusEventFilter,
+        };
+
+        #[derive(Debug)]
+        struct Seen {
+            lost_on_a: u32,
+            received_on_b: u32,
+        }
+
+        extern "C" fn lost_on_a(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.lost_on_a += 1;
+            }
+            Update::RefreshDom
+        }
+        extern "C" fn received_on_b(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.received_on_b += 1;
+            }
+            Update::DoNothing
+        }
+
+        let mut seen = RefAny::new(Seen {
+            lost_on_a: 0,
+            received_on_b: 0,
+        });
+        let field = |class: &str| {
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into());
+            d.set_tab_index(TabIndex::Auto);
+            d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                class,
+            ))
+        };
+        let a = field("a").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+            seen.clone(),
+            lost_on_a as usize,
+        );
+        let b = field("b").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            seen.clone(),
+            received_on_b as usize,
+        );
+        let mut dom = Dom::create_body().with_child(a).with_child(b);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; } \
+             .a, .b { display: block; width: 120px; height: 30px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "focus_lost_target",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".a" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.a" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.b" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let s = seen.downcast_ref::<Seen>().expect("the counter");
+        assert_eq!(s.received_on_b, 1, "premise: focus arrived at B and B was told");
+        assert_eq!(
+            s.lost_on_a, 1,
+            "the node that LOST focus must get its FocusLost callback"
         );
     }
 
