@@ -159,6 +159,9 @@ const PRIMARY_LANGUAGES: &[&str] = &[
 pub const SHIPPED_LANGUAGES: &[&str] = &[
     "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
     "pascal", "scala", "fortran", "haskell", "python",
+    // Promoted 2026-09-19 from the beta tier: idiomatic bindings, guides, and
+    // a hello-world lane that now gates on every OS.
+    "d", "crystal", "swift",
 ];
 
 /// True if `lang` (an api.json language or dialect-group key) is shipped.
@@ -187,9 +190,7 @@ pub fn is_shipped_language(lang: &str) -> bool {
 /// restricted to this set.
 const FRONTPAGE_LANGUAGES: &[&str] = &[
     "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
-    "pascal", "scala", "fortran", "haskell", "python",
-    // Beta tier, see FRONTPAGE_BETA_LANGUAGES.
-    "d", "crystal", "swift",
+    "pascal", "scala", "fortran", "haskell", "python", "d", "crystal", "swift",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
@@ -199,7 +200,7 @@ const FRONTPAGE_LANGUAGES: &[&str] = &[
 /// scripts/e2e_language_matrix.sh (BETA_LANGS, run in CI but not gating), and
 /// their install steps build that hello-world. They sit in the "More" grid with
 /// the other secondary languages, never in [`PRIMARY_LANGUAGES`].
-const FRONTPAGE_BETA_LANGUAGES: &[&str] = &["d", "crystal", "swift"];
+const FRONTPAGE_BETA_LANGUAGES: &[&str] = &[];
 
 /// True if `lang` is allowed on the frontpage (see [`FRONTPAGE_LANGUAGES`]).
 fn is_frontpage_language(lang: &str) -> bool {

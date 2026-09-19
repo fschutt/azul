@@ -2890,8 +2890,11 @@ jobs:
           - key: scripting-x1
             langs: "php lisp cobol ada algol68"
             experimental: true
+          - key: scripting-c
+            langs: "d crystal swift"
+            experimental: false
           - key: scripting-x2
-            langs: "racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift"
+            langs: "racket odin powershell red freebasic smalltalk vb6 v julia"
             experimental: true
     runs-on: ${{ matrix.os }}
     env:
@@ -2986,7 +2989,7 @@ jobs:
       # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
       # which is built on the same dmd 2.113 front end.
       - name: Set up D (dmd, LDC on macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
@@ -3000,7 +3003,7 @@ jobs:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
@@ -3009,7 +3012,7 @@ jobs:
       # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
       # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
@@ -3135,7 +3138,7 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
@@ -3250,7 +3253,7 @@ jobs:
             (github.ref == 'refs/heads/master'
               || startsWith(github.ref, 'refs/tags/')
               || github.event_name == 'workflow_dispatch')
-            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift","experimental":true}]'
+            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-c","langs":"d crystal swift","experimental":false},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 v julia","experimental":true}]'
             || '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false}]') }}
     runs-on: ${{ matrix.os }}
     env:
@@ -3349,7 +3352,7 @@ jobs:
       # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
       # which is built on the same dmd 2.113 front end.
       - name: Set up D (dmd, LDC on macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
@@ -3363,7 +3366,7 @@ jobs:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
@@ -3372,7 +3375,7 @@ jobs:
       # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
       # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
@@ -3498,7 +3501,7 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 

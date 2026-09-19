@@ -97,7 +97,7 @@ ALL_LANGS=(
 # -----------------------------------------------------------------------------
 # Maturity tiers.
 #
-#   SHIPPED  the 17 bindings we officially ship — a good hello-world and proper
+#   SHIPPED  the 20 bindings we officially ship — a good hello-world and proper
 #            integration (string/vec/option/error wrappers, host-invoker, etc.).
 #            These GATE CI, and they are exactly the set that carries a
 #            `doc/guide/en/hello-world/<lang>.md` page. NOT the same as
@@ -130,11 +130,18 @@ SHIPPED_LANGS=(
   # produces the cross-OS answer; if a runner disagrees, the mechanism for
   # that is WINDOWS_NONGATING_LANGS below, not a second de-gating.
   python
+  # Promoted 2026-09-19 from BETA: idiomatic bindings (D classes/delegates,
+  # Crystal blocks, Swift closures) with a guide each. The last red lanes were
+  # toolchain plumbing, not the bindings: crystal needs an ABSOLUTE -L (it
+  # links from its cache dir), macOS D needs LDC (dmd has no arm64 backend),
+  # and Windows Swift needs 6.x (5.10's ucrt modulemap is cyclic against the
+  # runner's MSVC 14.44 headers).
+  d crystal swift
 )
 # odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
 # counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
 # SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
-BETA_LANGS=( odin nim racket red d crystal v swift julia )
+BETA_LANGS=( odin nim racket red v julia )
 
 # -----------------------------------------------------------------------------
 # Per-OS gating exclusions.
@@ -160,10 +167,13 @@ BETA_LANGS=( odin nim racket red d crystal v swift julia )
 #   * pascal  — there is NO fpc setup step anywhere in the workflow. pascal
 #               relies on the runner preinstalling Free Pascal, which ubuntu and
 #               macOS images do and windows-2022 does not.
-# The DLL + C ABI for all five are validated by the SAME bindings passing on
+#   * crystal — the workflow's "Set up Crystal" step is `if: matrix.os !=
+#               'windows-2022'`: Crystal's Windows (MSVC) port is still a
+#               preview, so it is never installed there. Same shape as ocaml.
+# The DLL + C ABI for all six are validated by the SAME bindings passing on
 # macOS/Linux, where they DO gate — so excluding them on Windows only cannot
 # hide a genuine binding regression (that would also fail on macOS/Linux).
-WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal )
+WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal crystal )
 
 # REQUIRED_LANGS: SHIPPED bindings whose toolchain is provisioned on the runner
 # we are CURRENTLY on, so a SKIP from them means the CI environment broke — not
@@ -203,6 +213,8 @@ WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal )
 REQUIRED_LANGS=(
   c cpp rust csharp java ruby node ocaml
   zig go pascal scala fortran haskell
+  # Each recipe's only skip is "compiler not installed".
+  d crystal swift
 )
 
 # requires_works <lang> -> 0 (true) iff a SKIP of <lang> should fail the gate on
