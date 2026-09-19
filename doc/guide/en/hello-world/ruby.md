@@ -36,6 +36,8 @@ from its own source at azul.rs. The gem bundles `libazul` for Linux/macOS/Window
 and pulls in `ffi` automatically:
 
 ```sh
+## required because of --clear-sources in the next cmd
+gem install ffi
 ## --clear-sources required, otherwise gem pulls from rubygems.org
 gem install azul --clear-sources --source https://azul.rs/ui/gems
 ```

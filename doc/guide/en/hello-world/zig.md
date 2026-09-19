@@ -91,7 +91,7 @@ fn layout(model: MyModelRef, _: azul.LayoutCallbackInfo) azul.Dom {
 pub fn main(init: std.process.Init) !void {
     _ = init; 
     
-    const data = .{ .counter = 5 };
+    const data = MyDataModel{ .counter = 5 };
 
     var window = azul.WindowCreateOptions.create(layout);
     
@@ -132,11 +132,11 @@ the invocation the end-to-end harness uses:
 
 ```sh
 # Linux
-zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . -femit-bin=hello-world
+zig build-exe hello-world.zig -lc -lazul -L. -rpath . -femit-bin=hello-world
 LD_LIBRARY_PATH=. ./hello-world
 
 # macOS
-zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
+zig build-exe hello-world.zig -lc -lazul -L. -rpath . \
   -framework Foundation -framework AppKit -framework OpenGL \
   -framework CoreGraphics -framework CoreText -femit-bin=hello-world
 DYLD_LIBRARY_PATH=. ./hello-world

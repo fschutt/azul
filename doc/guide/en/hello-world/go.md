@@ -22,7 +22,7 @@ default-search-keys:
 
 # Hello world [Go]
 
-In order to use the `libazul` library from Go (1.18+), you will need to install the
+In order to use the `libazul` library from Go (1.21+), you will need to install the
 Go bindings from `azul.rs/ui/go`, which provide a fully idiomatic wrapper over the C API.
 Internally, they use `ebitengine/purego` to dynamically load the shared library and 
 handle callback trampolines at runtime.
@@ -58,7 +58,6 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 
 	azul "azul.rs/ui/go"
 )
@@ -121,7 +120,7 @@ unit tests with coverage to make sure no downcast errors happen and that `stdout
 ### Build and run
 
 ```sh
-go run
+go run .
 ```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). 
@@ -140,7 +139,7 @@ more `Dom` objects together and working with the various event filters.
 
 Cross-compilation is completely native and frictionless. Because the bindings are 100% pure Go, you don't need a C cross-compiler (like `mingw-w64`) or any special environment variables.
 
-For example, to compile a Windows executable from a Linux or macOS host, simply use `GOOS=windows` and instruct Go to disable CGO:
+For example, to compile a Windows executable from a Linux or macOS host, simply use `GOOS=windows`:
 
 ```sh
 # Fetch the Go package

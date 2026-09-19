@@ -107,13 +107,13 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static Update OnClick(MyDataModel m, AzCallbackInfo info)
+        private static Update OnClick(MyDataModel m, CallbackInfo info)
         {
             m.Counter += 1;
             return Update.RefreshDom;
         }
 
-        private static Dom Layout(MyDataModel m, AzLayoutCallbackInfo info)
+        private static Dom Layout(MyDataModel m, LayoutCallbackInfo info)
         {
             var label = Dom.CreatePWithText(m.Counter.ToString())
                 .WithCss("font-size: 32px; margin: 0;");
@@ -144,8 +144,8 @@ Note that `WithCss("...")` accepts any CSS string, including inline
 `:hover { }`, `@media ... { }` and `@os(...)` queries. Callbacks are 
 strongly-typed delegates:
 
-- A layout callback is `Func<MyDataModel, AzLayoutCallbackInfo, Dom>`
-- A click handler is `Func<MyDataModel, AzCallbackInfo, Update>`
+- A layout callback is `Func<MyDataModel, LayoutCallbackInfo, Dom>`
+- A click handler is `Func<MyDataModel, CallbackInfo, Update>`
 - Same for other callbacks and their arguments / return types
 
 The generated `Azul.cs` bindings automatically handle wrapping your data model 

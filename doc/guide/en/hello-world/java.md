@@ -96,7 +96,7 @@ up in `target/codegen/`. Copy both somewhere `java` can find them.
 package com.azul;
 
 class Counter {
-    public int count = 0;
+    public int count = 5;
 }
 
 public class HelloWorld {
@@ -109,10 +109,13 @@ public class HelloWorld {
 
     public static Dom layout(Counter data, LayoutCallbackInfo info) {
         String countStr = String.format("%d", data.count);
-        Button btn = Button.create(countStr)
+        Dom label = Dom.createPWithText(countStr);
+                
+        Button btn = Button.create("Increase counter")
             .withOnClick(data, HelloWorld::onClick);
-        
+
         return Dom.createBody()
+            .withChild(label)
             .withChild(btn.dom());
     }
 

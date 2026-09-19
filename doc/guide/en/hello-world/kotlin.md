@@ -96,15 +96,17 @@ Copy both somewhere `java` can find them.
 package com.azul
 
 class Counter {
-    var count: Int = 0
+    var count: Int = 5
 }
 
 fun layout(data: Counter, info: LayoutCallbackInfo): Dom {
     val countStr = "${data.count}"
-    val btn = Button.create(countStr)
+    val label = Dom.createPWithText(countStr)
+    val btn = Button.create("Increase counter")
         .withOnClick(data, ::onClick)
     
     return Dom.createBody()
+        .withChild(label)
         .withChild(btn.dom())
 }
 
