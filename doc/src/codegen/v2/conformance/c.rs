@@ -166,11 +166,34 @@ pub fn render(plan: &ConformancePlan) -> String {
          static long reps = 1;\n\
          static int quiet = 0; // the leak re-runs of a case check nothing else\n\
          #define CHECK(cond, what) do {{ if (quiet) break; checks++; if (!(cond)) {{ if (failures < 200) fprintf(stderr, \"FAIL %s\\n\", what); failures++; }} }} while (0)\n\n\
-         // Net bytes libazul allocated on this thread (a DLL built with\n\
-         // --features alloc-stats): immune to background threads.\n\
-         extern DLLIMPORT int64_t AzDebug_threadLiveBytes(void);\n\n\
+         // What libazul holds (a DLL built with --features alloc-stats): net\n\
+         // bytes allocated on this thread, and all bytes held process-wide.\n\
+         extern DLLIMPORT int64_t AzDebug_threadLiveBytes(void);\n\
+         extern DLLIMPORT int64_t AzDebug_liveBytes(void);\n\n\
+         #ifdef _WIN32\n\
+         #include <windows.h>\n\
+         #define az_sleep_ms(ms) Sleep(ms)\n\
+         #else\n\
+         #include <unistd.h>\n\
+         #define az_sleep_ms(ms) usleep((ms) * 1000)\n\
+         #endif\n\n\
+         // libazul's process-wide bytes once its background threads (a font\n\
+         // scan, a logger) have gone quiet: unchanged for 50 ms, at most 5 s.\n\
+         static int64_t settled_live_bytes(void) {{\n\
+             int64_t last = AzDebug_liveBytes();\n\
+             int stable = 0;\n\
+             for (int i = 0; i < 1000 && stable < 10; i++) {{\n\
+                 az_sleep_ms(5);\n\
+                 int64_t now = AzDebug_liveBytes();\n\
+                 if (now == last) stable++; else {{ stable = 0; last = now; }}\n\
+             }}\n\
+             return last;\n\
+         }}\n\n\
          // One case: a warm-up run (lazily built caches may stay), then `reps`\n\
-         // more runs that must leave libazul holding exactly what it held.\n\
+         // more runs that must leave libazul holding exactly what it held -\n\
+         // first on this thread (exact, immune to background threads); when\n\
+         // that does not balance, process-wide after the background threads\n\
+         // settle (memory a case hands to another thread to free is no leak).\n\
          static void run_case(void (*f)(void), const char* name) {{\n\
              f();\n\
              int64_t before = AzDebug_threadLiveBytes();\n\
@@ -179,8 +202,14 @@ pub fn render(plan: &ConformancePlan) -> String {
              quiet = 0;\n\
              int64_t after = AzDebug_threadLiveBytes();\n\
              checks++;\n\
-             if (after != before) {{\n\
-                 if (failures < 200) fprintf(stderr, \"LEAK %s: %lld bytes per run\\n\", name, (long long)((after - before) / reps));\n\
+             if (after == before) return;\n\
+             int64_t global_before = settled_live_bytes();\n\
+             quiet = 1;\n\
+             for (long i = 0; i < reps; i++) f();\n\
+             quiet = 0;\n\
+             int64_t global_after = settled_live_bytes();\n\
+             if (global_after != global_before) {{\n\
+                 if (failures < 200) fprintf(stderr, \"LEAK %s: %lld bytes per run\\n\", name, (long long)((global_after - global_before) / reps));\n\
                  failures++;\n\
              }}\n\
          }}\n"
