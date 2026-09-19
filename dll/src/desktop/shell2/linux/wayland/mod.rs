@@ -11235,6 +11235,17 @@ fn xdg_decoration_mode(
     }
 }
 
+/// Whether the compositor's decoration answer (`granted`: 1 = client-side,
+/// 2 = server-side) means it REFUSED to draw the server-side decorations this
+/// window asked for, so azul has to draw its own.
+fn compositor_refused_server_side(
+    has_decorations: bool,
+    decorations: azul_core::window::WindowDecorations,
+    granted: u32,
+) -> bool {
+    granted == 1 && xdg_decoration_mode(has_decorations, decorations) == 2
+}
+
 #[cfg(test)]
 mod decoration_mode_tests {
     use azul_core::window::WindowDecorations as D;
@@ -11245,6 +11256,20 @@ mod decoration_mode_tests {
     fn only_a_normal_frame_is_left_to_the_compositor() {
         assert_eq!(xdg_decoration_mode(true, D::Normal), 2);
         assert_eq!(xdg_decoration_mode(true, D::NoTitleAutoInject), 2);
+    }
+
+    /// A client-side answer is a REFUSAL only when server-side was asked for.
+    /// A `NoTitle` window asks for client-side itself (it draws its own title
+    /// row); reading the confirmation as a refusal switched it to azul's full
+    /// CSD titlebar - a second title row above the app's - and did so at the
+    /// next DOM rebuild, which shifted every node and dropped focus.
+    #[test]
+    fn a_granted_client_side_request_is_not_a_refusal() {
+        use super::compositor_refused_server_side as refused;
+        assert!(!refused(true, D::NoTitle, 1), "NoTitle asked for client-side and got it");
+        assert!(!refused(true, D::NoControls, 1));
+        assert!(refused(true, D::Normal, 1), "a normal frame asked for server-side");
+        assert!(!refused(true, D::Normal, 2), "server-side granted");
     }
 
     #[test]

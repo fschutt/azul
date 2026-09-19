@@ -998,10 +998,10 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
         return;
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    const CLIENT_SIDE: u32 = 1;
-    let refuses_ssd = mode == CLIENT_SIDE
-        && window.common.current_window_state().flags.decorations
-            != azul_core::window::WindowDecorations::None;
+    let refuses_ssd = {
+        let flags = &window.common.current_window_state().flags;
+        super::compositor_refused_server_side(flags.has_decorations, flags.decorations, mode)
+    };
     if refuses_ssd {
         window.common.update_window_state(
             crate::desktop::shell2::common::event::WindowStateSource::Os,
