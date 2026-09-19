@@ -29,11 +29,12 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
-        ir::{CallbackTypedefDef, CodegenIR},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
-    emit_file, ffi_type_name, map_jvm_type, types::should_include_struct, user_enum_type_name,
+    emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier,
+    types::should_include_struct, user_enum_type_name,
     wrappers::wrapper_class_name, LIBRARY_NAME,
 };
 
@@ -744,8 +745,9 @@ fn emit_data_typed_invoker_sam(
     ));
     b.line(" * into the raw invoker; performs the refanyGet, runtime-class");
     b.line(" * check, arg decoding, and outPtr-write internally. If the deref'd");
-    b.line(" * payload doesn't match `klass.isInstance`, the invocation is");
-    b.line(" * silently skipped (the engine then uses the kind's default return).");
+    b.line(" * payload doesn't match `klass.isInstance`, the mismatch is logged");
+    b.line(" * and {@code typed} is not called; an exception thrown by {@code typed}");
+    b.line(" * is logged too. Either way the engine keeps the kind's default return.");
     b.line(" */");
     b.line(&format!(
         "public static <T> {}.ByValue register{}(Class<T> klass, {}WithData<T> typed) {{",
@@ -770,23 +772,51 @@ fn emit_data_typed_invoker_sam(
         raw_lambda_params.join(", ")
     ));
     b.indent();
+    // Failures inside the bridge (a model of the wrong class, an exception
+    // thrown by `typed`) are reported through the first argument whose
+    // wrapper has a `log(level, String)` method (`CallbackInfo`), else on
+    // stderr. They never propagate to JNA; the engine pre-filled the out
+    // slot with the kind's default, so a failed call just leaves it alone.
+    let logger = failure_logger(cb, &sam, ir);
+    let report = |b: &mut super::super::generator::CodeBuilder, msg: &str| match &logger {
+        Some((arg, level)) => b.line(&format!("{}.log({}, {});", arg, level, msg)),
+        None => b.line(&format!("System.err.println({});", msg)),
+    };
     b.line("Object __data = refanyGet(arg0);");
-    // `klass.isInstance(null)` is false — a null payload (refany freed /
-    // unset) is passed through as `null` rather than skipped.
-    b.line("if (__data != null && !klass.isInstance(__data)) return;");
-    b.line("@SuppressWarnings(\"unchecked\")");
-    b.line("T __typed = (T) __data;");
-    let mut call_args = vec!["__typed".to_string()];
     // Wrapper-class args are built over ENGINE-OWNED memory (`const
     // T*` for the duration of the callback): non-owning wrappers, never
     // `_delete`d, invalidated in `finally` once the callback returns.
+    // Built before the `try` so the mismatch report can already log.
     let mut borrowed: Vec<String> = Vec::new();
     for (kind, name) in &sam.args {
+        if let SamArg::Wrapper(ty) = kind {
+            b.line(&format!("{} __{} = {}.__borrow({});", ty, name, ty, name));
+            borrowed.push(format!("__{}", name));
+        }
+    }
+    b.line("try {");
+    b.indent();
+    // `klass.isInstance(null)` is false — a null payload (refany freed /
+    // unset) is passed through as `null` rather than rejected.
+    b.line("if (__data != null && !klass.isInstance(__data)) {");
+    b.indent();
+    report(
+        b,
+        &format!(
+            "\"azul: {} expected a model of class \" + klass.getName() + \", got \" + __data.getClass().getName()",
+            wrapper
+        ),
+    );
+    b.line("return;");
+    b.dedent();
+    b.line("}");
+    b.line("@SuppressWarnings(\"unchecked\")");
+    b.line("T __typed = (T) __data;");
+    let mut call_args = vec!["__typed".to_string()];
+    for (kind, name) in &sam.args {
         match kind {
-            SamArg::Wrapper(ty) => {
-                b.line(&format!("{} __{} = {}.__borrow({});", ty, name, ty, name));
+            SamArg::Wrapper(_) => {
                 call_args.push(format!("__{}", name));
-                borrowed.push(format!("__{}", name));
             }
             SamArg::Pod(ty) => {
                 b.line(&format!("{} __{} = new {}({});", ty, name, ty, name));
@@ -809,10 +839,6 @@ fn emit_data_typed_invoker_sam(
                 call_args.push(name.clone());
             }
         }
-    }
-    if !borrowed.is_empty() {
-        b.line("try {");
-        b.indent();
     }
     match &sam.ret {
         SamRet::Void => {
@@ -865,8 +891,15 @@ fn emit_data_typed_invoker_sam(
             b.line("outPtr.write(0, __result.getPointer().getByteArray(0, sz), 0, sz);");
         }
     }
-    if !borrowed.is_empty() {
-        b.dedent();
+    b.dedent();
+    b.line("} catch (Throwable __e) {");
+    b.indent();
+    report(b, &format!("\"azul: {} raised \" + __e", wrapper));
+    b.line("__e.printStackTrace();");
+    b.dedent();
+    if borrowed.is_empty() {
+        b.line("}");
+    } else {
         b.line("} finally {");
         b.indent();
         for name in &borrowed {
@@ -881,4 +914,57 @@ fn emit_data_typed_invoker_sam(
     b.dedent();
     b.line("}");
     b.blank();
+}
+
+/// The `log(level, message)` capability among a typed SAM's arguments:
+/// the first wrapper-class arg whose IR type has an instance method `log`
+/// taking a unit enum and an owned `String` (`CallbackInfo::log`). Returns
+/// the Java argument variable (`__arg1`) and the level expression for the
+/// enum's `Error` variant (first variant if there is none), spelled the way
+/// the wrapper method takes it (`AppLogLevel.Error.value` for an `int`).
+fn failure_logger(
+    cb: &CallbackTypedefDef,
+    sam: &DataTypedSam,
+    ir: &CodegenIR,
+) -> Option<(String, String)> {
+    for ((kind, name), a) in sam.args.iter().zip(cb.args.iter().skip(1)) {
+        if !matches!(kind, SamArg::Wrapper(_)) {
+            continue;
+        }
+        let ty = a.type_name.trim();
+        let Some(f) = ir.functions.iter().find(|f| {
+            f.class_name == ty
+                && f.method_name == "log"
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                && f.args.len() == 3
+                && f.args[2].type_name.trim() == "String"
+                && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+        }) else {
+            continue;
+        };
+        let level_ty = f.args[1].type_name.trim();
+        let Some(e) = ir.find_enum(level_ty) else {
+            continue;
+        };
+        if e.is_union || e.variants.is_empty() {
+            continue;
+        }
+        let variant = e
+            .variants
+            .iter()
+            .find(|v| v.name == "Error")
+            .unwrap_or(&e.variants[0]);
+        let constant = format!(
+            "{}.{}",
+            user_enum_type_name(level_ty),
+            sanitize_identifier(&variant.name)
+        );
+        let level = if map_jvm_type_byvalue(level_ty, ir) == "int" {
+            format!("{}.value", constant)
+        } else {
+            constant
+        };
+        return Some((format!("__{}", name), level));
+    }
+    None
 }
