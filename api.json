@@ -3020,7 +3020,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "make LDFLAGS=\"\""
+                                    "content": "make"
                                 },
                                 {
                                     "type": "command",
@@ -3084,7 +3084,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "make LDFLAGS=\"-L$(brew --prefix)/lib\""
+                                    "content": "make LIBDIR=\"$(brew --prefix)/lib\""
                                 },
                                 {
                                     "type": "command",
@@ -3118,7 +3118,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./hello_world"
+                                    "content": "./hello_world"
                                 }
                             ]
                         },
