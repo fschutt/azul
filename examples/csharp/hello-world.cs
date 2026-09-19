@@ -13,13 +13,13 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static Update OnClick(MyDataModel m, AzCallbackInfo info)
+        private static Update OnClick(MyDataModel m, CallbackInfo info)
         {
             m.Counter += 1;
             return Update.RefreshDom;
         }
 
-        private static Dom Layout(MyDataModel m, AzLayoutCallbackInfo info)
+        private static Dom Layout(MyDataModel m, LayoutCallbackInfo info)
         {
             var label = Dom.CreatePWithText(m.Counter.ToString())
                 .WithCss("font-size: 32px; margin: 0;");
