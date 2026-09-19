@@ -146,6 +146,8 @@ mod cache_and_dirty_propagation;
 mod caption_positioning;
 #[path = "caret_follows_typing.rs"]
 mod caret_follows_typing;
+#[path = "caret_reveal_across_a_wrap.rs"]
+mod caret_reveal_across_a_wrap;
 #[path = "caret_reveal_and_session_identity.rs"]
 mod caret_reveal_and_session_identity;
 #[path = "caret_scroll_glide.rs"]

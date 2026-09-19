@@ -728,9 +728,18 @@ pub fn split_text_for_glides(
     // A caret glide reveals only on its own line and only while moving
     // forward: text typed at a caret pushes it right, and the glyphs behind a
     // backward move were deleted, not hidden.
-    let caret = caret.filter(|(from, to, _)| {
+    // A reveal glide runs along one line to the right, or - a WRAP - down onto
+    // the next line, where the target sits left of where the caret took off.
+    // A glide upwards or backwards (a deletion, an arrow key) reveals nothing.
+    let same_line = |from: &LogicalRect, to: &LogicalRect| {
         (from.origin.y - to.origin.y).abs() < to.size.height * 0.5
-            && to.origin.x > from.origin.x + 0.5
+    };
+    let caret = caret.filter(|(from, to, _)| {
+        if same_line(from, to) {
+            to.origin.x > from.origin.x + 0.5
+        } else {
+            to.origin.y > from.origin.y
+        }
     });
     let selection = selection.filter(|(current, rendered)| {
         current.len() == rendered.len() && current.iter().zip(rendered.iter()).any(|(c, r)| c != r)
@@ -823,19 +832,33 @@ pub fn split_text_for_glides(
         if let Some((from, to, rendered)) = caret {
             let edge = rendered.origin.x + rendered.size.width * 0.5;
             let (top, bottom) = (to.origin.y, to.origin.y + to.size.height);
+            // The band the glide reveals, on the TARGET line: everything from
+            // the old caret on a same-line glide; across a wrap, the last em
+            // before the target - the glyph the wrapping keystroke typed (the
+            // rest of that line was on screen already, so it stays).
+            let lo = if same_line(&from, &to) {
+                from.origin.x - margin
+            } else {
+                to.origin.x - margin
+            };
+            // Across a wrap the caret flies in diagonally; until it has
+            // LANDED on the target line the band stays hidden altogether.
+            // (On a same-line glide it has "landed" from the start.)
+            let landed = (rendered.origin.y - to.origin.y).abs() < to.size.height * 0.5;
             let mut next: Vec<Piece> = Vec::new();
             for (piece_glyphs, piece_color, clip, piece_bg) in pieces {
                 let (revealing, rest): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
                     piece_glyphs.into_iter().partition(|g| {
-                        on_line(g, top, bottom)
-                            && g.point.x >= from.origin.x - margin
-                            && g.point.x < to.origin.x
+                        on_line(g, top, bottom) && g.point.x >= lo && g.point.x < to.origin.x
                     });
                 if !rest.is_empty() {
                     next.push((rest, piece_color, clip, piece_bg));
                 }
                 if !revealing.is_empty() {
                     changed = true;
+                    if !landed {
+                        continue;
+                    }
                     if let Some(c) = clip_x(clip, f32::NEG_INFINITY, edge) {
                         next.push((revealing, piece_color, c, piece_bg));
                     }
