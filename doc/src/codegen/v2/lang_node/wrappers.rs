@@ -3,17 +3,33 @@
 //! For every IR struct that has a corresponding `<TypeName>_delete`
 //! C function we emit a `class TypeName` that:
 //!
-//! - Holds the raw FFI pointer in `#ptr` (a private class field).
+//! - Holds the koffi-decoded struct value (or raw FFI pointer) in `_ptr`.
 //! - Registers a `FinalizationRegistry` callback so the underlying native resource is released when
 //!   the JS wrapper is GC'd.
 //! - Exposes every non-trait method as an instance/static method that dispatches through the `lib`
-//!   object.
+//!   object. Method names are the lowerCamel form of the api.json key — the same derivation
+//!   `ir_builder` uses for the C suffix (`create_p_with_text` → `createPWithText` ↔
+//!   `AzDom_createPWithText`), so the JS surface reads like the C header without the prefix.
 //! - Implements `[Symbol.for('nodejs.util.inspect.custom')]` so `console.log(obj)` produces `App {
 //!   ptr: 0x... }` rather than leaking internals.
 //!
 //! Tagged-union enums get the same treatment plus per-variant
 //! predicates (`isVariantName()`) that compare against the registered
 //! tag enum constant.
+//!
+//! ## Ownership rules (all derived from the IR, no per-type cases)
+//!
+//! - A method whose receiver is `self` by value (`ArgRefKind::Owned`) consumes the wrapper: after
+//!   the call it is unregistered from its FinalizationRegistry and `_ptr` is nulled, whatever the
+//!   return type (`Dom.withChild(...) -> Dom`, `Button.dom() -> Dom`, `App.run(...)`).
+//! - A by-value (`Owned`) wrapper-typed argument is consumed the same way (`_consume`). `RefAny`
+//!   args are exempt: they are *created* from the user's JS value (`refanyCreate`), the user's
+//!   object is never a wrapper.
+//! - A `&mut self` receiver is bound as `_Inout_ T *` (see `functions.rs`) so koffi copies the
+//!   struct back into `_ptr` after the call; void mutators return `this` for chaining
+//!   (`body.addChild(a).addChild(b)`).
+//! - A by-value return whose type has a wrapper class is wrapped (`new Dom(_ret)`); the caller owns
+//!   it. Option/Result returns are unwrapped inline (see `emit_node_option_result_body`).
 //!
 //! ## FinalizationRegistry caveat
 //!
@@ -32,10 +48,16 @@ use super::{
     super::{
         generator::CodeBuilder,
         ir::{
-            CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
+            FunctionKind, StructDef, TypeCategory,
+        },
+        managed_host_invoker::{
+            layout_callback_factory_info, smart_callback_setter_info, LayoutCallbackFactoryInfo,
+            HOST_INVOKER_KINDS,
         },
     },
-    ffi_type_name, sanitize_export_name, sanitize_js_identifier,
+    ffi_type_name, is_refany_type, js_arg_name, js_method_name, sanitize_export_name,
+    sanitize_js_identifier, string_struct,
 };
 
 // ============================================================================
@@ -68,13 +90,15 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.blank();
 
     // Mark a wrapper instance as consumed: unregister from its class's
-    // FinalizationRegistry and null out `_ptr`. Used by consuming
-    // builder methods (`with_*`) and by mutators routed through them.
-    // The C side just moved this struct's internal heap pointers into a
-    // new owner; if we let the registry's finalizer fire later it would
-    // call `<Type>_delete` on the now-transferred pointers — a double
-    // free. Calling this with a non-wrapper value (primitive, plain
-    // koffi struct value, undefined) is a no-op.
+    // FinalizationRegistry and null out `_ptr`. Used for by-value
+    // wrapper args and by-value receivers. The C side just moved this
+    // struct's internal heap pointers into a new owner; if we let the
+    // registry's finalizer fire later it would call `<Type>_delete` on
+    // the now-transferred pointers — a double free. Calling this with a
+    // non-wrapper value (primitive, plain koffi struct value, undefined)
+    // is a no-op.
+    b.line("// Mark a wrapper instance as moved into the C side: its finalizer must");
+    b.line("// never run on the transferred bytes. No-op for non-wrapper values.");
     b.line("function _consume(val) {");
     b.indent();
     b.line("if (val && typeof val === 'object' && val.constructor &&");
@@ -92,10 +116,10 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Auto-AzString-conversion helper. Wrapper methods route Owned
     // `String` args through this so user code can pass plain JS
-    // strings directly (`Dom.create_p_with_text(\"hi\")`). Pass-through for
+    // strings directly (`Dom.createPWithText("hi")`). Pass-through for
     // already-AzString values (existing koffi objects or wrapper
     // instances with `_ptr`). Pure type-driven; no method-name allow-
-    // list (the codegen detects `type_name == \"String\"` + Owned in
+    // list (the codegen detects `TypeCategory::String` + Owned in
     // `render_call_args`).
     b.line("// Auto-AzString-conversion helper. Wrapper methods route Owned");
     b.line("// `String` args through this so plain JS strings work directly.");
@@ -116,38 +140,55 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("}");
     b.blank();
 
-    // CC-4: recursive opts-object applier. Each struct wrapper's
-    // `with(opts)` instance method routes through this helper to
-    // assign nested fields of the underlying koffi struct. Plain
-    // `{}` literals recurse into the nested struct field; JS string
-    // values auto-convert via `_azString`; wrapper-class instances
-    // forward via their `_ptr`; everything else (numbers, enum
-    // constants, booleans, Buffers, raw koffi structs) assigns
-    // directly. Pure type-driven; no per-field allow-list.
-    //
-    // Drops user-visible drilling like
-    //   `window._ptr.window_state.title = azul._azString('...')`
-    // in favor of
-    //   `window.with({ window_state: { title: 'Hello World' } })`.
-    b.line("// CC-4 recursive opts-object applier. Routed through every");
-    b.line("// struct wrapper's `with(opts)` method below.");
-    b.line("function _applyOpts(struct, opts) {");
+    emit_az_string_decode(b, ir);
+
+    // Recursive opts-object applier. Each struct wrapper's `with(opts)`
+    // instance method routes through this helper to assign nested
+    // fields of the underlying koffi struct. Keys are accepted in the
+    // C field spelling (`window_state`) or its lowerCamel form
+    // (`windowState`); unknown keys throw instead of being silently
+    // dropped. Plain `{}` literals recurse into the nested struct
+    // field; JS string values auto-convert via `_azString`; wrapper-
+    // class instances forward via their `_ptr`; everything else
+    // (numbers, enum constants, booleans, Buffers, raw koffi structs)
+    // assigns directly. Pure type-driven; no per-field allow-list.
+    b.line("// lowerCamel -> snake_case for `with({ windowState: ... })` keys.");
+    b.line("function _snakeKey(key) {");
     b.indent();
-    b.line("if (struct == null || opts == null) return;");
+    b.line("return key.replace(/[A-Z]/g, (c) => '_' + c.toLowerCase());");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("// Recursive opts-object applier. Routed through every struct wrapper's");
+    b.line("// `with(opts)` method below. `path` is only used for error messages.");
+    b.line("function _applyOpts(struct, opts, path) {");
+    b.indent();
+    b.line("if (opts == null) return;");
+    b.line("if (struct == null || typeof struct !== 'object') {");
+    b.indent();
+    b.line("throw new TypeError(`azul: ${path} is not a struct value; cannot assign options into it`);");
+    b.dedent();
+    b.line("}");
     b.line("for (const key of Object.keys(opts)) {");
     b.indent();
     b.line("const value = opts[key];");
     b.line("if (value === null || value === undefined) continue;");
+    b.line("const field = (key in struct) ? key : _snakeKey(key);");
+    b.line("if (!(field in struct)) {");
+    b.indent();
+    b.line("throw new TypeError(`azul: unknown field '${key}' on ${path} (fields: ${Object.keys(struct).join(', ')})`);");
+    b.dedent();
+    b.line("}");
     b.line("if (typeof value === 'string') {");
     b.indent();
-    b.line("struct[key] = _azString(value);");
+    b.line("struct[field] = _azString(value);");
     b.dedent();
     // Wrapper-class instance: forward its underlying koffi value.
     // Checked before the plain-object branch so we don't recurse
     // into wrapper internals.
     b.line("} else if (typeof value === 'object' && value._ptr !== undefined) {");
     b.indent();
-    b.line("struct[key] = value._ptr;");
+    b.line("struct[field] = value._ptr;");
     b.dedent();
     // Plain-object literal: recurse into nested koffi struct. We
     // detect via `Object.getPrototypeOf(value) === Object.prototype`
@@ -158,11 +199,11 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("&& Object.getPrototypeOf(value) === Object.prototype) {");
     b.dedent();
     b.indent();
-    b.line("_applyOpts(struct[key], value);");
+    b.line("_applyOpts(struct[field], value, path + '.' + field);");
     b.dedent();
     b.line("} else {");
     b.indent();
-    b.line("struct[key] = value;");
+    b.line("struct[field] = value;");
     b.dedent();
     b.line("}");
     b.dedent();
@@ -188,6 +229,42 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
         }
         emit_enum_wrapper(b, ir, e);
     }
+}
+
+/// `_azStringDecode(az)`: decode a koffi-decoded `AzString` value into a JS
+/// string. Field names come from the IR (`String { vec: U8Vec { ptr, len,
+/// .. } }`), and the byte copy goes through the runtime adapter's
+/// `readBytes`, so the same helper serves Node/koffi, Bun and Deno.
+fn emit_az_string_decode(b: &mut CodeBuilder, ir: &CodegenIR) {
+    let (vec_field, ptr_field, len_field) = string_layout(ir).unwrap_or_else(|| {
+        ("vec".to_string(), "ptr".to_string(), "len".to_string())
+    });
+    b.line("// Decode an AzString value (koffi-decoded struct) into a JS string.");
+    b.line("// Does not free the AzString; callers that own it delete it afterwards.");
+    b.line("function _azStringDecode(az) {");
+    b.indent();
+    b.line("if (az == null) return '';");
+    b.line(&format!("const v = az.{};", vec_field));
+    b.line("if (v == null) return '';");
+    b.line(&format!("const len = Number(v.{});", len_field));
+    b.line(&format!("if (len <= 0 || v.{} == null) return '';", ptr_field));
+    b.line(&format!(
+        "return new TextDecoder().decode(azulFFI.readBytes(v.{}, len));",
+        ptr_field
+    ));
+    b.dedent();
+    b.line("}");
+    b.blank();
+}
+
+/// `(vec_field, ptr_field, len_field)` of the IR's `String` struct.
+fn string_layout(ir: &CodegenIR) -> Option<(String, String, String)> {
+    let s = string_struct(ir)?;
+    let vec_field = s.fields.first()?;
+    let vec = ir.find_struct(vec_field.type_name.trim())?;
+    let ptr = vec.fields.first()?;
+    let len = vec.fields.get(1)?;
+    Some((vec_field.name.clone(), ptr.name.clone(), len.name.clone()))
 }
 
 // ============================================================================
@@ -228,6 +305,35 @@ fn has_delete_for(class: &str, ir: &CodegenIR) -> bool {
     ir.functions
         .iter()
         .any(|f| f.class_name == class && f.kind == FunctionKind::Delete)
+}
+
+/// Unit-only enums are exposed as frozen constant tables, not classes.
+fn is_unit_only_enum(e: &EnumDef) -> bool {
+    !e.is_union
+        && e.variants
+            .iter()
+            .all(|v| matches!(v.kind, EnumVariantKind::Unit))
+}
+
+/// The JS wrapper class name for an IR type, if this module emits one.
+/// Mirrors exactly the conditions under which `emit_struct_wrapper` /
+/// `emit_enum_wrapper` produce a `class`: a struct passes
+/// [`should_emit_struct`] and has at least one function; a data-bearing
+/// enum passes [`should_emit_enum`]. Used to wrap by-value returns.
+fn node_wrapper_class_for(type_name: &str, ir: &CodegenIR) -> Option<String> {
+    let t = type_name.trim();
+    if let Some(s) = ir.find_struct(t) {
+        if should_emit_struct(s) && ir.functions_for_class(&s.name).next().is_some() {
+            return Some(sanitize_export_name(&s.name));
+        }
+        return None;
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if should_emit_enum(e) && !is_unit_only_enum(e) {
+            return Some(sanitize_export_name(&e.name));
+        }
+    }
+    None
 }
 
 // ============================================================================
@@ -274,11 +380,11 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     }
 
     // Constructor: takes a raw FFI pointer. Public callers should use
-    // the static factories below (`create()`, `default()`, etc.).
+    // the static factories below (`create()`, `createDefault()`, etc.).
     b.line("/**");
-    b.line(" * Wrap an existing FFI pointer (takes ownership for GC purposes).");
+    b.line(" * Wrap an existing FFI value (takes ownership for GC purposes).");
     b.line(" * Most callers should use the static factory methods instead.");
-    b.line(" * @param {*} ptr raw FFI pointer/handle to a native value");
+    b.line(" * @param {*} ptr koffi struct value / raw FFI pointer of a native value");
     b.line(" */");
     b.line("constructor(ptr) {");
     b.indent();
@@ -291,7 +397,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     b.blank();
 
     // Raw accessor.
-    b.line("/** Return the underlying FFI pointer. Use with care. */");
+    b.line("/** Return the underlying FFI value. Use with care. */");
     b.line("get raw() { return this._ptr; }");
     b.blank();
 
@@ -302,131 +408,88 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     ));
     b.blank();
 
-    // CC-4: fluent `.with(opts)` builder. Recursively assigns nested
-    // object literals into the underlying koffi struct's fields,
-    // auto-converting JS strings to AzString and unwrapping wrapper
-    // instances via `_ptr`. Returns `this` for chain composition.
-    // Drops user-visible drilling like
-    //   `window._ptr.window_state.title = azul._azString('...')`
-    // in favor of
-    //   `window.with({ window_state: { title: 'Hello World' } })`.
-    // Pure koffi-struct-driven; no per-field allow-list. Calling on
-    // a wrapper whose `_ptr` is an opaque pointer (not a koffi
-    // struct) is a user error and throws on first field assignment.
+    // Fluent `.with(opts)` builder. Recursively assigns nested object
+    // literals into the underlying koffi struct's fields (keys in C
+    // spelling or lowerCamel), auto-converting JS strings to AzString
+    // and unwrapping wrapper instances via `_ptr`. Returns `this`.
+    // Calling on a wrapper whose `_ptr` is an opaque pointer (not a
+    // koffi struct) is a user error and throws.
     b.line("/**");
     b.line(" * Fluent builder: recursively assign `opts` into the wrapper's");
-    b.line(" * underlying koffi struct fields. JS strings auto-convert to AzString.");
-    b.line(" * Returns this for chaining.");
+    b.line(" * underlying koffi struct fields. Keys may be spelled as in the C");
+    b.line(" * header (`window_state`) or lowerCamel (`windowState`); unknown");
+    b.line(" * keys throw. JS strings auto-convert to AzString. Returns this.");
     b.line(" */");
     b.line("with(opts) {");
     b.indent();
-    b.line("_applyOpts(this._ptr, opts);");
+    b.line(&format!("_applyOpts(this._ptr, opts, '{}');", class));
     b.line("return this;");
     b.dedent();
     b.line("}");
     b.blank();
 
     // AzString gets a `toString()` override that decodes the wrapped
-    // UTF-8 bytes into a JS string. AzString's C-side layout is
-    // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`.
-    // koffi.decode handles the struct read; len comes back as BigInt
-    // (size_t), so coerce to Number for the array bound.
+    // UTF-8 bytes into a JS string (`_ptr` is the koffi-decoded struct
+    // value, so the field walk happens in JS; no re-decode).
     if matches!(s.category, TypeCategory::String) {
-        b.line("/**");
-        b.line(" * Decode the wrapped UTF-8 bytes into a JS string.");
-        b.line(" * Returns '' if not available on the current runtime (koffi only).");
-        b.line(" */");
+        b.line("/** Decode the wrapped UTF-8 bytes into a JS string. */");
         b.line("toString() {");
         b.indent();
-        b.line("if (!this._ptr) return '';");
-        b.line("// koffi-only path; Bun / Deno would need separate helpers.");
-        b.line(
-            "if (azulFFI.runtime !== 'node-koffi') return '[AzString — decode not implemented for \
-             this runtime]';",
-        );
-        b.line("const koffi = azulFFI.koffi;");
-        b.line("const az = koffi.decode(this._ptr, 'AzString');");
-        b.line("const len = Number(az.vec.len);");
-        b.line("if (!az.vec.ptr || len === 0) return '';");
-        b.line("const bytes = koffi.decode(az.vec.ptr, koffi.array('uint8_t', len));");
-        b.line("return Buffer.from(bytes).toString('utf8');");
+        b.line("return _azStringDecode(this._ptr);");
         b.dedent();
         b.line("}");
         b.blank();
     }
 
-    // Phase J.1 (Node): same shared detector. Emit `<smart>(data, fn)`
-    // for every method matching with_on_*(self, RefAny, <CallbackWrapper>).
+    // Phase J.1 (Node): shared detector. Emit `<smart>(data, fn)` for
+    // every method matching with_on_*(self, RefAny, <CallbackWrapper>).
+    // `withOnClick(data, fn)` itself already accepts a plain function
+    // (see `emit_callback_register_lines`); the smart sibling is the
+    // shorter spelling every binding offers.
     for func in ir.functions_for_class(&s.name) {
-        let Some((smart_snake, wrapper_kind)) =
-            super::super::managed_host_invoker::smart_callback_setter_info(func)
-        else {
+        let Some((smart_snake, wrapper_kind)) = smart_callback_setter_info(func) else {
             continue;
         };
-        // Node uses snake_case for both with_on_* and the smart sibling
-        // (JS allows underscore identifiers).
+        let smart = js_method_name(&smart_snake);
+        let target = js_method_name(&func.method_name);
         b.line("/**");
         b.line(&format!(
             " * Smart builder for {}: JS value + handler fn. Host-invoker",
-            func.method_name
+            target
         ));
         b.line(" * registration is hidden.");
         b.line(" */");
-        b.line(&format!("{}(data, fn) {{", smart_snake));
+        b.line(&format!("{}(data, fn) {{", smart));
         b.indent();
         b.line(&format!(
-            "const __cb = registerCallback('{}', fn);",
-            wrapper_kind
+            "return this.{}(data, registerCallback('{}', fn));",
+            target, wrapper_kind
         ));
-        b.line(&format!("return this.{}(data, __cb);", func.method_name));
         b.dedent();
         b.line("}");
         b.blank();
     }
 
-    // <Class>.createWithLayout(fn) — smart factory. The codegen-emitted
-    // `create(fn)` routes through the raw fn-pointer C ABI which
-    // discards the host-invoker `ctx` — callbacks would never reach the
-    // user's JS function. This helper instead registers the callback
-    // through the host-invoker handle table, grabs a `_default()` value,
-    // and assigns the registered struct (cb + ctx) into a nested field
-    // path so dispatch works. koffi's JS-side nested-struct assignment
-    // is byte-copy semantics, matching the C side.
-    //
-    // Class name, default factory name, callback-wrapper name, and the
-    // nested field path are all IR-derived via
-    // [`layout_callback_factory_info`] — adding/renaming the eligible
-    // class in api.json lights this up without touching this emitter.
-    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
-        b.line("/**");
-        b.line(" * Smart factory: pass a layout-callback function; the host-invoker");
-        b.line(" * registration and field-copy plumbing happen internally. The");
-        b.line(" * caller never has to touch AzulHostInvoker or `_register_callback`.");
-        b.line(" */");
-        b.line("static createWithLayout(fn) {");
-        b.indent();
-        b.line(&format!(
-            "const cb = registerCallback('{}', fn);",
-            info.callback_wrapper
-        ));
-        b.line(&format!("const opts = lib.{}();", info.default_c_name));
-        b.line(&format!("opts.{} = cb;", info.field_path.join(".")));
-        b.line(&format!("return new {}(opts);", info.class_name));
-        b.dedent();
-        b.line("}");
-        b.blank();
-    }
+    // Layout-callback factory pattern (shared detector): the class has a
+    // `_default` factory and a 1-arg constructor taking a host-invoker
+    // callback *typedef* (raw fn pointer, no ctx slot at the C ABI).
+    // `emit_static_factory` emits that constructor under its api.json
+    // name with a body that registers the JS function through the
+    // host-invoker table and splices the `{cb, ctx}` struct into the
+    // default value's nested field. Everything (class, default factory,
+    // wrapper kind, field path) is IR-derived.
+    let factory_info = layout_callback_factory_info(s, ir);
 
     // Methods: Method, MethodMut, DeepCopy, DebugToString, plus static
     // factories (Constructor, StaticMethod, Default, EnumVariantConstructor).
     //
     // A raw `toString` alias would collide with the decoded `toString()`
-    // this file emits elsewhere: AzString's manual UTF-8 decode above,
-    // and the Phase I.3.4 `Az<X>_toDbgString`-routed variant below.
-    // Duplicate class members are legal JS but the LATER definition
-    // silently wins, so the alias must be skipped whenever a decoded
-    // toString will be emitted (it is strictly better: it decodes the
-    // AzString instead of returning the raw koffi struct).
+    // this file emits elsewhere: AzString's UTF-8 decode above, and the
+    // Phase I.3.4 `Az<X>_toDbgString`-routed variant below. Duplicate
+    // class members are legal JS but the LATER definition silently wins,
+    // so the alias must be skipped whenever a decoded toString will be
+    // emitted (it is strictly better: it decodes the AzString instead of
+    // returning the raw koffi struct).
     let dbg_sym = format!("Az{}_toDbgString", s.name);
     let emits_decoded_tostring = matches!(s.category, TypeCategory::String)
         || (s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym));
@@ -448,7 +511,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
                 emitted_any = true;
             }
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
-                emit_static_factory(b, f, &class);
+                emit_static_factory(b, f, &class, ir, factory_info.as_ref());
                 emitted_any = true;
             }
             // SKIPPED: Delete is wired through FinalizationRegistry.
@@ -509,11 +572,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 
     // Unit-only enums are exposed as frozen objects, not as classes.
     // Only data-bearing enums get a class wrapper.
-    let unit_only = !e.is_union
-        && e.variants
-            .iter()
-            .all(|v| matches!(v.kind, EnumVariantKind::Unit));
-    if unit_only {
+    if is_unit_only_enum(e) {
         b.line(&format!(
             "// {0} is a unit-only enum; numeric constants live on Enums.{0}.",
             e.name
@@ -630,7 +689,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
             | FunctionKind::StaticMethod
             | FunctionKind::Default
             | FunctionKind::EnumVariantConstructor => {
-                emit_static_factory(b, f, &class);
+                emit_static_factory(b, f, &class, ir, None);
                 emitted_any = true;
             }
             _ => {}
@@ -706,34 +765,15 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
             | "usize"
             | "isize"
     );
-    let has_clone = ir
-        .functions
-        .iter()
-        .any(|f| f.class_name == elem_ty && matches!(f.kind, FunctionKind::DeepCopy));
-    let has_wrapper = {
-        use super::super::ir::TypeCategory;
-        ir.find_struct(&elem_ty)
-            .map(|s| {
-                !matches!(
-                    s.category,
-                    TypeCategory::Recursive
-                        | TypeCategory::VecRef
-                        | TypeCategory::DestructorOrClone
-                        | TypeCategory::GenericTemplate
-                )
-            })
-            .unwrap_or(false)
-            && ir
-                .functions
-                .iter()
-                .any(|f| f.class_name == elem_ty && matches!(f.kind, FunctionKind::Delete))
-    };
+    let has_clone = node_has_clone(&elem_ty, ir);
+    let wrapper_class = node_wrapper_class_for(&elem_ty, ir)
+        .filter(|_| node_has_delete(&elem_ty, ir));
 
     b.line("/**");
     if is_primitive {
         b.line(" * Iterate the underlying Vec — yields Number-typed");
         b.line(" * primitive elements decoded by-value (safe past close).");
-    } else if has_clone && has_wrapper {
+    } else if has_clone && wrapper_class.is_some() {
         b.line(" * Iterate the underlying Vec — each yielded element is");
         b.line(" * deep-cloned via the type's _deepCopy export so the");
         b.line(" * returned wrapper owns its own heap allocations and");
@@ -752,16 +792,16 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     b.line("const n = Number(this._ptr.len);");
     b.line("for (let i = 0; i < n; i++) {");
     b.indent();
-    if is_primitive {
-        b.line("yield buf[i];");
-    } else if has_clone && has_wrapper {
-        b.line(&format!(
-            "const __cloned = lib.Az{}_deepCopy(buf[i]);",
-            elem_ty
-        ));
-        b.line(&format!("yield new {}(__cloned);", elem_ty));
-    } else {
-        b.line("yield buf[i];");
+    match (is_primitive, has_clone, wrapper_class) {
+        (true, _, _) => b.line("yield buf[i];"),
+        (false, true, Some(class)) => {
+            b.line(&format!(
+                "const __cloned = lib.Az{}_deepCopy(buf[i]);",
+                elem_ty
+            ));
+            b.line(&format!("yield new {}(__cloned);", class));
+        }
+        _ => b.line("yield buf[i];"),
     }
     b.dedent();
     b.line("}");
@@ -772,7 +812,7 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 
 /// Phase I.3.4 (Node): emit `toString()` instance method routed
 /// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
-/// string via `_azStringDecode`. Skips AzString itself.
+/// string via `_azStringDecode` and frees it. Skips AzString itself.
 fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
@@ -782,26 +822,21 @@ fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &Cod
     if !has_dbg {
         return;
     }
+    let string_delete = string_struct(ir)
+        .filter(|st| node_has_delete(&st.name, ir))
+        .map(|st| format!("lib.{}_delete(__s);", ffi_type_name(&st.name)));
     b.line(&format!("/** String repr routed through {}. */", dbg_sym));
     b.line("toString() {");
     b.indent();
     b.line("if (this._ptr == null) return '<disposed>';");
     b.line(&format!("const __s = lib.{}(this._ptr);", dbg_sym));
-    // __s is the AzString struct. Read vec.ptr (offset 0, void*) and
-    // vec.len (offset 8, size_t). koffi exposes struct field access.
-    b.line("const __vecPtr = __s.vec.ptr;");
-    b.line("const __vecLen = Number(__s.vec.len);");
-    b.line("if (__vecPtr == null || __vecLen <= 0) return '';");
-    // koffi.decode(ptr, type, length) returns a Buffer-like of `length`
-    // elements. `azulFFI.koffi` is the raw koffi handle on Node;
-    // Bun/Deno paths bypass via their own decode helpers.
-    b.line("const __bytes = azulFFI.koffi.decode(__vecPtr, 'uint8_t', __vecLen);");
-    b.line("const __out = Buffer.from(__bytes).toString('utf8');");
-    // Free the freshly-allocated AzString via raw FFI delete entry.
-    b.line("// The AzString carries an owned U8Vec; freeing it requires");
-    b.line("// passing a pointer to the AzString struct. Skip the explicit");
-    b.line("// free for now — the temporary lives on the JS stack and the");
-    b.line("// U8Vec leak is bounded by the toString frequency.");
+    b.line("const __out = _azStringDecode(__s);");
+    if let Some(del) = string_delete {
+        // The returned AzString is owned by us: free its U8Vec buffer.
+        // koffi encodes the decoded JS object into a temporary and
+        // passes its address, which is all the destructor needs.
+        b.line(&del);
+    }
     b.line("return __out;");
     b.dedent();
     b.line("}");
@@ -824,7 +859,7 @@ fn emit_node_equals_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &Codege
     ));
     b.line(" * so this is exposed as an explicit method.");
     b.line(" */");
-    b.line(&"equals(other) {".to_string());
+    b.line("equals(other) {");
     b.indent();
     b.line(&format!("if (!(other instanceof {})) return false;", class));
     b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
@@ -852,7 +887,7 @@ struct NodeOptResultInfo {
 /// payload type. Returns None for plain returns. Mirrors the JVM
 /// `classify_return` predicate.
 fn classify_option_result_node(f: &FunctionDef, ir: &CodegenIR) -> Option<NodeOptResultInfo> {
-    use super::super::ir::{EnumVariantKind, MonomorphizedKind};
+    use super::super::ir::MonomorphizedKind;
     let rt = f.return_type.as_deref()?.trim();
     // Monomorphized type alias path (most common).
     if let Some(ta) = ir.find_type_alias(rt) {
@@ -936,38 +971,19 @@ fn node_has_clone(type_name: &str, ir: &CodegenIR) -> bool {
 /// True iff the IR's struct for `payload_ty` is categorised as a
 /// `TypeCategory::String`.
 fn node_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
-    use super::super::ir::TypeCategory;
     ir.find_struct(payload_ty)
         .map(|s| matches!(s.category, TypeCategory::String))
         .unwrap_or(false)
-}
-
-/// True iff `payload_ty` has an emitted Node wrapper class.
-fn node_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
-    use super::super::ir::TypeCategory;
-    let Some(s) = ir.find_struct(payload_ty) else {
-        return false;
-    };
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    node_has_delete(payload_ty, ir)
 }
 
 /// Emit the body of an Option/Result return inline. `_ret` is the
 /// koffi-decoded outer struct already declared.
 ///
 /// Three payload shapes (mirrors JVM 75a1fbcd2):
-///   - AzString → decode `payload.vec.{ptr,len}` bytes into a JS string via `koffi.decode(ptr,
-///     'char', len)`, then call `Az<Outer>_delete(_ret)` to free the embedded buffer.
-///   - Wrapper-class → call `Az<Payload>_clone(payload)` for an independent allocation, wrap in the
-///     JS wrapper class, then `Az<Outer>_delete(_ret)` drops the original.
+///   - AzString → decode `payload.vec.{ptr,len}` bytes into a JS string via `_azStringDecode`,
+///     then call `Az<Outer>_delete(_ret)` to free the embedded buffer.
+///   - Wrapper-class → call `Az<Payload>_deepCopy(payload)` for an independent allocation, wrap
+///     in the JS wrapper class, then `Az<Outer>_delete(_ret)` drops the original.
 ///   - Primitive / other → capture the value, then `_delete`.
 ///
 /// koffi auto-encodes JS objects into temp buffers when passing to
@@ -1017,28 +1033,16 @@ fn emit_node_option_result_body(b: &mut CodeBuilder, info: &NodeOptResultInfo, i
         b.line("}");
     }
 
+    let payload_wrapper = node_wrapper_class_for(&info.payload_ty, ir);
     if node_payload_is_string(&info.payload_ty, ir) {
-        // AzString payload — extract bytes via vec.ptr / vec.len,
-        // decode into a JS string, then delete to free the buffer.
-        b.line(&format!("const __azs = {};", payload_path));
-        b.line("const __vp = __azs.vec.ptr;");
-        b.line("const __vl = Number(__azs.vec.len);");
-        b.line("let __out;");
-        b.line("if (!__vp || __vl <= 0) {");
-        b.indent();
-        b.line("__out = '';");
-        b.dedent();
-        b.line("} else {");
-        b.indent();
-        b.line("__out = Buffer.from(koffi.decode(__vp, 'char', __vl)).toString('utf8');");
-        b.dedent();
-        b.line("}");
+        // AzString payload — decode into a JS string, then delete the
+        // outer to free the buffer.
+        b.line(&format!("const __out = _azStringDecode({});", payload_path));
         if !outer_delete.is_empty() {
             b.line(&outer_delete);
         }
         b.line("return __out;");
-    } else if node_payload_has_wrapper(&info.payload_ty, ir) && node_has_clone(&info.payload_ty, ir)
-    {
+    } else if let (Some(class), true) = (payload_wrapper, node_has_clone(&info.payload_ty, ir)) {
         // Wrapper-class payload — clone for an independent
         // allocation, then delete the outer (drops the original
         // payload's heap allocations).
@@ -1049,7 +1053,7 @@ fn emit_node_option_result_body(b: &mut CodeBuilder, info: &NodeOptResultInfo, i
         if !outer_delete.is_empty() {
             b.line(&outer_delete);
         }
-        b.line(&format!("return new {}(__cloned);", info.payload_ty));
+        b.line(&format!("return new {}(__cloned);", class));
     } else {
         // Primitive / non-cloneable: capture before delete (the
         // value is by-value-decoded, but we capture defensively).
@@ -1061,6 +1065,27 @@ fn emit_node_option_result_body(b: &mut CodeBuilder, info: &NodeOptResultInfo, i
     }
 }
 
+/// Emit the post-call ownership bookkeeping shared by every method
+/// shape: consume by-value wrapper args, and — when the receiver is
+/// `self` by value — unregister `this` and null its `_ptr`.
+fn emit_consume_lines(
+    b: &mut CodeBuilder,
+    consumed_args: &[String],
+    receiver_consumed: bool,
+    class: &str,
+    has_delete: bool,
+) {
+    for n in consumed_args {
+        b.line(&format!("_consume({});", n));
+    }
+    if receiver_consumed {
+        if has_delete {
+            b.line(&format!("{}._registry.unregister(this);", class));
+        }
+        b.line("this._ptr = null;");
+    }
+}
+
 fn emit_instance_method(
     b: &mut CodeBuilder,
     f: &FunctionDef,
@@ -1068,23 +1093,28 @@ fn emit_instance_method(
     has_delete: bool,
     ir: &CodegenIR,
 ) {
-    let method = sanitize_js_identifier(&f.method_name);
+    let method = js_method_name(&f.method_name);
     let user_args = user_args(f);
     let params = render_params(&user_args);
-    let call_args = render_call_args(&user_args);
+    let call_args = render_call_args(&user_args, ir);
+    // `self` by value: the C call moves the struct out of `_ptr`.
+    let receiver_consumed = f
+        .args
+        .iter()
+        .find(|a| f.is_receiver_arg(a))
+        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+        .unwrap_or(false);
+    let consumed_args = consumed_wrapper_args(&user_args, ir);
     // Phase I.5.4 (Node): Option/Result auto-unwrap at the wrapper
     // boundary. Detect by variant-shape — same predicate the
     // JVM/Ruby/Lua bindings use. Inline the extraction so each call
     // site can call the per-type `_delete` (and per-payload `_clone`
-    // for wrapper payloads). The pre-existing module-level
-    // `optionToNullable` / `resultUnwrap` helpers (managed.rs) are
-    // kept for backward compatibility but no longer the primary
-    // path.
+    // for wrapper payloads).
     let opt_or_result_info = classify_option_result_node(f, ir);
-    // `Some("Option")` or `Some("Result")` if this is a tagged
-    // single-payload Option/Result return; used to switch between
-    // the .Some.tag / .Ok.tag accessors below.
-    let idiom_kind: Option<&'static str> = opt_or_result_info.as_ref().map(|i| i.kind);
+    let return_wrapper = f
+        .return_type
+        .as_deref()
+        .and_then(|rt| node_wrapper_class_for(rt, ir));
 
     if !f.doc.is_empty() {
         b.line("/**");
@@ -1099,7 +1129,7 @@ fn emit_instance_method(
     }
     b.line(&format!("{}({}) {{", method, params));
     b.indent();
-    emit_callback_register_lines(b, &user_args);
+    emit_callback_register_lines(b, f, &user_args);
     let mut call = format!("lib.{}(this._ptr", f.c_name);
     if !call_args.is_empty() {
         call.push_str(", ");
@@ -1107,61 +1137,30 @@ fn emit_instance_method(
     }
     call.push(')');
 
-    let returns_self = f
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == f.class_name)
-        .unwrap_or(false);
-    let consumed_args = consumed_wrapper_args(&user_args);
-
-    if returns_self {
-        // Consuming-builder pattern: `body.with_child(label)` moves
-        // `body` (self) and `label` (by-value wrapper arg) into the C
-        // call; their internal heap pointers are now owned by the
-        // returned struct. We must unregister both from their
-        // FinalizationRegistries and null their `_ptr` to prevent the
-        // finalizer firing later on the already-transferred memory
-        // (double free).
-        b.line(&format!("const _next = {};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
-        if has_delete {
-            b.line(&format!("{}._registry.unregister(this);", class));
-        }
-        b.line("this._ptr = null;");
-        b.line(&format!("return new {}(_next);", class));
-    } else if f.return_type.is_none() {
-        // Side-effecting call (no return value). koffi cannot write
-        // back through `T *` args, so structural mutators like
-        // `add_child` are effectively no-ops here. The fix at the
-        // emission site is to route through the matching `with_*`
-        // form; that pass is intentionally separate and not done
-        // here so the simple void-return case stays a one-liner.
+    if f.return_type.is_none() {
+        // Side-effecting call. `&mut self` receivers are bound as
+        // `_Inout_ T *` (functions.rs) so koffi writes the mutated
+        // struct back into `_ptr`; returning `this` makes mutators
+        // chainable. A consumed (`self` by value) receiver cannot be
+        // returned, its `_ptr` is gone.
         b.line(&format!("{};", call));
-        // Still consume any by-value wrapper args — even no-op mutators
-        // semantically take ownership of them on the C side.
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
+        emit_consume_lines(b, &consumed_args, receiver_consumed, class, has_delete);
+        if !receiver_consumed {
+            b.line("return this;");
         }
     } else if let Some(info) = opt_or_result_info.as_ref() {
-        // Inline Option/Result extraction with delete + per-payload
-        // clone. Three payload shapes (mirrors JVM 75a1fbcd2 +
-        // Ruby/Lua 654b8cbd8):
-        //   - AzString → decode UTF-8, then _delete to free Vec.ptr.
-        //   - Wrapper-class → _clone payload first, then _delete.
-        //   - Primitive / other → capture value, _delete (no-op heap-wise but consistent so future
-        //     heap-bearing payloads don't silently leak).
         b.line(&format!("const _ret = {};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
+        emit_consume_lines(b, &consumed_args, receiver_consumed, class, has_delete);
         emit_node_option_result_body(b, info, ir);
+    } else if let Some(wrapper) = return_wrapper {
+        // By-value return of a wrapped type: the caller owns it.
+        b.line(&format!("const _ret = {};", call));
+        emit_consume_lines(b, &consumed_args, receiver_consumed, class, has_delete);
+        b.line(&format!("return new {}(_ret);", wrapper));
     } else {
-        b.line(&format!("return {};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
+        b.line(&format!("const _ret = {};", call));
+        emit_consume_lines(b, &consumed_args, receiver_consumed, class, has_delete);
+        b.line("return _ret;");
     }
 
     b.dedent();
@@ -1211,33 +1210,58 @@ fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str, class:
 /// class can't know at codegen time whether the user-supplied value
 /// is a wrapper instance or a primitive; `_consume` no-ops on
 /// primitives, so we emit the call unconditionally for every
-/// owned-by-value arg.
-fn consumed_wrapper_args(args: &[&super::super::ir::FunctionArg]) -> Vec<String> {
-    use super::super::ir::ArgRefKind;
+/// owned-by-value arg — except `RefAny` args, which are never the
+/// user's wrapper: `render_call_args` creates a fresh host-handle
+/// RefAny from the user's JS value, and that value must stay intact.
+fn consumed_wrapper_args(args: &[&FunctionArg], ir: &CodegenIR) -> Vec<String> {
     args.iter()
-        .filter(|a| matches!(a.ref_kind, ArgRefKind::Owned))
-        .map(|a| sanitize_js_identifier(&a.name))
+        .filter(|a| matches!(a.ref_kind, ArgRefKind::Owned) && !is_refany_type(&a.type_name, ir))
+        .map(|a| js_arg_name(a))
         .collect()
 }
 
-fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
-    let method = sanitize_js_identifier(&f.method_name);
+/// Is `f` the 1-arg callback constructor that
+/// [`layout_callback_factory_info`] matched for its class? Same
+/// predicate as the shared helper's `create_func` scan (constructor /
+/// static method, one arg carrying `callback_info` of the detected
+/// wrapper kind, returns the class).
+fn is_layout_callback_factory_fn(f: &FunctionDef, info: &LayoutCallbackFactoryInfo) -> bool {
+    matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+        && f.class_name == info.class_name
+        && f.args.len() == 1
+        && f.args[0]
+            .callback_info
+            .as_ref()
+            .is_some_and(|c| c.callback_wrapper_name == info.callback_wrapper)
+        && f.return_type.as_deref().map(str::trim) == Some(f.class_name.as_str())
+}
+
+/// Is `f` the constructor of a host-invoker callback wrapper struct
+/// from its own raw fn-pointer typedef (`AzCallback_create(AzCallbackType)`,
+/// `AzLayoutCallback_create(AzLayoutCallbackType)`)? For a JS function
+/// the ctx-carrying constructor is `registerCallback(kind, fn)`; the
+/// raw C entry would build `{cb, ctx: None}` and never reach JS.
+fn is_own_wrapper_constructor(f: &FunctionDef) -> bool {
+    HOST_INVOKER_KINDS.contains(&f.class_name.as_str())
+        && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+        && f.args.len() == 1
+        && f.args[0]
+            .callback_info
+            .as_ref()
+            .is_some_and(|c| c.callback_wrapper_name == f.class_name)
+        && f.return_type.as_deref().map(str::trim) == Some(f.class_name.as_str())
+}
+
+fn emit_static_factory(
+    b: &mut CodeBuilder,
+    f: &FunctionDef,
+    class_name: &str,
+    ir: &CodegenIR,
+    factory_info: Option<&LayoutCallbackFactoryInfo>,
+) {
+    let method = js_method_name(&f.method_name);
     let user_args = user_args(f);
     let params = render_params(&user_args);
-    let call_args = render_call_args(&user_args);
-
-    let returns_self = f
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == f.class_name)
-        .unwrap_or(false);
-
-    // Any wrapper-typed owned-by-value arg has its bytes
-    // transferred to Rust by the C call; the caller's JS wrapper
-    // would otherwise double-drop on FinalizationRegistry sweep.
-    // Mirrors the instance-method emit at line 753 and the audit
-    // 4.1 / 5.2 fixes for the JVM/CLR family.
-    let consumed_args = consumed_wrapper_args(&user_args);
 
     if !f.doc.is_empty() {
         b.line("/**");
@@ -1247,28 +1271,80 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
         b.line(&format!(" * Wraps `lib.{}`.", f.c_name));
         b.line(" */");
     }
+
+    // Layout-callback factory (`WindowCreateOptions.create(layoutFn)`):
+    // the C entry takes a bare fn pointer and would drop the host-handle
+    // ctx, so build the value from `_default()` and splice the registered
+    // `{cb, ctx}` struct into the IR-derived field path instead.
+    if let Some(info) = factory_info.filter(|i| is_layout_callback_factory_fn(f, i)) {
+        let arg = js_arg_name(user_args[0]);
+        b.line(&format!("static {}({}) {{", method, arg));
+        b.indent();
+        b.line("// Registers the JS function through the host-invoker table and");
+        b.line("// splices the {cb, ctx} struct into the default value; the raw");
+        b.line(&format!(
+            "// `lib.{}` entry has no ctx slot and could never call back into JS.",
+            f.c_name
+        ));
+        b.line(&format!(
+            "const cb = registerCallback('{}', {});",
+            info.callback_wrapper, arg
+        ));
+        b.line(&format!("const opts = lib.{}();", info.default_c_name));
+        b.line(&format!("opts.{} = cb;", info.field_path.join(".")));
+        b.line(&format!("return new {}(opts);", class_name));
+        b.dedent();
+        b.line("}");
+        b.blank();
+        return;
+    }
+
+    // `Callback.create(fn)` / `LayoutCallback.create(fn)`: the ctx-
+    // carrying constructor for a JS function IS the host-invoker
+    // registration.
+    if is_own_wrapper_constructor(f) {
+        let arg = js_arg_name(user_args[0]);
+        b.line(&format!("static {}({}) {{", method, arg));
+        b.indent();
+        b.line(&format!(
+            "return new {}(registerCallback('{}', {}));",
+            class_name, f.class_name, arg
+        ));
+        b.dedent();
+        b.line("}");
+        b.blank();
+        return;
+    }
+
+    let call_args = render_call_args(&user_args, ir);
+    // Any wrapper-typed owned-by-value arg has its bytes transferred
+    // to Rust by the C call; the caller's JS wrapper would otherwise
+    // double-drop on FinalizationRegistry sweep.
+    let consumed_args = consumed_wrapper_args(&user_args, ir);
+    let opt_or_result_info = classify_option_result_node(f, ir);
+    let return_wrapper = f
+        .return_type
+        .as_deref()
+        .and_then(|rt| node_wrapper_class_for(rt, ir));
+
     b.line(&format!("static {}({}) {{", method, params));
     b.indent();
-    emit_callback_register_lines(b, &user_args);
+    emit_callback_register_lines(b, f, &user_args);
     let call = format!("lib.{}({})", f.c_name, call_args);
-    if returns_self {
-        b.line(&format!("const _next = {};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
-        b.line(&format!("return new {}(_next);", class_name));
-    } else if f.return_type.is_none() {
+    if f.return_type.is_none() {
         b.line(&format!("{};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
-    } else if consumed_args.is_empty() {
-        b.line(&format!("return {};", call));
+        emit_consume_lines(b, &consumed_args, false, class_name, false);
+    } else if let Some(info) = opt_or_result_info.as_ref() {
+        b.line(&format!("const _ret = {};", call));
+        emit_consume_lines(b, &consumed_args, false, class_name, false);
+        emit_node_option_result_body(b, info, ir);
+    } else if let Some(wrapper) = return_wrapper {
+        b.line(&format!("const _ret = {};", call));
+        emit_consume_lines(b, &consumed_args, false, class_name, false);
+        b.line(&format!("return new {}(_ret);", wrapper));
     } else {
         b.line(&format!("const _ret = {};", call));
-        for n in &consumed_args {
-            b.line(&format!("_consume({});", n));
-        }
+        emit_consume_lines(b, &consumed_args, false, class_name, false);
         b.line("return _ret;");
     }
     b.dedent();
@@ -1277,23 +1353,47 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
 }
 
 /// For every arg whose IR `callback_info` is in the host-invoker
-/// allowlist, emit `name = registerCallback('Wrapper', name);` before
-/// the lib call so the user can pass a plain JS function.
-fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::FunctionArg]) {
+/// allowlist, emit the line that turns a plain JS function into what
+/// the C entry point accepts:
+///
+/// - wrapper-struct arg (`on_click: ButtonOnClickCallback`; the binding links the `<c_name>Struct`
+///   twin, see `managed_c_symbol`): `name = registerCallback('Kind', name);`
+/// - raw typedef arg (`callback: CallbackType`) with no ctx-carrying C twin: a JS function cannot
+///   be routed (the C side builds `{cb, ctx: None}` and the thunk finds no host handle), so passing
+///   one throws a descriptive TypeError instead of a koffi "expected void *" or a silent no-op.
+///   Native pointers still pass through.
+fn emit_callback_register_lines(b: &mut CodeBuilder, f: &FunctionDef, args: &[&FunctionArg]) {
     for a in args {
         let Some(cb) = a.callback_info.as_ref() else {
             continue;
         };
         let wrapper = cb.callback_wrapper_name.as_str();
-        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+        if !HOST_INVOKER_KINDS.contains(&wrapper) {
             continue;
         }
-        let name = sanitize_js_identifier(&a.name);
-        b.line(&format!(
-            "{n} = registerCallback('{w}', {n});",
-            n = name,
-            w = wrapper
-        ));
+        let name = js_arg_name(a);
+        if a.type_name.trim() == wrapper {
+            b.line(&format!(
+                "{n} = registerCallback('{w}', {n});",
+                n = name,
+                w = wrapper
+            ));
+        } else {
+            b.line(&format!("if (typeof {} === 'function') {{", name));
+            b.indent();
+            b.line(&format!(
+                "throw new TypeError('{}.{}: `{}` is a bare C function pointer ({}) at the C ABI; \
+                 there is no ctx slot to route a JS function through. Pass a native pointer, or \
+                 use an API that takes a {} struct.');",
+                sanitize_export_name(&f.class_name),
+                js_method_name(&f.method_name),
+                name,
+                ffi_type_name(&cb.callback_typedef_name),
+                ffi_type_name(wrapper)
+            ));
+            b.dedent();
+            b.line("}");
+        }
     }
 }
 
@@ -1301,29 +1401,32 @@ fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::
 // Argument helpers
 // ============================================================================
 
-fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
+fn user_args(f: &FunctionDef) -> Vec<&FunctionArg> {
     f.args.iter().filter(|a| !f.is_receiver_arg(a)).collect()
 }
 
-fn render_params(args: &[&super::super::ir::FunctionArg]) -> String {
+fn render_params(args: &[&FunctionArg]) -> String {
     args.iter()
-        .map(|a| sanitize_js_identifier(&a.name))
+        .map(|a| js_arg_name(a))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
+fn render_call_args(args: &[&FunctionArg], ir: &CodegenIR) -> String {
     args.iter()
         .map(|a| {
             // Auto-string-conversion (type-driven; no method-name allow-
             // list): Owned `String` args route through `_azString` so
             // plain JS strings get converted to AzString in line. The
             // helper is a pass-through for already-AzString values.
-            let n = sanitize_js_identifier(&a.name);
-            if is_az_string_owned_arg(a) {
+            let n = js_arg_name(a);
+            if is_az_string_owned_arg(a, ir) {
                 return format!("_azString({n})", n = n);
             }
-            if a.type_name.trim() == "RefAny" {
+            // `RefAny` args: the user hands over any JS value; it is
+            // stashed in the host-handle table and a fresh RefAny that
+            // points at it is what crosses the FFI.
+            if is_refany_type(&a.type_name, ir) {
                 return format!("refanyCreate({n})", n = n);
             }
             // If the arg is a wrapper-class instance the user will pass
@@ -1337,11 +1440,14 @@ fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
 }
 
 /// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby): any Owned
-/// `String` arg at the C ABI accepts a plain JS string at the wrapper
-/// level. The call site routes the value through `_azString` (emitted
-/// in the module preamble).
-fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+/// arg of the IR's `String` type accepts a plain JS string at the
+/// wrapper level. The call site routes the value through `_azString`
+/// (emitted in the module preamble).
+fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    matches!(a.ref_kind, ArgRefKind::Owned)
+        && ir
+            .find_struct(a.type_name.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::String))
 }
 
 fn jsdoc_escape(s: &str) -> String {
