@@ -146,7 +146,7 @@ the root folder using the `azul-doc` binary.
 ```sh
 git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul
 cargo run --release --manifest-path azul/Cargo.toml -p azul-doc -- codegen all
-cargo add azul-dll --rename azul --path azul/dll
+cargo build --release -p azul-dll --rename azul --path azul/dll --features build-dll
 ```
 
 ## Simple "Counter" Example

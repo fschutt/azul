@@ -28,31 +28,52 @@ default-search-keys:
 
 In order to use Azul from Lua, you need the native prebuilt `libazul` library and the 
 pre-rendered Lua bindings, which handle the `ffi` abstraction for you. Azul's Lua bindings 
-rely on the `ffi` module. The easiest way to get this is by using LuaJIT 2.1+, which 
-includes the `ffi` module by default. 
-
-If you are using vanilla PUC Lua (5.1-5.4), you will need to install a third-party FFI 
-module such as `luaffi` via LuaRocks first.
+rely on the `ffi` module. 
 
 ## Installation
 
-You can install the Lua bindings via LuaRocks using the provided `.rockspec`:
+The easiest way to get this is by using LuaJIT 2.1+, which includes the `ffi` module by default,
+so you can skip to the next section.
+
+If you are instead using PUC Lua (5.1+), install the `cffi-lua` module first with 
+`luarocks install cffi-lua`. It builds from source, so it needs Meson, Ninja and a C++ compiler 
+(via `xcode-select --install` or similar). The same `azul.lua` then picks up `cffi` automatically 
+when LuaJIT's `ffi` is not there.
+
+```sh
+# LuaJIT
+brew install luajit
+
+# or vanilla Lua + cffi-lua
+brew install lua luarocks meson
+luarocks install cffi-lua
+```
+
+### Bindings
+
+The easiest way is to just put the `azul.lua` next to your script or on `LUA_PATH`:
+
+```sh
+wget https://azul.rs/ui/release/$VERSION/azul.lua
+```
+
+Alternatively, you can install the Lua bindings via LuaRocks using the provided `.rockspec`:
 
 ```sh
 # Via LuaRocks (downloads azul.lua automatically)
 luarocks install https://azul.rs/ui/release/$VERSION/azul-$VERSION-1.rockspec
 ```
 
-If you prefer to install manually, simply download `azul.lua` (or `azul_cffi.lua` for vanilla Lua) 
-and put it next to your script (or point `LUA_PATH` at it):
-
-```sh
-wget https://azul.rs/ui/release/$VERSION/azul.lua
-```
+Be aware that LuaRocks installs for the Lua it was set up for (usually PUCL).
 
 In either case, you still need to download the native `libazul` library from 
 the [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib` / `libazul.so` / `azul.dll`) 
-and place it where LuaJIT's `ffi.load` can find it (working directory or system library path).
+and place it where `ffi.load` can find it: the working directory, or in `DYLD_LIBRARY_PATH` (macOS) / `LD_LIBRARY_PATH` (Linux). On macOS, a Homebrew-installed 
+`libazul` in `$(brew --prefix)/lib` is not searched by default, so point `DYLD_LIBRARY_PATH` there:
+
+```sh
+export DYLD_LIBRARY_PATH="$(brew --prefix)/lib"
+```
 
 ### Building from source
 
@@ -119,10 +140,15 @@ can be passed directly.
 
 ## Build and run
 ```sh
-# macOS
-DYLD_LIBRARY_PATH=. luajit hello-world.lua
+# macOS LuaJIT, with libazul.dylib next to the script
+luajit hello-world.lua
+# macOS LuaJIT, with libazul installed via Homebrew
+DYLD_LIBRARY_PATH="$(brew --prefix)/lib" luajit hello-world.lua
 # Linux
 LD_LIBRARY_PATH=. luajit hello-world.lua
+
+# PUCL, with vanilla Lua + cffi-lua
+lua hello-world.lua
 ```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). 
