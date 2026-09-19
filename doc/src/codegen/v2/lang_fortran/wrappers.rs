@@ -31,8 +31,10 @@
 //!   allocatable`; unit enums are plain `integer` with un-prefixed constants (`ButtonType_Primary`,
 //!   `Update_RefreshDom`); `bool` is `logical`.
 //! - A wrapper passed to a consuming (by-value) parameter is moved when it is owned and deep-copied
-//!   when it is borrowed (the `RefAny` a callback receives), via the per-class `azul_take_<snake>`
-//!   helper.
+//!   when it is borrowed, via the per-class `azul_take_<snake>` helper.
+//! - A consuming `RefAny` parameter is `class(*)`: the user passes their own model (`app_create(
+//!   model_t(counter=5), ...)`, `call button%with_on_click(model, on_click)`) and the binding
+//!   upcasts it (see [`super::managed::MODEL_OF`]).
 //! - Callback-wrapper arguments (`ButtonOnClickCallback`, ...) take a Fortran procedure matching
 //!   the kind's typed abstract interface (see [`super::managed`]).
 
@@ -230,7 +232,7 @@ impl<'a> Ctx<'a> {
         for n in super::managed::reserved_names(self) {
             self.names.insert(n.to_lowercase());
         }
-        for n in [STRING_IN_HELPER, STRING_OUT_HELPER, "r", "self"] {
+        for n in [STRING_IN_HELPER, STRING_OUT_HELPER, "r", "self", "error_unit"] {
             self.names.insert(n.to_lowercase());
         }
     }
@@ -601,8 +603,9 @@ pub(crate) struct ArgPlan {
     pub post: Vec<String>,
 }
 
-/// Plan one user-facing (non-receiver) argument.
-pub(crate) fn plan_arg(ctx: &Ctx, a: &FunctionArg) -> (String, ArgPlan) {
+/// Plan one user-facing (non-receiver) argument of a function of the
+/// class `owner`.
+pub(crate) fn plan_arg(ctx: &Ctx, owner: &str, a: &FunctionArg) -> (String, ArgPlan) {
     let nm = dummy_name(&a.name);
     let owned = matches!(a.ref_kind, ArgRefKind::Owned);
     let mutable = matches!(a.ref_kind, ArgRefKind::RefMut | ArgRefKind::PtrMut);
@@ -647,6 +650,14 @@ pub(crate) fn plan_arg(ctx: &Ctx, a: &FunctionArg) -> (String, ArgPlan) {
             if let Some(del) = ctx.delete_call(&st.name, &tmp) {
                 plan.post.push(del);
             }
+        }
+        // A consuming RefAny parameter takes the user's own value (or a
+        // `ref_any_t`) and upcasts it; the RefAny class's own methods keep
+        // the wrapper type.
+        UserType::Wrapper(w) if owned && ctx.ref_any.as_deref() == Some(w.as_str()) && owner != w => {
+            plan.decls
+                .push(format!("class(*), intent(in), target :: {}", nm));
+            plan.actual = format!("{}({})", super::managed::MODEL_OF, nm);
         }
         UserType::Wrapper(w) if owned => {
             plan.decls.push(format!(
@@ -918,7 +929,11 @@ fn emit_take(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
 fn emit_factory(builder: &mut CodeBuilder, ctx: &Ctx, p: &ProcPlan) {
     let f = p.func;
     let alias = fortran_alias_for(&f.c_name);
-    let plans: Vec<(String, ArgPlan)> = f.args.iter().map(|a| plan_arg(ctx, a)).collect();
+    let plans: Vec<(String, ArgPlan)> = f
+        .args
+        .iter()
+        .map(|a| plan_arg(ctx, &f.class_name, a))
+        .collect();
     let dummies: Vec<&str> = plans.iter().map(|(n, _)| n.as_str()).collect();
     let actuals: Vec<&str> = plans.iter().map(|(_, p)| p.actual.as_str()).collect();
     let ret = f.return_type.as_deref().map(|r| plan_return(ctx, r));
@@ -958,7 +973,10 @@ fn emit_method(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, p: &ProcPlan
         "c_loc(self%raw)".to_string()
     };
 
-    let plans: Vec<(String, ArgPlan)> = f.args[1..].iter().map(|a| plan_arg(ctx, a)).collect();
+    let plans: Vec<(String, ArgPlan)> = f.args[1..]
+        .iter()
+        .map(|a| plan_arg(ctx, &f.class_name, a))
+        .collect();
     let mut dummies: Vec<&str> = vec!["self"];
     dummies.extend(plans.iter().map(|(n, _)| n.as_str()));
     let mut actuals: Vec<&str> = vec![self_actual.as_str()];

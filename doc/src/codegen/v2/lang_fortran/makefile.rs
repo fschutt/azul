@@ -19,7 +19,8 @@
 ///
 /// - `type_units`: the `azul_types_<unit>` modules with the modules each
 ///   one `use`s, in dependency order.
-/// - `ffi_units`: the `azul_ffi_<module>` modules (each `use`s `azul_types`).
+/// - `ffi_units`: the `azul_ffi_<module>` modules with the type chunks each
+///   one `use`s.
 /// - `api_modules`: the api.json module names, one `azul_<module>` facade
 ///   each (each `use`s `azul_types`, `azul_ffi_<module>` and `azul_api`).
 ///
@@ -27,7 +28,7 @@
 /// (e.g. `make FC=ifort`).
 pub fn generate_makefile(
     type_units: &[(String, Vec<String>)],
-    ffi_units: &[String],
+    ffi_units: &[(String, Vec<String>)],
     api_modules: &[String],
 ) -> String {
     let mut all: Vec<String> = Vec::new();
@@ -43,11 +44,12 @@ pub fn generate_makefile(
     all.push("azul_types".to_string());
     rules.push_str(&format!("azul_types.o: azul_types.f90 {}\n", type_objs.join(" ")));
 
-    for unit in ffi_units {
+    for (unit, deps) in ffi_units {
         all.push(unit.clone());
-        rules.push_str(&format!("{}: {}.f90 azul_types.o\n", obj(unit), unit));
+        let d: Vec<String> = deps.iter().map(|x| obj(x)).collect();
+        rules.push_str(&format!("{}: {}.f90 {}\n", obj(unit), unit, d.join(" ")));
     }
-    let ffi_objs: Vec<String> = ffi_units.iter().map(|u| obj(u)).collect();
+    let ffi_objs: Vec<String> = ffi_units.iter().map(|(u, _)| obj(u)).collect();
     all.push("azul_ffi".to_string());
     rules.push_str(&format!("azul_ffi.o: azul_ffi.f90 {}\n", ffi_objs.join(" ")));
 
