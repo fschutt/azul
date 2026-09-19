@@ -6,34 +6,260 @@
 //! through pointer-arg invokers so the libffi closure cast is always legal,
 //! and libazul's static thunks handle the by-value plumbing internally.
 //!
-//! ## Output surface
+//! ## Output surface (`azul_managed.ml`)
 //!
-//! Emitted into `azul.ml` between the regular `foreign` bindings and the
-//! wrapper records:
+//! Emitted after the `foreign` bindings, the enum modules and the wrapper
+//! records (so the helpers below can return records), before the idiomatic
+//! per-class modules:
 //!
 //! 1. **Foreign bindings** for the host-invoker C-ABI exports
 //!    (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`,
 //!    `AzRefAny_getHostHandle`, per-kind `AzApp_set<K>Invoker` /
 //!    `Az<K>_createFromHostHandle`).
-//! 2. **Handle table + releaser** — a `Hashtbl` keyed by `Unsigned.UInt64.t`
-//!    holding either a user callback or a `RefAny` user value. The releaser
-//!    closure is pinned in a top-level `let` so it isn't GC'd.
-//! 3. **Per-kind invoker closures** — one per host-invoker kind, dispatching
-//!    through the handle table.
-//! 4. **`Azul.register_callback`** — wrap an OCaml closure in the matching
-//!    `Az<Kind>` cdata struct.
-//! 5. **`Azul.refany_create` / `Azul.refany_get`** — user-data helpers
-//!    sharing the same handle table.
+//! 2. **Handle table + releaser** — a `Hashtbl` keyed by `int64` holding either a user callback or
+//!    a `RefAny` user value. The releaser closure is pinned in a top-level `let` so it isn't GC'd.
+//! 3. **`azul_refany_create` / `azul_refany_get`** and the string helper — defined before the
+//!    invokers, which unwrap `RefAny` arguments through them.
+//! 4. **Per-kind invoker closures** — one per host-invoker kind. The invoker is the ONLY place that
+//!    casts the type-erased handle-table entry (`Obj.magic`); it casts to the exact closure type
+//!    [`closure_signature`] describes, which is also the type the public registration helper
+//!    (`azul_register_<kind>`) demands, so a mismatch is a compile error in user code rather than a
+//!    crash in the invoker.
+//! 5. **`azul_<class>_with_layout`** — the IR-derived smart factory for every class matching
+//!    [`layout_callback_factory_info`].
+//! 6. **`azul_register_<kind>`** — wrap a typed OCaml closure in the matching `Az<Kind>` wrapper.
 
-use super::super::generator::CodeBuilder;
-use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
+use std::collections::BTreeSet;
 
-/// Emit the managed-FFI prelude. Must be called *after* the regular
-/// `foreign` bindings (so the wrapper records the prelude references
-/// already exist) and *before* the wrapper records / idiomatic module
-/// surface (so wrappers can call `Azul.register_callback`).
-pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::{CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
+        managed_host_invoker::{
+            has_return, host_invoker_kinds, layout_callback_factory_info, to_snake_case,
+            wrapper_name,
+        },
+    },
+    ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name, sanitize_identifier,
+};
+
+// ============================================================================
+// Naming shared with the idiomatic surface (wrappers.rs)
+// ============================================================================
+
+/// The short label of a callback kind: `LayoutCallback` -> `layout`,
+/// `ButtonOnClickCallback` -> `button_on_click`, plain `Callback` -> `` (empty).
+///
+/// One rule, two consumers: the `azul_register_<label>_callback` helper name
+/// below and the `?<label>` optional of a smart constructor whose class has a
+/// layout-callback factory (`WindowCreateOptions.create ?layout`).
+pub fn callback_kind_label(wrapper: &str) -> String {
+    let snake = to_snake_case(wrapper);
+    match snake.strip_suffix("_callback") {
+        Some(prefix) => prefix.to_string(),
+        None if snake == "callback" => String::new(),
+        None => snake,
+    }
+}
+
+/// `azul_register_<label>_callback`; plain `Callback` -> `azul_register_callback`.
+pub fn register_fn_name(wrapper: &str) -> String {
+    let label = callback_kind_label(wrapper);
+    if label.is_empty() {
+        "azul_register_callback".to_string()
+    } else {
+        format!("azul_register_{}_callback", label)
+    }
+}
+
+/// `azul_<class>_with_layout`: the smart factory of a layout-callback class.
+pub fn layout_factory_fn_name(class_name: &str) -> String {
+    format!("azul_{}_with_layout", to_snake_case(class_name))
+}
+
+// ============================================================================
+// Typed closure contract of every host-invoker kind
+// ============================================================================
+
+/// How the invoker hands one C-ABI argument (always `const T*` on the wire)
+/// to the OCaml closure. Derived from the arg's IR type only.
+pub enum InvokerArg {
+    /// `RefAny`: the host value is looked up in the handle table and passed
+    /// as the closure's `'m` (the model).
+    Model,
+    /// A regular struct / tagged union: a typed `Ctypes.ptr` to the C bytes.
+    TypedPtr { typ_value: String, ocaml_type: String },
+    /// A unit enum: read through the int pointer and decoded to its ADT.
+    UnitEnum { module: String, ffi: String },
+    /// Anything else (primitives, opaque categories): the raw `unit Ctypes.ptr`.
+    Opaque,
+}
+
+fn regular(category: TypeCategory) -> bool {
+    !matches!(
+        category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    )
+}
+
+pub fn invoker_arg(arg: &FunctionArg, ir: &CodegenIR) -> InvokerArg {
+    let t = arg.type_name.trim();
+    if t == "RefAny" {
+        return InvokerArg::Model;
+    }
+    if let Some(s) = ir.find_struct(t) {
+        if regular(s.category) && s.generic_params.is_empty() {
+            let ffi = ocaml_ffi_type_name(t);
+            return InvokerArg::TypedPtr {
+                ocaml_type: format!("{} Ctypes.structure Ctypes.ptr", ffi),
+                typ_value: ffi,
+            };
+        }
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if regular(e.category) && e.generic_params.is_empty() {
+            let ffi = ocaml_ffi_type_name(t);
+            if e.is_union {
+                return InvokerArg::TypedPtr {
+                    ocaml_type: format!("{} Ctypes.structure Ctypes.ptr", ffi),
+                    typ_value: ffi,
+                };
+            }
+            return InvokerArg::UnitEnum {
+                module: ocaml_module_name(t),
+                ffi,
+            };
+        }
+    }
+    InvokerArg::Opaque
+}
+
+/// The OCaml type of one closure parameter.
+pub fn invoker_arg_type(a: &InvokerArg) -> String {
+    match a {
+        InvokerArg::Model => "'m".to_string(),
+        InvokerArg::TypedPtr { ocaml_type, .. } => ocaml_type.clone(),
+        InvokerArg::UnitEnum { module, .. } => format!("{}.t", module),
+        InvokerArg::Opaque => "unit Ctypes.ptr".to_string(),
+    }
+}
+
+/// The expression the invoker passes for its i-th `unit ptr` parameter.
+fn invoker_arg_expr(a: &InvokerArg, i: usize) -> String {
+    match a {
+        InvokerArg::Model => format!(
+            "(match azul_refany_get (Ctypes.from_voidp az_ref_any arg{}) with | Some x -> x | None \
+             -> failwith \"RefAny carries no OCaml host value\")",
+            i
+        ),
+        InvokerArg::TypedPtr { typ_value, .. } => {
+            format!("(Ctypes.from_voidp {} arg{})", typ_value, i)
+        }
+        InvokerArg::UnitEnum { module, ffi } => format!(
+            "(match {}.of_int (Ctypes.(!@) (Ctypes.from_voidp {} arg{})) with | Some x -> x | None \
+             -> failwith \"invalid {} discriminant\")",
+            module, ffi, i, module
+        ),
+        InvokerArg::Opaque => format!("arg{}", i),
+    }
+}
+
+/// What the closure returns and how the invoker writes it through the
+/// out-pointer. Derived from the typedef's return type only.
+pub enum InvokerRet {
+    Unit,
+    /// A struct returned by value: the closure hands back the raw
+    /// `Ctypes.structure` (the idiomatic layer converts records) and the
+    /// invoker byte-copies it into the out-pointer; ownership moves to C.
+    Struct { ffi: String },
+    /// A unit enum: written as the C `int` discriminant.
+    UnitEnum { module: String },
+    /// Any other scalar: carried as `int`, written as `int32_t`.
+    Opaque,
+}
+
+pub fn invoker_ret(cb: &CallbackTypedefDef, ir: &CodegenIR) -> InvokerRet {
+    if !has_return(cb) {
+        return InvokerRet::Unit;
+    }
+    let t = cb.return_type.as_deref().unwrap_or("").trim();
+    if let Some(s) = ir.find_struct(t) {
+        if regular(s.category) {
+            return InvokerRet::Struct {
+                ffi: ocaml_ffi_type_name(t),
+            };
+        }
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if regular(e.category) {
+            if e.is_union {
+                return InvokerRet::Struct {
+                    ffi: ocaml_ffi_type_name(t),
+                };
+            }
+            return InvokerRet::UnitEnum {
+                module: ocaml_module_name(t),
+            };
+        }
+    }
+    InvokerRet::Opaque
+}
+
+pub fn invoker_ret_type(r: &InvokerRet) -> String {
+    match r {
+        InvokerRet::Unit => "unit".to_string(),
+        InvokerRet::Struct { ffi } => format!("{} Ctypes.structure", ffi),
+        InvokerRet::UnitEnum { module } => format!("{}.t", module),
+        InvokerRet::Opaque => "int".to_string(),
+    }
+}
+
+/// The exact OCaml type of a host closure for `cb`, as the invoker calls it
+/// and as `azul_register_<kind>` / `azul_<class>_with_layout` demand it:
+/// `'m -> az_callback_info Ctypes.structure Ctypes.ptr -> Update.t`.
+pub fn closure_signature(cb: &CallbackTypedefDef, ir: &CodegenIR) -> String {
+    let mut parts: Vec<String> = cb
+        .args
+        .iter()
+        .map(|a| invoker_arg_type(&invoker_arg(a, ir)))
+        .collect();
+    if parts.is_empty() {
+        parts.push("unit".to_string());
+    }
+    parts.push(invoker_ret_type(&invoker_ret(cb, ir)));
+    parts.join(" -> ")
+}
+
+/// The OCaml type `azul_register_<kind>` returns: the wrapper record when the
+/// kind's wrapper struct owns native memory, else the raw structure.
+pub fn wrapper_return_type(wrapper: &str, records: &BTreeSet<&str>) -> String {
+    if records.contains(wrapper) {
+        ocaml_wrapper_type_name(wrapper)
+    } else {
+        format!("{} Ctypes.structure", ocaml_ffi_type_name(wrapper))
+    }
+}
+
+fn wrap_expr(type_name: &str, records: &BTreeSet<&str>, raw_expr: &str) -> String {
+    if records.contains(type_name) {
+        format!("make_{} ({})", ocaml_wrapper_type_name(type_name), raw_expr)
+    } else {
+        raw_expr.to_string()
+    }
+}
+
+// ============================================================================
+// Prelude emission
+// ============================================================================
+
+/// Emit the managed-FFI prelude. `records` is the set of struct names that
+/// have a wrapper record (see `wrappers::record_types`); helpers returning
+/// such a struct return its record so the caller's finaliser bookkeeping is
+/// uniform.
+pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: &BTreeSet<&str>) {
     builder.blank();
     builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
     builder.line("(* Managed-FFI runtime helpers (host-invoker pattern).                  *)");
@@ -46,8 +272,15 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("(* We register one libffi closure per kind via Foreign.funptr — these    *)");
     builder.line("(* have *pointer-arg* signatures which Ctypes/Foreign handles fine; the  *)");
     builder.line("(* by-value plumbing lives inside libazul's static thunks. User          *)");
-    builder.line("(* callbacks live in a Hashtbl keyed by uint64; the framework's RefAny   *)");
+    builder.line("(* callbacks live in a Hashtbl keyed by int64; the framework's RefAny    *)");
     builder.line("(* destructor clears the entry via AzApp_setHostHandleReleaser.          *)");
+    builder.line("(*                                                                       *)");
+    builder.line("(* Every funptr is created with ~thread_registration:true so a call from *)");
+    builder.line("(* a thread libazul created (RefAny drop on a worker, ThreadCallback)    *)");
+    builder.line("(* first registers that thread with the OCaml runtime. The runtime lock  *)");
+    builder.line("(* is deliberately NOT taken per call (~runtime_lock stays false): the   *)");
+    builder.line("(* main thread enters App.run holding it, so re-acquiring inside a       *)");
+    builder.line("(* callback would deadlock. Callbacks are therefore main-thread only.    *)");
     builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
     builder.blank();
 
@@ -55,7 +288,10 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("let _az_app_set_host_handle_releaser =");
     builder.indent();
     builder.line("foreign \"AzApp_setHostHandleReleaser\"");
-    builder.line("  (Foreign.funptr (uint64_t @-> returning void) @-> returning void)");
+    builder.line(
+        "  (Foreign.funptr ~thread_registration:true (uint64_t @-> returning void) @-> returning \
+         void)",
+    );
     builder.dedent();
     builder.blank();
 
@@ -78,7 +314,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     }
 
     // 2. Handle table + releaser.
-    builder.line("(* Handle table: maps a uint64 host-handle id to a Lisp/OCaml value     *)");
+    builder.line("(* Handle table: maps a uint64 host-handle id to an OCaml value          *)");
     builder.line("(* (either a registered callback closure or a user RefAny value).       *)");
     builder.line("let _azul_handles : (int64, Obj.t) Hashtbl.t = Hashtbl.create 32");
     builder.line("let _azul_next_handle_id : int64 ref = ref 0L");
@@ -107,12 +343,8 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("let _ = _azul_releaser_pin");
     builder.blank();
 
-    // 3. Per-kind invoker closures + their setter calls.
-    for cb in host_invoker_kinds(ir) {
-        emit_per_kind_invoker(builder, cb, ir);
-    }
-
-    // 4 + 5. User-facing helpers.
+    // 3. RefAny + string helpers. Emitted BEFORE the invokers, which unwrap
+    //    their RefAny arguments through `azul_refany_get`.
     builder.line("(* ───────────────────────────────────────────────────────────────── *)");
     builder.line("(* Public managed-FFI helpers.                                          *)");
     builder.line("(* ───────────────────────────────────────────────────────────────── *)");
@@ -120,10 +352,17 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     builder.line("(* Wrap an arbitrary OCaml value in an AzRefAny. The value lives in the *)");
     builder.line("(* shared handle table; the destructor clears it on last-clone drop.    *)");
-    builder.line("let azul_refany_create (value : 'a) : az_ref_any structure =");
+    builder.line(&format!(
+        "let azul_refany_create (value : 'a) : {} =",
+        wrapper_return_type("RefAny", records)
+    ));
     builder.indent();
     builder.line("let id = _azul_alloc_handle value in");
-    builder.line("_az_ref_any_new_host_handle (Unsigned.UInt64.of_int64 id)");
+    builder.line(&wrap_expr(
+        "RefAny",
+        records,
+        "_az_ref_any_new_host_handle (Unsigned.UInt64.of_int64 id)",
+    ));
     builder.dedent();
     builder.blank();
 
@@ -139,20 +378,13 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
-    // Generic mark-as-consumed helper. Used by user code after
-    // passing a wrapper by-value into a consuming C function —
-    // without this, the wrapper's `Gc.finalise` would later fire
-    // `<X>_delete` on memory libazul has already moved/freed,
-    // causing a double-free (manifested as a SIGABRT in U8Vec::drop
-    // reachable from App.run → MacOSWindow::new_with_options_internal).
-    //
-    // Every wrapper record we emit has the same shape
-    // `{mutable raw; mutable disposed}` — `disposed` is field index 1.
-    // We use `Obj.set_field` to flip it without naming the concrete
-    // type. Unsafe but uniform; the alternative is one
-    // `consume_<type>` per wrapper.
-    builder.line("(* Mark a wrapper as consumed (its raw struct moved into a C call). *)");
-    builder.line("(* Stops `Gc.finalise` from later calling `<X>_delete` on freed memory. *)");
+    // Generic mark-as-consumed helper for RAW-path users. The generated
+    // wrappers never call it: they consume typed records by writing the
+    // `disposed` field directly (see wrappers.rs `emit_method_impl`).
+    builder.line("(* Mark a wrapper record as consumed (its raw struct moved into a C call). *)");
+    builder.line("(* Stops `Gc.finalise` from later calling `<X>_delete` on freed memory.    *)");
+    builder.line("(* Only for hand-written raw-path code: every generated method consumes    *)");
+    builder.line("(* the records it moves itself. `a` MUST be a `{raw; disposed}` record.    *)");
     builder.line("let azul_consume (a : 'a) : unit =");
     builder.indent();
     builder.line("(* Field 1 of every wrapper record is `mutable disposed : bool`. *)");
@@ -160,15 +392,10 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
-    // Auto-AzString-conversion helper. Wrapper methods route every
-    // Owned `String` arg through this so user code can pass plain
-    // OCaml strings directly (`Dom.create_text \"hi\"`). Pure type-
-    // driven; the codegen emits the route in `wrappers.rs` based on
-    // arg.type_name == \"String\" and ref_kind == Owned.
-    builder.line("(* Convert an OCaml string into an AzString Ctypes.structure. *)");
-    builder.line("(* Used by every wrapper method whose arg has IR type `String`   *)");
-    builder.line("(* and ref_kind Owned. Idempotent on already-AzString values     *)");
-    builder.line("(* (those skip this helper at the call site by codegen choice).  *)");
+    // Auto-AzString-conversion helper. Wrapper methods route every Owned
+    // `String` arg through this so user code can pass plain OCaml strings.
+    builder.line("(* Convert an OCaml string into an AzString Ctypes.structure. Used by *)");
+    builder.line("(* every wrapper method whose arg has IR type `String` (Owned).       *)");
     builder.line("let azul_az_string (s : string) : az_string Ctypes.structure =");
     builder.indent();
     builder.line("let len = Stdlib.String.length s in");
@@ -178,76 +405,82 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
-    // Smart <Class>_with_layout constructor: built from `_default()`
-    // and stuffs the host-invoker-registered AzLayoutCallback (with
-    // ctx preserved) into the leaf field at info.field_path. The raw
-    // `Az<Class>_create(AzLayoutCallbackType)` C-ABI export discards
-    // ctx because it takes only a fn pointer, so we cannot use the
-    // codegen-emitted `<Class>.create` for any host-invoker-routed
-    // layout.
+    // 4. Per-kind invoker closures + their setter calls.
+    for cb in host_invoker_kinds(ir) {
+        emit_per_kind_invoker(builder, cb, ir);
+    }
+
+    // 5. Smart <Class>_with_layout factory: built from `_default()` and
+    //    stuffs the host-invoker-registered AzLayoutCallback (with ctx
+    //    preserved) into the leaf field at info.field_path. The raw
+    //    `Az<Class>_create(AzLayoutCallbackType)` C-ABI export discards ctx
+    //    because it takes only a fn pointer, so the codegen-emitted
+    //    `<Class>.create_raw` cannot carry a host closure.
     //
-    // The helper is emitted once per class that
-    // [`layout_callback_factory_info`] matches — today that's only
-    // `WindowCreateOptions`, but adding another class to api.json
-    // with the same shape lights up an extra helper automatically.
+    //    Build the value directly from `_default()` — that returns a Ctypes
+    //    struct backed by OCaml-managed memory containing libazul's
+    //    default-initialized bytes (including refcounted heap pointers inside
+    //    nested U8Vec / AzString fields). Getting / setting a field gives us a
+    //    stable handle into that memory we can navigate to mutate the leaf
+    //    callback field in place.
     //
-    // Build the value directly from `_default()` — that returns a
-    // Ctypes struct backed by OCaml-managed memory containing
-    // libazul's default-initialized bytes (including refcounted heap
-    // pointers inside nested U8Vec / AzString fields). Getting / setting
-    // a field gives us a stable handle into that memory we can navigate
-    // to mutate the leaf callback field in place.
-    //
-    // DO NOT use `Ctypes.make` + `<-@ default_struct`: that allocates
-    // a SEPARATE buffer and memcpys the default bytes into it,
-    // creating two aliased copies of the same heap pointers. When
-    // libazul later drops one of the copies, the other becomes
-    // invalid. Manifested as
-    // `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
-    // inside `<U8Vec as Drop>::drop` from
-    // MacOSWindow::new_with_options_internal.
+    //    DO NOT use `Ctypes.make` + `<-@ default_struct`: that allocates a
+    //    SEPARATE buffer and memcpys the default bytes into it, creating two
+    //    aliased copies of the same heap pointers. When libazul later drops one
+    //    of the copies, the other becomes invalid (manifested as
+    //    `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
+    //    inside `<U8Vec as Drop>::drop`).
     for s in &ir.structs {
-        let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
+        let Some(info) = layout_callback_factory_info(s, ir) else {
+            continue;
+        };
+        let Some(cb) = ir
+            .callback_typedefs
+            .iter()
+            .find(|c| wrapper_name(c) == info.callback_wrapper)
         else {
             continue;
         };
-        let class_snake = to_snake_lower(&info.class_name);
-        let default_snake = to_snake_lower(&info.default_c_name);
-        let cb_snake = to_snake_lower(&info.callback_wrapper);
+        let default_snake = to_snake_case(&info.default_c_name);
+        let cb_snake = to_snake_case(&info.callback_wrapper);
         builder.line(&format!(
-            "(* Build a {} with a host-invoker-routed *)",
-            info.class_name
+            "(* Build a {} with a host-invoker-routed {} callback (ctx preserved). *)",
+            info.class_name, info.callback_wrapper
         ));
         builder.line(&format!(
-            "(* {} callback (ctx preserved). Use this instead of *)",
-            info.callback_wrapper
+            "(* {}.create_raw goes through the Az{}Type raw-fn-pointer path and loses ctx. *)",
+            info.class_name, info.callback_wrapper
         ));
         builder.line(&format!(
-            "(* {}.create, which goes through the *)",
-            info.class_name
-        ));
-        builder.line(&format!(
-            "(* Az{}Type raw-fn-pointer path and loses ctx. *)",
-            info.callback_wrapper
-        ));
-        builder.line(&format!(
-            "let azul_{}_with_layout (layout_fn : 'a)",
-            class_snake
+            "let {} (layout_fn : {})",
+            layout_factory_fn_name(&info.class_name),
+            closure_signature(cb, ir)
         ));
         builder.indent();
-        builder.line(&format!("  : az_{} Ctypes.structure =", class_snake));
+        builder.line(&format!(
+            "  : {} =",
+            wrapper_return_type(&info.class_name, records)
+        ));
         builder.line(&format!("let wco = ffi_{} () in", default_snake));
         builder.line(&format!(
             "let cb = _az_{}_create_from_host_handle",
             cb_snake
         ));
         builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
-        // Walk the field path: getf each intermediate level, setf the
-        // leaf, then setf back up the chain so the byte-copy nested
-        // structs propagate.
+        // Walk the field path: getf each intermediate level, setf the leaf,
+        // then setf back up the chain so the byte-copy nested structs
+        // propagate. Accessor names are `<ffi typ>_field_<field>` exactly as
+        // types.rs emits them.
+        let accessor = |struct_name: &str, seg: &str| {
+            format!(
+                "{}_field_{}",
+                ocaml_ffi_type_name(struct_name),
+                field_accessor_segment(seg)
+            )
+        };
         let depth = info.field_path.len();
         let mut parent_var = "wco".to_string();
-        let mut parent_struct_snake = class_snake.clone();
+        let mut parent_struct = info.class_name.clone();
         let mut intermediates: Vec<(String, String, String, String)> = Vec::new();
         for (i, seg) in info
             .field_path
@@ -256,94 +489,69 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
             .take(depth.saturating_sub(1))
         {
             let lvl_var = format!("__lvl{}", i);
-            let field_accessor = format!(
-                "az_{}_field_{}",
-                parent_struct_snake,
-                field_accessor_segment(seg)
-            );
             builder.line(&format!(
                 "let {lvl} = Ctypes.getf {parent} {accessor} in",
                 lvl = lvl_var,
                 parent = parent_var,
-                accessor = field_accessor
+                accessor = accessor(&parent_struct, seg)
             ));
-            let next_struct_snake = to_snake_lower(&info.field_types[i]);
             intermediates.push((
                 lvl_var.clone(),
                 parent_var.clone(),
-                parent_struct_snake.clone(),
+                parent_struct.clone(),
                 seg.clone(),
             ));
             parent_var = lvl_var;
-            parent_struct_snake = next_struct_snake;
+            parent_struct = info.field_types[i].clone();
         }
         let leaf_field = info
             .field_path
             .last()
             .expect("layout factory has at least one path segment");
-        let leaf_accessor = format!(
-            "az_{}_field_{}",
-            parent_struct_snake,
-            field_accessor_segment(leaf_field)
-        );
         builder.line(&format!(
             "Ctypes.setf {parent} {accessor} cb;",
             parent = parent_var,
-            accessor = leaf_accessor
+            accessor = accessor(&parent_struct, leaf_field)
         ));
-        // Write each intermediate back into its parent so the
-        // byte-copy semantics propagate up to `wco`.
-        for (lvl_var, parent_var, parent_struct_snake, seg) in intermediates.iter().rev() {
-            let accessor = format!(
-                "az_{}_field_{}",
-                parent_struct_snake,
-                field_accessor_segment(seg)
-            );
+        for (lvl_var, parent_var, parent_struct, seg) in intermediates.iter().rev() {
             builder.line(&format!(
                 "Ctypes.setf {parent} {accessor} {lvl};",
                 parent = parent_var,
-                accessor = accessor,
+                accessor = accessor(parent_struct, seg),
                 lvl = lvl_var
             ));
         }
-        builder.line("wco");
+        builder.line(&wrap_expr(&info.class_name, records, "wco"));
         builder.dedent();
         builder.blank();
     }
 
-    // Public per-kind callback registration helpers. Mirror the Lua /
-    // Python / Ruby _register_callback dispatch table — a user
-    // closure is stashed in the handle table; the matching libazul
-    // `Az<Kind>_createFromHostHandle(id)` returns the wrapper struct
-    // that the framework's static thunk dispatches through.
+    // 6. Public per-kind callback registration helpers: a TYPED closure is
+    //    stashed in the handle table; the matching libazul
+    //    `Az<Kind>_createFromHostHandle(id)` returns the wrapper struct that
+    //    the framework's static thunk dispatches through.
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
-        let snake = to_snake_lower(wrapper);
-        // Strip a trailing `_callback` from the public fn name so e.g.
-        // `LayoutCallback` becomes `azul_register_layout` rather than
-        // `azul_register_layout_callback_callback`. Plain `Callback`
-        // (snake "callback") becomes just `azul_register_callback`.
-        let fn_suffix = snake.strip_suffix("_callback").unwrap_or(&snake);
-        let fn_name = if fn_suffix.is_empty() {
-            "azul_register_callback".to_string()
-        } else if fn_suffix == "callback" {
-            "azul_register_callback".to_string()
-        } else {
-            format!("azul_register_{}_callback", fn_suffix)
-        };
+        let snake = to_snake_case(wrapper);
         builder.line(&format!(
-            "(* Wrap a host-side OCaml closure as an `az_{}` struct. *)",
-            snake
+            "(* Wrap a host-side OCaml closure as a `{}` (host-handle routed). *)",
+            wrapper
         ));
         builder.line(&format!(
-            "let {} (fn_obj : 'a) : az_{} structure =",
-            fn_name, snake
+            "let {} (fn_obj : {}) : {} =",
+            register_fn_name(wrapper),
+            closure_signature(cb, ir),
+            wrapper_return_type(wrapper, records)
         ));
         builder.indent();
         builder.line("let id = _azul_alloc_handle fn_obj in");
-        builder.line(&format!(
-            "_az_{}_create_from_host_handle (Unsigned.UInt64.of_int64 id)",
-            snake
+        builder.line(&wrap_expr(
+            wrapper,
+            records,
+            &format!(
+                "_az_{}_create_from_host_handle (Unsigned.UInt64.of_int64 id)",
+                snake
+            ),
         ));
         builder.dedent();
         builder.blank();
@@ -352,16 +560,15 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
 fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake_lower(wrapper);
+    let snake = to_snake_case(wrapper);
     let invoker_typ = format!("_az_{}_invoker_typ", snake);
     let setter_name = format!("_az_app_set_{}_invoker", snake);
     let create_name = format!("_az_{}_create_from_host_handle", snake);
-    let wrapper_ffi = format!("az_{}", snake);
+    let wrapper_ffi = ocaml_ffi_type_name(wrapper);
 
-    // Invoker typ: void (uint64, const A1*, const A2*, ..., R*).
-    // All argument pointers are opaque from OCaml's perspective so we
-    // type them as `(ptr void)`. The user's closure unmarshals when it
-    // pleases (e.g. via Ctypes.from_voidp + Ctypes.coerce).
+    // Invoker typ: void (uint64, const A1*, const A2*, ..., R*). All argument
+    // pointers are `(ptr void)` on the wire; the invoker casts them to the
+    // typed views `invoker_arg` derives.
     let mut typ_parts: Vec<String> = vec!["uint64_t".to_string()];
     for _arg in &cb.args {
         typ_parts.push("(ptr void)".to_string());
@@ -370,12 +577,11 @@ fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
         typ_parts.push("(ptr void)".to_string());
     }
     builder.line(&format!(
-        "let {} = Foreign.funptr ({} @-> returning void)",
+        "let {} = Foreign.funptr ~thread_registration:true ({} @-> returning void)",
         invoker_typ,
         typ_parts.join(" @-> ")
     ));
 
-    // Setter declaration.
     builder.line(&format!("let {} =", setter_name));
     builder.indent();
     builder.line(&format!(
@@ -385,8 +591,8 @@ fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
     builder.dedent();
     builder.blank();
 
-    // Constructor for the wrapper-from-host-handle (returns wrapper struct
-    // by value, hence `az_<wrapper>` not `(ptr az_<wrapper>)`).
+    // Constructor for the wrapper-from-host-handle (returns the wrapper
+    // struct by value, hence `az_<wrapper>` not `(ptr az_<wrapper>)`).
     builder.line(&format!("let {} =", create_name));
     builder.indent();
     builder.line(&format!(
@@ -399,32 +605,20 @@ fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
 
 fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake_lower(wrapper);
+    let snake = to_snake_case(wrapper);
     let setter_name = format!("_az_app_set_{}_invoker", snake);
+    let ret = invoker_ret(cb, ir);
+    let args: Vec<InvokerArg> = cb.args.iter().map(|a| invoker_arg(a, ir)).collect();
 
-    // The invoker looks up the user closure from the handle table,
-    // calls it, and (if has_return) writes the user's return value
-    // through `out_ptr`. The handle table is type-erased via Obj.magic;
-    // the user's closure signature must match what we cast it to here.
-    //
-    // Return handling depends on the callback's return type:
-    // - struct returns (e.g. `Dom` from LayoutCallback): user fn returns
-    //   the corresponding wrapper record; we extract `.raw` and write
-    //   the struct bytes through the typed out-pointer.
-    // - enum returns (e.g. `Update` from Callback): user fn returns
-    //   an `int`; we write it as `int32_t` through out_ptr.
-    // - void returns: ignore.
-    // We dispatch with pattern matching: the user registered with
-    // `register_callback` so the Hashtbl entry is the closure itself.
     builder.line(&format!(
-        "(* {} invoker — dispatches to handle-table entry. *)",
+        "(* {} invoker — dispatches to the handle-table entry, typed as *)",
         wrapper
     ));
+    builder.line(&format!("(*   {} *)", closure_signature(cb, ir)));
     builder.line(&format!("let _azul_{}_invoker_pin =", snake));
     builder.indent();
-    // Build the closure signature based on arg count.
     let mut params: Vec<String> = vec!["id".to_string()];
-    for (i, _) in cb.args.iter().enumerate() {
+    for i in 0..cb.args.len() {
         params.push(format!("arg{}", i));
     }
     if has_return(cb) {
@@ -432,115 +626,62 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     }
     builder.line(&format!("let invoker {} =", params.join(" ")));
     builder.indent();
+    // An enum return gets a defined value (discriminant 0) before the user
+    // closure runs, so an exception in it can never leave the out-pointer
+    // uninitialised.
+    match &ret {
+        InvokerRet::UnitEnum { .. } | InvokerRet::Opaque => {
+            builder.line("let typed_out = Ctypes.from_voidp Ctypes.int32_t out_ptr in");
+            builder.line("Ctypes.(typed_out <-@ 0l);");
+        }
+        InvokerRet::Struct { ffi } => {
+            builder.line(&format!(
+                "let typed_out = Ctypes.from_voidp {} out_ptr in",
+                ffi
+            ));
+        }
+        InvokerRet::Unit => {}
+    }
     builder.line("match Hashtbl.find_opt _azul_handles (Unsigned.UInt64.to_int64 id) with");
-    builder.line("| None -> ()");
+    builder.line(&format!(
+        "| None -> Printf.eprintf \"[azul] {} invoker: unknown host handle %Ld\\n\" \
+         (Unsigned.UInt64.to_int64 id)",
+        wrapper
+    ));
     builder.line("| Some fn_obj ->");
     builder.indent();
     builder.line("(try");
     builder.indent();
-    // We unwrap RefAny arguments automatically before passing them to the user closure.
-    let mut invoke_args: Vec<String> = Vec::new();
-    for (i, a) in cb.args.iter().enumerate() {
-        if a.type_name.trim() == "RefAny" {
-            // refany_get returns an option, we just extract the inner value via Obj.magic or similar.
-            // But since the C side passes a raw pointer to a RefAny, we use azul_refany_get.
-            invoke_args.push(format!("(match azul_refany_get (Ctypes.from_voidp az_ref_any arg{}) with | Some x -> x | None -> Obj.magic ())", i));
-        } else {
-            invoke_args.push(format!("arg{}", i));
-        }
-    }
-    // Determine the OCaml-level return type the user's closure must
-    // produce. Struct returns → user returns the raw `az_<foo>
-    // Ctypes.structure` directly (extract `.raw` from the wrapper
-    // record). Enum returns → `int`. Void → `unit`. We use raw
-    // structs here rather than the wrapper records (`dom`, `update`,
-    // etc.) because the records' `type <foo> = { ... }` definitions
-    // come *after* this invoker init in the generated file.
-    let (ocaml_return, return_kind) = match cb.return_type.as_deref() {
-        Some(rt) => {
-            let trimmed = rt.trim();
-            if ir.find_struct(trimmed).is_some() {
-                (
-                    format!("az_{} Ctypes.structure", to_snake_lower(trimmed)),
-                    "struct",
-                )
-            } else if ir.find_enum(trimmed).is_some() {
-                ("int".to_string(), "enum")
-            } else {
-                // Primitive returns get carried as int (Update) or skipped.
-                ("int".to_string(), "primitive")
-            }
-        }
-        None => ("unit".to_string(), "unit"),
-    };
-
-    // Build the closure's full OCaml signature.
-    let fn_type = if cb.args.is_empty() {
-        if has_return(cb) {
-            format!("unit -> {}", ocaml_return)
-        } else {
-            "unit -> unit".to_string()
-        }
+    let invoke_args: Vec<String> = if args.is_empty() {
+        vec!["()".to_string()]
     } else {
-        let mut parts = Vec::with_capacity(cb.args.len() + 1);
-        for a in &cb.args {
-            if a.type_name.trim() == "RefAny" {
-                parts.push("'a".to_string());
-            } else {
-                parts.push("unit Ctypes.ptr".to_string());
-            }
-        }
-        parts.push(if has_return(cb) {
-            ocaml_return.clone()
-        } else {
-            "unit".to_string()
-        });
-        parts.join(" -> ")
+        args.iter()
+            .enumerate()
+            .map(|(i, a)| invoker_arg_expr(a, i))
+            .collect()
     };
-
-    if has_return(cb) {
-        builder.line(&format!(
-            "let ret = (Obj.magic fn_obj : {}) {} in",
-            fn_type,
-            invoke_args
-                .iter()
-                .map(|a| a.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
-        ));
-        match return_kind {
-            "struct" => {
-                let ctype = match cb.return_type.as_deref() {
-                    Some(rt) => format!("az_{}", to_snake_lower(rt.trim())),
-                    None => "unit".to_string(),
-                };
-                builder.line(&format!(
-                    "let typed_out = Ctypes.from_voidp {} out_ptr in",
-                    ctype
-                ));
-                builder.line("Ctypes.(typed_out <-@ ret)");
-            }
-            "enum" | "primitive" => {
-                // Integer return → write int32_t at out_ptr.
-                builder.line("let typed_out = Ctypes.from_voidp Ctypes.int32_t out_ptr in");
-                builder.line("Ctypes.(typed_out <-@ Int32.of_int ret)");
-            }
-            _ => {
-                builder.line("let _ = out_ptr in let _ = ret in ()");
-            }
+    let call = format!(
+        "(Obj.magic fn_obj : {}) {}",
+        closure_signature(cb, ir),
+        invoke_args.join(" ")
+    );
+    match &ret {
+        InvokerRet::Unit => builder.line(&call),
+        InvokerRet::Struct { .. } => {
+            builder.line(&format!("let ret = {} in", call));
+            builder.line("Ctypes.(typed_out <-@ ret)");
         }
-    } else if invoke_args.is_empty() {
-        builder.line("(Obj.magic fn_obj : unit -> unit) ()");
-    } else {
-        builder.line(&format!(
-            "(Obj.magic fn_obj : {}) {}",
-            fn_type,
-            invoke_args
-                .iter()
-                .map(|a| a.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
-        ));
+        InvokerRet::UnitEnum { module } => {
+            builder.line(&format!("let ret = {} in", call));
+            builder.line(&format!(
+                "Ctypes.(typed_out <-@ Int32.of_int ({}.to_int ret))",
+                module
+            ));
+        }
+        InvokerRet::Opaque => {
+            builder.line(&format!("let ret = {} in", call));
+            builder.line("Ctypes.(typed_out <-@ Int32.of_int ret)");
+        }
     }
     builder.dedent();
     builder.line(&format!(
@@ -558,24 +699,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     builder.blank();
 }
 
-/// Convert a wrapper name (PascalCase) to snake_case lowercase for use as
-/// an OCaml identifier (Foreign / let binding name).
-/// Mirror of `types.rs::sanitize_field_identifier`: snake-case the IR
-/// field name and route through the shared `sanitize_identifier`
-/// reserved-word guard. Used by the WCO smart-factory emit; field
-/// accessors are generated as `az_<class_snake>_field_<this>` and must
-/// match the bindings emitted in `types.rs`.
+/// Mirror of `types.rs::sanitize_field_identifier`: snake-case the IR field
+/// name and route through the shared `sanitize_identifier` reserved-word
+/// guard. Field accessors are generated as `az_<class_snake>_field_<this>`
+/// and must match the bindings emitted in `types.rs`.
 fn field_accessor_segment(name: &str) -> String {
-    super::sanitize_identifier(&super::to_snake_case(name))
-}
-
-fn to_snake_lower(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    for (i, c) in s.chars().enumerate() {
-        if c.is_ascii_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(c.to_ascii_lowercase());
-    }
-    out
+    sanitize_identifier(&super::to_snake_case(name))
 }
