@@ -2060,9 +2060,13 @@ fn main() -> anyhow::Result<()> {
                     let _ = fs::create_dir_all(parent);
                 }
                 // In debug mode, strip the production hostname so links resolve
-                // against the local server (`python -m http.server`).
+                // against the local server (`python -m http.server`). Only in
+                // attribute values (`href="..."`, `src="..."`): a blanket
+                // replace also ate the hostname out of the install commands
+                // printed in <code> blocks, so the guide told readers to run
+                // `brew tap fschutt/azul /ui/brew.git`.
                 let mut html_out = if is_debug {
-                    html.replace("https://azul.rs", "")
+                    html.replace("=\"https://azul.rs", "=\"")
                 } else {
                     html
                 };
@@ -2373,6 +2377,7 @@ fn generate_release_pages(
             cpp17: codegen::generate_cpp_header(api_data, CppStandard::Cpp17)?,
             cpp20: codegen::generate_cpp_header(api_data, CppStandard::Cpp20)?,
             cpp23: codegen::generate_cpp_header(api_data, CppStandard::Cpp23)?,
+            cppm: codegen::v2::generate_cpp_module_partition(api_data, CppStandard::Cpp20)?,
         };
 
         // Write individual C++ header files
@@ -2382,6 +2387,7 @@ fn generate_release_pages(
         fs::write(version_dir.join("azul17.hpp"), &cpp_headers.cpp17)?;
         fs::write(version_dir.join("azul20.hpp"), &cpp_headers.cpp20)?;
         fs::write(version_dir.join("azul23.hpp"), &cpp_headers.cpp23)?;
+        fs::write(version_dir.join("azul.cppm"), &cpp_headers.cppm)?;
         println!(
             "  [OK] Generated: release/{}/azul*.hpp (all C++ versions)",
             version

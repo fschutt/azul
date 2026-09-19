@@ -234,11 +234,14 @@ fn rust_crate_build_rs() -> String {
 // Everything below the `main` function is dll/build_link.rs from the azul
 // repository, copied in verbatim by azul-doc at deploy time, so this crate and
 // the in-repo azul-dll crate search the same places in the same order:
-//   1. AZ_LINK_PATH (or AZ_DLL_PATH): comma-separated dirs or library files
+//   1. AZ_LINK_PATH: a library FILE is linked as-is (a .a / .lib statically,
+//      a shared library dynamically), directories are searched
 //   2. this crate's directory, then its parent (the project that unpacked it)
 //   3. the system library directories (brew / apt / dnf installs)
-// A libazul.a / azul.lib found instead of the shared library is linked
-// statically. Nothing found = a warning here and a linker error later.
+// Release file names (libazul.x86_64.dylib, libazul.macos.a, ...) are
+// recognised. A static archive found in a directory is linked only when no
+// shared library exists anywhere. Nothing found = a warning here and a linker
+// error later.
 #![allow(dead_code)]
 
 use std::{{
@@ -339,10 +342,12 @@ curl -O https://azul.rs/ui/release/{version}/libazul.dylib
 cargo add azul --path ./azul-rust-{version}
 ```
 
-`build.rs` looks for the library in, in order: `AZ_LINK_PATH` (or `AZ_DLL_PATH`;
-comma-separated directories or library files), this crate's directory, its
-parent (your project), then the system library directories. A `libazul.a` /
-`azul.lib` found instead of the shared library is linked statically.
+`build.rs` looks for the library in, in order: `AZ_LINK_PATH` (comma-separated
+directories or library files), this crate's directory, its parent (your
+project), then the system library directories. The release's file names
+(`libazul.x86_64.dylib`, `libazul.macos.a`, ...) are recognised. Point
+`AZ_LINK_PATH` at a `.a` / `.lib` file to link statically; a static archive
+found in a directory is used only when no shared library exists anywhere.
 
 ```sh
 export AZ_LINK_PATH=/path/to/dir-with-libazul   # only for an unusual location

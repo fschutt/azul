@@ -50,7 +50,7 @@ int main() {
     RefAny data = MyDataModel_upcast(model);
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    App app = App::create(data, AppConfig::default_());
+    App app = App::create(data, AppConfig::create());
     app.run(window);
     return 0;
 }

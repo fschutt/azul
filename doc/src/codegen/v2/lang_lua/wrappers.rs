@@ -23,6 +23,10 @@
 //! and instance methods drop the leading `<TypeName>_` so callers write
 //! `app:run(window)` instead of `C.AzApp_run(app, window)`.
 //!
+//! Emitted Lua must stay dual-runtime (LuaJIT `ffi` / cffi-lua): no
+//! `type(x) == 'cdata'` (use `ffi.istype` or the `_is_cdata` shim), no
+//! `ULL` literals — see `lang_lua/mod.rs`.
+//!
 //! # Skipped categories
 //!
 //! - `TypeCategory::Recursive`        — same reason as Python.
@@ -35,8 +39,11 @@
 //!   `ffi.cast('Az<CallbackTypedefName>', fn)`).
 
 use super::super::{
-    ir::{CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory},
-    managed_lang_helpers::has_callback_arg,
+    ir::{
+        ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind,
+        StructDef, TypeCategory,
+    },
+    managed_lang_helpers::{has_callback_arg, is_refany_type},
 };
 
 /// Generate the full wrapper section as a single Lua source string.
@@ -218,9 +225,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
             "    function {}_methods:{}(data, fn)\n",
             class, smart_snake
         ));
-        out.push_str("        local data_ref = azul.refany_create(data)\n");
         out.push_str(&format!(
-            "        return self:{}(data_ref, fn)\n",
+            "        return self:{}(data, fn)\n",
             func.method_name
         ));
         out.push_str("    end\n");
@@ -265,7 +271,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str(&format!("    function {}_methods:to_lua_array()\n", class));
         out.push_str("        if self.ptr == nil or self.len == 0 then return {} end\n");
         out.push_str("        local t = {}\n");
-        out.push_str("        for i = 0, tonumber(self.len) - 1 do\n");
+        out.push_str("        for i = 0, _tonum(self.len) - 1 do\n");
 
         // Detect the element type from the first field. The IR
         // stores it as `*const T` / `*mut T` or sometimes bare `T`
@@ -340,14 +346,18 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     let eq_sym = format!("Az{}_partialEq", s.name);
     let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let eq_clause = if has_eq {
-        // Guard against `cdata == nil` and cross-type equality; both
-        // LuaJIT idioms invoke __eq with `b = nil` or a non-cdata,
-        // which would otherwise dereference NULL inside the C-side
-        // partialEq comparator and SIGSEGV.
+        // Guard against `cdata == nil` and cross-type equality: LuaJIT
+        // invokes __eq with `b = nil` / a foreign cdata, which would
+        // otherwise dereference garbage inside the C-side partialEq
+        // comparator. `ffi.istype` (not `type(x) == 'cdata'`) makes the
+        // check exact and keeps it valid under cffi-lua, where cdata are
+        // userdata to `type()`. The ctype is cached per do-block.
+        out.push_str(&format!("    local {}_ct = ffi.typeof('{}')\n", class, c_name));
         format!(
-            ", __eq = function(a, b) if type(a) ~= 'cdata' or type(b) ~= 'cdata' then return \
-             false end; return C.{}(a, b) end",
-            eq_sym
+            ", __eq = function(a, b) if not (ffi.istype({c}_ct, a) and ffi.istype({c}_ct, b)) \
+             then return false end; return C.{}(a, b) end",
+            eq_sym,
+            c = class
         )
     } else {
         String::new()
@@ -364,7 +374,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     let tostring_clause = if has_dbg {
         format!(
             ", __tostring = function(self) local az = C.{}(self); local ok = az.vec.ptr ~= nil \
-             and az.vec.len > 0; local s = ok and ffi.string(az.vec.ptr, tonumber(az.vec.len)) or \
+             and az.vec.len > 0; local s = ok and ffi.string(az.vec.ptr, _tonum(az.vec.len)) or \
              ''; C.AzString_delete(az); return s end",
             dbg_sym
         )
@@ -382,7 +392,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         && s.fields[2].name == "cap"
         && s.fields[1].type_name.trim() == "usize";
     let len_clause = if is_vec {
-        ", __len = function(self) return tonumber(self.len) end".to_string()
+        ", __len = function(self) return _tonum(self.len) end".to_string()
     } else {
         String::new()
     };
@@ -574,8 +584,9 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 //
 // * No callback args → keep the simple varargs forwarder, which forwards all incoming args
 //   verbatim.
-// * Has callback args → emit an explicit parameter list and inject a `arg =
-//   azul.pin_callback('AzFooCallbackType', arg)` line for each callback-typed arg before the C
+// * Has callback args → emit an explicit parameter list and inject an
+//   `azul._register_callback(<kind>, arg)` (host-invoker kinds) or
+//   `azul.pin_callback('AzFooCallbackType', arg)` line for each callback-typed arg before the C
 //   call.
 
 /// Emit one instance method line (the do-block and `local Foo_methods = {}`
@@ -613,28 +624,25 @@ fn emit_instance_method(
     // args (can't use the `(...)` varargs passthrough) so we can route
     // each one through `azul._az_string(...)`. Mirrors the auto-string
     // rule in Java/Kotlin/C#/Ruby/Node.
-    let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir));
+    let has_refany = func.args.iter().any(|a| is_owned_refany_arg(a, ir));
 
     // Consume-after-by-value (mirrors lang_java/kotlin/csharp's
-    // `consume_after_call` walk landed in 62094b885). Any arg whose IR
-    // ref_kind is Owned has its bytes transferred to Rust by the C
-    // call; LuaJIT's __gc metatype handler would otherwise re-run
-    // Az<X>_delete on those now-Rust-owned bytes. `azul._consume`
-    // (defined in lang_lua/managed.rs) calls `ffi.gc(c, nil)` to
-    // detach the finalizer per-instance. Safe on primitives — the
-    // helper type-checks for cdata first.
+    // `consume_after_call` walk landed in 62094b885). Any owned by-value
+    // arg of a deletable type has its bytes transferred to Rust by the C
+    // call; the __gc metatype handler would otherwise re-run Az<X>_delete
+    // on those now-Rust-owned bytes. `azul._consume` (lang_lua/managed.rs)
+    // calls `ffi.gc(c, nil)` to detach the finalizer per instance. RefAny
+    // args are exempt: `azul._refany_arg` hands the C call an unarmed
+    // transient (see `emit_arg_coercions`).
     let consumed_self = func
         .args
         .first()
-        .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
         .unwrap_or(false);
-    let consumed_arg_indices: Vec<usize> = func
-        .args
-        .iter()
-        .enumerate()
-        .skip(1)
-        .filter(|(_, a)| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
-        .map(|(i, _)| i)
+    let consumed_arg_indices: Vec<usize> = lua_consumable_arg_indices(func, ir)
+        .into_iter()
+        .filter(|i| *i > 0)
         .collect();
 
     // Phase I.5.5 (Lua): Option/Result auto-unwrap at the wrapper
@@ -675,7 +683,7 @@ fn emit_instance_method(
     // (Option/Result) are non-void so they bypass this entirely.
     let returns_self = func.return_type.is_none() && !consumed_self;
 
-    if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() && !needs_consume {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && unwrap_call.is_none() && !needs_consume {
         if returns_self {
             out.push_str(&format!(
                 "    function {}_methods:{}(...) C.{}(self, ...); return self end\n",
@@ -692,7 +700,7 @@ fn emit_instance_method(
         return;
     }
 
-    if !has_callback_arg(func) && !has_az_string && !needs_consume {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && !needs_consume {
         // Auto-unwrap only path: keep the varargs varadic, wrap the return.
         // `returns_self` is impossible here (unwrap_call only triggers on
         // Option/Result, which are non-void), so no chainable branch.
@@ -722,21 +730,7 @@ fn emit_instance_method(
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[1..], &visible);
 
-    // Auto-AzString conversion: reassign the visible variable instead
-    // of inlining `azul._az_string(x)` in the call args. The temp born
-    // inside `_az_string` is ARMED (owns its heap buffer); the C call
-    // consumes the bytes, so the post-call `azul._consume(x)` line —
-    // which targets the visible variable — must see the SAME cdata to
-    // disarm it. (The old inline form left an anonymous armed temp
-    // whose finalizer would double-free the now-Rust-owned buffer.)
-    for (i, a) in func.args.iter().skip(1).enumerate() {
-        if is_az_string_owned_arg(a) {
-            out.push_str(&format!(
-                "        {n} = azul._az_string({n})\n",
-                n = visible[i]
-            ));
-        }
-    }
+    emit_arg_coercions(out, "        ", &func.args[1..], &visible, ir);
 
     // Functions with a callback-wrapper arg call the `<c_name>Struct`
     // C symbol (whole wrapper struct by value; declared in the cdef via
@@ -748,13 +742,6 @@ fn emit_instance_method(
     for (i, _a) in func.args.iter().skip(1).enumerate() {
         call_args.push(visible[i].clone());
     }
-    // Phase I.5.5 (Lua): auto-unwrap Option/Result return at the body
-    // end. Reused detection from above (varargs short-circuit path).
-    let unwrap_call = match func.return_type.as_deref().map(str::trim) {
-        Some(rt) if rt.starts_with("Option") => Some(":to_opt()"),
-        Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
-        _ => None,
-    };
     // Capture the result before emitting consume calls (statements
     // can't follow a `return`), then return at the end.
     let consume_lines: Vec<String> = {
@@ -834,11 +821,6 @@ fn emit_instance_method(
     out.push_str("    end\n");
 }
 
-/// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby/Node):
-/// any Owned `String` arg accepts a plain Lua string at the wrapper
-/// level. The call site routes the value through `azul._az_string`
-/// (defined in `mod.rs` postlude). Pure type-driven; no method-name
-/// allowlist.
 /// True iff the IR exports `Az<payload_ty>_clone` (FunctionKind::DeepCopy).
 fn lua_has_clone(payload_ty: &str, ir: &CodegenIR) -> bool {
     ir.functions
@@ -882,14 +864,17 @@ fn lua_arm(expr: &str, fin: &Option<String>) -> String {
 /// Owned-by-value args of deletable types: the C call transfers their
 /// bytes to Rust, so the (possibly armed) cdata must have its finalizer
 /// detached afterwards via `azul._consume`. Copy types and primitives
-/// are never armed, so they need no consume.
+/// are never armed, so they need no consume; owned `RefAny` args are
+/// coerced into unarmed transients by `azul._refany_arg` and are exempt
+/// too (see `emit_arg_coercions`).
 fn lua_consumable_arg_indices(func: &FunctionDef, ir: &CodegenIR) -> Vec<usize> {
     func.args
         .iter()
         .enumerate()
         .filter(|(_, a)| {
-            matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+            matches!(a.ref_kind, ArgRefKind::Owned)
                 && lua_has_delete(a.type_name.trim(), ir)
+                && !is_refany_type(&a.type_name, ir)
         })
         .map(|(i, _)| i)
         .collect()
@@ -941,7 +926,7 @@ fn emit_lua_to_opt_body(out: &mut String, class: &str, payload_ty: &str, ir: &Co
         out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
         out.push_str("            __out = \"\"\n");
         out.push_str("        else\n");
-        out.push_str("            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n");
+        out.push_str("            __out = ffi.string(__azs.vec.ptr, _tonum(__azs.vec.len))\n");
         out.push_str("        end\n");
         if has_delete {
             out.push_str(&delete_line);
@@ -1007,7 +992,7 @@ fn emit_lua_unwrap_body(out: &mut String, class: &str, payload_ty: &str, ir: &Co
         out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
         out.push_str("            __out = \"\"\n");
         out.push_str("        else\n");
-        out.push_str("            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n");
+        out.push_str("            __out = ffi.string(__azs.vec.ptr, _tonum(__azs.vec.len))\n");
         out.push_str("        end\n");
         if has_delete {
             out.push_str(&delete_line);
@@ -1036,8 +1021,45 @@ fn emit_lua_unwrap_body(out: &mut String, class: &str, payload_ty: &str, ir: &Co
     out.push_str("    end\n");
 }
 
-fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+/// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby/Node): any
+/// owned `String` arg (IR category `TypeCategory::String`, not a name
+/// match) accepts a plain Lua string at the wrapper level; the call site
+/// routes it through `azul._az_string` (lang_lua/managed.rs). Type-driven;
+/// no method-name allowlist.
+fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    lua_payload_is_string(a.type_name.trim(), ir) && matches!(a.ref_kind, ArgRefKind::Owned)
+}
+
+/// Owned `RefAny` args (IR category `TypeCategory::RefAny`) accept any Lua
+/// value (auto-wrapped into a host-handle RefAny) or an existing RefAny
+/// cdata (cloned); see `azul._refany_arg`. Borrowed RefAny args
+/// (`&RefAny`) are passed through untouched.
+fn is_owned_refany_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    is_refany_type(&a.type_name, ir) && matches!(a.ref_kind, ArgRefKind::Owned)
+}
+
+/// Pre-call coercion of the visible args — ONE emitter for the three
+/// wrapper shapes (instance method, enumerated static, callback static):
+/// owned `String` args accept plain Lua strings (`azul._az_string`), owned
+/// `RefAny` args accept any Lua value (`azul._refany_arg`). Both helpers
+/// return UNARMED transients that the C call consumes, so neither needs a
+/// post-call `azul._consume`; the value is reassigned onto the visible
+/// variable so the (defensive) consume line emitted for owned deletable
+/// args sees the same cdata the C call consumed.
+fn emit_arg_coercions(
+    out: &mut String,
+    indent: &str,
+    args: &[FunctionArg],
+    names: &[String],
+    ir: &CodegenIR,
+) {
+    for (i, a) in args.iter().enumerate() {
+        if is_az_string_owned_arg(a, ir) {
+            out.push_str(&format!("{indent}{n} = azul._az_string({n})\n", n = names[i]));
+        } else if is_owned_refany_arg(a, ir) {
+            out.push_str(&format!("{indent}{n} = azul._refany_arg({n})\n", n = names[i]));
+        }
+    }
 }
 
 /// Emit one entry of a static-method table:
@@ -1074,7 +1096,8 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // When the func has Owned `String` args, switch from the varargs
     // passthrough to an enumerated form so we can route each through
     // `azul._az_string`.
-    let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir));
+    let has_refany = func.args.iter().any(|a| is_owned_refany_arg(a, ir));
 
     // Ownership plumbing (mirrors emit_instance_method):
     // * armed return  — owned by-value C returns never see the metatype __gc (LuaJIT arms it only
@@ -1088,7 +1111,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
         .and_then(|t| lua_finalizer_for(t, ir));
     let consumable = lua_consumable_arg_indices(func, ir);
 
-    if !has_callback_arg(func) && !has_az_string && consumable.is_empty() {
+    if !has_callback_arg(func) && !has_az_string && !has_refany && consumable.is_empty() {
         out.push_str(&format!(
             "    {} = function(...) return {} end,\n",
             lua_method,
@@ -1112,14 +1135,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
             lua_method,
             visible.join(", ")
         ));
-        for (i, a) in func.args.iter().enumerate() {
-            if is_az_string_owned_arg(a) {
-                out.push_str(&format!(
-                    "        {n} = azul._az_string({n})\n",
-                    n = visible[i]
-                ));
-            }
-        }
+        emit_arg_coercions(out, "        ", &func.args, &visible, ir);
         let call = format!("C.{}({})", func.c_name, visible.join(", "));
         if func.return_type.is_none() {
             out.push_str(&format!("        {}\n", call));
@@ -1255,17 +1271,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[..], &visible);
 
-    // Auto-AzString pre-assignment (see emit_instance_method: the temp
-    // is armed inside `_az_string`, so the post-call consume must see
-    // the same cdata via the visible variable).
-    for (i, a) in func.args.iter().enumerate() {
-        if is_az_string_owned_arg(a) {
-            out.push_str(&format!(
-                "        {n} = azul._az_string({n})\n",
-                n = visible[i]
-            ));
-        }
-    }
+    emit_arg_coercions(out, "        ", &func.args, &visible, ir);
     // Functions with a callback-wrapper arg call the `<c_name>Struct`
     // C symbol (whole wrapper struct by value); see emit_method.
     let call = format!(
@@ -1299,10 +1305,11 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
 /// place and the C-ABI function receives the wrapper struct.
 ///
 /// The kind name comes from the wrapper struct (callback typedef "Foo"
-/// belongs to wrapper "Foo" — IR pre-strips the trailing "Type"). We
-/// only support the two kinds wired up in PR 1; unknown kinds fall back
-/// to the legacy `pin_callback` so wrappers still emit valid code for
-/// callback types that haven't received a `_createFromHostHandle` yet.
+/// belongs to wrapper "Foo" — IR pre-strips the trailing "Type"). Every
+/// kind in `HOST_INVOKER_KINDS` goes through the host-invoker path; the
+/// remaining kinds fall back to `azul.pin_callback` (lang_lua/managed.rs),
+/// which builds the C function pointer with `ffi.cast` and raises a clear
+/// error where the FFI cannot marshal the typedef's by-value struct args.
 fn emit_callback_pin_lines(
     out: &mut String,
     indent: &str,
@@ -1359,9 +1366,12 @@ fn emit_callback_pin_lines(
                 ));
             }
         } else {
-            // Legacy path for callback kinds without a host-invoker yet.
-            // Keeps the wrapper output well-formed; binding still loads,
-            // but the resulting cast won't execute on libffi-style hosts.
+            // Callback kinds without a host invoker: `azul.pin_callback`
+            // (lang_lua/managed.rs) ffi.casts the Lua function to the C
+            // typedef and pins it. LuaJIT cannot build callbacks whose C
+            // signature passes structs by value (most of these typedefs
+            // do); the call then raises a clear error naming the typedef
+            // instead of silently registering nothing.
             let cb_typename = format!("Az{}", cb.callback_typedef_name);
             out.push_str(&format!(
                 "{indent}{n} = azul.pin_callback('{ty}', {n})\n",

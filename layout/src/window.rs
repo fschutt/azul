@@ -13961,7 +13961,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: OptionRefAny::None,
+                ctx: core::cell::RefCell::new(OptionRefAny::None),
             };
             let base_info = CallbackInfo::new(
                 &ref_data,
@@ -14313,7 +14313,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: timer_ctx,
+                ctx: core::cell::RefCell::new(timer_ctx),
             };
 
             let callback_info = CallbackInfo::new(
@@ -14459,7 +14459,7 @@ impl LayoutWindow {
                     monitors: self.monitors.clone(),
                     #[cfg(feature = "icu")]
                     icu_localizer: self.icu_localizer.clone(),
-                    ctx: callback.ctx.clone(),
+                    ctx: core::cell::RefCell::new(callback.ctx.clone()),
                 };
 
                 let callback_info = CallbackInfo::new(
@@ -14555,7 +14555,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: callback.ctx.clone(),
+                ctx: core::cell::RefCell::new(callback.ctx.clone()),
             };
 
             let callback_info = CallbackInfo::new(
@@ -14715,7 +14715,7 @@ impl LayoutWindow {
             monitors: self.monitors.clone(),
             #[cfg(feature = "icu")]
             icu_localizer: self.icu_localizer.clone(),
-            ctx: callback.ctx.clone(),
+            ctx: core::cell::RefCell::new(callback.ctx.clone()),
         };
 
         let callback_info = CallbackInfo::new(

@@ -225,7 +225,7 @@ extern "C" fn on_tick(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 This is the reference implementation of the *inter-widget fast path* - the
 pattern, when to use it, and when to prefer a plain `RefreshDom` are covered
-in [the architecture chapter](architecture.md#the-inter-widget-fast-path-markers--virtualview-re-renders).
+in [the architecture chapter](architecture.md#inter-widget-communication).
 The heavy path stays valid: store the percentage in your data model, return
 `Update::RefreshDom`, and the rebuilt DOM carries the new value like any
 other widget.

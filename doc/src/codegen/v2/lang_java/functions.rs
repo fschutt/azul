@@ -24,7 +24,7 @@ use super::{
         generator::CodeBuilder,
         ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
     },
-    emit_file, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME,
+    emit_file, javadoc_escape, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME,
 };
 
 /// Look up the api.json module that owns `class_name`. Falls back to
@@ -266,17 +266,3 @@ fn map_jvm_type_for_return(type_name: &str, ir: &CodegenIR) -> String {
     map_jvm_type_for_owned_arg(type_name, ir)
 }
 
-/// Escape characters that are illegal in a Javadoc comment body.
-///
-/// Java's javadoc parser interprets `\u` / `\U` as Unicode escapes
-/// (even inside comments — see JLS §3.3). Doc strings like
-/// `C:\Users\username` contain `\U` which is parsed as the start of an
-/// invalid Unicode escape sequence and rejected. Double the
-/// backslashes so the literal text survives.
-fn javadoc_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace("*/", "*&#47;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('&', "&amp;")
-}

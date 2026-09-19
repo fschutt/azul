@@ -295,6 +295,24 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     refany_to_host_handle(r).unwrap_or(0)
 }
 
+/// Implemented by every `info` type a host-invoked callback kind receives
+/// (`CallbackInfo`, `LayoutCallbackInfo`, `VirtualViewCallbackInfo`,
+/// `ThreadSender`, ...).
+///
+/// `install_host_ctx` makes a wrapper's host ctx visible to the per-kind
+/// thunk (which reads `info.get_ctx()`) when the ENGINE invokes that wrapper
+/// from inside another callback: widget-internal handlers (`CheckBox`'s
+/// on-toggle, `TextInput`'s on-text-input, `DropDown`, `ColorInput`, ...)
+/// forward the user's typed callback with the `info` they themselves
+/// received, whose ctx is the internal handler's (`None`). Before this
+/// existed every non-`Button` widget callback silently returned the kind's
+/// default for EVERY managed language (found 2026-09-19 via the Node binding).
+/// The macro-generated `<Wrapper>::invoke` installs the ctx and is the only
+/// way engine code should call a managed-kind wrapper.
+pub trait HostCtxCarrier {
+    fn install_host_ctx(&mut self, ctx: &crate::refany::OptionRefAny);
+}
+
 /// Macro that expands to the per-callback-kind boilerplate:
 ///
 /// a static thunk
@@ -335,6 +353,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
     ) => {
         $crate::impl_managed_callback! {
             wrapper:        $wrapper,
@@ -345,7 +364,8 @@ macro_rules! impl_managed_callback {
             invoker_ty:     $invoker_ty,
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
-            from_handle_fn: $from_handle_fn,
+            from_handle_fn:       $from_handle_fn,
+            $( from_handle_byref_fn: $from_handle_byref_fn, )?
             extra_args:     [],
         }
     };
@@ -364,6 +384,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
+        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
         extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
         /// Process-global slot for this callback kind's host-side invoker.
@@ -511,6 +532,23 @@ macro_rules! impl_managed_callback {
                     ),
                 }
             }
+
+            /// Invoke the wrapped callback with this wrapper's host ctx
+            /// installed into `info` first (see
+            /// [`$crate::host_invoker::HostCtxCarrier`]). Engine code that
+            /// forwards a user callback from inside another callback MUST
+            /// use this instead of `(self.cb)(..)`, otherwise the thunk of a
+            /// managed-language callback sees the outer callback's ctx
+            /// (`None`) and returns the default without calling the host.
+            pub fn invoke(
+                &self,
+                data: $crate::refany::RefAny,
+                mut info: $info_ty,
+                $( $extra_name : $extra_ty , )*
+            ) -> $ret {
+                <$info_ty as $crate::host_invoker::HostCtxCarrier>::install_host_ctx(&mut info, &self.ctx);
+                (self.cb)(data, info $( , $extra_name )* )
+            }
         }
 
         /// C-ABI export wrapping `<Wrapper>::create_from_host_handle`.
@@ -518,6 +556,18 @@ macro_rules! impl_managed_callback {
         pub extern "C" fn $from_handle_fn(handle: u64) -> $wrapper {
             <$wrapper>::create_from_host_handle(handle)
         }
+
+        $(
+        #[no_mangle]
+        #[doc(hidden)]
+        pub unsafe extern "C" fn $from_handle_byref_fn(handle: u64, out: *mut $wrapper) { unsafe {
+            if !out.is_null() {
+                core::ptr::write(out, <$wrapper>::create_from_host_handle(handle));
+            }
+        }}
+        )?
+
+
     };
 }
 
@@ -604,6 +654,9 @@ mod tests {
     struct FakeRet(u32);
 
     struct FakeInfo;
+    impl crate::host_invoker::HostCtxCarrier for FakeInfo {
+        fn install_host_ctx(&mut self, _ctx: &crate::refany::OptionRefAny) {}
+    }
     impl FakeInfo {
         // Panics from *inside* the thunk body (pure-Rust unwind), so the
         // thunk's `catch_unwind` is the thing under test.
@@ -629,6 +682,7 @@ mod tests {
         thunk_fn:       az_test_fake_thunk,
         setter_fn:      az_test_fake_set_invoker,
         from_handle_fn: az_test_fake_from_handle,
+        from_handle_byref_fn: az_test_fake_from_handle_byref,
     }
 
     #[test]
@@ -646,3 +700,10 @@ mod tests {
 #[cfg(test)]
 #[path = "host_invoker_test.rs"]
 mod host_invoker_test;
+
+#[no_mangle]
+pub unsafe extern "C" fn AzRefAny_newHostHandleByref(id: u64, out: *mut RefAny) { unsafe {
+    if !out.is_null() {
+        core::ptr::write(out, host_handle_to_refany(id));
+    }
+}}

@@ -452,6 +452,7 @@ impl<'a> IRBuilder<'a> {
                     "eq",
                     "clone",
                     "default",
+                    "createDefault",
                     "debug",
                     "display",
                 ];
@@ -1189,7 +1190,7 @@ impl<'a> IRBuilder<'a> {
                         .iter()
                         .map(|arg_data| {
                             FunctionArg {
-                                name: String::new(), // CallbackArgData doesn't have a name field
+                                name: arg_data.name.clone().unwrap_or_default(),
                                 type_name: arg_data.r#type.clone(),
                                 ref_kind: match arg_data.ref_kind {
                                     crate::api::RefKind::Ref => ArgRefKind::Ref,
@@ -2036,9 +2037,9 @@ impl<'a> IRBuilder<'a> {
         // _default (Default)
         if traits.is_default {
             self.ir.functions.push(FunctionDef {
-                c_name: format!("Az{}_default", type_name),
+                c_name: format!("Az{}_createDefault", type_name),
                 class_name: type_name.to_string(),
-                method_name: "default".to_string(),
+                method_name: "createDefault".to_string(),
                 kind: FunctionKind::Default,
                 args: vec![], // No arguments - static function
                 return_type: Some(type_name.to_string()),

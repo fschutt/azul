@@ -325,7 +325,7 @@ equality**, so minting a fresh UUID every `layout()` never makes the
 DOM diff consider a node "changed". The full pattern — when to prefer
 it over `RefreshDom`, and how widgets like `ProgressBar` expose update
 functions for it — is the architecture guide's
-["inter-widget fast path"](../architecture.md#the-inter-widget-fast-path-markers--virtualview-re-renders)
+["inter-widget fast path"](../architecture.md#inter-widget-communication)
 section.
 
 ## A complete example

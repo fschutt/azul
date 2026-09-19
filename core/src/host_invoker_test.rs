@@ -459,6 +459,11 @@ mod autotest_generated {
             self.ctx.clone()
         }
     }
+    impl crate::host_invoker::HostCtxCarrier for AutoInfo {
+        fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+            self.ctx = ctx.clone();
+        }
+    }
 
     #[repr(C)]
     #[derive(Debug)]

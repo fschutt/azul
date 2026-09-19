@@ -170,6 +170,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_button_on_click_callback_thunk,
     setter_fn:      AzApp_setButtonOnClickCallbackInvoker,
     from_handle_fn: AzButtonOnClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzButtonOnClickCallback_createFromHostHandleByref,
 }
 
 // ButtonType-specific styling

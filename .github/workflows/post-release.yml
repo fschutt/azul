@@ -633,3 +633,27 @@ jobs:
           # The action runs `script` line-by-line in separate shells. We pass a
           # single script file to preserve state and variables between steps.
           script: bash "$GITHUB_WORKSPACE/scripts/verify_apk_launch.sh"
+
+  go_cross_compile:
+    name: "go cross-compile (Linux -> Windows)"
+    needs: resolve
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Fetch bundle and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The example's go.mod says `replace azul.rs/ui/go => ./azul-go`.
+          git clone --depth 1 https://github.com/fschutt/azul-go examples/go/azul-go
+          cd examples/go
+          # purego: no cgo, no C cross-compiler, no CGO_* variables.
+          export GOOS=windows GOARCH=amd64
+          go vet ./...
+          go build -o hello-world.exe .
+          test -f hello-world.exe || { echo "::error::Cross-compiled executable not found!"; exit 1; }
+          echo "Cross-compilation successful!"

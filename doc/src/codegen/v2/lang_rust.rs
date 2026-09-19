@@ -3833,7 +3833,7 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
-            builder.line(&format!("unsafe {{ {}() }}", sym("default")));
+            builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -4143,7 +4143,7 @@ impl RustGenerator {
                 "pub unsafe extern \"C\" fn {}({}){} {}",
                 func.c_name, args, return_str, body
             ));
-            Self::emit_byref_twin(builder, func, config, export_feature, is_export_only);
+            Self::emit_byref_twin(builder, func, ir, config, export_feature, is_export_only);
             return;
         }
 
@@ -4247,7 +4247,7 @@ impl RustGenerator {
                 a
             })
             .collect();
-        Self::emit_byref_twin(builder, &raw_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &raw_def, ir, config, export_feature, is_export_only);
         let mut ctx_def = raw_def.clone();
         ctx_def.c_name = format!("{}WithCtx", func.c_name);
         ctx_def.args = Vec::with_capacity(func.args.len() + 1);
@@ -4261,10 +4261,10 @@ impl RustGenerator {
                 ctx_def.args.push(c);
             }
         }
-        Self::emit_byref_twin(builder, &ctx_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &ctx_def, ir, config, export_feature, is_export_only);
         let mut struct_def = func.clone();
         struct_def.c_name = format!("{}Struct", func.c_name);
-        Self::emit_byref_twin(builder, &struct_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &struct_def, ir, config, export_feature, is_export_only);
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside
@@ -4647,21 +4647,32 @@ impl RustGenerator {
     fn emit_byref_twin(
         builder: &mut CodeBuilder,
         func: &FunctionDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
         export_feature: &str,
         is_export_only: bool,
     ) {
+        // "Aggregate" = `CodegenIR::is_value_aggregate` (struct or tagged
+        // union; NOT a C enum / alias / fn-pointer typedef). Must match
+        // lang_c.rs `emit_c_byref_twin` exactly: the header declares what
+        // this exports. A twin is emitted when an owned aggregate arg is
+        // present OR the return is an aggregate (purego cannot return
+        // structs by value, so every struct-returning API needs one).
         let is_aggregate = |arg: &FunctionArg| {
-            matches!(arg.ref_kind, ArgRefKind::Owned)
-                && arg
-                    .type_name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_uppercase())
-                && !arg.type_name.ends_with("CallbackType")
-                && !arg.type_name.ends_with("FnType")
+            matches!(arg.ref_kind, ArgRefKind::Owned) && ir.is_value_aggregate(&arg.type_name)
         };
-        if !func.args.iter().any(is_aggregate) || func.fn_body.is_none() {
+        let ret_is_aggregate = func
+            .return_type
+            .as_deref()
+            .is_some_and(|r| ir.is_value_aggregate(r));
+        // NB: no `fn_body.is_none()` gate. The derived trait entry points
+        // (`_clone`, `_createDefault`, `_toDbgString`, ...) have no api.json
+        // body but DO return aggregates, and their base symbols are always
+        // emitted (`generate_function_body` has dedicated branches for
+        // them); the C header declares their twins, so the dll must export
+        // them — purego and cffi-lua need `AzDom_cloneByref` /
+        // `AzWindowCreateOptions_createDefaultByref` to get a struct back.
+        if !func.args.iter().any(is_aggregate) && !ret_is_aggregate {
             return;
         }
         if is_export_only {

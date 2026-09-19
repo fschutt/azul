@@ -32,7 +32,7 @@ use super::{
             TypeAliasDef, TypeCategory,
         },
     },
-    emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, user_enum_type_name,
+    emit_file, ffi_type_name, javadoc_escape, map_jvm_type, sanitize_identifier, user_enum_type_name,
 };
 
 // ============================================================================
@@ -282,7 +282,7 @@ fn emit_monomorphized_alias_files(
                         let variant_struct = format!("{}Variant_{}", name, v.name);
                         let field = sanitize_identifier(&v.name);
                         b.line(&format!("public {} {};", variant_struct, field));
-                        field_names.push(format!("\"{}\"", v.name));
+                        field_names.push(format!("\"{}\"", field));
                     }
                     emit_field_order_override(b, &field_names);
 
@@ -366,7 +366,11 @@ fn emit_monomorphized_payload(
 // Filters
 // ============================================================================
 
-fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
+/// True when `s` is emitted as a JNA `Structure` subclass by
+/// [`emit_struct`] (and therefore has the `Az<T>(Pointer)` overlay
+/// constructor). Also consulted by `managed.rs` to decide whether a
+/// callback argument can be surfaced as a typed FFI struct.
+pub(super) fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
@@ -524,7 +528,7 @@ fn emit_tagged_union_files(
                             let jt = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
                             let fname = sanitize_identifier(&f.name);
                             b.line(&format!("public {} {};", jt, fname));
-                            field_names.push(format!("\"{}\"", f.name));
+                            field_names.push(format!("\"{}\"", fname));
                         }
                     }
                 }
@@ -559,7 +563,7 @@ fn emit_tagged_union_files(
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 let field = sanitize_identifier(&v.name);
                 b.line(&format!("public {} {};", variant_struct, field));
-                field_names.push(format!("\"{}\"", v.name));
+                field_names.push(format!("\"{}\"", field));
             }
             // JNA Union exposes its writer-field names via the
             // implicit Structure machinery; getFieldOrder() is still
@@ -722,6 +726,8 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
     builder.line(&format!("public class {} extends Structure {{", name));
     builder.indent();
+    builder.line(&format!("public {}() {{ super(); }}", name));
+    builder.line(&format!("public {}(Pointer p) {{ super(p); read(); }}", name));
 
     let mut field_names: Vec<String> = Vec::new();
 
@@ -858,13 +864,18 @@ fn emit_field(
             elem,
             count
         ));
-        field_names.push(format!("\"{}\"", f.name));
+        field_names.push(format!("\"{}\"", sanitize_identifier(&f.name)));
         return;
     }
 
     let jt = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!("public {} {};", jt, sanitize_identifier(&f.name)));
-    field_names.push(format!("\"{}\"", f.name));
+    // The order list must carry the SANITIZED name (`default` -> `default_`):
+    // JNA validates getFieldOrder() against the declared fields when the
+    // module's natives are registered, and one mismatch (AzPageSequence.default)
+    // took the whole `AzulNativeCallbacks` class down at first use.
+    let fname = sanitize_identifier(&f.name);
+    builder.line(&format!("public {} {};", jt, fname));
+    field_names.push(format!("\"{}\"", fname));
 }
 
 // ============================================================================
@@ -1006,9 +1017,3 @@ fn parse_array_type(s: &str) -> Option<(String, usize)> {
     Some((elem, count))
 }
 
-fn javadoc_escape(s: &str) -> String {
-    s.replace("*/", "*&#47;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('&', "&amp;")
-}

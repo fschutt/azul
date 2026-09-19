@@ -1045,11 +1045,11 @@ fn get_type_alias_target(
 /// Get callback typedef info if this is a callback typedef
 fn get_callback_typedef_info(
     type_def: &TypeDefinition,
-) -> Option<(Vec<(String, String)>, Option<String>)> {
+) -> Option<(Vec<(Option<String>, String, String)>, Option<String>)> {
     let expanded = type_def.expand_macro_generated();
     match expanded {
         TypeDefKind::CallbackTypedef { args, returns } => {
-            let arg_list: Vec<(String, String)> = args
+            let arg_list: Vec<(Option<String>, String, String)> = args
                 .iter()
                 .map(|a| {
                     let ref_kind_str = match a.ref_kind {
@@ -1059,7 +1059,7 @@ fn get_callback_typedef_info(
                         RefKind::RefMut => "refmut".to_string(),
                         _ => "value".to_string(),
                     };
-                    (a.ty.clone(), ref_kind_str)
+                    (a.name.clone(), a.ty.clone(), ref_kind_str)
                 })
                 .collect();
             Some((arg_list, returns))
@@ -1282,7 +1282,8 @@ pub fn generate_add_type_patches(
             crate::autofix::patch_format::CallbackTypedefDef {
                 fn_args: args
                     .iter()
-                    .map(|(ty, ref_kind)| crate::autofix::patch_format::CallbackArg {
+                    .map(|(name, ty, ref_kind)| crate::autofix::patch_format::CallbackArg {
+                        name: name.clone(),
                         arg_type: ty.clone(),
                         ref_kind: if ref_kind == "value" {
                             None

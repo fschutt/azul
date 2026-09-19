@@ -153,6 +153,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_layout_callback_thunk,
     setter_fn:      AzApp_setLayoutCallbackInvoker,
     from_handle_fn: AzLayoutCallback_createFromHostHandle,
+    from_handle_byref_fn: AzLayoutCallback_createFromHostHandleByref,
 }
 
 impl Default for LayoutCallback {
@@ -191,6 +192,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_virtual_view_callback_thunk,
     setter_fn:      AzApp_setVirtualViewCallbackInvoker,
     from_handle_fn: AzVirtualViewCallback_createFromHostHandle,
+    from_handle_byref_fn: AzVirtualViewCallback_createFromHostHandleByref,
 }
 
 impl VirtualViewCallback {
@@ -1924,3 +1926,17 @@ impl_option!(
 #[cfg(test)]
 #[path = "callbacks_test.rs"]
 mod callbacks_test;
+
+impl crate::host_invoker::HostCtxCarrier for LayoutCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // Points at the wrapper's own `ctx`, which `<Wrapper>::invoke`
+        // borrows for the whole call.
+        self.set_callable_ptr(ctx);
+    }
+}
+
+impl crate::host_invoker::HostCtxCarrier for VirtualViewCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.set_callable_ptr(ctx);
+    }
+}

@@ -540,6 +540,7 @@ impl ReleaseAssets {
             AssetInfo::from_path(&version_dir.join("azul14.hpp"), "C++14 Header"),
             AssetInfo::from_path(&version_dir.join("azul17.hpp"), "C++17 Header"),
             AssetInfo::from_path(&version_dir.join("azul20.hpp"), "C++20 Header"),
+            AssetInfo::from_path(&version_dir.join("azul.cppm"), "C++20 Modules"),
             AssetInfo::from_path(&version_dir.join("azul23.hpp"), "C++23 Header"),
         ];
 
@@ -813,6 +814,7 @@ pub struct CppHeaders {
     pub cpp17: String,
     pub cpp20: String,
     pub cpp23: String,
+    pub cppm: String,
 }
 
 /// Where a release-dir file is sourced from.
@@ -830,7 +832,7 @@ enum BindingSource {
 /// together with where the deploy copies it FROM.
 ///
 /// `dst` is the path **relative to `release/{version}/`** and must match the
-/// curl target byte-for-byte (e.g. Haskell's nested `Azul/Types.hs`). `src` is
+/// curl target byte-for-byte. `src` is
 /// relative to either `target/codegen/` or `examples/` depending on `source`.
 struct BindingFile {
     dst: &'static str,
@@ -843,15 +845,16 @@ struct BindingFile {
 /// `algol68`, `powershell`) binding + scaffolding file referenced by the
 /// install instructions in api.json, mapped to its on-disk source.
 ///
-/// The WHITELIST languages (c, cpp, rust, python, csharp, java, kotlin, lua,
-/// ruby, node, ocaml) are intentionally absent: they download the native libs /
-/// C·C++ headers (already laid down by the deploy) or generate their binding
-/// locally, so nothing extra is copied for them.
+/// The WHITELIST languages (c, cpp, rust, python, csharp, java, kotlin, node,
+/// ocaml) are intentionally absent: they download the native libs / C·C++
+/// headers (already laid down by the deploy) or generate their binding
+/// locally, so nothing extra is copied for them. `lua` (azul.lua, azul_cffi.lua;
+/// the versioned rockspec is copied dynamically) and `ruby` (azul.rb,
+/// azul.gemspec) ARE listed below: their
+/// guides download those single files straight from the release.
 ///
 /// `dst` values are flat because no two non-whitelist languages collide on a
-/// filename — the only nested paths (`Azul/Types.hs`, `Azul/Internal/FFI.hs`)
-/// are what the Haskell `curl -o src/Azul/...` steps genuinely request under
-/// `release/{version}/`.
+/// filename.
 const BINDING_FILES: &[BindingFile] = &[
     // --- ada ---
     BindingFile {
@@ -914,34 +917,8 @@ const BINDING_FILES: &[BindingFile] = &[
     //     (`callbacks.go`, `callbacks_export.go`) are what `main.go` imports.
     //     The hello-world's own `go.mod` (with the `replace` onto `./azul-go`)
     //     is written by the same function. ---
-    // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
-    BindingFile {
-        dst: "azul.cabal",
-        src: "haskell/azul.cabal",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul.hs",
-        src: "haskell/src/Azul.hs",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul/Types.hs",
-        src: "haskell/src/Azul/Types.hs",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul/Internal/FFI.hs",
-        src: "haskell/src/Azul/Internal/FFI.hs",
-        source: BindingSource::Codegen,
-    },
-    // The cabal package's C shim (cbits/) — without it the downloaded
-    // package cannot build (azul.h is published separately at top level).
-    BindingFile {
-        dst: "azul_shims.c",
-        src: "haskell/cbits/azul_shims.c",
-        source: BindingSource::Codegen,
-    },
+    // --- haskell (the `azul` package itself ships as the azul-haskell/
+    //     directory, see GENERATED_PACKAGES) ---
     BindingFile {
         dst: "HelloWorld.hs",
         src: "haskell/HelloWorld.hs",
@@ -950,6 +927,11 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile {
         dst: "azul-example.cabal",
         src: "haskell/azul-example.cabal",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "cabal.project",
+        src: "haskell/cabal.project",
         source: BindingSource::Examples,
     },
     // --- lisp (ships the ASDF driver system + example so the quickload flow works) ---
@@ -1069,15 +1051,10 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "vb6/HelloWorld.vbp",
         source: BindingSource::Examples,
     },
-    // --- zig (azul.zig `@import`s azul_c.zig, the pre-translated C ABI) ---
+    // --- zig (azul.zig: idiomatic wrappers + the C ABI pre-translated to Zig in one file) ---
     BindingFile {
         dst: "azul.zig",
         src: "azul.zig",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "azul_c.zig",
-        src: "azul_c.zig",
         source: BindingSource::Codegen,
     },
     BindingFile {
@@ -1228,6 +1205,13 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile {
         dst: "azul.lua",
         src: "azul.lua",
+        source: BindingSource::Codegen,
+    },
+    // Same bytes as azul.lua under the name the vanilla-Lua (cffi-lua) install
+    // guide downloads; generator.rs writes both.
+    BindingFile {
+        dst: "azul_cffi.lua",
+        src: "azul_cffi.lua",
         source: BindingSource::Codegen,
     },
     // NOTE: the LuaRocks rockspec is handled dynamically in
@@ -1511,24 +1495,35 @@ pub fn copy_language_bindings(
 }
 
 /// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
-/// `main.go`: `main.go` imports `github.com/azul/azul-go`, and this `replace`
+/// `main.go`: `main.go` imports `azul.rs/ui/go`, and this `replace`
 /// resolves it to the `azul-go/` directory shipped alongside — no `go mod
-/// init`, no `go mod edit`, no registry.
+/// init`, no `go mod edit`, no registry. The purego pin comes from
+/// `lang_go::gomod` so this manifest can never drift from the package's.
 pub fn go_example_mod() -> String {
-    "// go.mod for the azul hello-world. `main.go` imports the generated\n\
-     // github.com/azul/azul-go package; the replace below points at the copy\n\
-     // shipped in ./azul-go (from the same release), so `go build .` works\n\
-     // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
-     // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
-     \n\
-     module hello-world\n\
-     \n\
-     go 1.21\n\
-     \n\
-     require github.com/azul/azul-go v0.0.0\n\
-     \n\
-     replace github.com/azul/azul-go => ./azul-go\n"
-        .to_string()
+    format!(
+        "// go.mod for the azul hello-world. `main.go` imports the generated\n\
+         // azul.rs/ui/go package; the replace below points at the copy shipped\n\
+         // in ./azul-go (from the same release). purego needs no C compiler:\n\
+         // put libazul.dylib / libazul.so / azul.dll next to main.go and run\n\
+         // `go build .`.\n\
+         \n\
+         module hello-world\n\
+         \n\
+         go 1.21\n\
+         \n\
+         require azul.rs/ui/go v0.0.0\n\
+         \n\
+         require github.com/ebitengine/purego {purego} // indirect\n\
+         \n\
+         replace azul.rs/ui/go => ./azul-go\n",
+        purego = crate::codegen::v2::lang_go::gomod::PUREGO_VERSION
+    )
+}
+
+/// The example's `go.sum`, shipped next to [`go_example_mod`] so `go build`
+/// needs no network: the same pins the generated package carries.
+pub fn go_example_sum() -> String {
+    crate::codegen::v2::lang_go::gomod::generate_go_sum()
 }
 
 /// Bindings the generator splits into one file per api.json module, shipped
@@ -1542,13 +1537,18 @@ const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
         name.ends_with(".f90") || name == "Makefile" || name == "sources.txt"
     }),
     ("azul-ocaml", "ocaml", |name| {
-        name.ends_with(".ml") || name.ends_with(".mli")
+        name.ends_with(".ml") || name.ends_with(".mli") || name == "dune" || name == "dune-project" || name == "azul.opam"
+    }),
+    ("azul-haskell", "haskell", |name| {
+        name.ends_with(".hs") || name.ends_with(".c") || name.ends_with(".h") || name.ends_with(".cabal")
     }),
 ];
 
-/// Copy every file of `codegen_dir/<sub>/` that `keep` accepts into
-/// `version_dir/<package>/`. Returns the number of files written; 0 when the
-/// codegen output is absent (a warning for the caller, never an abort).
+/// Copy every file under `codegen_dir/<sub>/` (recursively, keeping the
+/// relative layout: Haskell's `src/Azul/...` and `cbits/`) whose file name
+/// `keep` accepts into `version_dir/<package>/`. Returns the number of files
+/// written; 0 when the codegen output is absent (a warning for the caller,
+/// never an abort).
 pub fn copy_generated_package(
     version_dir: &Path,
     codegen_dir: &Path,
@@ -1562,25 +1562,36 @@ pub fn copy_generated_package(
     }
     let dst_dir = version_dir.join(package);
     fs::create_dir_all(&dst_dir)?;
-    let mut entries: Vec<PathBuf> = fs::read_dir(&src_dir)?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.file_name().and_then(|f| f.to_str()).is_some_and(keep))
-        .collect();
+    let mut entries = Vec::new();
+    let mut dirs = vec![src_dir.clone()];
+    while let Some(dir) = dirs.pop() {
+        for p in fs::read_dir(&dir)?.filter_map(|e| e.ok().map(|e| e.path())) {
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.file_name().and_then(|f| f.to_str()).is_some_and(keep) {
+                entries.push(p);
+            }
+        }
+    }
     entries.sort();
     for src in &entries {
-        fs::copy(src, dst_dir.join(src.file_name().unwrap()))?;
+        let dst = dst_dir.join(src.strip_prefix(&src_dir).unwrap());
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst)?;
     }
     Ok(entries.len())
 }
 
 /// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
-/// `codegen_dir/go/` plus its `go.mod` (a glob, so the generator adding or
-/// renaming a file can never leave the release incomplete again) plus
-/// `azul.h`, because the package's cgo preamble `#include "azul.h"`s it and
-/// cgo resolves `-I.` against the package directory. Also writes the
-/// hello-world's `go.mod` ([`go_example_mod`]). Returns the number of files
-/// written; 0 when the codegen output is absent (a warning for the caller,
-/// never an abort).
+/// `codegen_dir/go/` plus its `go.mod` and `go.sum` (a glob, so the
+/// generator adding or renaming a file can never leave the release
+/// incomplete again). The package is purego: no cgo preamble, so no
+/// `azul.h` travels with it. Also writes the hello-world's `go.mod` /
+/// `go.sum` ([`go_example_mod`], [`go_example_sum`]). Returns the number of
+/// files written; 0 when the codegen output is absent (a warning for the
+/// caller, never an abort).
 pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> {
     let go_dir = codegen_dir.join("go");
     if !go_dir.is_dir() {
@@ -1594,7 +1605,7 @@ pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> 
         .filter(|p| {
             p.is_file()
                 && (p.extension().is_some_and(|x| x == "go")
-                    || p.file_name().is_some_and(|f| f == "go.mod"))
+                    || p.file_name().is_some_and(|f| f == "go.mod" || f == "go.sum"))
         })
         .collect();
     entries.sort();
@@ -1603,12 +1614,9 @@ pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> 
         fs::copy(&src, dst_dir.join(name))?;
         n += 1;
     }
-    let header = codegen_dir.join("azul.h");
-    if header.is_file() {
-        fs::copy(&header, dst_dir.join("azul.h"))?;
-        n += 1;
-    }
     fs::write(version_dir.join("go.mod"), go_example_mod())?;
+    n += 1;
+    fs::write(version_dir.join("go.sum"), go_example_sum())?;
     n += 1;
     Ok(n)
 }
@@ -1735,6 +1743,8 @@ pub fn create_examples(
     source_zip.write_all(cpp_headers.cpp20.as_bytes())?;
     source_zip.start_file("include/cpp/azul23.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp23.as_bytes())?;
+    source_zip.start_file("include/cpp/azul.cppm", options)?;
+    source_zip.write_all(cpp_headers.cppm.as_bytes())?;
 
     // Add README
     source_zip.start_file("README.md", options)?;
@@ -3067,23 +3077,28 @@ mod tests {
         let version_dir = tmp.path().join("release");
         fs::create_dir_all(codegen.join("go")).unwrap();
         fs::create_dir_all(&version_dir).unwrap();
-        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod"] {
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "go.sum"] {
             fs::write(codegen.join("go").join(f), b"x").unwrap();
         }
-        // Not part of the package: a generator scratch file.
+        // Not part of the package: a generator scratch file, and azul.h
+        // (purego needs no header).
         fs::write(codegen.join("go/NOTES.txt"), b"x").unwrap();
         fs::write(codegen.join("azul.h"), b"/* header */").unwrap();
 
         let n = copy_go_package(&version_dir, &codegen).unwrap();
-        assert_eq!(n, 6, "4 package files + azul.h + the example go.mod");
-        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "azul.h"] {
+        assert_eq!(n, 7, "5 package files + the example go.mod + go.sum");
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "go.sum"] {
             assert!(version_dir.join("azul-go").join(f).is_file(), "{f}");
         }
         assert!(!version_dir.join("azul-go/NOTES.txt").exists());
+        assert!(!version_dir.join("azul-go/azul.h").exists());
         let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
         assert!(gomod.contains("module hello-world\n"), "{gomod}");
-        assert!(gomod.contains("require github.com/azul/azul-go v0.0.0\n"), "{gomod}");
-        assert!(gomod.contains("replace github.com/azul/azul-go => ./azul-go\n"), "{gomod}");
+        assert!(gomod.contains("require azul.rs/ui/go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("require github.com/ebitengine/purego v"), "{gomod}");
+        assert!(gomod.contains("replace azul.rs/ui/go => ./azul-go\n"), "{gomod}");
+        let gosum = fs::read_to_string(version_dir.join("go.sum")).unwrap();
+        assert!(gosum.contains("github.com/ebitengine/purego v"), "{gosum}");
     }
 
     /// No codegen output → nothing written, `Ok(0)` (the caller warns).
@@ -3107,11 +3122,16 @@ mod tests {
         let version_dir = tmp.path().join("release");
         fs::create_dir_all(codegen.join("fortran")).unwrap();
         fs::create_dir_all(codegen.join("ocaml")).unwrap();
+        fs::create_dir_all(codegen.join("haskell/src/Azul/Types")).unwrap();
+        fs::create_dir_all(codegen.join("haskell/cbits")).unwrap();
         fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.cabal", "src/Azul.hs", "src/Azul/Types/Dom.hs", "cbits/azul_dom.c"] {
+            fs::write(codegen.join("haskell").join(f), b"x").unwrap();
+        }
         for f in ["azul.f90", "azul_types_css.f90", "azul_ffi_dom.f90", "Makefile", "sources.txt"] {
             fs::write(codegen.join("fortran").join(f), b"x").unwrap();
         }
-        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project"] {
+        for f in ["azul.ml", "azul_types_dom_2.ml", "azul_loader.ml", "dune", "dune-project", "azul.opam"] {
             fs::write(codegen.join("ocaml").join(f), b"x").unwrap();
         }
 
@@ -3121,13 +3141,18 @@ mod tests {
                 copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
             })
             .collect();
-        assert_eq!(copied, [5, 3]);
+        assert_eq!(copied, [5, 6, 4]);
+        // Haskell's package is nested: src/ modules and cbits/ shims keep their paths.
+        assert!(version_dir.join("azul-haskell/azul.cabal").is_file());
+        assert!(version_dir.join("azul-haskell/src/Azul/Types/Dom.hs").is_file());
+        assert!(version_dir.join("azul-haskell/cbits/azul_dom.c").is_file());
         assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
         assert!(version_dir.join("azul-fortran/Makefile").is_file());
         assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
-        // The example's dune files go into the tarball, never the library-only ones.
-        assert!(!version_dir.join("azul-ocaml/dune").exists());
-        assert!(!version_dir.join("azul-ocaml/dune-project").exists());
+        // The complete opam project goes into the tarball.
+        assert!(version_dir.join("azul-ocaml/dune").exists());
+        assert!(version_dir.join("azul-ocaml/dune-project").exists());
+        assert!(version_dir.join("azul-ocaml/azul.opam").exists());
         assert_eq!(
             copy_generated_package(&version_dir, &tmp.path().join("nope"), "x", "fortran", |_| true)
                 .unwrap(),
@@ -3152,6 +3177,5 @@ mod tests {
             .any(|b| b.dst == "hello-world.cpp" && b.src == "cpp/cpp20/hello-world.cpp"));
         // The Go package is a directory now; no flat `package azul` files.
         assert!(!BINDING_FILES.iter().any(|b| b.src.starts_with("go/") && b.src != "go/main.go"));
-        assert!(BINDING_FILES.iter().any(|b| b.dst == "azul_c.zig"));
     }
 }

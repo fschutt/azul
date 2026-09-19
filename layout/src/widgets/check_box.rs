@@ -54,6 +54,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_check_box_on_toggle_callback_thunk,
     setter_fn:      AzApp_setCheckBoxOnToggleCallbackInvoker,
     from_handle_fn: AzCheckBoxOnToggleCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCheckBoxOnToggleCallback_createFromHostHandleByref,
     extra_args:     [ state: CheckBoxState ],
 }
 
@@ -354,7 +355,7 @@ pub mod input {
                 Some(CheckBoxOnToggle {
                     callback,
                     refany: data,
-                }) => (callback.cb)(data.clone(), info, inner),
+                }) => callback.invoke(data.clone(), info, inner),
                 None => Update::DoNothing,
             }
         };
@@ -521,7 +522,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

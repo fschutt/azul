@@ -667,6 +667,7 @@ impl TypeDefinition {
                             // Keep RefKind as-is - no conversion needed anymore
                             // The api.json CallbackArgData now uses RefKind directly
                             CallbackArgInfo {
+                                name: arg.name,
                                 ty: arg.ty,
                                 ref_kind: arg.ref_kind,
                             }

@@ -4,7 +4,7 @@ title: Hello World [Fortran]
 language: en
 canonical_slug: hello-world/fortran
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 26
 topic_only: false
 prerequisites: [hello-world]
@@ -12,8 +12,8 @@ tracked_files:
   - api.json
   - examples/fortran/hello_world.f90
   - doc/src/codegen/v2/lang_fortran/makefile.rs
-last_generated_rev: dab922c5e869ab3c1ff69a2d7f4af1af19a5c27c
-generated_at: 2026-07-04T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -28,256 +28,177 @@ default-search-keys:
 
 ## Introduction
 
-The Fortran binding targets **Fortran 2003+** and talks to the prebuilt
-`libazul` native library through `iso_c_binding`. It is generated as one
-module per api.json module (`azul_types_*.f90`, `azul_ffi_*.f90`,
-`azul_api.f90`, and a facade `azul_dom.f90`, `azul_css.f90`, ... per
-module) behind the `azul` facade in `azul.f90`, so both `use azul` and
-`use azul_dom, only: dom_t` work. Write `use azul, only: ...` with the
-names you need: a bare `use azul` makes gfortran resolve every one of the
-binding's procedures for your unit, which is minutes instead of seconds.
-The binding has two layers:
+To use `libazul` from Fortran, you need the prebuilt native library and the generated
+Fortran binding: a set of modules that talk to the library through `iso_c_binding`,
+behind one `azul` module. The binding is tested with gfortran and needs a Fortran 2003
+compiler.
 
-- **the wrapper layer** — what you write against. One derived type per
-  class (`dom_t`, `button_t`, `app_t`, `ref_any_t`, ...) with type-bound
-  procedures (`call app%run(window)`), `character(len=*)` where the API
-  wants a string, plain `integer` for unit enums (`ButtonType_Primary`,
-  `Update_RefreshDom`), and ordinary Fortran procedures for callbacks.
-  Factories are module procedures: `dom_create_body()`,
-  `button_create('Increase counter')`.
-- **`az_*`** — the raw `bind(C)` interfaces mirroring `azul.h`
-  one-to-one, underneath. You need them only for something the wrapper
-  layer does not cover: tagged unions (every `AzOption*` / `AzResult*`
-  type) are ABI-opaque blobs because Fortran has no native `union`, so
-  you construct and inspect those through the C-API helper functions.
-
-`use azul` is the only `use` a program needs — the module re-exports the
-`iso_c_binding` entities as well, so reaching down to the raw layer
-costs no extra import.
-
-The `_t` suffix on wrapper types is not decoration. Fortran folds case,
-so a type named `Dom` makes `type(Dom) :: dom` — the natural variable
-name — a redeclaration of the type itself. `type(dom_t) :: dom` is the
-ordinary spelling.
-
-Callbacks are ordinary module functions matching a generated abstract
-interface. Registration is implicit: hand the procedure to the method
-that takes it, and the binding stores it in a handle table, hands
-libazul the id, and dispatches back through a generated `bind(C)`
-invoker when the event fires. There is no init call to forget, no
-`c_funloc`, and no out-pointer to write.
+Every API class is a derived type with type-bound procedures (`dom_t`, `button_t`,
+`app_t`), strings are plain `character`, enum values are integer constants
+(`ButtonType_Primary`, `Update_RefreshDom`) and callbacks are ordinary module functions.
+Your data model is any type you define: the binding keeps it and hands it back to each
+callback as `class(*)`, and `select type` turns it back into your type.
 
 ## Installation
 
-You need **GFortran** (any recent version; on macOS `brew install gcc`
-provides it, on Windows use the MinGW-w64 gfortran) and `make`. The
-download set is: the native library, the generated `azul.f90` module,
-the generated `Makefile`, and the counter example source.
+You need gfortran and GNU make (macOS: `brew install gcc`, Debian / Ubuntu:
+`sudo apt install gfortran make`, Windows: the MinGW-w64 gfortran from MSYS2).
+
+The release bundle `azul-fortran-$VERSION.tar.gz` contains the generated modules,
+a `Makefile` and the counter example. Unpack it next to the native library:
 
 ```sh
+mkdir hello-world && cd hello-world
 curl -LO https://azul.rs/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz
-tar xzf azul-fortran-$VERSION.tar.gz      # azul.f90, Makefile, hello_world.f90
+tar xzf azul-fortran-$VERSION.tar.gz
 
-# linux
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-make && ./hello_world
 # macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-make && DYLD_LIBRARY_PATH=. ./hello_world
-# windows (MSYS2 / MinGW-w64 shell, azul.dll next to the .exe)
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+# Windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-make && hello_world.exe
+
+make -j8
+./hello_world
 ```
 
-Use the shipped `Makefile` instead of invoking `gfortran` by hand: it
-carries the **required** `-ffree-line-length-none` flag. The generated
-`azul.f90` contains declaration lines beyond the F2008 132-column limit
-(long widget/callback type names), and without the flag `-std=f2008`
-turns each of them into a hard "Line truncated" error.
+The first `make` compiles the binding, which takes about two minutes with `-j8`. After
+that, `make` only recompiles your own source. The executable looks for the library in its
+own directory, so you can run it from anywhere. If the library lives somewhere else, for
+example installed with Homebrew, pass its directory: `make LIBDIR="$(brew --prefix)/lib"`.
 
-On macOS the `Makefile`'s embedded rpath (`$ORIGIN`) is an ELF
-convention that the Mach-O loader ignores, so run the binary with
-`DYLD_LIBRARY_PATH=.` as shown above (or fix the install name once with
-`install_name_tool`).
+### Building from source
 
-Compiling the generated modules (`make -j8` compiles independent ones in
-parallel; `sources.txt` lists the order if you drive the compiler by
-hand) produces one `.o` plus a compiler-managed `.mod` each, which your
-program `use`s — all cached by `make`, so incremental rebuilds only
-recompile your own source.
+Only needed if you want to track `master` or patch the library locally:
+
+```sh
+# git clone https://github.com/fschutt/azul
+# cd myfolder/azul
+# generate the bindings from api.json (required)
+cargo run -p azul-doc --release -- codegen all
+# build the actual DLL with the now-generated .rs C-API bindings
+cargo build -p azul-dll --release --features build-dll
+```
+
+Notice the required `--features build-dll`. The DLL lands in
+`target/release/libazul.{so,dylib}` (or `azul.dll`). The Fortran binding is
+generated into `target/codegen/fortran/`, together with its `Makefile`. Copy both
+next to your program.
 
 ## Simple "Counter" Example
 
-This is the complete, verified `hello_world.f90` (the same file the
-install step downloads):
-
 ```fortran
-module hello_impl
-  use azul
+module counter
+  use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
+                  dom_create_body, dom_create_p_with_text, button_create, &
+                  ButtonType_Primary, Update_DoNothing, Update_RefreshDom
   implicit none
 
-  type :: t_model
-    integer :: counter = 5
-  end type t_model
+  type :: model_t
+    integer :: counter
+  end type model_t
 
 contains
 
-  function layout(data, info) result(body)
-    type(ref_any_t), intent(inout) :: data
+  function layout(model, info) result(body)
+    class(*), intent(inout) :: model
     type(layout_callback_info_t), intent(inout) :: info
-    type(dom_t) :: body
-    class(*), pointer :: model
-    type(dom_t) :: label
+    type(dom_t) :: body, label
     type(button_t) :: button
     character(len=16) :: text
 
-    model => data%get()
-    select type (model)
-    type is (t_model)
-      write (text, '(I0)') model%counter
-    class default
-      text = '?'
-    end select
-
-    label = dom_create_p_with_text(trim(text))
-    call label%with_css('font-size: 32px;')
-
-    button = button_create('Increase counter')
-    call button%with_button_type(ButtonType_Primary)
-    call button%with_on_click(data, on_click)
-
     body = dom_create_body()
-    call body%with_child(label)
-    call body%with_child(button%dom())
+    select type (model)
+    type is (model_t)
+      write (text, '(I0)') model%counter
+      label = dom_create_p_with_text(trim(text))
+      call label%with_css('font-size: 32px; margin: 0;')
+
+      button = button_create('Increase counter')
+      call button%with_button_type(ButtonType_Primary)
+      call button%with_on_click(model, on_click)
+
+      call body%with_child(label)
+      call body%with_child(button%dom())
+    end select
   end function layout
 
-  function on_click(data, info) result(update)
-    type(ref_any_t), intent(inout) :: data
+  function on_click(model, info) result(update)
+    class(*), intent(inout) :: model
     type(callback_info_t), intent(inout) :: info
     integer :: update
-    class(*), pointer :: model
 
-    model => data%get()
+    update = Update_DoNothing
     select type (model)
-    type is (t_model)
+    type is (model_t)
       model%counter = model%counter + 1
+      update = Update_RefreshDom
     end select
-    update = Update_RefreshDom
   end function on_click
 
-end module hello_impl
+end module counter
 
 program hello_world
-  use azul
-  use hello_impl
+  use azul, only: app_t, app_create, app_config_create, window_create_options_create
+  use counter, only: model_t, layout
   implicit none
 
   type(app_t) :: app
-  type(window_create_options_t) :: window
 
-  app = app_create(ref_any_create(t_model(5)), app_config_create())
-  window = window_create_options_create(layout)
-  call app%run(window)
+  app = app_create(model_t(counter=5), app_config_create())
+  call app%run(window_create_options_create(layout))
 end program hello_world
 ```
 
-Six things to notice.
+There are a few Fortran-specific things in this example:
 
-- **Callbacks are ordinary module functions.** `layout` and `on_click`
-  take wrapper types and RETURN their result — no `bind(C)`, no
-  `type(c_ptr)` dummies, no out-pointer to write. Each one matches a
-  generated `abstract interface` (`layout_callback_iface`,
-  `button_on_click_callback_iface`), so the compiler checks the shape
-  for you. They must live in a MODULE rather than as internal
-  procedures of the main program; an internal procedure would need a
-  compiler-generated executable-stack trampoline that crashes on
-  hardened systems.
-- **The intents are part of the interface.** `data` and `info` are
-  `intent(inout)` because a method that mutates the receiver needs it,
-  and Fortran requires a procedure's dummy characteristics to match the
-  abstract interface exactly. Copy the three declaration lines from the
-  example; a mismatch is a compile error, not a runtime surprise.
-- **Registration is implicit.** `call button%with_on_click(data, on_click)`
-  and `window_create_options_create(layout)` take the procedure itself;
-  the binding stores it in a handle table, hands libazul the id, and
-  dispatches back through a generated invoker. There is no
-  `host_invoker_init` to call and therefore none to forget — the first
-  handle installs the releaser and every per-kind invoker.
-- **`ref_any_create(t_model(5))` / `data%get()`** — the model
-  round-trip. `ref_any_create` takes anything (`class(*)`) and COPIES
-  it into the binding-owned handle table, so the model needs no
-  `target, save` and cannot dangle; the table frees it when libazul
-  drops the last clone of the `RefAny`. Inside a callback `data%get()`
-  returns a `class(*), pointer` to that copy — `select type` recovers
-  the concrete type, and writes through it persist.
-- **Builders mutate in place.** A method that consumes `self` and
-  returns `Self` (`with_css`, `with_child`, `with_button_type`) is
-  emitted as a SUBROUTINE, so it reads `call label%with_css('...')`
-  rather than `label = label%with_css('...')`. Methods that return
-  something else stay functions: `button%dom()` hands the button's DOM
-  back and marks the button consumed.
-- **Strings are `character`.** Arguments are `character(len=*)` and
-  results are `character(len=:), allocatable`; the binding does the
-  `AzString` marshalling. Unit enums are plain `integer` constants with
-  no `Az` prefix (`ButtonType_Primary`, `Update_RefreshDom`), and
-  booleans are `logical`.
+1. `use azul, only: ...` imports only the names you use. A bare `use azul` also works,
+   but then gfortran loads the whole binding for your file, which takes tens of seconds
+   instead of one.
+2. `app_create(model_t(counter=5), ...)` copies your model into the binding. Each
+   callback receives that copy as `class(*), intent(inout) :: model`, and changes made
+   inside `type is (model_t)` are kept. If the model has a different type, no branch
+   matches: `layout` returns an empty body and `on_click` returns `Update_DoNothing`.
+3. `call button%with_on_click(model, on_click)` binds the model the layout callback is
+   running with, not a copy, so the click changes the same counter.
+4. `layout` and `on_click` are ordinary module functions. Their dummy arguments must
+   match the binding's interfaces exactly (`class(*), intent(inout)` for the model,
+   `intent(inout)` for `info`); a mismatch is a compile error.
+5. Methods like `with_css` or `with_child` change the object in place and are called
+   with `call`. `button%dom()` turns the button into a `dom_t`.
+6. A callback that returns an invalid result, such as an `integer` that is not an
+   `Update` value or a `dom_t` that was never assigned, does not reach the engine.
+   The binding logs the problem and uses the default result instead:
 
-Nothing here needs `target`, `save`, `c_loc`, `c_f_pointer`, or a
-`use, intrinsic :: iso_c_binding` line. If you do reach for the raw
-`az_*` layer, `use azul` already re-exports those `iso_c_binding`
-entities.
+   ```
+   [azul][error] azul: ButtonOnClickCallback expected an Update (0 to 2), got 7
+   ```
 
 ## Build and run
 
 ```sh
 make
-./hello_world                       # linux
-DYLD_LIBRARY_PATH=. ./hello_world   # macOS
+./hello_world
 ```
 
-You should see the window pictured on the
-[hello-world landing page](..md): the label renders "5",
-and every click on the button increments it — the click callback bumps
-`model%counter`, returns `Update_RefreshDom`, and the framework
-re-runs `layout` with the new value.
+You should see the window pictured on the [hello-world landing page](../hello-world.md).
+Click the button: the counter should increment, the layout callback then re-runs, and the
+new value renders.
 
-To run the same headless counter scenario the CI uses:
+1. `app%run(...)` opens a native window and runs the layout callback once with your model.
+2. The returned `dom_t` is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up
+   in the DOM. On click, the framework borrows your data model mutably, runs the click callback,
+   observes the `Update_RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one,
+   and only re-updates and re-paints the counter, not the entire window.
 
-```sh
-AZ_E2E=path/to/hello_world_counter.json AZ_BACKEND=headless make run
-```
+Congratulations! Once you've got the hello-world example running, you've already mastered 80%
+of the framework. As you might have guessed, more complex UI and styling are only composing
+more `dom_t` objects together and working with the various event filters.
 
-## Common errors
+You can now start reading about the [architecture patterns](../architecture.md) or
+explore what [methods the `Dom` has to offer](../dom.md).
 
-- **Thousands of "Line truncated ... -Werror=line-truncation" errors
-  compiling `azul.f90`** — you compiled by hand without
-  `-ffree-line-length-none`. Use the shipped `Makefile`, or add the
-  flag to your own build.
-- **`make` tries to run `f77`** — an ancient GNU make builtin default.
-  The shipped Makefile works around it; in your own Makefile set
-  `FC = gfortran` explicitly (a plain `FC ?=` does *not* override the
-  builtin).
-- **"Interface mismatch in dummy procedure"** — your callback's
-  declarations do not match the abstract interface. The dummy TYPES,
-  the INTENTS and the result type all have to agree; copy them from the
-  example or read the `abstract interface` block in `azul.f90`.
-- **Counter renders but never updates** — the click callback returned
-  something other than `Update_RefreshDom`. `Update_DoNothing` skips
-  the re-layout.
-- **Segfault inside a callback** — the callback is an internal
-  procedure of the main program instead of a module procedure.
-- **`type(dom_t) :: dom` errors on the type name** — you dropped the
-  `_t`. Fortran folds case, so the wrapper types carry the suffix
-  precisely so the obvious variable name stays free.
-- **macOS: `dyld: Library not loaded: libazul.dylib`** — the Makefile's
-  `$ORIGIN` rpath is Linux-only. Run with `DYLD_LIBRARY_PATH=.` or
-  rewrite the install name with `install_name_tool`.
-- **"Procedure ... is already defined" or garbled option/union values**
-  — symptoms of a stale `azul.f90` from an older release. Re-download
-  `azul.f90` and the `Makefile` from the same `$VERSION` as the
-  library; since 0.2.0 tagged unions are ABI-exact opaque blobs and all
-  factory names are unique.
-- **Trying to read `AzOption*` / union fields directly** — not
-  supported by design: Fortran has no unions, so these types are opaque
-  byte blobs. Construct and inspect them through the C-API helper
-  functions only.
+See you in the next tutorial!

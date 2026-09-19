@@ -5,8 +5,9 @@
 //! - **Two-pass struct emission**: Ctypes requires a struct's typ value to exist before fields are
 //!   added (because field types may reference other structs). Pass 1 emits the bare typ stub; pass
 //!   2 adds fields and seals.
-//! - **Unit enums** (`is_union == false`) -> a polymorphic-variant alias (`type t = [ \`A | \`B ]`)
-//!   plus integer mapping helpers `to_int` / `of_int` that pin the C ABI numbering.
+//! - **Unit enums** (`is_union == false`) -> the FFI view `type az_x = int` with its typ value,
+//!   identity `_to_int` / `_of_int` helpers and one `az_x_variant_<v>` constant per variant. The
+//!   user-facing ADT module (`Update.RefreshDom`) lives in `wrappers.rs` (`azul_enums_<module>.ml`).
 //! - **Tagged-union enums** (`is_union == true`) -> the FFI-side `structure` with a `tag :
 //!   uint32_t` field plus a `payload` byte array sized for the largest variant. The OCaml-side
 //!   polymorphic variant + conversion helpers live in `wrappers.rs`.
@@ -19,7 +20,7 @@ use super::{
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, FunctionKind, StructDef, TypeCategory},
+        ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory},
     },
     map_type_to_ocaml, ocaml_ffi_type_name, sanitize_doc, sanitize_identifier,
 };
@@ -857,152 +858,4 @@ fn sanitize_field_identifier(name: &str) -> String {
 /// for `field` lookups to resolve.
 fn format_c_struct_name(ir_name: &str) -> String {
     format!("Az{}", ir_name)
-}
-
-// ============================================================================
-// Unit-only enum capabilities
-// ============================================================================
-//
-// A unit enum is `type az_x = int` with an int VIEW, not a `Ctypes.structure`,
-// so `Ctypes.addr` does not apply - an int is not addressable. The entry
-// points take `ptr az_x`, so these allocate a cell. Both surfaces are driven
-// from `unit_enum_caps` so the interface cannot omit what the module defines;
-// in OCaml the `.mli` seals the module, and that drift is the bug this whole
-// file keeps rediscovering.
-
-/// Which trait entry points this unit enum actually exports.
-fn unit_enum_caps(e: &EnumDef, ir: &CodegenIR) -> Vec<(FunctionKind, String)> {
-    let mut out = Vec::new();
-    for f in ir.functions_for_class(&e.name) {
-        if matches!(
-            f.kind,
-            FunctionKind::PartialEq
-                | FunctionKind::Hash
-                | FunctionKind::DebugToString
-                | FunctionKind::Cmp
-                | FunctionKind::PartialCmp
-                | FunctionKind::Default
-        ) && !out
-            .iter()
-            .any(|(k, _): &(FunctionKind, String)| *k == f.kind)
-        {
-            out.push((f.kind, super::functions::ocaml_binding_name(&f.c_name)));
-        }
-    }
-    out
-}
-
-fn emit_unit_enum_trait_decls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
-    for (kind, _) in unit_enum_caps(e, ir) {
-        match kind {
-            FunctionKind::PartialEq => {
-                builder.line("(* Equality routed through the C ABI. *)");
-                builder.line("val equal : int -> int -> bool");
-            }
-            FunctionKind::Hash => {
-                builder.line("(* Hash routed through the C ABI. *)");
-                builder.line("val hash : int -> int");
-            }
-            FunctionKind::DebugToString => {
-                builder.line("(* Debug rendering routed through the C ABI. *)");
-                builder.line("val to_string : int -> string");
-            }
-            FunctionKind::Cmp => {
-                builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
-                builder.line("val compare : int -> int -> int");
-            }
-            FunctionKind::PartialCmp => {
-                // NOT `compare`: the ABI answers 255 for "incomparable", and a
-                // total `compare : int -> int -> int` has no honest value for
-                // that. An option says exactly what PartialOrd means.
-                builder.line("(* Partial order routed through the C ABI; None = incomparable. *)");
-                builder.line("val partial_compare : int -> int -> int option");
-            }
-            FunctionKind::Default => {
-                builder.line("(* The Rust Default. *)");
-                builder.line("val default : unit -> int");
-            }
-            _ => {}
-        }
-    }
-}
-
-fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
-    let ffi = super::ocaml_ffi_type_name(&e.name);
-    for (kind, raw) in unit_enum_caps(e, ir) {
-        match kind {
-            FunctionKind::PartialEq => {
-                builder.line("let equal (a : int) (b : int) : bool =");
-                builder.indent();
-                builder.line(&format!(
-                    "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
-                    raw, ffi, ffi
-                ));
-                builder.dedent();
-            }
-            FunctionKind::Hash => {
-                builder.line("let hash (t : int) : int =");
-                builder.indent();
-                builder.line(&format!(
-                    "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
-                    raw, ffi
-                ));
-                builder.dedent();
-            }
-            FunctionKind::DebugToString => {
-                let del = super::functions::ocaml_binding_name("AzString_delete");
-                builder.line("let to_string (t : int) : string =");
-                builder.indent();
-                builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
-                builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
-                builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
-                builder.line(
-                    "let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in",
-                );
-                builder.line(
-                    "let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else \
-                     Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) \
-                     ~length:vec_len in",
-                );
-                builder.line(&format!("{} (Ctypes.addr __s);", del));
-                builder.line("__out");
-                builder.dedent();
-            }
-            FunctionKind::Cmp => {
-                // 0 = Less, 1 = Equal, 2 = Greater on the C side; OCaml's
-                // `compare` wants negative / zero / positive. Exact
-                // correspondence over the same three outcomes.
-                builder.line("let compare (a : int) (b : int) : int =");
-                builder.indent();
-                builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
-                     b)) with",
-                    raw, ffi, ffi
-                ));
-                builder.line("| 0 -> -1");
-                builder.line("| 1 -> 0");
-                builder.line("| _ -> 1");
-                builder.dedent();
-            }
-            FunctionKind::PartialCmp => {
-                builder.line("let partial_compare (a : int) (b : int) : int option =");
-                builder.indent();
-                builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
-                     b)) with",
-                    raw, ffi, ffi
-                ));
-                builder.line("| 0 -> Some (-1)");
-                builder.line("| 1 -> Some 0");
-                builder.line("| 2 -> Some 1");
-                builder.line("| _ -> None");
-                builder.dedent();
-            }
-            FunctionKind::Default => {
-                // No receiver, so nothing to allocate.
-                builder.line(&format!("let default () : int = {} ()", raw));
-            }
-            _ => {}
-        }
-    }
 }

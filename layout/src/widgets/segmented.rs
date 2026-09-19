@@ -71,6 +71,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_segmented_on_change_callback_thunk,
     setter_fn:      AzApp_setSegmentedOnChangeCallbackInvoker,
     from_handle_fn: AzSegmentedOnChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzSegmentedOnChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: SegmentedState ],
 }
 
@@ -468,7 +469,7 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
         let seg = &mut *seg;
         match seg.on_change.as_mut() {
             Some(SegmentedOnChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner)
+                callback.invoke(refany.clone(), info, inner)
             }
             None => Update::DoNothing,
         }
@@ -960,7 +961,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

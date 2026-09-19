@@ -144,8 +144,34 @@ fn arg_spec(arg: &super::super::ir::FunctionArg, ir: &CodegenIR) -> String {
     let base = map_type_to_koffi(&arg.type_name, ir);
     match arg.ref_kind {
         ArgRefKind::Owned => base,
-        ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-            format!("{} *", base)
+        ArgRefKind::Ref | ArgRefKind::Ptr => format!("{} *", base),
+        // `&mut T` / `*mut T` of a registered aggregate: koffi copies a
+        // JS object into a temporary for a plain `T *` and never copies
+        // it back, so `&mut self` mutators (`AzDom_addChild(AzDom*, ..)`)
+        // would edit a discarded copy. `_Inout_` makes koffi write the
+        // struct back into the caller's object after the call (a native
+        // pointer argument still passes straight through). Pointers to
+        // primitives / opaque `void *` keep the plain form.
+        ArgRefKind::RefMut | ArgRefKind::PtrMut => {
+            if is_registered_aggregate(&arg.type_name, ir) {
+                format!("_Inout_ {} *", base)
+            } else {
+                format!("{} *", base)
+            }
         }
     }
+}
+
+/// Is `type_name` registered with koffi as a struct / union (i.e. a
+/// non-recursive IR struct, enum, or monomorphized alias)?
+fn is_registered_aggregate(type_name: &str, ir: &CodegenIR) -> bool {
+    let t = type_name.trim();
+    if let Some(s) = ir.find_struct(t) {
+        return !matches!(s.category, TypeCategory::Recursive);
+    }
+    if let Some(e) = ir.find_enum(t) {
+        return !matches!(e.category, TypeCategory::Recursive);
+    }
+    ir.find_type_alias(t)
+        .is_some_and(|ta| ta.monomorphized_def.is_some())
 }

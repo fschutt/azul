@@ -1,13 +1,20 @@
 //! AutoCloseable wrapper-class emission for the Java JNA generator.
 //!
-//! For every IR struct that has a matching `<TypeName>_delete` C
-//! function we emit a `public final class <TypeName> implements
+//! For every IR struct that `managed_lang_helpers::has_wrapper_class`
+//! accepts — it has a `<TypeName>_delete` C function OR at least one
+//! instance method — we emit a `public final class <TypeName> implements
 //! AutoCloseable` that:
 //!
 //! - Holds the underlying JNA `Pointer` in a private field
-//! - Provides `close()` calling `AzulNative.INSTANCE.Az<Type>_delete(ptr)`
+//! - Provides `close()` calling `AzulNative.INSTANCE.Az<Type>_delete(ptr)` when the type has a
+//!   `_delete` (`has_delete_function`); types without one (engine-borrowed `CallbackInfo`, POD
+//!   value types) get a no-op `close()` and no finalizer
 //! - Surfaces every non-trait method on the IR class as either an instance method (`fn(self, ...)`)
 //!   or a `public static` factory (`fn() -> Self`)
+//! - Adds idiomatic siblings derived from shared IR descriptors: typed `<T> withOn<Event>(T,
+//!   <Cb>WithData<T>)` builders (`smart_callback_setter_info`), `create(<SAM>)` / `create()`
+//!   factories (`layout_callback_factory_info`) and the application-object `create(T,
+//!   <Cb>WithData<T>)` (`app_factory_info`)
 //!
 //! Tagged-union enums get a separate, very minimal helper class with
 //! static factories per unit variant. (Payload-bearing variants are
@@ -25,9 +32,14 @@ use super::{
             ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg,
             FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
         },
+        managed_host_invoker::{
+            app_factory_info, layout_callback_factory_info, managed_c_symbol,
+            smart_callback_setter_info, AppFactoryInfo,
+        },
+        managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type, takes_self},
     },
-    emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier,
-    snake_to_lower_camel,
+    emit_file, ffi_type_name, javadoc_escape, map_jvm_type_byvalue,
+    managed::data_typed_sam_for_kind, sanitize_identifier, snake_to_lower_camel,
     types::{java_boxed, ref_kind_field_type},
 };
 
@@ -40,6 +52,8 @@ pub fn emit_all_wrapper_files(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
+    // The application-object shape is matched once for the whole IR.
+    let app_info = app_factory_info(ir);
     for s in &ir.structs {
         if !should_emit_wrapper(s, ir, config) {
             continue;
@@ -48,7 +62,7 @@ pub fn emit_all_wrapper_files(
         let chunk = emit_file(
             &format!("{}.java", class_name),
             |b| {
-                emit_wrapper_class(b, s, ir);
+                emit_wrapper_class(b, s, ir, config, app_info.as_ref());
                 Ok(())
             },
             config,
@@ -79,23 +93,13 @@ pub fn emit_all_wrapper_files(
 // Filters
 // ============================================================================
 
+/// Per-target inclusion + the shared wrapper predicate. The same
+/// `has_wrapper_class` decides, at every use site (arg conversion,
+/// return wrapping, typed SAMs, Iterable elements), whether `new
+/// <X>(Pointer)` exists — so those sites can never reference a class
+/// this driver did not emit.
 fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    if !config.should_include_type(&s.name) {
-        return false;
-    }
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    has_delete_function(&s.name, ir)
+    config.should_include_type(&s.name) && has_wrapper_class(&s.name, ir)
 }
 
 fn should_emit_union_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -114,42 +118,18 @@ fn should_emit_union_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
     e.is_union
 }
 
-fn has_delete_function(type_name: &str, ir: &CodegenIR) -> bool {
-    ir.functions
-        .iter()
-        .any(|f| f.class_name == type_name && f.kind == FunctionKind::Delete)
-}
-
-/// True iff the codegen emits a `class <type_name> extends AutoCloseable`
-/// wrapper for this type — i.e. it's a non-excluded struct with a
-/// `_delete` C function. Enums (e.g. `CssDeclaration`,
-/// `AccessibilityAction`) get only a `<X>Helpers` static-factory class
-/// and an `Az<X>` JNA Union; no constructor-taking-Pointer is available
-/// and `new <X>(...)` would be a compile error.
-fn has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
-    let Some(s) = ir.find_struct(type_name) else {
-        return false;
-    };
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    has_delete_function(type_name, ir)
-}
-
 // ============================================================================
 // Wrapper emission
 // ============================================================================
 
-fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_wrapper_class(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    app_info: Option<&AppFactoryInfo>,
+) {
+    let has_delete = has_delete_function(&s.name, ir);
     let class_name = wrapper_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
 
@@ -168,12 +148,12 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // Iterable only when the element type is an emitted struct
     // wrapper class — skip enum/typedef elements (`IdOrClass`,
     // `DynamicSelector`, etc.) which don't get their own class.
-    let elem_has_wrapper =
-        |elem: &str| -> bool { ir.find_struct(elem).is_some() && has_delete_function(elem, ir) };
+    // Every wrapper is AutoCloseable so `try (...)` works uniformly;
+    // `close()` only frees when the type has a `_delete` (see
+    // `emit_close_method`).
     let interfaces = match &vec_elem_type {
-        Some(elem) if elem_has_wrapper(elem) => {
-            let elem_wrapper = wrapper_class_name(elem);
-            format!("AutoCloseable, Iterable<{}>", elem_wrapper)
+        Some(elem) if has_wrapper_class(elem, ir) => {
+            format!("AutoCloseable, Iterable<{}>", wrapper_class_name(elem))
         }
         _ => "AutoCloseable".to_string(),
     };
@@ -185,16 +165,38 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
 
     builder.line("private Pointer ptr;");
     builder.line("private boolean closed;");
+    // `owned == false`: the pointer belongs to the engine (callback
+    // args, Vec elements yielded without `_clone`); close() must never
+    // `_delete` it, only invalidate the wrapper.
+    builder.line("private boolean owned;");
     builder.blank();
 
     // Internal pointer-wrapping constructor (package-private).
+    if has_delete {
+        builder.line(&format!(
+            "/** Wrap an existing native {} pointer; takes ownership (freed by close()). */",
+            ffi_name
+        ));
+    } else {
+        builder.line(&format!(
+            "/** Wrap an existing native {} pointer; BORROWED — the engine (or the enclosing \
+             value) owns it and there is no {}_delete, so close() only marks the wrapper closed. */",
+            ffi_name, ffi_name
+        ));
+    }
     builder.line(&format!(
-        "/** Wrap an existing native {} pointer; takes ownership. */",
-        ffi_name
+        "{}(Pointer ptr) {{ this.ptr = ptr; this.closed = false; this.owned = true; }}",
+        class_name
+    ));
+    builder.blank();
+    builder.line(&format!(
+        "/** Internal: wrap a pointer the ENGINE owns (a callback argument, a Vec element) — \
+         never freed by this wrapper; the codegen bridge invalidates it with close() when the \
+         engine's borrow ends. */"
     ));
     builder.line(&format!(
-        "{}(Pointer ptr) {{ this.ptr = ptr; this.closed = false; }}",
-        class_name
+        "static {} __borrow(Pointer ptr) {{ {} w = new {}(ptr); w.owned = false; return w; }}",
+        class_name, class_name, class_name
     ));
     builder.blank();
 
@@ -230,63 +232,33 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
-    // Phase J.1: generalize the Button.onClick hardcode to any widget
-    // method with the `with_on_*(self, data: RefAny, callback: <Cb>)`
-    // shape. The detector (`smart_callback_setter_info`) returns
-    // Some((smart_name, wrapper_name)) when the method matches the
-    // pattern AND the wrapper kind is in HOST_INVOKER_KINDS.
-    //
-    // This lights up CheckBox.onToggle(data, fn), TextInput.onTextInput(),
-    // DropDown.onChoiceChange(), and friends — every widget that has a
-    // with_on_<event>(refany, callback) builder gets an idiomatic
-    // sibling that wraps both internally.
+    // Phase J.1: any method with the `with_on_*(self, data: RefAny,
+    // callback: <Cb>)` shape gets idiomatic siblings that register the
+    // host handles internally. The detector (`smart_callback_setter_info`)
+    // returns Some((smart_name, kind)) when the method matches the
+    // pattern AND the wrapper kind is in HOST_INVOKER_KINDS — so
+    // Button.withOnClick, CheckBox.withOnToggle, TextInput.withOnTextInput,
+    // DropDown.withOnChoiceChange, ... all light up.
     for func in ir.functions_for_class(&s.name) {
-        let Some((smart_snake, wrapper_kind)) =
-            super::super::managed_host_invoker::smart_callback_setter_info(func)
-        else {
+        let Some((smart_snake, wrapper_kind)) = smart_callback_setter_info(func) else {
             continue;
         };
-        let smart_camel = snake_to_lower_camel(&smart_snake);
-        let with_camel = idiomatic_method_name(&func.method_name);
-        let sam_class = format!("AzulNativeManaged.{}InvokerCallback", wrapper_kind);
-        let register_method = if wrapper_kind == "Callback" {
-            "registerCallback".to_string()
-        } else {
-            format!("register{}", wrapper_kind)
-        };
-        builder.line("/**");
-        builder.line(&format!(
-            " * Smart builder for {}: takes a Java object as data and a",
-            with_camel
-        ));
-        builder.line(" * SAM callback; host-invoker registration of both happens");
-        builder.line(" * internally.");
-        builder.line(" */");
-        builder.line(&format!(
-            "public {} {}(Object data, {} fn) {{",
-            class_name, smart_camel, sam_class
-        ));
-        builder.indent();
-        builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
-        builder.line(&format!(
-            "Az{}.ByValue __cb = AzulHostInvoker.{}(fn);",
-            wrapper_kind, register_method
-        ));
-        builder.line(&format!(
-            "return {}(new RefAny(__data.getPointer()), new {}(__cb.getPointer()));",
-            with_camel, wrapper_kind
-        ));
-        builder.dedent();
-        builder.line("}");
-        builder.blank();
+        emit_smart_callback_setters(
+            builder,
+            &class_name,
+            func,
+            &smart_snake,
+            &wrapper_kind,
+            ir,
+            config,
+        );
     }
 
-    // WindowCreateOptions.create(LayoutCallbackInvokerCallback) — smart
-    // factory that hides the host-invoker plumbing. The user passes a
-    // SAM callback; we register it via AzulHostInvoker, splice the
-    // resulting AzLayoutCallback bytes into a `_default()` WCO's
-    // embedded layout_callback storage, and hand back the wrapped
-    // instance. Replaces the manual:
+    // Smart factories for a class with a `_default` factory and a
+    // `create(<layout-callback fn ptr>)` constructor (today:
+    // WindowCreateOptions): `create(<SAM>)` registers the SAM via
+    // AzulHostInvoker and splices the resulting Az<Cb> bytes into the
+    // `_default()` struct's embedded callback field. Replaces the manual:
     //
     //     AzLayoutCallback.ByValue cb = AzulHostInvoker.registerLayoutCallback(fn);
     //     AzWindowCreateOptions.ByValue wco = AzulNativeWindow.AzWindowCreateOptions_default();
@@ -294,8 +266,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     //     wco.window_state.layout_callback.getPointer().write(0, cb.getPointer().getByteArray(0,
     // cb.size()), 0, cb.size());     wco.read();
     //
-    // boilerplate every JVM hello-world has today.
-    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
+    // boilerplate every JVM hello-world had.
+    if let Some(info) = layout_callback_factory_info(s, ir) {
         let wrapper_class = wrapper_class_name(&info.class_name);
         let ffi_class = ffi_type_name(&info.class_name);
         let cb_ffi = ffi_type_name(&info.callback_wrapper);
@@ -352,14 +324,68 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
             builder.line("}");
             builder.blank();
         }
+
+        // Zero-arg `create()`: the `_default` factory under the
+        // idiomatic name. The layout callback then comes from the
+        // application object (`App.create(T, fn)` splices it into every
+        // window whose callback is still the default) — or from one of
+        // the overloads above. Skipped when the IR already has a
+        // zero-arg factory that would take the name.
+        let has_zero_arg_create = ir.functions_for_class(&s.name).any(|f| {
+            !f.kind.is_trait_function()
+                && !takes_self(f)
+                && f.args.is_empty()
+                && idiomatic_method_name(&f.method_name) == "create"
+        });
+        if !has_zero_arg_create {
+            builder.line("/**");
+            builder.line(&format!(
+                " * Default options. The layout callback is supplied by the application \
+                 object's typed factory (see {{@code create(T, ...WithData<T>)}} on the class \
+                 whose run/addWindow takes a {}), or set one explicitly with the \
+                 {{@code create(fn)}} overloads.",
+                wrapper_class
+            ));
+            builder.line(" */");
+            builder.line(&format!("public static {} create() {{", wrapper_class));
+            builder.indent();
+            builder.line(&format!(
+                "{}.ByValue __raw = {}.INSTANCE.{}();",
+                ffi_class, native_class, info.default_c_name
+            ));
+            builder.line(&format!("return new {}(__raw.getPointer());", wrapper_class));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
+
+    // Application-object factory (`App.create(model, layoutFn)`): see
+    // `managed_host_invoker::app_factory_info`. Matched structurally;
+    // nothing here names App / AppConfig / WindowCreateOptions.
+    let app_emit = match app_info {
+        Some(app) if app.class_name == s.name => emit_app_factory(builder, s, app, ir, config),
+        _ => AppEmit::default(),
+    };
 
     // Methods.
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {
             continue;
         }
-        emit_wrapper_method(builder, &class_name, func, ir);
+        // Window-taking methods of the application class splice the
+        // factory-registered layout callback into their options arg.
+        let splice_arg_idx = if app_emit.splice_helper {
+            app_info.and_then(|app| {
+                app.window_methods
+                    .iter()
+                    .find(|(c_name, _, _)| *c_name == func.c_name)
+                    .map(|(_, idx, _)| *idx)
+            })
+        } else {
+            None
+        };
+        emit_wrapper_method(builder, &class_name, func, ir, splice_arg_idx);
     }
 
     // Phase I.2: route Object.equals(Object) + hashCode() through the
@@ -380,7 +406,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // body overlays AzXVec via JNA Structure.newInstance, reads
     // ptr+len, and walks the buffer one element at a time.
     if let Some(elem) = vec_elem_type.as_deref() {
-        if ir.find_struct(elem).is_some() && has_delete_function(elem, ir) {
+        if has_wrapper_class(elem, ir) {
             emit_jvm_vec_iterator(builder, s, elem, ir);
         } else {
             // Primitive (or non-wrapper) element: emit a bulk-copy
@@ -394,10 +420,396 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     }
 
     // close() / AutoCloseable.
-    emit_close_method(builder, &s.name, &class_name, ir);
+    emit_close_method(builder, &s.name, ir, &app_emit.close_lines);
 
     builder.dedent();
     builder.line("}");
+}
+
+/// Phase J.1: for a `with_on_*(self, data: RefAny, callback: <Cb>)`
+/// builder emit two idiomatic siblings next to the IR method:
+///
+/// * `on<Event>(Object data, AzulNativeManaged.<Cb>InvokerCallback fn)` — raw SAM;
+/// * `<T> with<Event>(T data, AzulHostInvoker.<Cb>WithData<T> fn)` — typed SAM, only when
+///   `managed.rs` emitted the `<Cb>WithData<T>` interface for that kind (same predicate:
+///   [`data_typed_sam_for_kind`]).
+///
+/// Both register the host handles internally and forward to the IR
+/// method. Arguments are matched positionally / by IR category — the
+/// receiver is `args[0]` whenever `takes_self`, the data slot is the
+/// `RefAny`-category arg, the callback slot is the `callback_info` arg;
+/// anything else is passed through by name — never by the name api.json
+/// gave the receiver.
+fn emit_smart_callback_setters(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    func: &FunctionDef,
+    smart_snake: &str,
+    wrapper_kind: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let with_camel = idiomatic_method_name(&func.method_name);
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .map(|r| r.trim() == func.class_name)
+        .unwrap_or(false);
+    let returns_void = func.return_type.is_none();
+    if !(returns_self || returns_void) {
+        return;
+    }
+    let (ret_ty, ret_kw) = if returns_self {
+        (class_name.to_string(), "return ")
+    } else {
+        ("void".to_string(), "")
+    };
+    let skip = if takes_self(func) { 1 } else { 0 };
+    let cb_ffi = ffi_type_name(wrapper_kind);
+
+    // Forwarded argument list of the IR method: the data and callback
+    // slots are synthesised from the locals `__data` / `__cb`; anything
+    // else is passed through by name (and added to the signature).
+    let mut extra_sig: Vec<String> = Vec::new();
+    let mut call: Vec<String> = Vec::new();
+    for a in func.args.iter().skip(skip) {
+        let tn = a.type_name.trim();
+        if is_refany_type(tn, ir) {
+            call.push(format!(
+                "new {}(__data.getPointer())",
+                wrapper_class_name(tn)
+            ));
+        } else if a.callback_info.is_some() {
+            call.push(format!("new {}(__cb.getPointer())", wrapper_class_name(tn)));
+        } else {
+            let n = sanitize_identifier(&a.name);
+            extra_sig.push(format!("{} {}", map_jvm_type_byvalue(tn, ir), n));
+            call.push(n);
+        }
+    }
+    let call = call.join(", ");
+
+    // (1) Raw-SAM sibling: `onClick(Object data, <Cb>InvokerCallback fn)`.
+    let smart_camel = snake_to_lower_camel(smart_snake);
+    let mut sig = vec![
+        "Object data".to_string(),
+        format!("AzulNativeManaged.{}InvokerCallback fn", wrapper_kind),
+    ];
+    sig.extend(extra_sig.iter().cloned());
+    builder.line("/**");
+    builder.line(&format!(
+        " * Smart builder for {}: takes a Java object as data and a",
+        with_camel
+    ));
+    builder.line(" * raw SAM callback; host-invoker registration of both happens");
+    builder.line(" * internally.");
+    builder.line(" */");
+    builder.line(&format!(
+        "public {} {}({}) {{",
+        ret_ty,
+        smart_camel,
+        sig.join(", ")
+    ));
+    builder.indent();
+    builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
+    builder.line(&format!(
+        "{}.ByValue __cb = AzulHostInvoker.register{}(fn);",
+        cb_ffi, wrapper_kind
+    ));
+    builder.line(&format!("{}{}({});", ret_kw, with_camel, call));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // (2) Typed sibling: `<T> withOnClick(T data, <Cb>WithData<T> fn)`.
+    if data_typed_sam_for_kind(wrapper_kind, ir, config).is_none() {
+        return;
+    }
+    let mut sig = vec![
+        "T data".to_string(),
+        format!("AzulHostInvoker.{}WithData<T> fn", wrapper_kind),
+    ];
+    sig.extend(extra_sig.iter().cloned());
+    builder.line("/**");
+    builder.line(&format!(
+        " * Typed builder for {}: {{@code data}} is any Java object, {{@code fn}}",
+        with_camel
+    ));
+    builder.line(" * receives it back as its declared type (plus the decoded callback");
+    builder.line(" * args) — no RefAny / callback-struct plumbing at the call site.");
+    builder.line(" * Method references work: {@code .withOnClick(model, MyApp::onClick)}.");
+    builder.line(" */");
+    builder.line("@SuppressWarnings(\"unchecked\")");
+    builder.line(&format!(
+        "public <T> {} {}({}) {{",
+        ret_ty,
+        with_camel,
+        sig.join(", ")
+    ));
+    builder.indent();
+    builder.line("if (data == null) throw new NullPointerException(\"data\");");
+    builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
+    builder.line(&format!(
+        "{}.ByValue __cb = AzulHostInvoker.register{}((Class<T>) data.getClass(), fn);",
+        cb_ffi, wrapper_kind
+    ));
+    builder.line(&format!("{}{}({});", ret_kw, with_camel, call));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// What [`emit_app_factory`] added to the class, so the method emitter
+/// and `close()` can cooperate with it.
+#[derive(Default)]
+struct AppEmit {
+    /// `__spliceLayoutCallback(<Options>.ByValue)` overloads exist;
+    /// window-taking methods call them before the native call.
+    splice_helper: bool,
+    /// Statements `close()` runs after `_delete` (release the stored
+    /// callback).
+    close_lines: Vec<String>,
+}
+
+/// C-ABI name of the trait function of `kind` on class `class_name`
+/// (`Az<X>_clone`, `Az<X>_delete`, ...), taken from the IR rather than
+/// re-derived from the type name.
+fn trait_c_name(class_name: &str, kind: FunctionKind, ir: &CodegenIR) -> Option<String> {
+    ir.functions
+        .iter()
+        .find(|f| f.class_name == class_name && f.kind == kind)
+        .map(|f| f.c_name.clone())
+}
+
+/// Application-object factory. For the class `app_factory_info` matched
+/// (constructor `[RefAny, Config-with-_default]`, methods taking a
+/// window-options struct with a layout-callback field) emit:
+///
+/// * a private field holding the registered `Az<Cb>.ByValue`;
+/// * `public static <T> App create(T data, AzulHostInvoker.<Cb>WithData<T> fn)` — registers
+///   the typed layout callback once, wraps `data` as a host-handle RefAny, builds the config
+///   with its `_default` factory and calls the IR constructor;
+/// * one private `__spliceLayoutCallback(<Options>.ByValue)` per options type — when the
+///   options still carry the DEFAULT callback (detected with the callback type's own
+///   `_default` + `_partialEq` exports when it has them, else by comparing the field bytes
+///   against a fresh `_default` options struct), a CLONE of the stored callback (a fresh
+///   RefAny refcount per window) is written into `options.<field_path>`. An explicit
+///   `<Options>.create(fn)` therefore keeps winning;
+/// * a `close()` statement that `_delete`s the stored callback.
+///
+/// Emitted only when every window-taking method uses the same callback
+/// kind and that kind has a `<Cb>WithData<T>` SAM (so the typed factory
+/// can exist at all).
+fn emit_app_factory(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    app: &AppFactoryInfo,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> AppEmit {
+    let Some((_, _, first)) = app.window_methods.first() else {
+        return AppEmit::default();
+    };
+    let kind = first.callback_wrapper.as_str();
+    if !app
+        .window_methods
+        .iter()
+        .all(|(_, _, info)| info.callback_wrapper == kind)
+    {
+        return AppEmit::default();
+    }
+    if data_typed_sam_for_kind(kind, ir, config).is_none() {
+        return AppEmit::default();
+    }
+    let Some(create) = ir.functions.iter().find(|f| f.c_name == app.create_c_name) else {
+        return AppEmit::default();
+    };
+
+    let class_name = wrapper_class_name(&s.name);
+    let app_ffi = ffi_type_name(&s.name);
+    let app_native = super::functions::native_class_for_class(&s.name, ir);
+    let cfg_ffi = ffi_type_name(&app.config_type);
+    let cfg_native = super::functions::native_class_for_class(&app.config_type, ir);
+    let cb_ffi = ffi_type_name(kind);
+    let cb_native = super::functions::native_class_for_class(kind, ir);
+    let cb_clone = trait_c_name(kind, FunctionKind::DeepCopy, ir);
+    let cb_delete = trait_c_name(kind, FunctionKind::Delete, ir);
+    let cb_default = trait_c_name(kind, FunctionKind::Default, ir);
+    let cb_eq = trait_c_name(kind, FunctionKind::PartialEq, ir);
+
+    // --- field -------------------------------------------------------------
+    builder.line("/**");
+    builder.line(&format!(
+        " * Layout callback registered by {{@code create(T, AzulHostInvoker.{}WithData<T>)}};",
+        kind
+    ));
+    builder.line(" * spliced into every window-options struct passed to this object that still");
+    builder.line(" * carries the default callback. null when the object was created otherwise.");
+    builder.line(" */");
+    builder.line(&format!("private {}.ByValue __layoutCallback;", cb_ffi));
+    builder.blank();
+
+    // --- typed factory -----------------------------------------------------
+    builder.line("/**");
+    builder.line(" * Create the application from a plain Java data model and a typed layout");
+    builder.line(" * callback. {@code data} is handed back to {@code layout} (and to every");
+    builder.line(" * widget callback registered with it) as its declared type; the config is");
+    builder.line(&format!(
+        " * the {} default. Pass the resulting object's windows through",
+        cfg_ffi
+    ));
+    builder.line(" * {@code run(...)} / {@code addWindow(...)}: any options still carrying the");
+    builder.line(" * default callback receive this one.");
+    builder.line(" */");
+    builder.line("@SuppressWarnings(\"unchecked\")");
+    builder.line(&format!(
+        "public static <T> {} create(T data, AzulHostInvoker.{}WithData<T> layout) {{",
+        class_name, kind
+    ));
+    builder.indent();
+    builder.line("if (data == null) throw new NullPointerException(\"data\");");
+    builder.line("if (layout == null) throw new NullPointerException(\"layout\");");
+    builder.line(&format!(
+        "{}.ByValue __cb = AzulHostInvoker.register{}((Class<T>) data.getClass(), layout);",
+        cb_ffi, kind
+    ));
+    builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
+    builder.line(&format!(
+        "{}.ByValue __config = {}.INSTANCE.{}();",
+        cfg_ffi, cfg_native, app.config_default_c_name
+    ));
+    let mut create_args = vec![String::new(); create.args.len()];
+    create_args[app.data_arg_index] = "__data".to_string();
+    create_args[app.config_arg_index] = "__config".to_string();
+    builder.line(&format!(
+        "{}.ByValue __raw = {}.INSTANCE.{}({});",
+        app_ffi,
+        app_native,
+        managed_c_symbol(create),
+        create_args.join(", ")
+    ));
+    builder.line(&format!(
+        "{} __app = new {}(__raw.getPointer());",
+        class_name, class_name
+    ));
+    builder.line("__app.__layoutCallback = __cb;");
+    builder.line("return __app;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // --- splice helper, one per distinct options type ------------------------
+    let mut seen: Vec<&str> = Vec::new();
+    for (_, _, info) in &app.window_methods {
+        if seen.contains(&info.class_name.as_str()) {
+            continue;
+        }
+        seen.push(info.class_name.as_str());
+        let opt_ffi = ffi_type_name(&info.class_name);
+        let opt_native = super::functions::native_class_for_class(&info.class_name, ir);
+        let opt_delete = trait_c_name(&info.class_name, FunctionKind::Delete, ir);
+        let field_path = info.field_path.join(".");
+
+        builder.line("/**");
+        builder.line(" * Internal: write the factory-registered layout callback into");
+        builder.line(&format!(
+            " * {{@code options.{}}} when it still holds the default callback",
+            field_path
+        ));
+        builder.line(" * (an explicit callback set by the caller wins). Each window gets");
+        builder.line(" * its own clone, i.e. its own RefAny refcount.");
+        builder.line(" */");
+        builder.line(&format!(
+            "private void __spliceLayoutCallback({}.ByValue __options) {{",
+            opt_ffi
+        ));
+        builder.indent();
+        builder.line("if (this.__layoutCallback == null) return;");
+        builder.line(&format!(
+            "Pointer __field = __options.{}.getPointer();",
+            field_path
+        ));
+        match (&cb_default, &cb_eq) {
+            (Some(default_c), Some(eq_c)) => {
+                builder.line(&format!(
+                    "{}.ByValue __default = {}.INSTANCE.{}();",
+                    cb_ffi, cb_native, default_c
+                ));
+                builder.line(&format!(
+                    "boolean __isDefault = {}.INSTANCE.{}(__field, __default.getPointer()) != 0;",
+                    cb_native, eq_c
+                ));
+                if let Some(delete_c) = &cb_delete {
+                    builder.line(&format!(
+                        "{}.INSTANCE.{}(__default.getPointer());",
+                        cb_native, delete_c
+                    ));
+                }
+            }
+            _ => {
+                // No equality export on the callback type: compare the
+                // raw field bytes against a fresh default options struct.
+                builder.line(&format!(
+                    "{}.ByValue __defaults = {}.INSTANCE.{}();",
+                    opt_ffi, opt_native, info.default_c_name
+                ));
+                builder.line(&format!(
+                    "int __n = __defaults.{}.size();",
+                    field_path
+                ));
+                builder.line(&format!(
+                    "boolean __isDefault = java.util.Arrays.equals(__field.getByteArray(0, __n), \
+                     __defaults.{}.getPointer().getByteArray(0, __n));",
+                    field_path
+                ));
+                if let Some(delete_c) = &opt_delete {
+                    builder.line(&format!(
+                        "{}.INSTANCE.{}(__defaults.getPointer());",
+                        opt_native, delete_c
+                    ));
+                }
+            }
+        }
+        builder.line("if (!__isDefault) return;");
+        match &cb_clone {
+            Some(clone_c) => {
+                builder.line(&format!(
+                    "{}.ByValue __copy = {}.INSTANCE.{}(this.__layoutCallback.getPointer());",
+                    cb_ffi, cb_native, clone_c
+                ));
+            }
+            None => {
+                // Not clonable: move it into the first window; a second
+                // window cannot receive the same refcount twice.
+                builder.line(&format!(
+                    "{}.ByValue __copy = this.__layoutCallback;",
+                    cb_ffi
+                ));
+                builder.line("this.__layoutCallback = null;");
+            }
+        }
+        builder.line("byte[] __bytes = __copy.getPointer().getByteArray(0, __copy.size());");
+        builder.line("__field.write(0, __bytes, 0, __bytes.length);");
+        builder.line("__options.read();");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
+    let mut close_lines = Vec::new();
+    if let Some(delete_c) = &cb_delete {
+        close_lines.push("if (__layoutCallback != null) {".to_string());
+        close_lines.push(format!(
+            "    {}.INSTANCE.{}(__layoutCallback.getPointer());",
+            cb_native, delete_c
+        ));
+        close_lines.push("    __layoutCallback = null;".to_string());
+        close_lines.push("}".to_string());
+    }
+    AppEmit {
+        splice_helper: true,
+        close_lines,
+    }
 }
 
 /// Phase I.2 (Java): override Object.equals(Object) + hashCode() to
@@ -585,10 +997,9 @@ fn emit_jvm_vec_iterator(
         builder.line(" * yielded wrapper owns its own heap allocations and survives");
         builder.line(" * the Vec being closed.");
     } else {
-        builder.line(" * element is a buffer-borrowed wrapper marked consumed (no");
-        builder.line(" * finalize-time AzX_delete on Vec-internal memory). Treat");
-        builder.line(" * iteration as single-pass: don't store yielded wrappers past");
-        builder.line(" * the Vec's lifetime.");
+        builder.line(" * element is a non-owning wrapper over the Vec's buffer (no");
+        builder.line(" * finalize-time AzX_delete on Vec-internal memory). Don't store");
+        builder.line(" * yielded wrappers past the Vec's lifetime.");
     }
     builder.line(" */");
     builder.line("@Override");
@@ -632,20 +1043,13 @@ fn emit_jvm_vec_iterator(
             elem_wrapper
         ));
     } else {
-        // No _clone available — yield a buffer-borrowed wrapper and
-        // mark it consumed so finalize() skips AzX_delete on
-        // Vec-internal memory.
+        // No _clone available — yield a NON-OWNING wrapper over the
+        // Vec's buffer (usable, but close()/finalize() never
+        // AzX_delete Vec-internal memory).
         builder.line(&format!(
-            "{}.ByValue __ev = ({}.ByValue) Structure.newInstance({}.ByValue.class, __ep);",
-            elem_ffi, elem_ffi, elem_ffi
+            "return {}.__borrow(__ep);",
+            elem_wrapper
         ));
-        builder.line("__ev.read();");
-        builder.line(&format!(
-            "{} __borrowed = new {}(__ev.getPointer());",
-            elem_wrapper, elem_wrapper
-        ));
-        builder.line("__borrowed.__consume();");
-        builder.line("return __borrowed;");
     }
     builder.dedent();
     builder.line("}");
@@ -701,27 +1105,56 @@ fn emit_jvm_vec_primitive_array(builder: &mut CodeBuilder, s: &StructDef, elem_r
     builder.blank();
 }
 
+/// `close()` / `finalize()` / `__consume()`.
+///
+/// * `has_delete_function`: `close()` calls `Az<X>_delete(ptr)` (then `extra_close_lines`),
+///   and a defensive `finalize()` calls `close()`.
+/// * no `_delete` (engine-borrowed `CallbackInfo`, POD value types): `close()` only marks the
+///   wrapper closed and there is NO finalizer — nothing to free, and a finalizer would only cost
+///   a GC pass.
 fn emit_close_method(
     builder: &mut CodeBuilder,
     raw_type_name: &str,
-    class_name: &str,
     ir: &CodegenIR,
+    extra_close_lines: &[String],
 ) {
-    builder.line("/** Frees the underlying native resources. Idempotent. */");
-    builder.line("@Override");
-    builder.line("public void close() {");
-    builder.indent();
-    builder.line("if (closed || ptr == null) return;");
-    builder.line(&format!(
-        "{}.INSTANCE.Az{}_delete(ptr);",
-        super::functions::native_class_for_class(raw_type_name, ir),
-        raw_type_name
-    ));
-    builder.line("ptr = null;");
-    builder.line("closed = true;");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+    let has_delete = has_delete_function(raw_type_name, ir);
+    if has_delete {
+        builder.line(
+            "/** Frees the underlying native resources (owned wrappers only; a borrowed wrapper \
+             is just invalidated). Idempotent. */",
+        );
+        builder.line("@Override");
+        builder.line("public void close() {");
+        builder.indent();
+        builder.line("if (closed || ptr == null) return;");
+        builder.line(&format!(
+            "if (owned) {}.INSTANCE.Az{}_delete(ptr);",
+            super::functions::native_class_for_class(raw_type_name, ir),
+            raw_type_name
+        ));
+        builder.line("ptr = null;");
+        for l in extra_close_lines {
+            builder.line(l);
+        }
+        builder.line("closed = true;");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    } else {
+        builder.line(
+            "/** No native resources to free (the pointer is borrowed from the engine, or a \
+             plain value): marks the wrapper closed. Idempotent. */",
+        );
+        builder.line("@Override");
+        builder.line("public void close() {");
+        builder.indent();
+        builder.line("ptr = null;");
+        builder.line("closed = true;");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     // Mark this wrapper as consumed without calling Az<X>_delete.
     // Used by codegen-emitted call sites where the C ABI takes
@@ -740,15 +1173,16 @@ fn emit_close_method(
     builder.line("}");
     builder.blank();
 
-    // Defensive finalizer in case the user forgets try-with-resources.
-    builder.line("@Override");
-    builder.line("@SuppressWarnings(\"deprecation\")");
-    builder.line("protected void finalize() throws Throwable {");
-    builder.indent();
-    builder.line("try { close(); } finally { super.finalize(); }");
-    builder.dedent();
-    builder.line("}");
-    let _ = class_name;
+    if has_delete {
+        // Defensive finalizer in case the user forgets try-with-resources.
+        builder.line("@Override");
+        builder.line("@SuppressWarnings(\"deprecation\")");
+        builder.line("protected void finalize() throws Throwable {");
+        builder.indent();
+        builder.line("try { close(); } finally { super.finalize(); }");
+        builder.dedent();
+        builder.line("}");
+    }
 }
 
 /// Phase I.5.1: how the wrapper method should idiomise an Option<T> /
@@ -878,14 +1312,17 @@ fn is_az_string_jvm(raw: &str, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
+/// `splice_arg_idx`: for window-taking methods of the application class
+/// (see `emit_app_factory`), the index in `func.args` of the options arg
+/// that receives the factory-registered layout callback.
 fn emit_wrapper_method(
     builder: &mut CodeBuilder,
     class_name: &str,
     func: &FunctionDef,
     ir: &CodegenIR,
+    splice_arg_idx: Option<usize>,
 ) {
     let method_name = idiomatic_method_name(&func.method_name);
-    let _ = ffi_type_name(&func.class_name);
 
     let return_jvm = func
         .return_type
@@ -927,36 +1364,15 @@ fn emit_wrapper_method(
     let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
         a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
     };
+    // Only treat as wrapper-class arg if the codegen actually emits a
+    // wrapper file for it — the SAME predicate `should_emit_wrapper`
+    // uses, so the generated code can never reference a missing class
+    // and arg/return conversion stay symmetric. (Checked after the
+    // String rule at every use site.)
     let is_wrapper_class_owned_arg = |a: &&FunctionArg| -> bool {
-        if !matches!(a.ref_kind, ArgRefKind::Owned) {
-            return false;
-        }
-        let tn = a.type_name.trim();
-        if tn == "String" {
-            return false;
-        }
-        // Strict: only treat as wrapper-class arg if the codegen
-        // actually emits a wrapper file for it (i.e. has a delete fn
-        // and isn't in an excluded TypeCategory). Without this guard,
-        // structs that exist in the IR but never get a wrapper class
-        // (Vec inner types, internal data carriers) get over-converted
-        // and the generated code references missing classes.
-        let Some(s) = ir.find_struct(tn) else {
-            return false;
-        };
-        if !s.generic_params.is_empty() {
-            return false;
-        }
-        if matches!(
-            s.category,
-            super::super::ir::TypeCategory::Recursive
-                | super::super::ir::TypeCategory::VecRef
-                | super::super::ir::TypeCategory::DestructorOrClone
-                | super::super::ir::TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        has_delete_function(tn, ir)
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            && !is_az_string_owned_arg(a)
+            && has_wrapper_class(a.type_name.trim(), ir)
     };
 
     let arg_sig: Vec<String> = user_args
@@ -1095,6 +1511,19 @@ fn emit_wrapper_method(
         }
     }
 
+    // Application class, window-taking method: hand the by-value
+    // options overlay to the splice helper before the native call.
+    if let Some(idx) = splice_arg_idx {
+        if let Some(a) = func.args.get(idx) {
+            if is_wrapper_class_owned_arg(&a) {
+                pre_call_lines.push(format!(
+                    "this.__spliceLayoutCallback(__{}_raw);",
+                    sanitize_identifier(&a.name)
+                ));
+            }
+        }
+    }
+
     if !func.doc.is_empty() {
         builder.line("/**");
         for d in &func.doc {
@@ -1192,7 +1621,7 @@ fn emit_wrapper_method(
     let call = format!(
         "{}.INSTANCE.{}({})",
         super::functions::native_class_for_func(func, ir),
-        super::super::managed_host_invoker::managed_c_symbol(func),
+        managed_c_symbol(func),
         call_args.join(", ")
     );
 
@@ -1510,7 +1939,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                     "u.{}.tag = (byte) {}_Tag.{}.value;",
                     variant_ident, ffi_name, variant_ident
                 ));
-                builder.line(&format!("u.setType(\"{}\");", v.name));
+                builder.line(&format!("u.setType(\"{}\");", variant_ident));
                 builder.line("return u;");
                 builder.dedent();
                 builder.line("}");
@@ -1538,7 +1967,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
 // Helpers
 // ============================================================================
 
-fn wrapper_class_name(raw: &str) -> String {
+pub(super) fn wrapper_class_name(raw: &str) -> String {
     // The codegen-emitted `String` wrapper (AzString backing) collides
     // with `java.lang.String` inside `package com.azul`. Java has no
     // verbatim-identifier syntax, so users were forced into qualified
@@ -1591,17 +2020,4 @@ fn idiomatic_method_name(method_name: &str) -> String {
     } else {
         camel
     }
-}
-
-fn javadoc_escape(s: &str) -> String {
-    // Java's javadoc parser interprets `\u` / `\U` as Unicode escapes
-    // (even inside comments — see JLS §3.3). Doc strings like
-    // `C:\Users\username` contain `\U` which is parsed as the start of
-    // an invalid Unicode escape sequence and rejected. Double the
-    // backslashes so the literal text survives.
-    s.replace('\\', "\\\\")
-        .replace("*/", "*&#47;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('&', "&amp;")
 }

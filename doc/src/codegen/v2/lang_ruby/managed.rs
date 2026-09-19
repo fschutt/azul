@@ -15,6 +15,16 @@
 //! emitter passes that struct directly to whatever `attach_function`
 //! takes a `Callback` / `LayoutCallback` / `VirtualViewCallback` arg.
 //!
+//! ## RefAny ownership model
+//!
+//! `Azul::RefAny.wrap(value)` returns an `Azul::RefAny` *wrapper* whose
+//! finalizer owns exactly one refcount (`AzRefAny_delete`). Every C call
+//! that takes a `RefAny` by value receives a *clone* (`AzRefAny_clone`,
+//! see `wrappers.rs`), so Ruby's reference and libazul's reference are
+//! independent: the same wrapped value can be handed to any number of
+//! callbacks, and the host-handle releaser fires exactly once, when the
+//! last clone anywhere is dropped.
+//!
 //! ## Why FFI::Function works where Lua needed a libffi pointer-arg type
 //!
 //! ruby-ffi always allocates libffi closures with all-pointer-args at
@@ -22,17 +32,58 @@
 //! exists in ruby-ffi too. The host invoker we register on Ruby's side
 //! has *only* pointer args (and an out-pointer for the return value),
 //! which is what the static thunk in libazul calls.
+//!
+//! ## Hand-declared core exports
+//!
+//! `AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`,
+//! `AzRefAny_getHostHandle`, `AzApp_set<Kind>Invoker` and
+//! `Az<Kind>_createFromHostHandle` are `#[no_mangle]` exports of
+//! `core/src/host_invoker.rs` (and its `impl_managed_callback!` macro),
+//! not api.json functions, so they are not in `azul.h`. The signatures
+//! below mirror that file; only the type prefix and the kind list are
+//! IR-derived.
 
-use super::super::{
-    ir::{CallbackTypedefDef, CodegenIR},
-    managed_host_invoker::{has_return, host_invoker_kinds, to_snake_case, wrapper_name},
+use super::{
+    super::{
+        config::CodegenConfig,
+        generator::CodeBuilder,
+        ir::{CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    functions::ruby_attach_name,
 };
+
+/// True when `arg`'s (unprefixed) IR type is the struct the IR classifies
+/// as [`TypeCategory::RefAny`]. Used for both function args and callback
+/// typedef args (they share [`FunctionArg`]). No name-string matching.
+pub(crate) fn is_refany_arg(arg: &FunctionArg, ir: &CodegenIR) -> bool {
+    ir.find_struct(arg.type_name.trim())
+        .map(|s| s.category == TypeCategory::RefAny)
+        .unwrap_or(false)
+}
+
+/// The unprefixed name of the IR's `TypeCategory::RefAny` struct
+/// (`"RefAny"` in today's api.json — looked up, not assumed).
+pub(crate) fn refany_struct_name(ir: &CodegenIR) -> Option<&str> {
+    ir.structs
+        .iter()
+        .find(|s| s.category == TypeCategory::RefAny)
+        .map(|s| s.name.as_str())
+}
 
 /// Emit Ruby code that registers the host-invoker plumbing and
 /// `Azul._register_callback`. Inserted at the bottom of `module Azul`,
 /// after the Native sub-module is fully wired up but before user-facing
 /// wrapper classes use the helpers.
-pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, ir: &CodegenIR) {
+pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    let Some(refany) = refany_struct_name(ir) else {
+        builder.line("# (no TypeCategory::RefAny struct in the IR — host-invoker helpers skipped)");
+        return;
+    };
+    let refany_prefixed = config.apply_prefix(refany);
+    // C-export owner of the invoker setters / releaser (core/src/host_invoker.rs).
+    let app_prefixed = config.apply_prefix("App");
+
     builder.line("# ============================================================");
     builder.line("# Managed-FFI runtime helpers (host-invoker pattern)");
     builder.line("# ============================================================");
@@ -46,30 +97,46 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("# plumbing happens inside libazul's static thunk).");
     builder.blank();
 
-    // Native module: attach_function for the new C-ABI exports.
+    // Native module: attach_function for the host-invoker C-ABI exports.
+    // These are core exports (not api.json), so their Ruby names are
+    // derived from the C symbol through the same converter the
+    // api.json attaches use.
+    let releaser_sym = format!("{}_setHostHandleReleaser", app_prefixed);
+    let new_handle_sym = format!("{}_newHostHandle", refany_prefixed);
+    let get_handle_sym = format!("{}_getHostHandle", refany_prefixed);
+    let releaser_rb = ruby_attach_name(&releaser_sym);
+    let new_handle_rb = ruby_attach_name(&new_handle_sym);
+    let get_handle_rb = ruby_attach_name(&get_handle_sym);
+
     builder.line("module Native");
     builder.indent();
-    builder.line("# --- Host-invoker C-ABI exports ---");
-    builder.line("attach_function :az_app_set_host_handle_releaser,");
-    builder.indent();
-    builder.line(":AzApp_setHostHandleReleaser, [:pointer], :void");
-    builder.dedent();
-    builder.line("attach_function :az_ref_any_new_host_handle,");
-    builder.indent();
-    builder.line(":AzRefAny_newHostHandle, [:uint64], AzRefAny.by_value");
-    builder.dedent();
-    builder.line("attach_function :az_ref_any_get_host_handle,");
-    builder.indent();
-    builder.line(":AzRefAny_getHostHandle, [:pointer], :uint64");
-    builder.dedent();
+    builder.line("# --- Host-invoker C-ABI exports (core/src/host_invoker.rs) ---");
+    // `blocking: true` everywhere, same rule as functions.rs (no per-symbol
+    // exemptions to reason about).
+    builder.line(&format!(
+        "attach_function :{}, :{}, [:pointer], :void, blocking: true",
+        releaser_rb, releaser_sym
+    ));
+    builder.line(&format!(
+        "attach_function :{}, :{}, [:uint64], {}.by_value, blocking: true",
+        new_handle_rb, new_handle_sym, refany_prefixed
+    ));
+    builder.line(&format!(
+        "attach_function :{}, :{}, [:pointer], :uint64, blocking: true",
+        get_handle_rb, get_handle_sym
+    ));
     for cb in host_invoker_kinds(ir) {
-        emit_native_attach_for_kind(builder, cb);
+        emit_native_attach_for_kind(builder, cb, &app_prefixed, config);
     }
     builder.dedent();
     builder.line("end # module Native (host-invoker exports)");
     builder.blank();
 
-    // Module-level state: id→callable + pin storage.
+    // Module-level state: id→callable + pin storage. Only ever touched
+    // while holding the GVL: wrapper methods run on Ruby threads and the
+    // releaser / invokers are ruby-ffi callbacks, which ruby-ffi
+    // re-enters with the GVL held (marshalling foreign-thread calls to a
+    // Ruby thread), so a plain Hash needs no lock.
     builder.line("@_ruby_handles    = {}");
     builder.line("@_next_handle_id  = 0");
     builder.line("@_live_pins       = []");
@@ -92,7 +159,9 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     // the wrapper's `ObjectSpace`-defined finalizer fires later and
     // calls `<Type>_delete` on memory the C side has already moved
     // out — a double free. Calling this on a non-wrapper value (raw
-    // FFI::Struct, primitive, nil) is a no-op.
+    // FFI::Struct, primitive, nil) is a no-op. The wrapper emitter never
+    // emits it for RefAny args (passed as clones) or Ruby Strings
+    // (copied by `_az_string`).
     builder.line("def self._consume(val)");
     builder.indent();
     builder.line("return unless val.respond_to?(:ptr) && val.respond_to?(:instance_variable_set)");
@@ -113,10 +182,22 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     // FFI struct. Also passes through values that are already AzString
     // structs / raw pointers / wrapper instances, so the helper is
     // idempotent across the wrapper layer's call paths.
+    let string_from_utf8 = ir
+        .functions
+        .iter()
+        .find(|f| {
+            ir.find_struct(&f.class_name)
+                .map(|s| s.category == TypeCategory::String)
+                .unwrap_or(false)
+                && f.method_name == "from_utf8"
+        })
+        .map(|f| ruby_attach_name(&f.c_name))
+        .unwrap_or_else(|| ruby_attach_name(&format!("{}_fromUtf8", config.apply_prefix("String"))));
     builder.line("# Auto-AzString-conversion helper.");
     builder.line("# Wrapper methods route every Owned `String` arg through this so");
     builder
         .line("# user code can pass plain Ruby strings directly (Dom.create_p_with_text(\"hi\")).");
+    builder.line("# The bytes are COPIED into an owned AzString; the Ruby String is untouched.");
     builder.line("def self._az_string(val)");
     builder.indent();
     builder.line("return val if val.is_a?(FFI::Struct) || val.is_a?(FFI::Pointer)");
@@ -124,7 +205,7 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("bytes = val.to_s.encode(Encoding::UTF_8).bytes");
     builder.line("buf = FFI::MemoryPointer.new(:uint8, bytes.size)");
     builder.line("buf.write_array_of_uint8(bytes) if bytes.size > 0");
-    builder.line("Native.az_string_from_utf8(buf, bytes.size)");
+    builder.line(&format!("Native.{}(buf, bytes.size)", string_from_utf8));
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -179,13 +260,13 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.dedent();
     builder.line("end");
     builder.line("@_live_pins << releaser");
-    builder.line("Native.az_app_set_host_handle_releaser(releaser)");
+    builder.line(&format!("Native.{}(releaser)", releaser_rb));
     builder.blank();
 
     // Per-kind invoker registration.
     builder.line("# --- Per-kind invoker registrations ---");
     for cb in host_invoker_kinds(ir) {
-        emit_invoker_registration(builder, cb);
+        emit_invoker_registration(builder, cb, ir, &app_prefixed, refany);
     }
     builder.blank();
 
@@ -210,8 +291,8 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
         builder.line(&format!("when '{}'", wrapper));
         builder.indent();
         builder.line(&format!(
-            "Native.az_{}_create_from_host_handle(id)",
-            to_snake_case(wrapper)
+            "Native.{}(id)",
+            ruby_attach_name(&create_from_host_handle_sym(wrapper, config))
         ));
         builder.dedent();
     }
@@ -224,77 +305,124 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("end");
     builder.blank();
 
-    // RefAny user-data helpers.
+    // RefAny user-data helpers. The class is reopened (with `initialize`
+    // + the finalizer) by the wrapper emitter later in the same file;
+    // nothing here runs before the whole file has loaded.
     builder.line("# --- RefAny user-data helpers ---");
-    builder.line("class RefAny");
+    builder.line(&format!("class {}", refany));
     builder.indent();
-    builder.line("# Wrap an arbitrary Ruby value in an AzRefAny. The value is held");
-    builder.line("# alive by `@_ruby_handles`; the destructor clears it on drop.");
+    builder.line("# Wrap an arbitrary Ruby value in a RefAny handle. Idempotent:");
+    builder.line(&format!("#   * an Azul::{} wrapper is returned as-is;", refany));
+    builder.line(&format!(
+        "#   * a raw Native::{} struct is adopted (the wrapper takes over its refcount);",
+        refany_prefixed
+    ));
+    builder.line("#   * anything else is stored in `@_ruby_handles` and referenced by a fresh");
+    builder.line("#     host-handle RefAny. The releaser clears the entry when the LAST clone");
+    builder.line("#     (Ruby's or libazul's) is dropped.");
+    builder.line("# The wrapper's finalizer owns Ruby's refcount; every C call that takes a");
+    builder.line("# RefAny by value receives a clone, so one wrapped value may be handed to");
+    builder.line("# any number of callbacks.");
     builder.line("def self.wrap(value)");
     builder.indent();
+    builder.line(&format!("return value if value.is_a?(Azul::{})", refany));
+    builder.line(&format!(
+        "return Azul::{}.new(value) if value.is_a?(Azul::Native::{})",
+        refany, refany_prefixed
+    ));
     builder.line("id = Azul._alloc_handle(value)");
-    builder.line("Azul::Native.az_ref_any_new_host_handle(id)");
+    builder.line(&format!(
+        "Azul::{}.new(Azul::Native.{}(id))",
+        refany, new_handle_rb
+    ));
     builder.dedent();
     builder.line("end");
     builder.blank();
-    builder.line("# Recover the Ruby value previously wrapped via `wrap`.");
+    builder.line("# Recover the Ruby value previously wrapped via `wrap`. Accepts the");
+    builder.line(&format!(
+        "# Azul::{} wrapper, a Native::{} struct or a raw pointer (the host",
+        refany, refany_prefixed
+    ));
+    builder.line("# invokers pass `*const RefAny`). Returns nil when the RefAny is not a");
+    builder.line("# host handle (created from Rust/C) or the wrapper was consumed.");
     builder.line("def self.unwrap(refany)");
     builder.indent();
-    builder.line("id = Azul::Native.az_ref_any_get_host_handle(refany)");
+    builder.line(&format!("refany = refany.ptr if refany.is_a?(Azul::{})", refany));
+    builder.line("return nil if refany.nil?");
+    builder.line(&format!("id = Azul::Native.{}(refany)", get_handle_rb));
     builder.line("return nil if id == 0");
     builder.line("Azul.instance_variable_get(:@_ruby_handles)[id]");
     builder.dedent();
     builder.line("end");
     builder.dedent();
-    builder.line("end # class RefAny (user-data helpers)");
+    builder.line(&format!("end # class {} (user-data helpers)", refany));
     builder.blank();
 }
 
+/// `Az<Kind>_createFromHostHandle` — the per-kind constructor exported
+/// by `impl_managed_callback!`.
+fn create_from_host_handle_sym(wrapper: &str, config: &CodegenConfig) -> String {
+    format!("{}_createFromHostHandle", config.apply_prefix(wrapper))
+}
+
+/// `AzApp_set<Kind>Invoker` — the per-kind invoker setter exported by
+/// `impl_managed_callback!`.
+fn set_invoker_sym(wrapper: &str, app_prefixed: &str) -> String {
+    format!("{}_set{}Invoker", app_prefixed, wrapper)
+}
+
 fn emit_native_attach_for_kind(
-    builder: &mut super::super::generator::CodeBuilder,
+    builder: &mut CodeBuilder,
     cb: &CallbackTypedefDef,
+    app_prefixed: &str,
+    config: &CodegenConfig,
 ) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake_case(wrapper);
-    builder.line(&format!("attach_function :az_app_set_{}_invoker,", snake));
+    let setter = set_invoker_sym(wrapper, app_prefixed);
+    let ctor = create_from_host_handle_sym(wrapper, config);
+    builder.line(&format!("attach_function :{},", ruby_attach_name(&setter)));
     builder.indent();
-    builder.line(&format!(":AzApp_set{}Invoker, [:pointer], :void", wrapper));
+    builder.line(&format!(":{}, [:pointer], :void, blocking: true", setter));
     builder.dedent();
-    builder.line(&format!(
-        "attach_function :az_{}_create_from_host_handle,",
-        snake
-    ));
+    builder.line(&format!("attach_function :{},", ruby_attach_name(&ctor)));
     builder.indent();
     builder.line(&format!(
-        ":Az{}_createFromHostHandle, [:uint64], Az{}.by_value",
-        wrapper, wrapper
+        ":{}, [:uint64], {}.by_value, blocking: true",
+        ctor,
+        config.apply_prefix(wrapper)
     ));
     builder.dedent();
 }
 
 fn emit_invoker_registration(
-    builder: &mut super::super::generator::CodeBuilder,
+    builder: &mut CodeBuilder,
     cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+    app_prefixed: &str,
+    refany: &str,
 ) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake_case(wrapper);
+    // Ruby local-variable name for the pinned FFI::Function.
+    let invoker_var = format!("{}_invoker", ruby_attach_name(wrapper));
+    let setter_rb = ruby_attach_name(&set_invoker_sym(wrapper, app_prefixed));
 
     // ruby-ffi FFI::Function: takes ret_type, [arg_types...], block.
-    // The arg list mirrors the macro: handle id (u64) + one pointer per
-    // argument + one out-pointer for the return.
+    // The arg list mirrors the core macro's `$invoker_ty`: handle id
+    // (u64) + one pointer per argument + ALWAYS one trailing out-pointer
+    // (`out: *mut $ret`, passed even when `$ret = ()` so the macro stays
+    // homogeneous — core/src/host_invoker.rs). Declaring it for void
+    // kinds keeps the closure's arity identical to what the thunk calls.
     let mut arg_types: Vec<&str> = vec![":uint64"];
     for _ in &cb.args {
         arg_types.push(":pointer");
     }
+    arg_types.push(":pointer");
     let cb_has_return = has_return(cb);
-    if cb_has_return {
-        arg_types.push(":pointer");
-    }
 
     builder.line(&format!("# {} invoker", wrapper));
     builder.line(&format!(
-        "{}_invoker = FFI::Function.new(:void, [{}]) do |*args|",
-        snake,
+        "{} = FFI::Function.new(:void, [{}]) do |*args|",
+        invoker_var,
         arg_types.join(", ")
     ));
     builder.indent();
@@ -311,8 +439,19 @@ fn emit_invoker_registration(
     }
     builder.line("begin");
     builder.indent();
-    builder.line("ret = fn.call(*ptr_args)");
+    builder.line("unwrapped_args = []");
+    for (i, arg) in cb.args.iter().enumerate() {
+        if is_refany_arg(arg, ir) {
+            builder.line(&format!(
+                "unwrapped_args << Azul::{}.unwrap(ptr_args[{}])",
+                refany, i
+            ));
+        } else {
+            builder.line(&format!("unwrapped_args << ptr_args[{}]", i));
+        }
+    }
     if cb_has_return {
+        builder.line("ret = fn.call(*unwrapped_args)");
         builder.line("# Numeric returns (Update enum) → write32. Wrapper class");
         builder.line("# instances (e.g. `Dom` from a layout cb) → unwrap to the");
         builder.line("# underlying FFI::Struct, memcopy through out_ptr, then");
@@ -335,6 +474,8 @@ fn emit_invoker_registration(
         builder.line("out_ptr.write_bytes(ret.to_ptr.read_bytes(size))");
         builder.dedent();
         builder.line("end");
+    } else {
+        builder.line("fn.call(*unwrapped_args)");
     }
     builder.dedent();
     builder.line("rescue => e");
@@ -347,10 +488,7 @@ fn emit_invoker_registration(
     builder.line("end");
     builder.dedent();
     builder.line("end");
-    builder.line(&format!("@_live_pins << {}_invoker", snake));
-    builder.line(&format!(
-        "Native.az_app_set_{}_invoker({}_invoker)",
-        snake, snake
-    ));
+    builder.line(&format!("@_live_pins << {}", invoker_var));
+    builder.line(&format!("Native.{}({})", setter_rb, invoker_var));
     builder.blank();
 }

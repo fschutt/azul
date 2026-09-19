@@ -1,4 +1,4 @@
-//! Idiomatic Go wrapper-type emission for the Go (cgo) generator.
+//! Idiomatic Go wrapper-type emission for the Go (purego) generator.
 //!
 //! For every IR struct we emit a wrapper around the Go-native mirror
 //! type from `types.go`:
@@ -39,7 +39,8 @@
 //! * Aggregate parameters and returns are the Go-native `Az*` types, so a
 //!   consumer package can name every type in every signature.
 //!
-//! This file imports no cgo: every C call goes through `functions*.go`.
+//! Every native call goes through the raw layer in `functions.go`; this
+//! file contains no purego of its own.
 //!
 //! # Skipped categories
 //!
@@ -54,7 +55,9 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::{go_pointer_to, go_value_type};
-use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case};
+use super::super::managed_host_invoker::{layout_callback_factory_info, to_snake_case, LayoutCallbackFactoryInfo};
+use super::super::managed_lang_helpers::is_refany_type;
+use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier};
 
 /// Generate the contents of `wrappers.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -99,6 +102,23 @@ fn owned_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) ->
     Some(sanitize_identifier(t))
 }
 
+
+fn borrowed_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(String, bool)> {
+    let t = ret_ty.trim();
+    let is_ptr = t.starts_with('&') || t.starts_with('*');
+    if !is_ptr {
+        return None;
+    }
+    let base = t.trim_start_matches("&mut ").trim_start_matches("*mut ")
+                .trim_start_matches('&').trim_start_matches('*').trim();
+    let s = ir.find_struct(base)?;
+    if !should_emit_wrapper(s, ir, config) {
+        return None;
+    }
+    let has_del = has_destructor(base, ir);
+    Some((sanitize_identifier(base), has_del))
+}
+
 fn emit_header(b: &mut CodeBuilder) {
     b.line("// ============================================================================");
     b.line("// wrappers.go - Idiomatic Go wrappers (heap-owning types implementing io.Closer).");
@@ -110,8 +130,8 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// if you forget; the finalizer is cleared inside `Close()` so the same");
     b.line("// destructor never executes twice. Methods/factories that RETURN an owned");
     b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed.");
-    b.line("// Every C call goes through the raw layer in functions*.go; this file has");
-    b.line("// no cgo of its own.");
+    b.line("// Every native call goes through the raw layer in functions.go (purego);");
+    b.line("// this file binds nothing itself.");
     b.blank();
     b.line("package azul");
     b.blank();
@@ -214,8 +234,17 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     // signatures and rebind the receiver instead.
     let self_arg = to_snake_case(&s.name);
 
-    // Constructors & static factories.
+    // Constructors & static factories. The constructor that takes the
+    // layout callback kind is emitted by managed.rs as the smart factory
+    // `<Class>Create(fn <Kind>Func)` instead (same Go name).
+    let factory = layout_callback_factory_info(s, ir);
     for f in ir.functions_for_class(&s.name) {
+        if factory
+            .as_ref()
+            .is_some_and(|info| is_layout_factory_constructor(f, info))
+        {
+            continue;
+        }
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
                 emit_static_factory(b, &go_name, f, &self_arg, ir, config, has_delete);
@@ -274,6 +303,23 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     }
 }
 
+/// Is `f` the constructor `layout_callback_factory_info` matched for its
+/// class: a constructor / static factory whose single argument is the
+/// factory's callback kind and which returns the class itself? The same
+/// structural test the shared helper applies, so no method name is
+/// special-cased here.
+fn is_layout_factory_constructor(f: &FunctionDef, info: &LayoutCallbackFactoryInfo) -> bool {
+    matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+        && f.args.len() == 1
+        && f.args[0]
+            .callback_info
+            .as_ref()
+            .is_some_and(|ci| ci.callback_wrapper_name == info.callback_wrapper)
+        && f.return_type
+            .as_deref()
+            .is_some_and(|r| r.trim() == info.class_name)
+}
+
 /// `v := <call>; ret := &<W>{ inner: &v }; SetFinalizer(...)` — box an
 /// owned return in its wrapper (the value escapes to the Go heap).
 fn emit_boxed_return(b: &mut CodeBuilder, var: &str, wrapper: &str, call: &str) {
@@ -300,19 +346,19 @@ fn emit_static_factory(
 ) {
     // `new` becomes `New<Type>` so users write `azul.NewApp(...)`.
     let method_label = if f.method_name == "new" {
-        format!("New{}", go_name)
+        go_name.to_string()
     } else {
         // `default` -> `Default`, `from_string` -> `FromString`, etc.
         let pascal = idiomatic_method_name(&f.method_name);
-        format!("New{}{}", go_name, pascal)
+        format!("{}{}", go_name, pascal)
     };
 
     for d in &f.doc {
         b.line(&format!("// {}", d));
     }
 
-    let params = format_params(&f.args, self_arg, /* skip_self */ false, ir);
-    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false);
+    let params = format_params(&f.args, self_arg, /* skip_self */ false, ir, config);
+    let call_args = format_call_args(&f.args, self_arg, /* skip_self */ false, ir, config);
 
     let returns_self = f
         .return_type
@@ -327,13 +373,25 @@ fn emit_static_factory(
             .as_deref()
             .and_then(|rt| owned_wrapper_return(rt, ir, config))
     };
+    let borrowed_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| borrowed_wrapper_return(rt, ir, config))
+    };
 
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => match &owned_wrapper {
-            Some(w) => format!("*{}", w),
-            None => map_return_type(rt, ir),
+        (Some(rt), false) => {
+            if let Some(w) = &owned_wrapper {
+                format!("*{}", w)
+            } else if let Some((w, _)) = &borrowed_wrapper {
+                format!("*{}", w)
+            } else {
+                map_return_type(rt, ir)
+            }
         },
     };
 
@@ -394,8 +452,8 @@ fn emit_instance_method(
         b.line(&format!("// {}", d));
     }
 
-    let params = format_params(&f.args, self_arg, /* skip_self */ true, ir);
-    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true);
+    let params = format_params(&f.args, self_arg, /* skip_self */ true, ir, config);
+    let user_call_args = format_call_args(&f.args, self_arg, /* skip_self */ true, ir, config);
 
     let returns_self = f
         .return_type
@@ -410,13 +468,25 @@ fn emit_instance_method(
             .as_deref()
             .and_then(|rt| owned_wrapper_return(rt, ir, config))
     };
+    let borrowed_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| borrowed_wrapper_return(rt, ir, config))
+    };
 
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => match &owned_wrapper {
-            Some(w) => format!("*{}", w),
-            None => map_return_type(rt, ir),
+        (Some(rt), false) => {
+            if let Some(w) = &owned_wrapper {
+                format!("*{}", w)
+            } else if let Some((w, _)) = &borrowed_wrapper {
+                format!("*{}", w)
+            } else {
+                map_return_type(rt, ir)
+            }
         },
     };
 
@@ -479,6 +549,18 @@ fn emit_instance_method(
         emit_boxed_return(b, "ret", w, &call);
         consume_self(b);
         b.line("return ret");
+    } else if let Some((w, has_del)) = &borrowed_wrapper {
+        b.line(&format!("raw_ret := {}", call));
+        b.line("if raw_ret == nil {");
+        b.line("    return nil");
+        b.line("}");
+        if *has_del {
+            b.line(&format!("ret := &{}{{ inner: raw_ret, borrowed: true }}", w));
+        } else {
+            b.line(&format!("ret := &{}{{ inner: *raw_ret }}", w));
+        }
+        consume_self(b);
+        b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
         consume_self(b);
@@ -504,6 +586,7 @@ fn format_params(
     self_arg: &str,
     skip_self: bool,
     ir: &CodegenIR,
+    config: &CodegenConfig,
 ) -> String {
     let mut out = Vec::new();
     // When skip_self is set this is an instance method — the first IR
@@ -521,7 +604,7 @@ fn format_params(
         out.push(format!(
             "{} {}",
             sanitize_identifier(&a.name),
-            map_arg_type(&a.type_name, a.ref_kind, ir)
+            map_arg_type(&a.type_name, a.ref_kind, ir, config)
         ));
     }
     out.join(", ")
@@ -531,6 +614,8 @@ fn format_call_args(
     args: &[super::super::ir::FunctionArg],
     self_arg: &str,
     skip_self: bool,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
 ) -> String {
     let mut out = Vec::new();
     let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
@@ -543,7 +628,31 @@ fn format_call_args(
         if is_self_arg(&a.name, self_arg) {
             continue;
         }
-        out.push(sanitize_identifier(&a.name));
+        let var_name = sanitize_identifier(&a.name);
+        if is_refany_type(&a.type_name, ir) {
+            // `any` on the Go side. A consuming parameter gets its own
+            // reference (a fresh handle, or a clone of a caller's *RefAny);
+            // a borrowing one just sees the wrapper's value.
+            if a.ref_kind == ArgRefKind::Owned {
+                out.push(format!("azGoRefAnyOwned({})", var_name));
+            } else {
+                out.push(format!("RefAnyWrap({}).inner", var_name));
+            }
+        } else if let Some(s) = ir.find_struct(&a.type_name) {
+            if should_emit_wrapper(s, ir, config) {
+                if a.ref_kind == super::super::ir::ArgRefKind::Owned {
+                    out.push(format!("{}.Raw()", var_name));
+                } else if has_destructor(&s.name, ir) {
+                    out.push(format!("{}.inner", var_name));
+                } else {
+                    out.push(format!("&{}.inner", var_name));
+                }
+            } else {
+                out.push(var_name);
+            }
+        } else {
+            out.push(var_name);
+        }
     }
     out.join(", ")
 }
@@ -556,8 +665,16 @@ fn is_self_arg(name: &str, self_arg: &str) -> bool {
 }
 
 /// Go-native type of an argument as the raw layer spells it.
-pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String {
+pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR, config: &CodegenConfig) -> String {
     let base = go_value_type(type_name, ir);
+    if is_refany_type(type_name, ir) {
+        return "any".to_string();
+    }
+    if let Some(s) = ir.find_struct(type_name) {
+        if should_emit_wrapper(s, ir, config) {
+            return format!("*{}", sanitize_identifier(&s.name));
+        }
+    }
     match ref_kind {
         ArgRefKind::Owned => base,
         ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
@@ -698,7 +815,7 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
                 FunctionKind::Default => {
                     b.line(&format!("// {bare}Default is the Rust Default."));
                     b.line(&format!("func {bare}Default() {ffi} {{"));
-                    b.line(&format!("    return {ffi}_default()"));
+                    b.line(&format!("    return {ffi}_createDefault()"));
                     b.line("}");
                 }
                 FunctionKind::PartialEq => {

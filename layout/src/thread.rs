@@ -473,6 +473,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_thread_callback_thunk,
     setter_fn:      AzApp_setThreadCallbackInvoker,
     from_handle_fn: AzThreadCallback_createFromHostHandle,
+    from_handle_byref_fn: AzThreadCallback_createFromHostHandleByref,
     extra_args:     [receiver: ThreadReceiver],
 }
 
@@ -921,7 +922,7 @@ fn build_thread(
         // `thread_check` is captured BY MOVE, so it stays alive for the whole
         // body; dropping it here is what makes `dropcheck.upgrade()` start
         // returning `None`, i.e. signals that the thread has finished.
-        (callback.cb)(thread_initialize_data, sender_receiver, receiver_sender);
+        callback.invoke(thread_initialize_data, sender_receiver, receiver_sender);
         drop(thread_check);
     }));
 
@@ -1290,7 +1291,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -2111,5 +2112,11 @@ mod thread_pool_tests {
         assert_eq!(pool.clone(), pool);
         assert_ne!(ThreadPool::create(3), pool);
         assert_eq!(ThreadPool::create(0).thread_count(), 1, "at least one worker");
+    }
+}
+
+impl azul_core::host_invoker::HostCtxCarrier for ThreadSender {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.ctx = ctx.clone();
     }
 }

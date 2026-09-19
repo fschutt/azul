@@ -388,7 +388,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(0, &format!("enum {}", lib(name)));
             if let Some(f) = fns(FunctionKind::Default) {
                 w.l(1, "# Rust `Default`.");
-                w.l(1, "def self.default : self");
+                w.l(1, "def self.create_default : self");
                 w.l(2, &fun(&f));
                 w.l(1, "end");
                 w.l(0, "");
@@ -697,7 +697,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
         }
         if let Some(f) = t(FunctionKind::Default) {
             w.l(1, "# Rust `Default`.");
-            w.l(1, &format!("def self.default : {}", cls(name)));
+            w.l(1, &format!("def self.create_default : {}", cls(name)));
             w.l(2, &format!("__r = {}", fun(&f)));
             w.l(2, &format!("{}.__own(__r)", cls(name)));
             w.l(1, "end");
@@ -708,9 +708,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     && f.args.is_empty()
             });
             if !is_union && !has_zero_arg_new {
-                w.l(1, "# Same as `.default`.");
+                w.l(1, "# Same as `.create_default`.");
                 w.l(1, &format!("def self.new : {}", cls(name)));
-                w.l(2, "default");
+                w.l(2, "create_default");
                 w.l(1, "end");
                 w.l(0, "");
             }

@@ -23,7 +23,7 @@
 //! the trivial `function(...) return C.fn(self, ...) end` form into
 //! per-language idiomatic wrappers that auto-cast host closures.
 
-use super::ir::{FunctionArg, FunctionDef};
+use super::ir::{CodegenIR, FunctionArg, FunctionDef, FunctionKind, TypeCategory};
 
 /// Return the subset of args that are callback typedef arguments.
 ///
@@ -72,4 +72,61 @@ pub fn takes_self(func: &FunctionDef) -> bool {
         func.kind,
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     )
+}
+
+// ============================================================================
+// Wrapper-class classification (shared by C#, Java, Kotlin, ... so that the
+// "a wrapper class exists" and "a typed delegate/SAM exists" decisions can
+// never drift apart again — they did once, and 27 wrappers called a
+// nonexistent `_delete`).
+// ============================================================================
+
+/// Does this struct get a managed-language wrapper class — an object with
+/// methods and, when the C API has an `Az<T>_delete`, ownership?
+///
+/// Rule: a non-generic struct whose category is neither `Recursive`,
+/// `VecRef`, `DestructorOrClone` nor `GenericTemplate`, and that has a
+/// `_delete` OR at least one (mut) method in the C API. Per-target type
+/// inclusion (`config.should_include_type`) stays with the caller.
+pub fn has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
+    let Some(s) = ir.find_struct(type_name.trim()) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    has_delete_function(type_name, ir)
+        || ir.functions.iter().any(|f| {
+            f.class_name == type_name.trim()
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+        })
+}
+
+/// Does the C API own native resources for this type, i.e. is there an
+/// `Az<T>_delete`? Wrappers of such types get a finalizer / `Dispose` /
+/// `close()`; wrappers of methods-only types (`CallbackInfo`, borrowed from
+/// the engine for the duration of a callback; POD value types) MUST NOT —
+/// there is nothing to call.
+pub fn has_delete_function(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name.trim() && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// Is `type_name` the engine's `RefAny` (the type that carries host handles
+/// and therefore gets auto-wrapped/unwrapped by managed bindings)? Derived
+/// from the IR category — bindings must not compare against the literal
+/// `"RefAny"` / `"AzRefAny"` / `"az_ref_any"` spellings.
+pub fn is_refany_type(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| matches!(s.category, TypeCategory::RefAny))
 }

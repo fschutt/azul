@@ -25,24 +25,24 @@
 //!    `lib.Az<Kind>_createFromHostHandle` per supported callback kind.
 //! 2. **Type registrations** for the per-kind invoker prototypes (`koffi.proto('AzCallbackInvoker',
 //!    ...)`, mirrored on Bun/Deno via the uniform `azulFFI.proto(...)` adapter).
-//! 3. **`azul.registerCallback(kind, fn)`** factory that allocates a host handle, stashes the user
-//!    fn in a process-wide map, and returns the matching `Az<Kind>` cdata struct from
-//!    `Az<Kind>_createFromHostHandle`. Plus `azul.refanyCreate(value)` / `azul.refanyGet(refany)`
-//!    user-data helpers that share the same map.
+//! 3. **`registerCallback(kind, fn)`** factory that allocates a host handle, stashes the user fn in
+//!    a process-wide map, and returns the matching `Az<Kind>` cdata struct from
+//!    `Az<Kind>_createFromHostHandle`. Plus `refanyCreate(value)` / `refanyGet(refany)` user-data
+//!    helpers that share the same map.
 //!
-//! Future work (deferred):
-//!
-//! * Wrapper-emitter substitution in `wrappers.rs`. Until that lands, user code calls
-//!   `azul.registerCallback('Callback', fn)` explicitly before passing the result to e.g.
-//!   `button.setOnClick(...)`.
-//! * Aggregate-return marshalling for kinds whose return type is a struct (LayoutCallback returns
-//!   AzDom). Today the integer return path (Update enum) works directly via `koffi.encode`; struct
-//!   returns need per-runtime out-pointer writeback support.
+//! The wrapper classes (`wrappers.rs`) apply these automatically: any argument typed as a
+//! host-invoker callback wrapper accepts a plain JS function, any `RefAny` argument accepts any JS
+//! value, and callback invocations hand the JS value back (not the RefAny). Struct-returning kinds
+//! (LayoutCallback → AzDom) are written back through the out-pointer via the adapter's
+//! `encodeInto`; integer returns (Update) via `writeInt32`.
 
-use super::super::{
-    generator::CodeBuilder,
-    ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind},
-    managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+use super::{
+    super::{
+        generator::CodeBuilder,
+        ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind},
+        managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+    },
+    is_refany_type,
 };
 
 /// Emit the host-invoker block. Insertion order: AFTER the existing
@@ -68,7 +68,7 @@ pub fn emit_managed(b: &mut CodeBuilder, ir: &CodegenIR) {
     emit_dispatch_state(b);
     emit_init_block(b, ir);
     emit_register_callback(b, ir);
-    emit_refany_helpers(b);
+    emit_refany_helpers(b, ir);
 }
 
 fn emit_extra_function_bindings(b: &mut CodeBuilder, ir: &CodegenIR) {
@@ -143,8 +143,6 @@ fn emit_dispatch_state(b: &mut CodeBuilder) {
     b.line("// reference). Process-lifetime today.");
     b.line("const _livePins = [];");
     b.line("let _hostInvokerInitialized = false;");
-    b.line("// One-shot flag: warn only once when a struct-returning callback");
-    b.line("// fires on Bun/Deno (no struct writeback there; default is used).");
     b.blank();
     b.line("function _allocHandle(value) {");
     b.indent();
@@ -228,12 +226,19 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         b.line("if (!fn) return;");
         b.line("try {");
         b.indent();
-        let user_args: Vec<String> = closure_args
-            .iter()
-            .skip(1)
-            .take(cb.args.len())
-            .cloned()
-            .collect();
+        // Invoker args arrive as native pointers (`const Az<T>*`). A
+        // `RefAny` arg is resolved back to the JS value it was created
+        // from, so the user's callback sees `(data, info)` — never the
+        // handle struct.
+        let mut user_args = Vec::new();
+        for (i, a) in cb.args.iter().enumerate() {
+            let var_name = closure_args[i + 1].clone();
+            if is_refany_type(&a.type_name, ir) {
+                user_args.push(format!("_refanyFromPtr({})", var_name));
+            } else {
+                user_args.push(var_name);
+            }
+        }
         if cb_has_return {
             b.line(&format!("const ret = fn({});", user_args.join(", ")));
             b.line("if (ret === undefined || ret === null) return;");
@@ -453,28 +458,87 @@ fn emit_register_callback(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.blank();
 }
 
-fn emit_refany_helpers(b: &mut CodeBuilder) {
+/// `refanyCreate` / `refanyGet` / `_refanyFromPtr`.
+///
+/// A RefAny *value* is recognised structurally: a koffi-decoded object
+/// carrying every field of the IR's `RefAny` struct (`sharing_info`,
+/// `instance_id`; names are read from the IR). Anything else is user
+/// data. That guard matters: koffi zero-fills an arbitrary JS object
+/// into a `const AzRefAny *` parameter, and `AzRefAny_getHostHandle` on
+/// a zeroed struct aborts the process inside `RefCount::downcast`.
+///
+/// One handle per `refanyCreate` call (no identity cache): the engine
+/// releases it through `AzApp_setHostHandleReleaser` when it drops the
+/// last clone, so per-frame `withOnClick(data, ..)` handles stay
+/// bounded (two per DOM generation in the counter example). A
+/// `WeakMap` cache would have to hold a RefAny clone per JS object and
+/// could never release it while the handle table keeps the object
+/// alive — a permanent leak — so it is deliberately not done.
+fn emit_refany_helpers(b: &mut CodeBuilder, ir: &CodegenIR) {
+    let refany_fields: Vec<String> = ir
+        .structs
+        .iter()
+        .find(|s| is_refany_type(&s.name, ir))
+        .map(|s| s.fields.iter().map(|f| f.name.clone()).collect())
+        .unwrap_or_default();
+    let shape_check = if refany_fields.is_empty() {
+        "false".to_string()
+    } else {
+        refany_fields
+            .iter()
+            .map(|f| format!("('{}' in v)", f))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    };
+
     b.line("// User-data RefAny helpers — share the host-handle table with");
     b.line("// callbacks so the releaser frees both on last-clone drop.");
+    b.line("// A RefAny value is recognised by its C field names; every other JS");
+    b.line("// value is user data (never passed to the C side as a RefAny).");
+    b.line("function _isRefAnyValue(v) {");
+    b.indent();
+    b.line(&format!(
+        "return v !== null && typeof v === 'object' && {};",
+        shape_check
+    ));
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("// Wrap any JS value in a fresh RefAny handle. Pass-through for a");
+    b.line("// value that already is a RefAny (or a wrapper holding one).");
     b.line("function refanyCreate(value) {");
     b.indent();
+    b.line("if (_isRefAnyValue(value)) return value;");
+    b.line("if (value && typeof value === 'object' && _isRefAnyValue(value._ptr)) return value._ptr;");
     b.line("_ensureHostInvokerInit();");
     b.line("const id = _allocHandle(value);");
     b.line("return lib.AzRefAny_newHostHandle(id);");
     b.dedent();
     b.line("}");
     b.blank();
-    b.line("function refanyGet(refany) {");
+    b.line("// Resolve a native `const AzRefAny *` (callback invoker argument) or a");
+    b.line("// RefAny value back to the JS value it was created from.");
+    b.line("function _refanyFromPtr(ptr) {");
     b.indent();
-    b.line("// Accept either an AzRefAny by value or a pointer to one. koffi");
-    b.line("// surfaces by-value structs as objects with a `__addr` accessor.");
-    b.line("const ptr = (refany && typeof refany === 'object' && '__addr' in refany)");
-    b.indent();
-    b.line("? refany.__addr : refany;");
-    b.dedent();
+    b.line("if (ptr == null) return null;");
     b.line("const id = lib.AzRefAny_getHostHandle(ptr);");
     b.line("if (id === 0n || id === 0) return null;");
     b.line("return _handles[('' + id)] ?? null;");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("// Public form: a RefAny value yields its JS payload; any other value is");
+    b.line("// returned unchanged (callbacks already receive the unwrapped value, so");
+    b.line("// `refanyGet(data)` inside a callback is a harmless no-op).");
+    b.line("function refanyGet(refany) {");
+    b.indent();
+    b.line("if (_isRefAnyValue(refany)) return _refanyFromPtr(refany);");
+    b.line("if (refany && typeof refany === 'object' && _isRefAnyValue(refany._ptr)) {");
+    b.indent();
+    b.line("return _refanyFromPtr(refany._ptr);");
+    b.dedent();
+    b.line("}");
+    b.line("return refany;");
     b.dedent();
     b.line("}");
     b.blank();

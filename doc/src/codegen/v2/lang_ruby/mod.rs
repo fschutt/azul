@@ -72,6 +72,12 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // try absolute paths next to this script and against
     // AZ_LIB_DIR (override for explicit placement). The flat list is
     // tried in order; first hit wins, missing entries are ignored.
+    //
+    // Search order = the two layouts that exist: (1) the guide's
+    // "drop libazul next to azul.rb" and (2) the gem, which
+    // `gemspec.rs` / CI pack FLAT as `lib/azul.rb` + `lib/libazul.*`
+    // (so "next to azul.rb" covers it too). Keep `gemspec::generate_gemspec`
+    // in sync if this ever changes.
     builder.line("_azul_lib_candidates = ['azul', 'libazul.so', 'libazul.dylib', 'azul.dll']");
     builder.line("_here = File.expand_path(File.dirname(__FILE__))");
     builder.line("[ENV['AZ_LIB_DIR'], _here].compact.each do |dir|");
@@ -122,7 +128,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Managed-FFI prelude: registers host-invoker closures + RefAny
     // helpers under `module Azul`. Must come before user-facing wrapper
     // classes because they reference `Azul._register_callback`.
-    managed::emit_managed_module(&mut builder, ir);
+    managed::emit_managed_module(&mut builder, ir, config);
 
     // Idiomatic wrappers (Azul::App, Azul::Dom, etc.)
     wrappers::emit_wrappers(&mut builder, ir, config);

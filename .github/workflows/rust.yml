@@ -2501,8 +2501,6 @@ jobs:
 
       - name: Build demos (best-effort)
         env:
-          AZ_LINK_PATH: ${{ github.workspace }}/libazul-prebuilt
-          AZ_LINK_STATIC: "1"
           CARGO_PROFILE_RELEASE_LTO: "off"
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -2515,6 +2513,16 @@ jobs:
                 libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
                 libazul-prebuilt/azul.pyd 2>/dev/null
           echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
+          # Name the archive FILE, not the directory: build_link.rs links a named
+          # file as-is, while a directory search would also find the stub libazul
+          # cdylib this job builds into target/ (a shared library wins over a .a).
+          for f in libazul.a azul.lib; do
+            if [ -f "libazul-prebuilt/$f" ]; then
+              export AZ_LINK_PATH="$GITHUB_WORKSPACE/libazul-prebuilt/$f"
+              break
+            fi
+          done
+          echo "AZ_LINK_PATH=${AZ_LINK_PATH:-<unset: no static archive in the artifact>}"
           ENGINE_PATHS="core layout css dll api.json Cargo.toml Cargo.lock"
           prev_manifest=""
           if gh release download "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
@@ -2882,8 +2890,11 @@ jobs:
           - key: scripting-x1
             langs: "php lisp cobol ada algol68"
             experimental: true
+          - key: scripting-c
+            langs: "d crystal swift"
+            experimental: false
           - key: scripting-x2
-            langs: "racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift"
+            langs: "racket odin powershell red freebasic smalltalk vb6 v julia"
             experimental: true
     runs-on: ${{ matrix.os }}
     env:
@@ -2975,12 +2986,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -2990,19 +3003,21 @@ jobs:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3012,7 +3027,7 @@ jobs:
         # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3028,7 +3043,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]
@@ -3123,7 +3138,7 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
@@ -3238,7 +3253,7 @@ jobs:
             (github.ref == 'refs/heads/master'
               || startsWith(github.ref, 'refs/tags/')
               || github.event_name == 'workflow_dispatch')
-            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift","experimental":true}]'
+            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-c","langs":"d crystal swift","experimental":false},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 v julia","experimental":true}]'
             || '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false}]') }}
     runs-on: ${{ matrix.os }}
     env:
@@ -3334,12 +3349,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -3349,19 +3366,21 @@ jobs:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3371,7 +3390,7 @@ jobs:
         # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3387,7 +3406,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]
@@ -3482,7 +3501,7 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
@@ -6457,6 +6476,38 @@ jobs:
           path: dll-share
           retention-days: 7
           if-no-files-found: error
+
+
+  go:
+    name: Publish Go bindings
+    needs: build_dll_linux
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v4
+        with:
+          name: azul-dll-linux
+          path: dll-share
+
+      - name: Publish to azul-go
+        run: |
+          cd dll-share/codegen/go
+          git init
+          git checkout -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update Go bindings for $GITHUB_REF_NAME (v$AZUL_VERSION)"
+          # `go get azul.rs/ui/go` resolves through the go-import page on the
+          # site (scripts/build_registry_mirrors.sh build_go) to this repo; the
+          # v<version> tag is what `@latest` and `@v$AZUL_VERSION` select.
+          git tag -f "v$AZUL_VERSION"
+          # Push to the azul-go repo (assumes AZUL_GO_PAT is a repository secret)
+          git push --force "https://${{ secrets.AZUL_GO_PAT }}@github.com/fschutt/azul-go.git" main "v$AZUL_VERSION"
 
   npm:
     # Builds and publishes the Node binding (FFI loader via koffi).

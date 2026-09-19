@@ -4,15 +4,15 @@ title: Hello World [Scala]
 language: en
 canonical_slug: hello-world/scala
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 25
 topic_only: false
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - examples/scala/HelloWorld.scala
-last_generated_rev: dab922c5e869ab3c1ff69a2d7f4af1af19a5c27c
-generated_at: 2026-07-04T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -26,200 +26,141 @@ default-search-keys:
 
 ## Introduction
 
-There is no separate Scala code generator: Scala rides the
-[Java (JNA) binding](java.md) **directly**. You compile the generated
-`com.azul.*` Java sources once with `javac`, put the resulting classes
-on your classpath, and write ordinary Scala 3 against them — the same
-`Dom` / `Button` wrapper classes, the same
-`AzulNativeManaged.*CallbackInvokerCallback` SAM interfaces, the same
-`AzulHostInvoker.refanyGet` data round-trip. Everything the Java
-binding can do, Scala can do, plus pattern matching and lambda-SAM
-conversion on top.
-
-The flow is: **javac** (compile the generated bindings once) → **scala
-run** (Scala CLI compiles and runs your program against those classes).
+To use Azul from Scala, you need the native library and the [Java](./java.md) bindings: Scala calls
+the generated `com.azul` classes directly, there is no separate Scala binding. Scala functions
+convert to the typed Java callback interfaces, so the program looks like the Java and Kotlin
+examples. The example compiles with Scala 3 and Scala 2.13 and runs on JDK 17+.
 
 ## Installation
 
-You need a **JDK 17+**, **Scala 3 / Scala CLI** (the `scala` runner),
-**JNA 5.14+**, and the native `libazul` library.
-
-Scala calls the Java binding directly. The self-hosted Maven repository at
-`https://azul.rs/ui/maven` serves it as `rs.azul:azul`, with `libazul` for
-Linux x86-64, macOS arm64 and Windows x64 bundled as JNA resources — so
-Scala CLI resolves everything and nothing native is downloaded:
+For a quick demo, download `HelloWorld.scala` from the release page and run it with
+[Scala CLI](https://scala-cli.virtuslab.org) (`scala-cli`, which Scala 3.5+ also installs as `scala`):
 
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.scala
-scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven
-# macOS needs the AppKit main thread:
-scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven --java-opt -XstartOnFirstThread
+# macOS: add --java-opt -XstartOnFirstThread
+scala-cli run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven
 ```
 
-Alternatively, compile the generated Java sources yourself from the bundle
-(`azul-java/` + `HelloWorld.scala`), with the native library in the working
-directory:
+Scala uses the Java artifact (`rs.azul:azul`) from the self-hosted maven repository. The jar
+bundles `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources, so nothing
+else needs to be downloaded. To keep the dependency in the project instead of on the command line,
+put these directives in a `project.scala` next to `HelloWorld.scala` and run `scala-cli run .`:
+
+```scala
+//> using repository https://azul.rs/ui/maven
+//> using dep rs.azul:azul:$VERSION
+```
+
+Alternatively, you can compile the generated Java sources yourself:
+
+1. Download the native library from the
+   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
+   / `libazul.so` / `azul.dll`) and keep it in your working directory.
+2. Download the `azul-scala-$VERSION.tar.gz` bundle (`HelloWorld.scala` and the
+   generated Java sources in `azul-java/`), compile the Java sources once and
+   run the example against the classes:
+
+   ```sh
+   curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
+   tar xzf azul-scala-$VERSION.tar.gz
+   curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
+   javac -cp jna.jar -d classes azul-java/*.java
+   scala-cli run HelloWorld.scala --extra-jars classes --extra-jars jna.jar --java-opt -Djna.library.path=.
+   ```
+
+### Building from source
+
+Only needed if you want to track `master` or patch the library locally:
 
 ```sh
-curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
-tar xzf azul-scala-$VERSION.tar.gz
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so        # or libazul.dylib / azul.dll
-curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
-javac -cp jna.jar -d classes azul-java/*.java
-scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=.
+# git clone https://github.com/fschutt/azul
+# cd myfolder/azul
+# generate the bindings from api.json (required)
+cargo run -p azul-doc --release -- codegen all
+# build the actual DLL with the now-generated API bindings
+cargo build -p azul-dll --release --features build-dll
 ```
 
-## Simple "Counter" Example
+Notice the required `--features build-dll`. The DLL gets built in
+`target/release/libazul.{so,dylib}` (or `azul.dll`). The Java bindings that Scala
+uses are generated by the previous `codegen all` step in `target/codegen/java/`.
+Compile them with `javac` as shown above.
 
-This is the exact program shipped as `examples/scala/HelloWorld.scala`:
+## Simple "Counter" Example
 
 ```scala
 package com.azul
 
-import com.sun.jna.{Pointer, Structure}
+import scala.util.Using
+
+class Counter {
+  var count: Int = 5
+}
 
 object HelloWorld {
-
-  class MyDataModel(var counter: Int)
-  private val MODEL = new MyDataModel(5)
-
-  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =
-    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {
-      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
-        AzulHostInvoker.refanyGet(dataPtr) match {
-          case m: MyDataModel =>
-            m.counter += 1
-            outPtr.setInt(0, Update.RefreshDom.value)
-          case _ =>
-            outPtr.setInt(0, Update.DoNothing.value)
-        }
+  def main(args: Array[String]): Unit =
+    Using.resource(App.create(new Counter, layout(_, _))) { app =>
+      val options = WindowCreateOptions.create()
+      app.run(options)
     }
 
-  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {
-    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())
-    raw.read()
-    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())
+  def layout(data: Counter, info: LayoutCallbackInfo): Dom = {
+    val countStr = data.count.toString
+    val btn = Button.create("Increase counter")
+      .withOnClick(data, onClick(_, _))
+
+    Dom.createBody()
+      .withChild(Dom.createPWithText(countStr))
+      .withChild(btn.dom())
   }
 
-  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =
-    new AzulNativeManaged.LayoutCallbackInvokerCallback {
-      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
-        AzulHostInvoker.refanyGet(dataPtr) match {
-          case m: MyDataModel =>
-            val label = Dom.createDiv()
-              .withCss("font-size: 32px;")
-              .withChild(Dom.createSpanWithText(String.valueOf(m.counter)))
-            val buttonDom = new Dom(
-              Button.create("Increase counter")
-                .withButtonType(ButtonType.Primary.value)
-                .onClick(m, ON_CLICK)
-                .dom()
-                .rawPointer())
-            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))
-          case _ =>
-            writeDom(outPtr, Dom.createBody())
-        }
-    }
-
-  def main(args: Array[String]): Unit = {
-    // Smart factory: hides the host-invoker register + bytes-splice
-    // (compare with the pre-rewrite version's ~6 lines of boilerplate).
-    val wco = WindowCreateOptions.create(LAYOUT)
-    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())
-    rawWco.read()
-    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())
-    app.write()
-    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)
+  def onClick(data: Counter, info: CallbackInfo): Update = {
+    data.count += 1
+    Update.RefreshDom
   }
 }
 ```
 
-Five things to notice.
+`App.create` takes the model type from `new Counter`, so `layout` and `onClick` receive a
+`Counter` directly. `layout(_, _)` and `onClick(_, _)` turn the methods into the Java callback
+interfaces; on Scala 3 you can also pass `layout` and `onClick` without the placeholders.
+If a callback throws, the binding logs the error and the app keeps running.
 
-- **It is the Java binding, verbatim** — `Dom`, `Button`,
-  `WindowCreateOptions`, `Update` are the generated `com.azul` Java
-  classes; JNA loads `libazul` underneath. The program lives in
-  `package com.azul` because the raw-pointer plumbing it uses (the
-  `Dom(Pointer)` constructor, for instance) is package-private in the
-  generated sources. That also means *all* internals are reachable —
-  stick to the shown patterns.
-- **`AzulHostInvoker.refanyGet` + pattern match** — your `MyDataModel`
-  is wrapped once (`refanyCreate(MODEL)` produces the raw
-  `AzRefAny.ByValue` struct that `AzApp_create` takes) and every
-  callback recovers the *same instance*. `match { case m: MyDataModel
-  => ...; case _ => ... }` is the Scala-natural version of Java's
-  `instanceof` guard, with the mismatch arm writing
-  `Update.DoNothing` / an empty body.
-- **`ButtonOnClickCallbackInvokerCallback` SAM** — click handlers use
-  the *typed per-widget* SAM from `AzulNativeManaged` (a generic
-  `CallbackInvokerCallback` no longer matches `Button.onClick`).
-  Mutate the model, then write the `Update` int through the
-  out-pointer: `outPtr.setInt(0, Update.RefreshDom.value)`. Scala 3
-  lambda-SAM conversion works too — the anonymous-class form above is
-  just explicit about which interface is implemented.
-- **The layout callback splices bytes** — this example implements the
-  raw `LayoutCallbackInvokerCallback` and copies the built `AzDom`
-  struct into libazul's out-pointer itself (`writeDom`:
-  `Structure.newInstance` + `getByteArray` + `outPtr.write`). The
-  typed alternative from the Java guide —
-  `AzulHostInvoker.LayoutCallback`, which returns a `Dom` directly and
-  does the splice (plus ownership bookkeeping) for you — is the same
-  bytecode and works from Scala unchanged; prefer it for real
-  applications.
-- **`WindowCreateOptions.create(LAYOUT)`** — the smart factory hides
-  the host-invoker registration for the layout callback. `main` then
-  drops to the raw `AzulNativeApp.AzApp_create` / `AzApp_run` calls
-  with by-value structs; `AzApp_run` blocks until the last window
-  closes.
+`Using.resource` closes the `App` when `run` returns, which releases the native memory.
 
 ## Build and run
 
-Two steps, matching the Installation block: compile the generated
-bindings once, then let Scala CLI do the rest.
-
 ```sh
-javac -cp jna.jar -d classes azul-java/*.java
-
-# Linux / Windows
-scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=.
-
-# macOS — Cocoa requires the event loop on thread 0; scala-cli forwards
-# the option to the JVM it launches:
-scala run HelloWorld.scala --class-path classes:jna.jar \
-  --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread
+# macOS: -XstartOnFirstThread is required so libazul's
+# NSApplication loop starts on the JVM main thread
+scala-cli run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven \
+  --java-opt -XstartOnFirstThread
 ```
 
-`--java-opt -Djna.library.path=.` points JNA at the directory holding
-`libazul.dylib` / `libazul.so` / `azul.dll`. You should see the window
-pictured on the [hello-world landing page](..md). Click
-the button: the counter increments and the layout callback re-runs.
+On Linux/Windows drop `--java-opt -XstartOnFirstThread`. Add `--scala 2.13` to build with Scala 2.13.
 
-## Common errors
+With the compiled bundle, replace the `--dep` and `--repository` options with
+`--extra-jars classes --extra-jars jna.jar --java-opt -Djna.library.path=.`.
+`-Djna.library.path=.` points JNA at the directory holding
+`libazul.dylib` / `libazul.so` / `azul.dll`.
 
-- **Window never appears / instant crash on macOS** — you omitted
-  `--java-opt -XstartOnFirstThread`. Plain `-XstartOnFirstThread` on
-  the `scala` command line does not reach the JVM; it must go through
-  `--java-opt`.
-- **`UnsatisfiedLinkError` / library not found** — the native library
-  is not on `-Djna.library.path` (or `DYLD_LIBRARY_PATH` /
-  `LD_LIBRARY_PATH`). Keep it in the working directory and pass
-  `--java-opt -Djna.library.path=.`.
-- **`duplicate class` errors** — the generated `.java` sources are
-  both compiled into `classes/` *and* sitting inside a source tree the
-  compiler picks up. Compile them exactly once with `javac -d classes`
-  and reference only the `classes/` directory afterwards.
-- **Counter does not advance** — the mismatch arm ran and wrote
-  `Update.DoNothing.value`; verify `refanyGet` returns your model
-  type and that you write `Update.RefreshDom.value` *after*
-  mutating.
-- **Sporadic crashes under GC pressure** — a hazard of the raw
-  byte-splice style shown here: once a struct's bytes are handed to
-  libazul (as in `writeDom`, or the `rawWco` passed to `AzApp_run`),
-  the Java wrapper object still has a finalizer that will eventually
-  `delete` the same memory. For anything beyond hello-world, use the
-  typed `AzulHostInvoker.LayoutCallback` and the `App` wrapper
-  (`App.create(...)` + try-with-resources in Java, `Using` in Scala),
-  which mark wrappers consumed at the splice point.
-- **Unresolved `com.azul` symbols when compiling** — `classes` is
-  missing from `--class-path`, or the `javac` step failed silently;
-  re-run it and check that `classes/com/azul/Dom.class` exists.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+
+1. `app.run(...)` opens a native window and runs the layout callback once with your data model.
+2. The returned DOM is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up in the DOM. 
+   On receiving a click event, the framework borrows your data model mutably, runs the click callback, 
+   observes the `Update.RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one, 
+   and only re-updates and re-paints the counter, not the entire window.
+
+Congratulations! Once you've got the hello-world example running, you've already mastered 80% of 
+the framework. As you might have guessed, more complex UI and styling are only composing more Dom 
+objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or explore 
+what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!

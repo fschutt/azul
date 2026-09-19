@@ -33,6 +33,10 @@ pub fn generate_csproj() -> String {
          and net10.0 projects alike, while a net10.0-only package fails
          `dotnet add package` with NU1202 for every .NET 8 project. -->
     <TargetFramework>net8.0</TargetFramework>
+    <!-- Let the net8.0 build load on hosts that only have a newer runtime
+         (e.g. a machine with .NET 10 only) instead of failing with
+         "framework 'Microsoft.NETCore.App' 8.0.0 not found". -->
+    <RollForward>Major</RollForward>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>
@@ -48,7 +52,10 @@ pub fn generate_csproj() -> String {
     <PackageId>Azul.Net</PackageId>
     <Authors>Azul Contributors</Authors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- CS1591: not every generated member carries XML docs. CA2255: the
+         [ModuleInitializer] in Azul.cs is intentional — it installs the
+         DllImportResolver that locates libazul next to the app. -->
+    <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
 
   <!-- The generated bindings file. -->

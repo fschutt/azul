@@ -80,6 +80,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_chip_on_remove_callback_thunk,
     setter_fn:      AzApp_setChipOnRemoveCallbackInvoker,
     from_handle_fn: AzChipOnRemoveCallback_createFromHostHandle,
+    from_handle_byref_fn: AzChipOnRemoveCallback_createFromHostHandleByref,
     extra_args:     [ state: ChipState ],
 }
 
@@ -102,6 +103,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_chip_on_click_callback_thunk,
     setter_fn:      AzApp_setChipOnClickCallbackInvoker,
     from_handle_fn: AzChipOnClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzChipOnClickCallback_createFromHostHandleByref,
     extra_args:     [ state: ChipState ],
 }
 
@@ -565,7 +567,7 @@ extern "C" fn default_on_chip_remove(mut data: RefAny, mut info: CallbackInfo) -
         let inner = chip.inner;
         let chip = &mut *chip;
         match chip.on_remove.as_mut() {
-            Some(ChipOnRemove { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+            Some(ChipOnRemove { callback, refany }) => callback.invoke(refany.clone(), info, inner),
             None => Update::DoNothing,
         }
     };
@@ -588,7 +590,7 @@ extern "C" fn default_on_chip_click(mut data: RefAny, info: CallbackInfo) -> Upd
     let inner = chip.inner;
     let chip = &mut *chip;
     match chip.on_click.as_mut() {
-        Some(ChipOnClick { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(ChipOnClick { callback, refany }) => callback.invoke(refany.clone(), info, inner),
         None => Update::DoNothing,
     }
 }
@@ -1001,7 +1003,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

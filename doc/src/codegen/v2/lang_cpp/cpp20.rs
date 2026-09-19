@@ -52,12 +52,10 @@ impl CppDialect for Cpp20Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro - C++11+ uses template-reflection helpers instead.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros (every dialect: on C++11+ they
+        // are shims over the RefAny template members) + the C++23 feature gate.
+        code.push_str(&generate_reflect_macro(std));
+        code.push_str(&generate_deducing_this_feature_macro(std));
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
@@ -395,6 +393,7 @@ impl CppDialect for Cpp20Generator {
         // toStdOptional: yields std::optional<Wrapper> when the payload has a
         // wrapper class (consuming && form for non-copy payloads).
         emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(
@@ -442,12 +441,10 @@ impl CppDialect for Cpp23Generator {
         code.push_str(&format!("// {}\r\n\r\n", "=".repeat(77)));
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
-        // C++11+ uses template-reflection helpers instead of AZ_REFLECT.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros (shims over the RefAny template
+        // members on C++11+) + the AZUL_HAS_DEDUCING_THIS feature gate.
+        code.push_str(&generate_reflect_macro(std));
+        code.push_str(&generate_deducing_this_feature_macro(std));
 
         code.push_str("namespace azul {\r\n\r\n");
 
@@ -770,7 +767,18 @@ fn emit_cpp23_result_extras(
     } else {
         format!("Az{}", err_t)
     };
-    let c_type_name = config.apply_prefix(&struct_def.name);
+    // The payload has been moved out into the expected, so this wrapper must
+    // not `_delete` anything afterwards. For an owning Result that means
+    // clearing `owned_`; zeroing `inner_` instead would leave an OWNED
+    // `Ok(<zeroed payload>)` (Ok is enumerator 0 of every Result tag enum)
+    // for the destructor to drop - a null RefAny/String/Vec free on the Rust
+    // side. Non-owning Results (no destructor, no `owned_`) are just zeroed.
+    let _ = config;
+    let reset = if needs_destructor(struct_def) {
+        "owned_ = false;"
+    } else {
+        "inner_ = {};"
+    };
 
     // When a payload type has a non-prefixed wrapper class, the expected
     // carries the wrapper (which takes ownership of the moved-out payload —
@@ -805,13 +813,14 @@ fn emit_cpp23_result_extras(
     // header still compiles on a toolchain that lacks the type.
     code.push_str("#if defined(__cpp_lib_expected)\r\n");
     code.push_str(&format!(
-        "    std::expected<{okt}, {errt}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {cok} v = inner_.Ok.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{okt}, {errt}>({oke});\r\n        }} else {{\r\n            {cerr} e = inner_.Err.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{okt}, {errt}>(std::unexpected<{errt}>({erre}));\r\n        }}\r\n    }}\r\n",
+        "    std::expected<{okt}, {errt}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {cok} v = inner_.Ok.payload;\r\n            {reset}\r\n            return std::expected<{okt}, {errt}>({oke});\r\n        }} else {{\r\n            {cerr} e = inner_.Err.payload;\r\n            {reset}\r\n            return std::expected<{okt}, {errt}>(std::unexpected<{errt}>({erre}));\r\n        }}\r\n    }}\r\n",
         okt = ok_ty,
         errt = err_ty,
         cok = c_ok,
         cerr = c_err,
         oke = ok_expr,
         erre = err_expr,
+        reset = reset,
     ));
     code.push_str(&format!(
         "    operator std::expected<{okt}, {errt}>() && {{ return \
@@ -820,7 +829,6 @@ fn emit_cpp23_result_extras(
         errt = err_ty,
     ));
     code.push_str("#endif // __cpp_lib_expected\r\n");
-    let _ = c_type_name;
 }
 
 // ============================================================================
@@ -930,22 +938,6 @@ fn emit_method_declarations(
         let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
         let substitute = should_substitute_callbacks(func);
 
-        // C++23 deducing-`this` (`this Self&&`) needs clang-18+ / very recent
-        // toolchains; the CI's clang rejects it ("expected parameter
-        // declarator"). Keep it OFF and emit the normal builder-method form even
-        // for C++23 so the generated header compiles everywhere.
-        let use_deducing_this = false;
-        if use_deducing_this && standard >= CppStandard::Cpp23 && is_builder_method(func) {
-            let cpp_args =
-                generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
-            let comma = if cpp_args.is_empty() { "" } else { ", " };
-            code.push_str(&format!(
-                "    template<class Self> {} {}(this Self&& self{}{});\r\n",
-                cpp_return_type, cpp_fn_name, comma, cpp_args
-            ));
-            continue;
-        }
-
         // value-self (consuming) methods are non-const (they relinquish inner_
         // via release() in the impl; a const dtor-double-free would crash).
         let self_is_value = has_self
@@ -961,10 +953,30 @@ fn emit_method_declarations(
         let static_prefix = if !has_self { "static " } else { "" };
         let cpp_args =
             generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
-        code.push_str(&format!(
+        let classic = format!(
             "    {}{} {}({}){};\r\n",
             static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
-        ));
+        );
+
+        // C++23 builders (`with_*` / `*_with_*`): one deducing-`this` template
+        // (`template<class Self> auto f(this Self&& self, ...)`) serves l-value
+        // and r-value receivers alike, with the same consumed-self semantics as
+        // the classic form. Gated on AZUL_HAS_DEDUCING_THIS (see
+        // generate_deducing_this_feature_macro) with the classic declaration as
+        // the fallback, so the header still compiles on a pre-P0847 compiler.
+        if standard >= CppStandard::Cpp23 && is_builder_method(func) {
+            let comma = if cpp_args.is_empty() { "" } else { ", " };
+            code.push_str("#if AZUL_HAS_DEDUCING_THIS\r\n");
+            code.push_str(&format!(
+                "    template<class Self> auto {}(this Self&& self{}{});\r\n",
+                cpp_fn_name, comma, cpp_args
+            ));
+            code.push_str("#else\r\n");
+            code.push_str(&classic);
+            code.push_str("#endif\r\n");
+            continue;
+        }
+        code.push_str(&classic);
     }
 }
 
@@ -1047,59 +1059,6 @@ fn generate_method_implementations_shared(
         .filter(|f| f.class_name == *class_name)
         .filter(|f| !is_constructor_or_default(f))
     {
-        // Deducing-this kept OFF (see emit_method_declarations — needs clang-18+),
-        // so C++23 uses the normal builder-method definition path below.
-        let use_deducing_this = false;
-        if use_deducing_this && dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func)
-        {
-            let cpp_fn_name = escape_method_name(&func.method_name);
-            let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
-            let substitute = should_substitute_callbacks(func);
-            let cpp_args =
-                generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
-            let call_args =
-                generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
-            let self_is_value = func
-                .args
-                .first()
-                .map(|a| a.ref_kind == ArgRefKind::Owned)
-                .unwrap_or(false);
-            // The C signature dictates whether the wrapper passes self by
-            // value or by pointer. Mirror what the non-deducing-this path
-            // would produce.
-            let self_arg = if self_is_value {
-                "self.inner_"
-            } else {
-                "&self.inner_"
-            };
-            let comma = if cpp_args.is_empty() { "" } else { ", " };
-            let full_call_args = if call_args.is_empty() {
-                self_arg.to_string()
-            } else {
-                format!("{}, {}", self_arg, call_args)
-            };
-            let return_type_str = func.return_type.as_deref().unwrap_or("");
-            code.push_str(&format!(
-                "template<class Self>\r\ninline {} {}::{}(this Self&& self{}{}) {{\r\n",
-                cpp_return_type, class_name, cpp_fn_name, comma, cpp_args
-            ));
-            if cpp_return_type == "void" {
-                code.push_str(&format!("    {}({});\r\n", func.c_name, full_call_args));
-            } else if type_has_wrapper(return_type_str, ir) {
-                code.push_str(&format!(
-                    "    return {}({}({}));\r\n",
-                    return_type_str, func.c_name, full_call_args
-                ));
-            } else {
-                code.push_str(&format!(
-                    "    return {}({});\r\n",
-                    func.c_name, full_call_args
-                ));
-            }
-            code.push_str("}\r\n\r\n");
-            continue;
-        }
-
         let cpp_fn_name = escape_method_name(&func.method_name);
         let c_fn_name = &func.c_name;
         let has_self = func_has_self(func);
@@ -1122,45 +1081,71 @@ fn generate_method_implementations_shared(
             generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
         let call_args = generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
 
-        let full_call_args = if has_self {
-            // release() relinquishes ownership (owned_=false / zero the source) so
-            // the C-ABI-consumed inner_ is not double-freed; by-ref borrows.
+        // `receiver` names the object the C call takes self from: "" for the
+        // implicit `this` of the classic form, "self." for the deducing-`this`
+        // form. release() relinquishes ownership (owned_=false / zero the
+        // source) so the C-ABI-consumed inner_ is not double-freed; by-ref
+        // borrows.
+        let full_call_args = |receiver: &str| -> String {
+            if !has_self {
+                return call_args.clone();
+            }
             let self_arg = if self_is_value {
-                "release()"
+                format!("{}release()", receiver)
             } else {
-                "&inner_"
+                format!("&{}inner_", receiver)
             };
             if call_args.is_empty() {
-                self_arg.to_string()
+                self_arg
             } else {
                 format!("{}, {}", self_arg, call_args)
             }
-        } else {
-            call_args.clone()
+        };
+        let return_type_str = func.return_type.as_deref().unwrap_or("");
+        let body = |receiver: &str| -> String {
+            let args = full_call_args(receiver);
+            if cpp_return_type == "void" {
+                format!("    {}({});\r\n", c_fn_name, args)
+            } else if type_has_wrapper(return_type_str, ir) {
+                format!(
+                    "    return {}({}({}));\r\n",
+                    return_type_str, c_fn_name, args
+                )
+            } else {
+                format!("    return {}({});\r\n", c_fn_name, args)
+            }
         };
 
-        code.push_str(&format!(
-            "inline {} {}::{}({}){} {{\r\n",
-            cpp_return_type, class_name, cpp_fn_name, cpp_args, const_suffix
-        ));
+        let classic = format!(
+            "inline {} {}::{}({}){} {{\r\n{}}}\r\n\r\n",
+            cpp_return_type,
+            class_name,
+            cpp_fn_name,
+            cpp_args,
+            const_suffix,
+            body("")
+        );
 
-        if cpp_return_type == "void" {
-            code.push_str(&format!("    {}({});\r\n", c_fn_name, full_call_args));
+        // C++23 builders: the deducing-`this` definition (same consumed-self
+        // body, `self` instead of the implicit `this`), classic form as the
+        // fallback. Mirrors the declaration gate in emit_method_declarations.
+        if dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func) {
+            let comma = if cpp_args.is_empty() { "" } else { ", " };
+            code.push_str("#if AZUL_HAS_DEDUCING_THIS\r\n");
+            code.push_str(&format!(
+                "template<class Self>\r\nauto {}::{}(this Self&& self{}{}) {{\r\n{}}}\r\n",
+                class_name,
+                cpp_fn_name,
+                comma,
+                cpp_args,
+                body("self.")
+            ));
+            code.push_str("#else\r\n");
+            code.push_str(&classic);
+            code.push_str("#endif\r\n\r\n");
         } else {
-            let return_type_str = func.return_type.as_deref().unwrap_or("");
-            if type_has_wrapper(return_type_str, ir) {
-                code.push_str(&format!(
-                    "    return {}({}({}));\r\n",
-                    return_type_str, c_fn_name, full_call_args
-                ));
-            } else {
-                code.push_str(&format!(
-                    "    return {}({});\r\n",
-                    c_fn_name, full_call_args
-                ));
-            }
+            code.push_str(&classic);
         }
-        code.push_str("}\r\n\r\n");
     }
 
     code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));

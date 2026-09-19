@@ -17,15 +17,24 @@
 //!    `azul_types.ml` `include`s them all. See `types.rs`.
 //! 3. `azul_ffi_<module>.ml` — the `foreign "<C symbol>" (...)` bindings of one api.json module's
 //!    classes; `azul_ffi.ml` includes them all. See `functions.rs`.
-//! 4. `azul_managed.ml` — the host-invoker runtime (handle table, per-kind invokers,
-//!    `azul_refany_create` / `azul_refany_get`). See `managed.rs`.
+//! 4. `azul_enums_<module>.ml` — the enum modules of one api.json module: the ADT of every unit
+//!    enum (`module Update = struct type t = | DoNothing | RefreshDom ... end`) and the derive
+//!    capabilities of every enum, typed on `t`. Below the class modules so any signature can name
+//!    `<Enum>.t`; `azul_enums.ml` includes them all. See `wrappers.rs`.
 //! 5. `azul_records_<module>.ml` — the wrapper records with their `Gc.finalise` finalisers (`type
 //!    app = { mutable raw; mutable disposed }`, `make_app`, `dispose_app`, `raw_app`) of one
 //!    api.json module; `azul_records.ml` includes them all.
-//! 6. `azul_api_<module>.ml` / `.mli` — the idiomatic per-class submodules (`module Dom : sig ...
-//!    end`, `module Update : sig ... end`) and the polymorphic-variant views of one api.json
-//!    module. The `.mli` seals them exactly as the old `azul.mli` did. See `wrappers.rs`.
-//! 7. `azul.ml` — the facade: `include`s every layer and adds the Dom.t-returning layout sugar.
+//! 6. `azul_managed.ml` — the host-invoker runtime (handle table, typed per-kind invokers,
+//!    `azul_refany_create` / `azul_refany_get`, `azul_register_<kind>`,
+//!    `azul_<class>_with_layout`). Its helpers return records, hence below them. See `managed.rs`.
+//! 7. `azul_api_<module>.ml` / `.mli` — the idiomatic per-class submodules (`module Dom : sig ...
+//!    end`) and the polymorphic-variant views of one api.json module. The `.mli` seals them. See
+//!    `wrappers.rs`.
+//! 8. `azul.ml` — the facade: `include`s every layer.
+//!
+//! Besides the units, `generate` emits the project files `azul.opam` and
+//! `hello_world.ml` (see `dune.rs`); `dune` / `dune-project` are written by
+//! the orchestrator from the same module.
 //!
 //! dune wraps the library, so only `Azul` is visible to consumers; the
 //! internal units are reachable as `Azul.<name>` through the includes.
@@ -38,13 +47,14 @@
 //!   (`AzApp_create`), never the OCaml-snake form.
 //! - Idiomatic surface lives inside nested modules: `Azul.App.create`, `Azul.App.run`, etc. The
 //!   `Az_` / `Az` prefix is dropped.
-//! - Tagged-union enums are surfaced as polymorphic variants (`[ \`None | \`Some of int64 ]`) with
-//!   `to_ffi` / `of_ffi` conversion functions.
+//! - Unit enums are ADTs (`Azul.Update.RefreshDom`); tagged-union enums are surfaced as
+//!   polymorphic-variant views (`[ \`None | \`Some of int ]`).
 //!
 //! ## Output protocol
 //!
 //! `generate(ir, config)` returns a single `String` with multiple files
-//! separated by [`FILE_MARKER`] / [`END_MARKER`] header lines:
+//! (OCaml units, `azul.opam`, `hello_world.ml`) separated by [`FILE_MARKER`] /
+//! [`END_MARKER`] header lines:
 //!
 //! ```text
 //! (*==FILE: azul_types_css.ml ==*)
@@ -178,10 +188,23 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         ),
     ));
 
-    // 4. Managed runtime.
+    // 4. Enum modules per api.json module, then the facade.
+    let mut enum_units = Vec::new();
+    for m in &api_modules {
+        let unit = format!("azul_enums_{}", m);
+        files.push((
+            format!("{}.ml", unit),
+            generate_enums_unit(ir, config, &split, m)?,
+        ));
+        enum_units.push(unit);
+    }
     files.push((
-        "azul_managed.ml".to_string(),
-        generate_managed_unit(ir, config),
+        "azul_enums.ml".to_string(),
+        generate_include_facade(
+            config,
+            "Every enum module of the binding: the union of the per-module units.",
+            &enum_units,
+        ),
     ));
 
     // 5. Wrapper records per api.json module, then the facade.
@@ -203,7 +226,13 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         ),
     ));
 
-    // 6. Idiomatic per-class modules per api.json module (.ml + .mli).
+    // 6. Managed runtime (returns records, so after them).
+    files.push((
+        "azul_managed.ml".to_string(),
+        generate_managed_unit(ir, config),
+    ));
+
+    // 7. Idiomatic per-class modules per api.json module (.ml + .mli).
     let mut api_units = Vec::new();
     for m in &api_modules {
         let unit = format!("azul_api_{}", m);
@@ -213,18 +242,24 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         api_units.push(unit);
     }
 
-    // 7. The facade.
+    // 8. The facade.
     files.push((
         "azul.ml".to_string(),
         generate_facade(
-            ir,
             config,
             &type_units,
             &ffi_units,
+            &enum_units,
             &record_units,
             &api_units,
         ),
     ));
+
+    // 9. Project files: the opam manifest `opam install . --deps-only` reads
+    //    and the guide's example, so the output directory is the complete
+    //    project the release tarball ships.
+    files.push(("azul.opam".to_string(), dune::generate_opam(&ir.api_version)));
+    files.push(("hello_world.ml".to_string(), dune::hello_world().to_string()));
 
     let total: usize = files.iter().map(|(_, s)| s.len()).sum();
     let mut out = String::with_capacity(total + 64 * files.len());
@@ -255,11 +290,15 @@ pub fn unit_names(ir: &CodegenIR) -> Vec<String> {
         out.push(format!("azul_ffi_{}", m));
     }
     out.push("azul_ffi".to_string());
-    out.push("azul_managed".to_string());
+    for m in &api_modules {
+        out.push(format!("azul_enums_{}", m));
+    }
+    out.push("azul_enums".to_string());
     for m in &api_modules {
         out.push(format!("azul_records_{}", m));
     }
     out.push("azul_records".to_string());
+    out.push("azul_managed".to_string());
     for m in &api_modules {
         out.push(format!("azul_api_{}", m));
     }
@@ -392,6 +431,27 @@ fn generate_ffi_unit(
     Ok(builder.finish())
 }
 
+/// `azul_enums_<module>.ml`: the enum modules of one api.json module.
+fn generate_enums_unit(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    split: &Split,
+    api_module: &str,
+) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+    unit_header(
+        &mut builder,
+        &format!("Enum modules of the api.json module `{}`.", api_module),
+    );
+    builder.line("open Ctypes");
+    builder.line("open Azul_types");
+    builder.line("open Azul_ffi");
+    builder.blank();
+    let belongs = |c: &str| split.module_of(c) == api_module;
+    wrappers::emit_enum_modules_for(&mut builder, ir, config, &belongs)?;
+    Ok(builder.finish())
+}
+
 /// `azul_managed.ml`: the host-invoker runtime.
 fn generate_managed_unit(ir: &CodegenIR, config: &CodegenConfig) -> String {
     let mut builder = CodeBuilder::new(&config.indent);
@@ -400,9 +460,12 @@ fn generate_managed_unit(ir: &CodegenIR, config: &CodegenConfig) -> String {
     builder.line("open Foreign");
     builder.line("open Azul_types");
     builder.line("open Azul_ffi");
+    builder.line("open Azul_enums");
+    builder.line("open Azul_records");
     builder.blank();
     builder.line("let () = Azul_loader.ensure ()");
-    managed::emit_managed_prelude(&mut builder, ir);
+    let records = wrappers::record_types(ir, config);
+    managed::emit_managed_prelude(&mut builder, ir, &records);
     builder.finish()
 }
 
@@ -443,8 +506,9 @@ fn generate_api_unit(
         b.line("open Ctypes");
         b.line("open Azul_types");
         b.line("open Azul_ffi");
-        b.line("open Azul_managed");
+        b.line("open Azul_enums");
         b.line("open Azul_records");
+        b.line("open Azul_managed");
         b.blank();
     };
 
@@ -475,10 +539,10 @@ fn generate_api_unit(
 
 /// `azul.ml`: the facade every consumer opens.
 fn generate_facade(
-    ir: &CodegenIR,
     config: &CodegenConfig,
     type_units: &[String],
     ffi_units: &[String],
+    enum_units: &[String],
     record_units: &[String],
     api_units: &[String],
 ) -> String {
@@ -489,9 +553,8 @@ fn generate_facade(
     );
     b.line("(* The binding is split into one unit per api.json module (and per");
     b.line("   dependency slice of it for the types). This facade includes them all,");
-    b.line("   so `Azul.Dom.create_body ()`, `Azul.az_dom`, `Azul.ffi_az_dom_delete`");
-    b.line("   and `Azul.azul_refany_get` resolve exactly as they did when the binding");
-    b.line("   was one file. *)");
+    b.line("   so `Azul.Dom.body`, `Azul.Update.RefreshDom`, `Azul.az_dom`,");
+    b.line("   `Azul.ffi_az_dom_delete` and `Azul.azul_refany_get` all resolve. *)");
     b.blank();
     b.line("include Azul_loader");
     for u in type_units {
@@ -500,18 +563,16 @@ fn generate_facade(
     for u in ffi_units {
         b.line(&format!("include {}", unit_module(u)));
     }
-    b.line("include Azul_managed");
+    for u in enum_units {
+        b.line(&format!("include {}", unit_module(u)));
+    }
     for u in record_units {
         b.line(&format!("include {}", unit_module(u)));
     }
+    b.line("include Azul_managed");
     for u in api_units {
         b.line(&format!("include {}", unit_module(u)));
     }
-    b.blank();
-    // Dom.t-returning layout registration sugar (needs the wrapper
-    // records' `dom` / `raw_dom` and the managed runtime's
-    // `azul_*_with_layout` / `azul_register_layout_callback`).
-    wrappers::emit_layout_dom_sugar_implementation(&mut b, ir, config);
     b.finish()
 }
 
@@ -686,22 +747,23 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
                 }
                 return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
             }
-            // Tagged unions are also `Ctypes.structure` (we model the
-            // union via a payload byte-array inside a struct), unless
-            // filtered.
+            // A unit enum is its ADT `<Enum>.t` (from `Azul_enums`); a tagged
+            // union is a `Ctypes.structure` (a payload byte-array inside a
+            // struct); filtered categories are the opaque FFI name.
             if let Some(e) = ir.find_enum(trimmed) {
-                if matches!(
-                    e.category,
-                    super::ir::TypeCategory::Recursive
-                        | super::ir::TypeCategory::VecRef
-                        | super::ir::TypeCategory::DestructorOrClone
-                ) {
-                    return ocaml_ffi_type_name(trimmed);
+                if let Some(m) = unit_enum_module(trimmed, ir) {
+                    return format!("{}.t", m);
                 }
-                if e.is_union {
+                if e.is_union
+                    && !matches!(
+                        e.category,
+                        super::ir::TypeCategory::Recursive
+                            | super::ir::TypeCategory::VecRef
+                            | super::ir::TypeCategory::DestructorOrClone
+                    )
+                {
                     return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
                 }
-                // Unit enums are `int` aliases.
                 return ocaml_ffi_type_name(trimmed);
             }
             if ir.find_type_alias(trimmed).is_some()
@@ -713,6 +775,30 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
             }
         }
     }
+}
+
+/// The ADT module of a unit enum (`Update` -> `Some("Update")`); `None` for
+/// tagged unions, filtered categories, generics and non-enums. The module
+/// lives in `Azul_enums_<module>`; every unit naming `<Enum>.t` opens
+/// `Azul_enums`. `wrappers::emit_enum_modules_for` emits exactly the modules
+/// this returns `Some` for.
+pub fn unit_enum_module(type_name: &str, ir: &CodegenIR) -> Option<String> {
+    let e = ir.find_enum(type_name.trim())?;
+    // A variant-less unit enum has no `az_x` typ either (types.rs skips it).
+    if e.is_union
+        || e.variants.is_empty()
+        || !e.generic_params.is_empty()
+        || matches!(
+            e.category,
+            super::ir::TypeCategory::Recursive
+                | super::ir::TypeCategory::VecRef
+                | super::ir::TypeCategory::DestructorOrClone
+                | super::ir::TypeCategory::GenericTemplate
+        )
+    {
+        return None;
+    }
+    Some(ocaml_module_name(&e.name))
 }
 
 pub fn map_type_to_ocaml(rust_type: &str, ir: &CodegenIR) -> String {
@@ -840,7 +926,24 @@ pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
     }
 }
 
-/// Convert a `PascalCase` or `camelCase` name to `lower_snake_case`.
+/// Convert a `snake_case` (or already-Pascal) name to `PascalCase` — the
+/// constructor names of the unit-enum ADTs (`refresh_dom` -> `RefreshDom`).
+pub fn to_pascal_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper_next = true;
+    for c in s.chars() {
+        if c == '_' {
+            upper_next = true;
+        } else if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub fn to_snake_case(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 4);
     let mut prev_lower_or_digit = false;
@@ -1018,6 +1121,7 @@ mod split_tests {
             if unit == "azul"
                 || unit == "azul_types"
                 || unit == "azul_ffi"
+                || unit == "azul_enums"
                 || unit == "azul_records"
             {
                 // facades-of-facades are included as their parts
@@ -1032,8 +1136,17 @@ mod split_tests {
                 < azul.find("include Azul_ffi_dom").unwrap()
         );
         assert!(
+            azul.find("include Azul_enums_dom").unwrap()
+                < azul.find("include Azul_records_dom").unwrap()
+        );
+        assert!(
+            azul.find("include Azul_records_dom").unwrap()
+                < azul.find("include Azul_managed").unwrap()
+        );
+        assert!(
             azul.find("include Azul_managed").unwrap() < azul.find("include Azul_api_dom").unwrap()
         );
+        assert!(files.contains_key("azul.opam") && files.contains_key("hello_world.ml"));
     }
 
     #[test]
@@ -1043,20 +1156,20 @@ mod split_tests {
         assert!(!files["azul_ffi_dom.ml"].contains("AzButton_"));
         assert!(files["azul_records_dom.ml"].contains("type dom = { mutable raw"));
         assert!(files["azul_api_widgets.mli"].contains("module Button : sig"));
-        // A method returning its OWN class comes back as the managed record
-        // (`make_<class>`, finaliser armed); a CROSS-class return stays the
-        // raw ctypes structure. Wrapping `Button.dom` would need
-        // `Azul_records_dom.make_dom` in scope of the widgets API unit — an
-        // edge from every api unit to every record unit, which is what the
-        // chunk plan exists to avoid. Callers wrap explicitly when they want
-        // a managed handle.
+        // Every returned wrapped struct comes back as its record (finaliser
+        // armed), own class or not: `Azul_records` (the facade of every
+        // record unit) is open in every api unit.
         assert!(
-            files["azul_api_widgets.mli"].contains("val dom : t -> az_dom Ctypes.structure"),
+            files["azul_api_widgets.mli"].contains("val dom : t -> dom"),
             "{}",
             files["azul_api_widgets.mli"]
         );
-        assert!(files["azul_api_dom.mli"].contains("module Update : sig"));
+        // Enum modules live in their own layer, below the class modules.
+        assert!(files["azul_enums_dom.ml"].contains("module Update = struct"));
+        assert!(files["azul_enums_dom.ml"].contains("| RefreshDom"));
+        assert!(!files["azul_api_dom.mli"].contains("module Update"));
         assert!(files["azul_api_dom.ml"].contains("open Azul_records"));
+        assert!(files["azul_api_dom.ml"].contains("open Azul_enums"));
         for unit in ["azul_ffi_dom.ml", "azul_managed.ml"] {
             assert!(
                 files[unit].contains("Azul_loader.ensure ()"),
@@ -1064,5 +1177,26 @@ mod split_tests {
                 unit
             );
         }
+    }
+
+    #[test]
+    fn smart_constructors_and_tag_helpers_derive_from_the_ir() {
+        let files = generated();
+        let widgets_mli = &files["azul_api_widgets.mli"];
+        let widgets_ml = &files["azul_api_widgets.ml"];
+        let dom_mli = &files["azul_api_dom.mli"];
+        let dom_ml = &files["azul_api_dom.ml"];
+        // The IR constructor stays reachable 1:1; the smart `create` of a
+        // class with a `dom()` conversion returns the DOM record.
+        assert!(widgets_mli.contains("val create_raw : unit -> t"), "{}", widgets_mli);
+        assert!(widgets_mli.contains("val create : unit -> dom"), "{}", widgets_mli);
+        assert!(widgets_ml.contains("dom __obj"), "{}", widgets_ml);
+        // `create_<tag>()` + `with_child` -> `<tag> ~children`.
+        assert!(dom_mli.contains("val body : children:t list -> t"), "{}", dom_mli);
+        // An Owned wrapped arg is its record and is consumed after the call.
+        assert!(dom_mli.contains("val with_child : t -> dom -> t"), "{}", dom_mli);
+        assert!(dom_ml.contains("child.disposed <- true"), "{}", dom_ml);
+        assert!(dom_ml.contains("self.disposed <- true"), "{}", dom_ml);
+        assert!(!dom_ml.contains("azul_consume"), "generated code consumes typed records");
     }
 }

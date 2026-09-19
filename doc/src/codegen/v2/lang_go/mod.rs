@@ -1,42 +1,41 @@
-//! Go binding generator (cgo).
+//! Go binding generator (purego, no cgo).
 //!
-//! Emits a Go package (`package azul`) plus a `go.mod` manifest that
-//! exposes `libazul`'s C-ABI to Go programs through cgo — one statically
-//! linked binary, no dlopen.
+//! Emits a Go package (`package azul`) plus `go.mod`/`go.sum` that expose
+//! `libazul`'s C-ABI to Go programs through
+//! [`github.com/ebitengine/purego`](https://github.com/ebitengine/purego):
+//! the shared library is `dlopen`ed / `LoadLibrary`ed at runtime, every
+//! export is bound lazily on first use, and Go callbacks reach the engine
+//! through purego trampolines. No C compiler is involved, so
+//! `GOOS=windows go build` from macOS/Linux just works.
 //!
-//! # Strategy: Go-native types, cgo only for the calls
+//! # Files
 //!
-//! cgo's first gcc probe writes five deliberately failing C functions for
-//! every `C.` name a file references; gcc's error-recovery path grows
-//! super-linearly with that count (2 s at 1.1k names, 6 s at 5.4k, 356 s
-//! at 9.4k). The binding used to reference every C type (`C.AzFoo`) AND
-//! every function — ~18k names. It now references no C type at all:
+//! 1. `azul.go`          — package doc, `LoadLibrary`, the lazy-binding
+//!                         helper `azRegister` (see [`generate_azul_go`]).
+//! 2. `azul_unix.go` /
+//!    `azul_windows.go`  — the per-OS `azOpenLibrary` (`purego.Dlopen` vs
+//!                         `syscall.LoadLibrary`), selected by build tags.
+//! 3. `types.go`         — Go-native definitions of every api.json type
+//!                         with the exact `repr(C)` layout (see `types.rs`).
+//! 4. `functions.go`     — the raw call layer, one Go function per C export
+//!                         named like the C symbol; owned aggregates cross
+//!                         by pointer through the exported `*Byref` twins
+//!                         (see `functions.rs`).
+//! 5. `wrappers.go`      — idiomatic wrappers (`type App struct { inner
+//!                         *AzApp }`, constructors, methods, `Close()`).
+//! 6. `callbacks.go` /
+//!    `callbacks_trampolines.go` — host-invoker callback layer
+//!                         (`Register<Kind>`, `Bind`, `Str`, smart setters).
+//! 7. `go.mod` / `go.sum` — `module azul.rs/ui/go` + the purego pin.
 //!
-//! 1. `types.go`  — Go-native definitions of every api.json type with the
-//!                  exact `repr(C)` layout (see `types.rs`), no cgo.
-//! 2. `functions*.go` — the raw call layer, one Go function per C export,
-//!                  named like the C symbol. Owned aggregates cross through
-//!                  the exported `*Byref` twins by pointer; everything is
-//!                  declared with `void*`/primitive prototypes so no C type
-//!                  is named (see `functions.rs`). Chunked into files of
-//!                  at most `functions::CHUNK` names because the probe cost
-//!                  is per file.
-//! 3. `wrappers.go` — idiomatic wrappers (`type App struct { inner *AzApp }`,
-//!                  constructors, methods, `Close() error`), no cgo.
-//! 4. `callbacks.go` / `callbacks_export.go` — host-invoker callback layer
-//!                  (`//export` trampolines); its preamble includes azul.h
-//!                  for a handful of static shims, but the Go side names
-//!                  only shim functions and `C.uint64_t`.
-//! 5. `azul.go`   — package doc + the `#cgo LDFLAGS` directive.
-//! 6. `go.mod`    — `module github.com/azul/azul-go` + Go 1.21 directive.
+//! # Requirements
 //!
-//! # Build-time requirements (cgo)
-//!
-//!   * a C compiler (`gcc` / `clang` / MinGW) on the host,
-//!   * `azul.h` on the C include path (`CGO_CFLAGS=-I...`) — the shim and
-//!     callback preambles include it,
-//!   * `libazul.{so,dylib}` (or `azul.dll`) on the linker path
-//!     (`CGO_LDFLAGS=-L...`) and reachable at runtime.
+//!   * Build: the Go toolchain (Go 1.18+, generics). `CGO_ENABLED` is
+//!     irrelevant.
+//!   * Run: `libazul.dylib` / `libazul.so` / `azul.dll` (or the release's
+//!     platform-suffixed download name, e.g. `libazul.x86_64.dylib`) next to
+//!     the executable, in the working directory, or on the loader path
+//!     (`LoadLibrary("")`), or at an explicit path (`LoadLibrary(path)`).
 //!
 //! # Output protocol
 //!
@@ -66,41 +65,32 @@ pub const FILE_MARKER: &str = "// ==FILE: ";
 /// Trailing marker that closes the file-marker header line.
 pub const END_MARKER: &str = " ==";
 
-/// Library name passed to the linker via `// #cgo LDFLAGS: -lazul`.
-/// Must match the prebuilt artifact (`libazul.so` / `libazul.dylib` /
-/// `azul.dll`).
+/// Base name of the native library. The loader derives the platform file
+/// name from it: `lib<name>.dylib` (macOS), `lib<name>.so` (Linux, BSDs),
+/// `<name>.dll` (Windows). Must match the prebuilt release artifact.
 pub const LIB_NAME: &str = "azul";
 
 /// Public entry point. Generates the multi-file Go binding concatenated
 /// into a single `String` with file markers between chunks.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
-    let azul = generate_azul_go(config)?;
-    let types_src = types::generate(ir, config)?;
-    let raw_files = functions::generate_files(ir, config)?;
-    let wrappers_src = wrappers::generate(ir, config)?;
-    let callbacks_src = managed::generate(ir, config)?;
-    let callbacks_export_src = managed::generate_export(ir, config)?;
-    let gomod_src = gomod::generate_go_mod();
-
+    let sections: Vec<(&str, String)> = vec![
+        ("azul.go", generate_azul_go(config)?),
+        ("azul_unix.go", generate_azul_unix_go(config)?),
+        ("azul_windows.go", generate_azul_windows_go(config)?),
+        ("types.go", types::generate(ir, config)?),
+        ("functions.go", functions::generate(ir, config)?),
+        ("wrappers.go", wrappers::generate(ir, config)?),
+        ("callbacks.go", managed::generate(ir, config)?),
+        ("callbacks_trampolines.go", managed::generate_trampolines(ir, config)?),
+        ("go.mod", gomod::generate_go_mod()),
+        ("go.sum", gomod::generate_go_sum()),
+    ];
     let mut out = String::with_capacity(
-        azul.len()
-            + types_src.len()
-            + raw_files.iter().map(|(_, c)| c.len()).sum::<usize>()
-            + wrappers_src.len()
-            + callbacks_src.len()
-            + callbacks_export_src.len()
-            + gomod_src.len()
-            + 256,
+        sections.iter().map(|(_, c)| c.len() + 64).sum::<usize>(),
     );
-    push_section(&mut out, "azul.go", &azul);
-    push_section(&mut out, "types.go", &types_src);
-    for (path, content) in &raw_files {
+    for (path, content) in &sections {
         push_section(&mut out, path, content);
     }
-    push_section(&mut out, "wrappers.go", &wrappers_src);
-    push_section(&mut out, "callbacks.go", &callbacks_src);
-    push_section(&mut out, "callbacks_export.go", &callbacks_export_src);
-    push_section(&mut out, "go.mod", &gomod_src);
     Ok(out)
 }
 
@@ -116,38 +106,39 @@ fn push_section(out: &mut String, path: &str, content: &str) {
 }
 
 // ============================================================================
-// azul.go (umbrella + cgo prelude)
+// azul.go (package doc + loader)
 // ============================================================================
 
-/// Generate the `azul.go` umbrella file. This file owns the cgo prelude
-/// (the `// #cgo` + `// #include` comment block immediately before
-/// `import "C"`) and the package-level documentation. It contains no
-/// Go declarations of its own — those live in the sibling files.
+/// Generate the `azul.go` umbrella file: package documentation, the
+/// library handle, `LoadLibrary` with its per-OS candidate search, and
+/// `azRegister`, the lazy symbol binder every raw function and callback
+/// factory goes through.
 fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     let mut b = CodeBuilder::new(&config.indent);
 
     b.line("// ============================================================================");
-    b.line("// azul.go - Go (cgo) bindings for the Azul GUI framework.");
+    b.line("// azul.go - Go bindings for the Azul GUI framework (purego, no cgo).");
     b.line("// Auto-generated by azul-doc codegen v2 (lang_go). DO NOT EDIT MANUALLY.");
     b.line("// ============================================================================");
     b.line("//");
     b.line("// Layout of this package:");
-    b.line("//   types.go        Go-native mirrors of every C-ABI type (no cgo).");
-    b.line("//   functions*.go   raw calls, one Go function per C export (the only cgo");
-    b.line("//                   users; owned structs cross by pointer via the *Byref twins).");
-    b.line("//   wrappers.go     idiomatic wrappers with Close()/finalizers (no cgo).");
-    b.line("//   callbacks*.go   Go functions as libazul callbacks (host-invoker pattern).");
+    b.line("//   types.go                  Go-native mirrors of every C-ABI type.");
+    b.line("//   functions.go              raw calls, one Go function per C export, bound");
+    b.line("//                             lazily on first use; owned aggregates cross by");
+    b.line("//                             pointer through the exported *Byref twins.");
+    b.line("//   wrappers.go               idiomatic wrappers with Close()/finalizers.");
+    b.line("//   callbacks*.go             Go functions as libazul callbacks (host-invoker");
+    b.line("//                             pattern), Bind, Str, RefAny helpers.");
+    b.line("//   azul_unix.go/_windows.go  the per-OS library loader.");
     b.line("//");
-    b.line("// Build-time requirements (cgo):");
-    b.line("//   * a working C compiler (gcc / clang / MinGW) on the host,");
-    b.line("//   * `azul.h` reachable on the C include path (CGO_CFLAGS=-I...),");
-    b.line("//   * `libazul.{so,dylib}` (or `azul.dll`) on the linker path (CGO_LDFLAGS=-L...).");
+    b.line("// Build-time requirements: the Go toolchain only. No C compiler, no cgo;");
+    b.line("// cross-compiling is `GOOS=windows GOARCH=amd64 go build`.");
     b.line("//");
-    b.line("// Runtime requirements:");
-    b.line("//   * the same `libazul.{so,dylib}` (or `azul.dll`) reachable through");
-    b.line("//     `LD_LIBRARY_PATH` (Linux), `DYLD_LIBRARY_PATH` (macOS), or `PATH`");
-    b.line("//     (Windows). `-Wl,-rpath,$ORIGIN` also works on Linux when the");
-    b.line("//     library sits next to the binary.");
+    b.line("// Runtime requirements: the native library for the platform");
+    b.line(&format!(
+        "// (lib{n}.dylib / lib{n}.so / {n}.dll), located by LoadLibrary - see there.",
+        n = LIB_NAME
+    ));
     b.line("//");
     b.line("// ABI note: the Go types assume the 64-bit C ABI (8-byte pointers); the");
     b.line("// `const _ = ...` assertions in types.go fail the build anywhere else.");
@@ -155,17 +146,201 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.blank();
     b.line("package azul");
     b.blank();
-
-    // The cgo prelude MUST be a single comment block (no blank lines)
-    // immediately followed by `import "C"`. This file carries only the
-    // package-wide linker directive; it names no C symbol.
-    b.line("/*");
-    b.line(&format!("#cgo LDFLAGS: -l{}", LIB_NAME));
-    b.line("#include <stdint.h>");
-    b.line("*/");
-    b.line("import \"C\"");
+    b.line("import (");
+    b.line("    \"errors\"");
+    b.line("    \"fmt\"");
+    b.line("    \"os\"");
+    b.line("    \"path/filepath\"");
+    b.line("    \"runtime\"");
+    b.line("    \"strings\"");
+    b.line("    \"sync\"");
+    b.blank();
+    b.line("    \"github.com/ebitengine/purego\"");
+    b.line(")");
+    b.blank();
+    b.line("// azLib is the handle of the loaded native library; 0 until LoadLibrary");
+    b.line("// succeeded.");
+    b.line("var azLib uintptr");
+    b.blank();
+    b.line("// azLoadMu serialises LoadLibrary so the callback trampolines are created");
+    b.line("// exactly once per process (purego caps the number of NewCallback calls).");
+    b.line("var azLoadMu sync.Mutex");
+    b.blank();
+    b.line("// LibraryFileName is the file name of the native library this package binds");
+    b.line(&format!(
+        "// on the running platform: lib{n}.dylib (macOS), {n}.dll (Windows), lib{n}.so",
+        n = LIB_NAME
+    ));
+    b.line("// (everything else). LoadLibrary also accepts the release's platform-suffixed");
+    b.line("// download names, see LibraryFileNames.");
+    b.line("func LibraryFileName() string {");
+    b.line("    switch runtime.GOOS {");
+    b.line("    case \"darwin\", \"ios\":");
+    b.line(&format!("        return \"lib{}.dylib\"", LIB_NAME));
+    b.line("    case \"windows\":");
+    b.line(&format!("        return \"{}.dll\"", LIB_NAME));
+    b.line("    default:");
+    b.line(&format!("        return \"lib{}.so\"", LIB_NAME));
+    b.line("    }");
+    b.line("}");
+    b.blank();
+    b.line("// LibraryFileNames lists every file name the native library may have on the");
+    b.line("// running platform, most specific first: the platform-suffixed name the");
+    b.line(&format!(
+        "// release publishes (lib{n}.x86_64.dylib, lib{n}.linux-aarch64.so, {n}.i686.dll,",
+        n = LIB_NAME
+    ));
+    b.line("// ...) and the canonical LibraryFileName(). LoadLibrary(\"\") accepts either, so");
+    b.line("// a download does not have to be renamed.");
+    b.line("func LibraryFileNames() []string {");
+    b.line("    return libraryFileNamesFor(runtime.GOOS, runtime.GOARCH)");
+    b.line("}");
+    b.blank();
+    b.line("// libraryFileNamesFor is LibraryFileNames for an explicit GOOS/GOARCH. The");
+    b.line("// names follow the release file list (azul-doc dllgen/deploy.rs) and the");
+    b.line("// Rust crate's build_link.rs.");
+    b.line("func libraryFileNamesFor(goos, goarch string) []string {");
+    b.line("    canonical := \"\"");
+    b.line("    specific := \"\"");
+    b.line("    switch goos {");
+    b.line("    case \"darwin\", \"ios\":");
+    b.line(&format!("        canonical = \"lib{}.dylib\"", LIB_NAME));
+    b.line("        if goos == \"darwin\" && goarch == \"amd64\" {");
+    b.line(&format!("            specific = \"lib{}.x86_64.dylib\"", LIB_NAME));
+    b.line("        }");
+    b.line("    case \"windows\":");
+    b.line(&format!("        canonical = \"{}.dll\"", LIB_NAME));
+    b.line("        if goarch == \"386\" {");
+    b.line(&format!("            specific = \"{}.i686.dll\"", LIB_NAME));
+    b.line("        }");
+    b.line("    default:");
+    b.line(&format!("        canonical = \"lib{}.so\"", LIB_NAME));
+    b.line("        if goos == \"linux\" {");
+    b.line("            suffix := map[string]string{");
+    b.line("                \"386\": \"linux-i686\", \"arm64\": \"linux-aarch64\", \"arm\": \"linux-armv7\",");
+    b.line("                \"ppc64\": \"linux-ppc64\", \"ppc64le\": \"linux-ppc64\", \"s390x\": \"linux-s390x\",");
+    b.line("                \"riscv64\": \"linux-riscv64\",");
+    b.line("            }[goarch]");
+    b.line("            if suffix != \"\" {");
+    b.line(&format!("                specific = \"lib{}.\" + suffix + \".so\"", LIB_NAME));
+    b.line("            }");
+    b.line("        }");
+    b.line("    }");
+    b.line("    if specific == \"\" {");
+    b.line("        return []string{canonical}");
+    b.line("    }");
+    b.line("    return []string{specific, canonical}");
+    b.line("}");
+    b.blank();
+    b.line("// LoadLibrary loads the native library and wires the callback trampolines.");
+    b.line("// Call it once, before anything else in this package; later calls are");
+    b.line("// no-ops that return nil.");
+    b.line("//");
+    b.line("// With an empty path, every name in LibraryFileNames() is searched in this");
+    b.line("// order: the directory of the running executable, the current working");
+    b.line("// directory, and the dynamic loader's own search path (DYLD_LIBRARY_PATH /");
+    b.line("// LD_LIBRARY_PATH / PATH). A non-empty path is opened as given (absolute, or relative to the");
+    b.line("// working directory) - the place to unpack a //go:embed'ed library to.");
+    b.line("// On failure the error lists every candidate that was tried and why it");
+    b.line("// failed.");
+    b.line("func LoadLibrary(path string) error {");
+    b.line("    azLoadMu.Lock()");
+    b.line("    defer azLoadMu.Unlock()");
+    b.line("    if azLib != 0 {");
+    b.line("        return nil");
+    b.line("    }");
+    b.line("    var candidates []string");
+    b.line("    if path != \"\" {");
+    b.line("        candidates = []string{path}");
+    b.line("    } else {");
+    b.line("        names := LibraryFileNames()");
+    b.line("        var dirs []string");
+    b.line("        if exe, err := os.Executable(); err == nil {");
+    b.line("            dirs = append(dirs, filepath.Dir(exe))");
+    b.line("        }");
+    b.line("        if cwd, err := os.Getwd(); err == nil && (len(dirs) == 0 || dirs[0] != cwd) {");
+    b.line("            dirs = append(dirs, cwd)");
+    b.line("        }");
+    b.line("        for _, dir := range dirs {");
+    b.line("            for _, name := range names {");
+    b.line("                candidates = append(candidates, filepath.Join(dir, name))");
+    b.line("            }");
+    b.line("        }");
+    b.line("        candidates = append(candidates, names...)");
+    b.line("    }");
+    b.line("    var tried []string");
+    b.line("    for _, candidate := range candidates {");
+    b.line("        handle, err := azOpenLibrary(candidate)");
+    b.line("        if err == nil && handle != 0 {");
+    b.line("            azLib = handle");
+    b.line("            azInitCallbacks()");
+    b.line("            return nil");
+    b.line("        }");
+    b.line("        if err == nil {");
+    b.line("            err = errors.New(\"loader returned a null handle\")");
+    b.line("        }");
+    b.line("        tried = append(tried, fmt.Sprintf(\"%s: %v\", candidate, err))");
+    b.line("    }");
+    b.line("    return fmt.Errorf(\"azul.LoadLibrary: could not load %s; tried:\\n  %s\",");
+    b.line("        strings.Join(LibraryFileNames(), \" or \"), strings.Join(tried, \"\\n  \"))");
+    b.line("}");
+    b.blank();
+    b.line("// azRegister binds a purego function value (`fptr` is a pointer to it) to");
+    b.line("// the named libazul export. functions.go and callbacks.go call it exactly");
+    b.line("// once per symbol, on first use (sync.Once).");
+    b.line("func azRegister(fptr any, name string) {");
+    b.line("    if azLib == 0 {");
+    b.line("        panic(\"azul: LoadLibrary must succeed before calling \" + name)");
+    b.line("    }");
+    b.line("    purego.RegisterLibFunc(fptr, azLib, name)");
+    b.line("}");
     b.blank();
 
+    Ok(b.finish())
+}
+
+/// `azul_unix.go`: `azOpenLibrary` via `purego.Dlopen` (every OS where
+/// purego provides dlopen).
+fn generate_azul_unix_go(config: &CodegenConfig) -> Result<String> {
+    let mut b = CodeBuilder::new(&config.indent);
+    b.line("//go:build !windows");
+    b.blank();
+    b.line("// azul_unix.go - library loader for dlopen platforms (purego.Dlopen).");
+    b.line("// Auto-generated by azul-doc codegen v2 (lang_go). DO NOT EDIT MANUALLY.");
+    b.blank();
+    b.line("package azul");
+    b.blank();
+    b.line("import \"github.com/ebitengine/purego\"");
+    b.blank();
+    b.line("// azOpenLibrary opens the shared library at `path` (a bare file name is");
+    b.line("// resolved by the dynamic loader's search path) and returns its handle.");
+    b.line("func azOpenLibrary(path string) (uintptr, error) {");
+    b.line("    return purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_GLOBAL)");
+    b.line("}");
+    Ok(b.finish())
+}
+
+/// `azul_windows.go`: `azOpenLibrary` via the standard library's
+/// `syscall.LoadLibrary` (purego has no `Dlopen` on Windows; its
+/// `RegisterLibFunc`/`NewCallback` work with any HMODULE).
+fn generate_azul_windows_go(config: &CodegenConfig) -> Result<String> {
+    let mut b = CodeBuilder::new(&config.indent);
+    b.line("//go:build windows");
+    b.blank();
+    b.line("// azul_windows.go - library loader for Windows (LoadLibraryW).");
+    b.line("// Auto-generated by azul-doc codegen v2 (lang_go). DO NOT EDIT MANUALLY.");
+    b.blank();
+    b.line("package azul");
+    b.blank();
+    b.line("import \"syscall\"");
+    b.blank();
+    b.line("// azOpenLibrary opens the DLL at `path` (a bare file name goes through the");
+    b.line("// standard DLL search order: executable directory, system dirs, PATH) and");
+    b.line("// returns its module handle.");
+    b.line("func azOpenLibrary(path string) (uintptr, error) {");
+    b.line("    handle, err := syscall.LoadLibrary(path)");
+    b.line("    return uintptr(handle), err");
+    b.line("}");
     Ok(b.finish())
 }
 
@@ -275,35 +450,8 @@ pub fn idiomatic_method_name(method_name: &str) -> String {
     }
 }
 
-/// PascalCase / camelCase -> snake_case. Mirrors the IR builder's
-/// `to_snake_case` helper for class names (e.g. `StyleTextView` ->
-/// `style_text_view`). Used to identify the implicit-self argument
-/// the IR rewrites onto each instance method.
-pub fn to_snake_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 4);
-    let bytes = s.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        let c = b as char;
-        if c.is_ascii_uppercase() {
-            if i > 0 {
-                let prev = bytes[i - 1] as char;
-                let next = bytes.get(i + 1).map(|&n| n as char).unwrap_or(' ');
-                let prev_lower_or_digit = prev.is_ascii_lowercase() || prev.is_ascii_digit();
-                let next_lower = next.is_ascii_lowercase();
-                if prev_lower_or_digit || (prev.is_ascii_uppercase() && next_lower) {
-                    out.push('_');
-                }
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 /// Map a Rust/IR primitive name to its Go equivalent. Returns `None`
-/// for non-primitives (caller routes those through `C.<TypeName>`).
+/// for non-primitives (every other name is an api.json type, `Az<Name>`).
 pub fn primitive_to_go(name: &str) -> Option<&'static str> {
     Some(match name {
         "bool" => "bool",
@@ -320,28 +468,6 @@ pub fn primitive_to_go(name: &str) -> Option<&'static str> {
         "usize" => "uintptr",
         "isize" => "int",
         "c_void" | "void" | "()" => "",
-        _ => return None,
-    })
-}
-
-/// Map a Rust/IR primitive name directly to its `C.*` cgo equivalent
-/// (used in cgo call sites where we need to cast Go values into C
-/// argument types). Returns `None` for non-primitives.
-pub fn primitive_to_cgo(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "bool" => "C.bool",
-        "u8" | "c_uchar" => "C.uint8_t",
-        "i8" | "c_char" | "char" => "C.int8_t",
-        "u16" => "C.uint16_t",
-        "i16" => "C.int16_t",
-        "u32" | "c_uint" => "C.uint32_t",
-        "i32" | "c_int" => "C.int32_t",
-        "u64" => "C.uint64_t",
-        "i64" => "C.int64_t",
-        "f32" => "C.float",
-        "f64" => "C.double",
-        "usize" => "C.size_t",
-        "isize" => "C.intptr_t",
         _ => return None,
     })
 }

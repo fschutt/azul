@@ -19,8 +19,10 @@
 //! - The shape is documented in JSDoc-comment form right above the call for human readers
 //!   regardless of runtime.
 //!
-//! Tagged-union enums are emitted as koffi unions with an outer wrapper
-//! struct carrying the tag. Each variant payload struct is registered
+//! Tagged-union enums (direct and monomorphized alike) are emitted the
+//! way `azul.h` declares them: one struct per variant, each beginning
+//! with the `uint8_t` tag, and the type itself as a koffi `union` of
+//! those variant structs. Each variant payload struct is registered
 //! separately so its fields are nameable.
 //!
 //! ## Skipped categories
@@ -162,9 +164,21 @@ fn emit_monomorphized_alias(
             b.dedent();
             b.line("});");
         }
-        MonomorphizedKind::TaggedUnion { variants, .. } => {
-            // Tag alias + JS frozen object.
-            b.line(&format!("azulFFI.alias('{}_Tag', 'uint32_t');", name));
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            // Same layout as the direct tagged-enum path below and as
+            // `azul.h` (lang_c `generate_monomorphized_type`): the C
+            // type is a `union` of per-variant structs, each starting
+            // with the tag. For `#[repr(C, u8)]` the tag field is one
+            // byte; a C-enum-sized tag is 4 bytes. There is NO outer
+            // `{ tag, payload: union }` struct — that shape added a
+            // second tag slot plus padding and made 178 CssPropertyValue
+            // instantiations 4-8 bytes larger than the DLL's.
+            let tag_width = if repr.as_ref().is_some_and(|r| r.contains("u8")) {
+                "uint8_t"
+            } else {
+                "uint32_t"
+            };
+            b.line(&format!("azulFFI.alias('{}_Tag', '{}');", name, tag_width));
             b.line(&format!("Enums.{}_Tag = Object.freeze({{", ta.name));
             b.indent();
             for (idx, v) in variants.iter().enumerate() {
@@ -173,7 +187,7 @@ fn emit_monomorphized_alias(
             b.dedent();
             b.line("});");
 
-            // Per-variant payload structs.
+            // Per-variant payload structs (tag first, optional payload).
             for v in variants {
                 b.line(&format!("azulFFI.struct('{}Variant_{}', {{", name, v.name));
                 b.indent();
@@ -186,8 +200,8 @@ fn emit_monomorphized_alias(
                 b.line("});");
             }
 
-            // Outer wrapper (struct with tag + union of payloads).
-            b.line(&format!("azulFFI.union('{}_Union', {{", name));
+            // The type itself: a union of the variant structs.
+            b.line(&format!("azulFFI.union('{}', {{", name));
             b.indent();
             for v in variants {
                 b.line(&format!(
@@ -197,12 +211,6 @@ fn emit_monomorphized_alias(
                     v.name
                 ));
             }
-            b.dedent();
-            b.line("});");
-            b.line(&format!("azulFFI.struct('{}', {{", name));
-            b.indent();
-            b.line(&format!("tag: '{}_Tag',", name));
-            b.line(&format!("payload: '{}_Union',", name));
             b.dedent();
             b.line("});");
         }

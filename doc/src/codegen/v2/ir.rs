@@ -90,6 +90,41 @@ impl CodegenIR {
         self.type_aliases.iter().find(|t| t.name == name)
     }
 
+    /// Is `type_name` an aggregate that crosses the C ABI by value as a
+    /// struct/union — i.e. something the `<fn>Byref` twins take by pointer
+    /// and that an FFI without struct-by-value support (LuaJIT on x86-64,
+    /// purego, ...) must route through those twins?
+    ///
+    /// True for every IR struct (including the `String`/`Vec`/`Option`-style
+    /// wrapper structs and `RefAny`) and every data-carrying enum
+    /// (`repr(C, u8)` tagged union). False for unit enums (a C `enum`, an
+    /// int on the wire), type aliases (`GLuint` → u32), fn-pointer typedefs
+    /// (`*CallbackType`, `*FnType`), primitives and anything the IR does not
+    /// know. Callers pass the unprefixed IR name (`"Dom"`, not `"AzDom"`).
+    ///
+    /// This is THE predicate for "by-pointer in a Byref twin" — lang_c.rs,
+    /// lang_rust.rs (which emit the twins) and every binding that calls them
+    /// must agree on it, so none of them may re-derive it from the name.
+    pub fn is_value_aggregate(&self, type_name: &str) -> bool {
+        let name = type_name.trim();
+        if name.ends_with("CallbackType") || name.ends_with("FnType") {
+            return false;
+        }
+        if let Some(s) = self.find_struct(name) {
+            return !matches!(s.category, TypeCategory::CallbackTypedef);
+        }
+        // Monomorphized generic aliases (`LayoutClearValue =
+        // CssPropertyValue<LayoutClear>`, `PhysicalSizeU32`, ...) are real
+        // structs / tagged unions on the wire even though they live in
+        // `type_aliases`; only a monomorphized SimpleEnum is an int.
+        if let Some(a) = self.find_type_alias(name) {
+            if let Some(m) = &a.monomorphized_def {
+                return !matches!(m.kind, MonomorphizedKind::SimpleEnum { .. });
+            }
+        }
+        self.find_enum(name).is_some_and(|e| e.is_union)
+    }
+
     /// Find functions for a specific class
     pub fn functions_for_class<'a>(
         &'a self,
@@ -541,7 +576,7 @@ impl FunctionKind {
             FunctionKind::PartialCmp => "_partialCmp",
             FunctionKind::Cmp => "_cmp",
             FunctionKind::Hash => "_hash",
-            FunctionKind::Default => "_default",
+            FunctionKind::Default => "_createDefault",
             FunctionKind::DebugToString => "_toDbgString",
             _ => "",
         }

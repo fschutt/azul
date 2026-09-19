@@ -6,7 +6,7 @@
 //!   Fortran `bind(C)` derived types have C-compatible memory layout
 //!   (matches Rust's `#[repr(C)]`), so values can flow across the FFI
 //!   boundary by value.
-//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which
+//! - **Unit-only enums** become an F2003 `enum, bind(C)` block (which
 //!   has fixed underlying integer kind compatible with C `int`) plus
 //!   a public `integer(c_int)` named alias so users can declare
 //!   `integer(c_int) :: my_button = AzButtonType_Primary`.
@@ -230,7 +230,7 @@ fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 }
 
 // ============================================================================
-// Unit-only enum (F2008 `enum, bind(C)` block + integer alias)
+// Unit-only enum (F2003 `enum, bind(C)` block + integer alias)
 // ============================================================================
 
 fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
@@ -243,7 +243,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     let alias = ffi_type_name(&e.name);
 
     if e.variants.is_empty() {
-        // Empty enums are illegal in F2008 `enum, bind(C)`; emit just
+        // Empty enums are illegal in an `enum, bind(C)`; emit just
         // the integer alias as a degenerate type.
         builder.line(&format!(
             "! NOTE: enum {} has no variants; emitting integer alias only.",
@@ -258,7 +258,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         return;
     }
 
-    // F2008 enum block.
+    // F2003 enum block.
     builder.line("enum, bind(C)");
     builder.indent();
     for (i, v) in e.variants.iter().enumerate() {

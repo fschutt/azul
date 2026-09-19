@@ -298,6 +298,9 @@ pub struct CallbackTypedefDef {
 /// Argument definition for callback typedef (simple version for add patches)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallbackArg {
+    /// The parameter name from the Rust typedef, when it has one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// The type of the argument
     #[serde(rename = "type")]
     pub arg_type: String,
@@ -872,6 +875,7 @@ impl AutofixPatch {
                                             .and_then(|s| crate::api::RefKind::parse(s))
                                             .unwrap_or_default();
                                         crate::api::CallbackArgData {
+                                            name: arg.name.clone(),
                                             r#type: arg.arg_type.clone(),
                                             ref_kind,
                                             doc: None,
@@ -1049,6 +1053,7 @@ impl AutofixPatch {
                     let callback_args: Vec<CallbackArgData> = args
                         .iter()
                         .map(|arg| CallbackArgData {
+                            name: arg.name.clone(),
                             r#type: arg.arg_type.clone(),
                             ref_kind: arg.ref_kind,
                             doc: None,

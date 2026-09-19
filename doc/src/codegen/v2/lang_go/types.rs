@@ -1,4 +1,4 @@
-//! Go-native type emission for the Go (cgo) generator.
+//! Go-native type emission for the Go (purego) generator.
 //!
 //! `types.go` no longer references a single `C.` name: every api.json type
 //! is spelled as a Go type whose memory layout is the `repr(C)` layout the
@@ -74,6 +74,25 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         emit_struct(&mut b, s, ir);
     }
 
+
+    b.line("// ============================================================================");
+    b.line("// Ergonomic Type Aliases");
+    b.line("// ============================================================================");
+    for e in &ir.enums {
+        if config.should_include_type(&e.name) && e.generic_params.is_empty() {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&e.name), ffi_type_name(&e.name)));
+        }
+    }
+    for s in &ir.structs {
+        if config.should_include_type(&s.name) && s.generic_params.is_empty() && !super::wrappers::should_emit_wrapper(s, ir, config) {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&s.name), ffi_type_name(&s.name)));
+        }
+    }
+    for c in &ir.callback_typedefs {
+        if config.should_include_type(&c.name) {
+            b.line(&format!("type {} = {}", super::sanitize_identifier(&c.name), ffi_type_name(&c.name)));
+        }
+    }
     Ok(b.finish())
 }
 
@@ -340,7 +359,7 @@ fn emit_unit_enum_body(b: &mut CodeBuilder, go_name: &str, doc: &[String], varia
         b.line("const (");
         b.indent();
         for (i, v) in variants.iter().enumerate() {
-            b.line(&format!("{}_{} {} = {}", go_name, v, go_name, i));
+            b.line(&format!("{}_{} {} = {}", if go_name.starts_with("Az") { &go_name[2..] } else { go_name }, v, go_name, i));
         }
         b.dedent();
         b.line(")");
@@ -765,8 +784,10 @@ pub(crate) mod tests {
     fn unit_enum_is_uint32_with_sequential_consts() {
         let out = gen();
         assert!(out.contains("type AzUpdate uint32\n"));
-        assert!(out.contains("    AzUpdate_DoNothing AzUpdate = 0\n"));
-        assert!(out.contains("    AzUpdate_RefreshDom AzUpdate = 1\n"));
+        // Variant constants carry the unprefixed IR name (the guide writes
+        // `azul.Update_RefreshDom`); the type keeps the C name.
+        assert!(out.contains("    Update_DoNothing AzUpdate = 0\n"), "{out}");
+        assert!(out.contains("    Update_RefreshDom AzUpdate = 1\n"), "{out}");
     }
 
     #[test]

@@ -590,7 +590,7 @@ fn try_invoke_callback(
         monitors: monitors_arc,
         #[cfg(feature = "icu")]
         icu_localizer: azul_layout::icu::IcuLocalizerHandle::default(),
-        ctx: cb.ctx.clone(),
+        ctx: core::cell::RefCell::new(cb.ctx.clone()),
     };
 
     let changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

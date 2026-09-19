@@ -149,6 +149,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_date_picker_on_change_callback_thunk,
     setter_fn:      AzApp_setDatePickerOnChangeCallbackInvoker,
     from_handle_fn: AzDatePickerOnChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDatePickerOnChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: DatePickerState ],
 }
 
@@ -931,7 +932,7 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let w = &mut w.state;
         let update = match w.on_change.as_mut() {
             Some(DatePickerOnChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner)
+                callback.invoke(refany.clone(), info, inner)
             }
             None => Update::DoNothing,
         };
@@ -1106,7 +1107,7 @@ fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
     let inner = w.inner;
     let w = &mut *w;
     match w.on_change.as_mut() {
-        Some(DatePickerOnChange { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(DatePickerOnChange { callback, refany }) => callback.invoke(refany.clone(), info, inner),
         None => Update::DoNothing,
     }
 }
@@ -1267,7 +1268,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
