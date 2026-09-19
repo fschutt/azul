@@ -3501,7 +3501,9 @@ macro_rules! impl_platform_window_getters {
             // the bar is being held. Every start and end of a drag goes
             // through here so the two never disagree.
             if let Some(lw) = self.$field.layout_window.as_mut() {
-                let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+                let now = (azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                    .get_system_time_fn
+                    .cb)();
                 match state.as_ref().map(|s| s.hit_id) {
                     Some(azul_core::hit_test::ScrollbarHitId::VerticalThumb(dom, node)) => lw
                         .scroll_manager

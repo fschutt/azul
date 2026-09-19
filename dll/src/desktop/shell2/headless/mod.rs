@@ -2696,7 +2696,7 @@ impl HeadlessWindow {
                         self.snapshot_window_state_baseline("headless.run.mouse_up");
                         // MWA-C-scroll: a release ends any scrollbar drag.
                         if self.common.scrollbar_drag_state.is_some() {
-                            PlatformWindow::set_scrollbar_drag_state(self, None);
+                            PlatformWindow::set_scrollbar_drag_state(&mut self, None);
                             events_need_redraw = true;
                         }
                         match button {
