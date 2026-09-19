@@ -53,7 +53,6 @@ use super::{
         },
         managed_host_invoker::{
             layout_callback_factory_info, smart_callback_setter_info, LayoutCallbackFactoryInfo,
-            HOST_INVOKER_KINDS,
         },
     },
     ffi_type_name, is_refany_type, js_arg_name, js_method_name, sanitize_export_name,
@@ -1242,8 +1241,7 @@ fn is_layout_callback_factory_fn(f: &FunctionDef, info: &LayoutCallbackFactoryIn
 /// the ctx-carrying constructor is `registerCallback(kind, fn)`; the
 /// raw C entry would build `{cb, ctx: None}` and never reach JS.
 fn is_own_wrapper_constructor(f: &FunctionDef) -> bool {
-    HOST_INVOKER_KINDS.contains(&f.class_name.as_str())
-        && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+    matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
         && f.args.len() == 1
         && f.args[0]
             .callback_info
@@ -1368,9 +1366,6 @@ fn emit_callback_register_lines(b: &mut CodeBuilder, f: &FunctionDef, args: &[&F
             continue;
         };
         let wrapper = cb.callback_wrapper_name.as_str();
-        if !HOST_INVOKER_KINDS.contains(&wrapper) {
-            continue;
-        }
         let name = js_arg_name(a);
         if a.type_name.trim() == wrapper {
             b.line(&format!(

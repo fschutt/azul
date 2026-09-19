@@ -642,46 +642,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         let prefix = &config.base.type_prefix;
 
-        // Generate trampolines for ALL callback typedefs — including
-        // LayoutCallbackType. The layout callback is NOT special: like every
-        // other callback it reaches its Python callable via the ctx stored on
-        // the wrapper (info.get_ctx()), so it uses the same trampoline path.
-        // Generate trampolines for other callback typedefs
-        for callback in &ir.callback_typedefs {
-            if callback.name.ends_with("DestructorType")
-                || callback.name.ends_with("CloneCallbackType")
-                || callback.name.ends_with("DestructorCallbackType")
-            {
-                continue;
+        // One trampoline per callback KIND - every typedef a callback wrapper
+        // struct holds (by structure): a Python callable is registered as the
+        // wrapper's context, so a typedef without a wrapper (a destructor, a
+        // clone function) has nothing to bridge. The layout callback is not
+        // special: it reaches its callable through the context like every
+        // other kind.
+        for callback in super::managed_host_invoker::host_invoker_kinds(ir) {
+            if trampoline_bridges(callback) {
+                self.generate_callback_trampoline(builder, callback, ir, prefix);
             }
-            if callback.args.is_empty() || callback.args[0].type_name != "RefAny" {
-                continue;
-            }
-            if callback.args.iter().any(|a| a.type_name.contains("*")) {
-                continue;
-            }
-
-            // The trampoline reaches the stored Python callable via `get_ctx()` on
-            // a non-RefAny, non-primitive arg. Without such an arg (e.g.
-            // DatasetMergeCallback `(RefAny, RefAny) -> RefAny`) the callable is
-            // unreachable, so emitting the trampoline would reference an undefined
-            // `py_callable`. Skip these (the consuming method is skipped too).
-            if !callback
-                .args
-                .iter()
-                .any(|a| a.type_name != "RefAny" && !is_primitive_type(&a.type_name))
-            {
-                continue;
-            }
-
-            // Skip callbacks with return types that don't have Python wrappers or Default impl
-            let return_type = callback.return_type.as_deref().unwrap_or("()");
-            if return_type == "ImageRef" {
-                // ImageRef is a special type that needs manual handling
-                continue;
-            }
-
-            self.generate_callback_trampoline(builder, callback, ir, prefix);
         }
 
         Ok(())
@@ -694,10 +664,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         ir: &CodegenIR,
         prefix: &str,
     ) {
-        let trampoline_name = format!(
-            "invoke_py_{}",
-            to_snake_case(&callback.name.replace("Type", ""))
-        );
+        let wrapper = super::managed_host_invoker::wrapper_name(callback);
+        let trampoline_name = format!("invoke_py_{}", to_snake_case(wrapper));
 
         // Build argument signature
         let mut args_sig = String::new();
@@ -748,6 +716,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             } else {
                 format!("__dll_api_inner::dll::{}{}", prefix, arg.type_name)
             };
+            // The C signature of the typedef, exactly: a `&mut RefAny` data
+            // argument (MarginBoxCallback) is a pointer to the ENGINE's RefAny,
+            // which a by-value parameter would drop on return.
+            let arg_type_external = match arg.ref_kind {
+                ArgRefKind::Owned => arg_type_external,
+                ArgRefKind::Ref => format!("&{}", arg_type_external),
+                ArgRefKind::RefMut => format!("&mut {}", arg_type_external),
+                ArgRefKind::Ptr => format!("*const {}", arg_type_external),
+                ArgRefKind::PtrMut => format!("*mut {}", arg_type_external),
+            };
 
             if i > 0 {
                 args_sig.push_str(",\n    ");
@@ -764,16 +742,25 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             format!("__dll_api_inner::dll::{}{}", prefix, return_type)
         };
 
-        let default_expr = match return_type {
-            "()" => "()".to_string(),
-            "Update" => format!("{}::DoNothing", return_type_external),
-            "OnTextInputReturn" => format!(
-                "{} {{ update: azul_core::callbacks::Update::DoNothing, valid: \
-                 azul_layout::widgets::text_input::TextInputValid::Yes }}",
-                return_type_external
-            ),
-            _ => format!("{}::default()", return_type_external),
-        };
+        // The kind's fallback (no callable, a Python exception, a wrong return
+        // type) is the engine's own - the one its host-invoker thunk returns -
+        // so every binding degrades the same way (a merge keeps the fresh
+        // dataset, a caret tween renders the current caret, ...).
+        let wrapper_external = self
+            .find_external_path(wrapper, ir)
+            .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, wrapper));
+        let fallback_args: Vec<String> = (0..callback.args.len())
+            .map(|i| match i {
+                0 => "&data".to_string(),
+                1 => "&info".to_string(),
+                i => format!("&arg{}", i),
+            })
+            .collect();
+        let default_expr = format!(
+            "{}::fallback_return({})",
+            wrapper_external,
+            fallback_args.join(", ")
+        );
 
         builder.line(&format!(
             "/// Trampoline for {} - bridges Python to Rust",
@@ -787,20 +774,6 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.line(&format!("let default = {};", default_expr));
         builder.blank();
 
-        if ctx_source_type.is_empty() {
-            // No argument can carry a Python callable — the callback cannot
-            // be bridged. Emit an ABI-complete stub that returns the default
-            // instead of generating `.get_ctx()` calls on plain-data types
-            // (which do not have it) or dead python-call machinery.
-            builder.line("// No ctx-capable argument in this callback's signature — it cannot");
-            builder.line("// carry a Python callable. ABI-completeness stub: returns the default.");
-            builder.line("return default;");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            return;
-        }
-
         builder.line("let mut data_core = data;");
         builder.line("let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {");
         builder.line("    Some(s) => s,");
@@ -812,21 +785,33 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.line("};");
         builder.blank();
 
-        if !ctx_source_type.is_empty() {
-            let ctx_external = self
-                .find_external_path(&ctx_source_type, ir)
-                .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, ctx_source_type));
-            // Clone the source to avoid move issues when it's also used for Python wrapper
-            builder.line(&format!(
-                "let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ \
-                 mem::transmute({}.clone()) }};",
-                prefix, ctx_source_type, ctx_source_arg_name
-            ));
-            builder.line(&format!(
-                "let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};",
-                ctx_external
-            ));
-            builder.line("let callable_opt = ctx_source_rust.get_ctx();");
+        {
+            if ctx_source_type.is_empty() {
+                // No argument carries the context: libazul hands it over
+                // through the invocation slot, keyed by this function's
+                // address (the wrapper's `cb`).
+                builder.line(&format!(
+                    "let callable_opt = azul_core::host_invoker::invocation_ctx({} as usize);",
+                    trampoline_name
+                ));
+            } else {
+                let ctx_external = self
+                    .find_external_path(&ctx_source_type, ir)
+                    .unwrap_or_else(|| {
+                        format!("__dll_api_inner::dll::{}{}", prefix, ctx_source_type)
+                    });
+                // Clone the source to avoid move issues when it's also used for Python wrapper
+                builder.line(&format!(
+                    "let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ \
+                     mem::transmute({}.clone()) }};",
+                    prefix, ctx_source_type, ctx_source_arg_name
+                ));
+                builder.line(&format!(
+                    "let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};",
+                    ctx_external
+                ));
+                builder.line("let callable_opt = ctx_source_rust.get_ctx();");
+            }
             builder.line("let callable_refany = match callable_opt {");
             builder.line("    azul_core::refany::OptionRefAny::Some(r) => r,");
             builder.line("    azul_core::refany::OptionRefAny::None => return default,");
@@ -849,13 +834,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.line("Python::attach(|py| {");
         builder.indent();
 
-        // For *Info types, we wrap and pass to Python
-        // Find the info type for passing to Python (if any)
-        let info_type_for_python = callback
-            .args
-            .iter()
-            .find(|arg| arg.type_name.ends_with("Info") && arg.type_name != "RefAny")
-            .map(|arg| arg.type_name.clone());
+        // The argument that carries the callback's context is its info object
+        // (`CallbackInfo`, `LayoutCallbackInfo`, ...); Python receives it as the
+        // second positional argument. Every other argument follows, converted.
+        let info_type_for_python = Some(ctx_source_type.clone()).filter(|t| !t.is_empty());
 
         if let Some(ref info_type) = info_type_for_python {
             let info_arg_idx = callback
@@ -936,6 +918,31 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         if return_type == "()" {
             builder.line("()");
+        } else if return_type == "RefAny" {
+            // A RefAny result (a merged dataset): the Python object the
+            // callable returned, in a fresh RefAny; `None` keeps the fallback.
+            builder.line("if result.is_none(py) {");
+            builder.line("    default");
+            builder.line("} else {");
+            builder.line(
+                "    create_py_refany_with_json(PyDataWrapper { _py_data: Some(result) })",
+            );
+            builder.line("}");
+        } else if return_type == "String" {
+            builder.line("match result.extract::<String>(py) {");
+            builder.line("    Ok(s) => azul_css::corety::AzString::from(s),");
+            builder.line("    Err(e) => {");
+            builder.line("        if !result.is_none(py) {");
+            builder.line(&format!(
+                "            eprintln!(\"azul: {} callback returned an unexpected type (expected \
+                 str), using default return value:\");",
+                callback.name
+            ));
+            builder.line("            pyo3::PyErr::from(e).print(py);");
+            builder.line("        }");
+            builder.line("        default");
+            builder.line("    }");
+            builder.line("}");
         } else {
             builder.line(&format!(
                 "match result.extract::<{}{}>(py) {{",
@@ -2911,59 +2918,12 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     ///    When either is false there is no way to store/invoke the Python callable,
     ///    so the consuming method must be skipped.
     fn callback_arg_is_bridgeable(&self, cb_info: &CallbackArgInfo, ir: &CodegenIR) -> bool {
-        // (2) wrapper struct must exist and have an OptionRefAny callable slot.
-        let wrapper = match ir
-            .structs
+        // `callback_info` is only set for a callback wrapper (by structure) or
+        // the typedef one holds, so the wrapper and its context slot exist.
+        ir.callback_typedefs
             .iter()
-            .find(|s| s.name == cb_info.callback_wrapper_name)
-        {
-            Some(s) => s,
-            None => return false,
-        };
-        if !wrapper.fields.iter().any(|f| f.type_name == "OptionRefAny") {
-            return false;
-        }
-
-        // (1) a trampoline must be generated for the callback typedef. The
-        // typedef name is the wrapper name + "Type" by convention; verify it
-        // satisfies the same gating used in `generate_callback_trampolines`.
-        let typedef = ir
-            .callback_typedefs
-            .iter()
-            .find(|c| c.name == format!("{}Type", cb_info.callback_wrapper_name));
-        let typedef = match typedef {
-            Some(t) => t,
-            None => return false,
-        };
-        if typedef.name.ends_with("DestructorType")
-            || typedef.name.ends_with("CloneCallbackType")
-            || typedef.name.ends_with("DestructorCallbackType")
-        {
-            return false;
-        }
-        if typedef.args.is_empty() || typedef.args[0].type_name != "RefAny" {
-            return false;
-        }
-        if typedef.args.iter().any(|a| a.type_name.contains("*")) {
-            return false;
-        }
-        let return_type = typedef.return_type.as_deref().unwrap_or("()");
-        if return_type == "ImageRef" {
-            return false;
-        }
-        // The trampoline locates the Python callable by calling `get_ctx()` on a
-        // non-RefAny, non-primitive argument (e.g. CallbackInfo). If every arg is
-        // RefAny/primitive (e.g. DatasetMergeCallback `(RefAny, RefAny) -> RefAny`)
-        // there is no way for the extern "C" trampoline to reach the stored
-        // callable, so the method cannot be bridged.
-        let has_ctx_source = typedef
-            .args
-            .iter()
-            .any(|a| a.type_name != "RefAny" && !is_primitive_type(&a.type_name));
-        if !has_ctx_source {
-            return false;
-        }
-        true
+            .find(|c| c.name == cb_info.callback_typedef_name)
+            .is_some_and(trampoline_bridges)
     }
 
     /// Skip a function if any of its (non-callback, non-primitive) arg types or
@@ -3282,6 +3242,18 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         };
         path.map(|p| p.replace("azul_dll::", "crate::"))
     }
+}
+
+/// Whether a Python trampoline bridges this callback kind: it has a wrapper
+/// (the Python callable travels in its context), its first argument is the
+/// application's data `RefAny` (a Python object), and no argument is a raw
+/// pointer. The trampoline finds the callable through the info argument's
+/// `get_ctx`, or through libazul's invocation slot when no argument carries
+/// the context.
+fn trampoline_bridges(callback: &CallbackTypedefDef) -> bool {
+    callback.wrapper.is_some()
+        && callback.args.first().is_some_and(|a| a.type_name == "RefAny")
+        && !callback.args.iter().any(|a| a.type_name.contains('*'))
 }
 
 fn is_primitive_type(name: &str) -> bool {

@@ -1001,6 +1001,7 @@ mod split_tests {
             doc: vec![],
             module: "callbacks".into(),
             external_path: None,
+            wrapper: None,
             dependencies: vec![],
             sort_order: 0,
         });

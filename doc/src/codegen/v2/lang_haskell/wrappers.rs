@@ -1435,7 +1435,7 @@ enum RetPlan {
 fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
     let t = a.type_name.trim();
     let by_value = matches!(a.ref_kind, ArgRefKind::Owned);
-    if managed_host_invoker::is_callback_wrapper(t) {
+    if managed_host_invoker::is_callback_wrapper(ctx.ir, t) {
         let cb = ctx
             .kinds
             .iter()

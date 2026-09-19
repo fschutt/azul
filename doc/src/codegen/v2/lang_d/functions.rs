@@ -19,7 +19,7 @@ use super::{
         generator::CodeBuilder,
         ir::{CodegenIR, FunctionDef},
         managed_host_invoker::{
-            callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
+            has_callback_wrapper_arg, shadow_callback_typedef,
         },
     },
     arg_type_for_ref_kind, map_type_to_d, raw_identifier, should_emit_function,
@@ -54,11 +54,7 @@ fn emit_extern_proc(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, wra
         .args
         .iter()
         .map(|a| {
-            let effective = if cb_mode && is_callback_wrapper(&a.type_name) {
-                callback_typedef_for(a.type_name.trim())
-            } else {
-                a.type_name.clone()
-            };
+            let effective = match shadow_callback_typedef(func, a) {                Some(td) if cb_mode => td.to_string(),                _ => a.type_name.clone(),            };
             let ty = arg_type_for_ref_kind(&effective, &a.ref_kind, ir);
             format!("{} {}", ty, raw_identifier(&a.name))
         })

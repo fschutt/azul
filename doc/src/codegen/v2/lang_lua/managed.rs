@@ -385,27 +385,4 @@ function azul._az_string(v)
     end
     return v
 end
-
--- Callback kinds WITHOUT a host invoker (everything outside the
--- generator's HOST_INVOKER_KINDS list): build the C function pointer
--- straight from the Lua function with ffi.cast and pin it for the process
--- lifetime (nothing tells us when the last DOM holding it is gone). Most of
--- these typedefs pass RefAny / CallbackInfo / widget state BY VALUE, which
--- LuaJIT cannot marshal into a callback ("NYI: cannot create callback");
--- that error is re-raised with the C type so the failure is attributable.
-function azul.pin_callback(ctype, fn)
-    if fn == nil then return nil end
-    if _is_cdata(fn) then return fn end -- already a C function pointer
-    if type(fn) ~= 'function' then
-        error("azul.pin_callback: expected function, got " .. type(fn), 2)
-    end
-    local ok, cb = pcall(ffi.cast, ctype, fn)
-    if not ok then
-        error("azul.pin_callback: cannot build a C callback of type " .. tostring(ctype)
-            .. " from a Lua function (this callback kind has no host invoker): "
-            .. tostring(cb), 2)
-    end
-    table.insert(_live_pins, cb)
-    return cb
-end
 "#;

@@ -900,18 +900,7 @@ impl CGenerator {
                 }
             })
             .collect();
-        let is_api_function = matches!(
-            func.kind,
-            FunctionKind::Constructor
-                | FunctionKind::StaticMethod
-                | FunctionKind::Method
-                | FunctionKind::MethodMut
-        );
-        let has_cb_wrapper_arg = is_api_function
-            && func.args.iter().any(|a| {
-                let is_self = a.name == "self" || a.name == self_snake;
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
-            });
+        let has_cb_wrapper_arg = super::managed_host_invoker::has_callback_wrapper_arg(func);
 
         let return_type = func
             .return_type
@@ -967,14 +956,9 @@ impl CGenerator {
         let mut args_raw: Vec<String> = Vec::with_capacity(func.args.len());
         let mut args_ctx: Vec<String> = Vec::with_capacity(func.args.len() + 1);
         for arg in &func.args {
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb_wrapper =
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
-            let effective_type = if is_cb_wrapper {
-                super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
-            } else {
-                arg.type_name.clone()
-            };
+            let cb_typedef = super::managed_host_invoker::shadow_callback_typedef(func, arg);
+            let is_cb_wrapper = cb_typedef.is_some();
+            let effective_type = cb_typedef.map_or_else(|| arg.type_name.clone(), str::to_string);
             let c_type = self.rust_type_to_c_with_prefix(&effective_type, config);
             let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
                 ArgRefKind::Owned => ("", ""),
@@ -1042,14 +1026,11 @@ impl CGenerator {
         let mut raw_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len());
         let mut ctx_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len() + 1);
         for arg in &func.args {
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb_wrapper =
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let cb_typedef = super::managed_host_invoker::shadow_callback_typedef(func, arg);
+            let is_cb_wrapper = cb_typedef.is_some();
             let mut a = arg.clone();
-            if is_cb_wrapper {
-                a.type_name =
-                    super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
-                        .to_string();
+            if let Some(td) = cb_typedef {
+                a.type_name = td.to_string();
             }
             raw_args.push(a.clone());
             ctx_args.push(a.clone());

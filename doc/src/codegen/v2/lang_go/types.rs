@@ -701,6 +701,7 @@ pub(crate) mod tests {
             doc: vec![],
             module: "test".into(),
             external_path: None,
+            wrapper: None,
             dependencies: vec![],
             sort_order: 0,
         });

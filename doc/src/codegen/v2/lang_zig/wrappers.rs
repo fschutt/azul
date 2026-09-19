@@ -73,7 +73,7 @@ use super::{
             ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
             FunctionKind, StructDef, TypeCategory,
         },
-        managed_host_invoker::{callback_typedef_for, is_callback_wrapper},
+        managed_host_invoker::shadow_callback_typedef,
     },
     ffi_type_name, sanitize_identifier,
 };
@@ -893,8 +893,8 @@ fn vec_item_type(ctx: &Ctx, ty: &str) -> Option<String> {
 ///
 /// Every branch is keyed on IR metadata: the struct/enum `TypeCategory`, the
 /// presence of the `_some`/`_none` or `_create`/`_copyFromPtr`/`_fromItem`
-/// exports, the `callback_typedefs` table, `is_callback_wrapper` (which is
-/// also what decides that the C symbol takes the raw fn pointer, see
+/// exports, the `callback_typedefs` table, `shadow_callback_typedef` (which
+/// is also what decides that the C symbol takes the raw fn pointer, see
 /// `c_decls::emit_function`) and the wrapper set.
 fn classify_arg(ctx: &Ctx, f: &FunctionDef, a: &FunctionArg) -> ArgConv {
     let ty = a.type_name.trim();
@@ -954,17 +954,12 @@ fn classify_arg(ctx: &Ctx, f: &FunctionDef, a: &FunctionArg) -> ArgConv {
     // the raw form `Az<Class>_<method>(..., cb: Az<Kind>CallbackType)` for it
     // (the same predicate `c_decls::emit_function` uses), so the wrapper takes
     // a Zig `fn`. For any other function kind the C symbol takes the struct.
-    let is_api_function = matches!(
-        f.kind,
-        FunctionKind::Constructor
-            | FunctionKind::StaticMethod
-            | FunctionKind::Method
-            | FunctionKind::MethodMut
-    );
-    if is_api_function && is_callback_wrapper(ty) {
-        return ArgConv::Callback {
-            typedef: callback_typedef_for(ty),
-        };
+    if f.kind.is_api_function() {
+        if let Some(typedef) = shadow_callback_typedef(f, a) {
+            return ArgConv::Callback {
+                typedef: typedef.to_string(),
+            };
+        }
     }
 
     if ctx.has_wrapper(ty) {

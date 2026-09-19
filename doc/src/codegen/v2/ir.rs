@@ -566,6 +566,20 @@ impl FunctionKind {
         )
     }
 
+    /// A function api.json declares (constructor, static method, method), as
+    /// opposed to a trait function or an enum-variant constructor the IR
+    /// builder synthesises. Only these get the callback shadow C API (the raw /
+    /// `WithCtx` / `Struct` exports).
+    pub fn is_api_function(&self) -> bool {
+        matches!(
+            self,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        )
+    }
+
     /// Check if this is a Default constructor (should be generated as static method)
     pub fn is_default_constructor(&self) -> bool {
         matches!(self, FunctionKind::Default)
@@ -827,6 +841,13 @@ pub struct CallbackTypedefDef {
 
     /// External path (e.g., "azul_core::callbacks::LayoutCallbackType")
     pub external_path: Option<String>,
+
+    /// The callback wrapper struct holding this typedef next to its
+    /// `OptionRefAny` context (see [`StructDef::callback_wrapper_info`]), if
+    /// exactly one does: the type a closure of this kind travels in. Linked by
+    /// structure in `ir_builder::link_callback_wrappers`, never derived from
+    /// the name.
+    pub wrapper: Option<String>,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
     /// Types this callback depends on (argument types and return type, excluding primitives)

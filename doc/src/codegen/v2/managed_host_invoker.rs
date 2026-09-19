@@ -16,11 +16,11 @@
 //!
 //! What *is* identical, and therefore lives here:
 //!
-//! * **The kind allowlist** — which callback wrappers actually have `impl_managed_callback!`
-//!   applied on the Rust side. Adding a kind bumps one constant rather than one entry per language
-//!   adapter.
-//! * **IR filtering** — given the IR, return only the callback typedefs that map to a kind in the
-//!   allowlist.
+//! * **The kinds** — every callback wrapper struct (by structure: one callback-typedef field and
+//!   one `OptionRefAny` context, see `ir_builder::link_callback_wrappers`). The engine applies
+//!   `impl_managed_callback!` to each of them (`bug_classes::every_callback_wrapper_is_host_invokable`
+//!   holds the two sets equal), so no list is kept by hand.
+//! * **IR filtering** — given the IR, return the callback typedefs that have a wrapper.
 //! * **Type-name mapping** — Rust IR primitive → cdef C name (`u32` → `uint32_t`, `f64` → `double`,
 //!   …). Every adapter needs this for the per-kind invoker signature.
 //! * **Arg-name normalisation** — the IR sometimes carries empty arg names; emitters must fall back
@@ -33,151 +33,51 @@
 
 use super::ir::{CallbackTypedefDef, CodegenIR};
 
-/// Wrapper names that have `impl_managed_callback!` applied on the Rust
-/// side, and therefore export
-/// `Az<Wrapper>_createFromHostHandle` + `AzApp_set<Wrapper>Invoker` from
-/// libazul.
+/// The callback typedefs that have a wrapper struct: the kinds libazul has a
+/// host-invoker thunk for (`Az<Wrapper>_createFromHostHandle`,
+/// `AzApp_set<Wrapper>Invoker`), and every managed binding registers.
 ///
-/// **Adding a kind:** apply `impl_managed_callback!` in
-/// `azul-core` (or in the widget file that owns the wrapper), recompile
-/// `libazul`, then append the wrapper name here. The codegen for every
-/// managed-FFI adapter automatically picks it up via [`host_invoker_kinds`].
-///
-/// Entries here that aren't in `ir.callback_typedefs` are silently ignored
-/// (this is the path that handles api.json renames). Entries in the IR
-/// that aren't in this list get the legacy `pin_callback` path on the
-/// wrapper-emitter side, which compiles fine but won't fire on
-/// libffi-style hosts.
-pub const HOST_INVOKER_KINDS: &[&str] = &[
-    // Core framework callbacks (core/src/callbacks.rs, layout/src/callbacks.rs).
-    "Callback",
-    "LayoutCallback",
-    "VirtualViewCallback",
-    // The one callback every resumable API function resumes into
-    // (layout/src/callbacks.rs). Managed hosts pass a closure as `on_result`
-    // to FileDialog::open_file, FilePath::read_bytes, HttpRequestConfig::http_get, ...
-    "ResumeCallback",
-    // Updater (layout/src/updater.rs).
-    "UpdateCheckCallback",
-    // Widget callbacks (layout/src/widgets/*) — EVERY `impl_managed_callback!`
-    // site in the engine is listed; the `matches_every_engine_thunk` test
-    // below fails the build of this crate when the two drift apart.
-    "AccordionOnToggleCallback",
-    "AlertOnDismissCallback",
-    "BackstageOnNavSelectCallback",
-    "BreadcrumbOnNavigateCallback",
-    "ButtonOnClickCallback",
-    "CardOnClickCallback",
-    "CheckBoxOnToggleCallback",
-    "ChipOnClickCallback",
-    "ChipOnRemoveCallback",
-    "ColorInputOnValueChangeCallback",
-    "ComboBoxOnSelectCallback",
-    "DatePickerOnChangeCallback",
-    "DropDownOnChoiceChangeCallback",
-    "FileInputOnPathChangeCallback",
-    "ListViewOnColumnClickCallback",
-    "ListViewOnLazyLoadScrollCallback",
-    "ListViewOnRowClickCallback",
-    "MapMountCallback",
-    "MapPinTapCallback",
-    "MapViewportChangedCallback",
-    "ModalOnCloseCallback",
-    "NumberInputOnFocusLostCallback",
-    "NumberInputOnValueChangeCallback",
-    "OnAudioFrameCallback",
-    "OnConsumerFrameCallback",
-    "OnNodeAddedCallback",
-    "OnNodeConnectedCallback",
-    "OnNodeDraggedCallback",
-    "OnNodeFieldEditedCallback",
-    "OnNodeGraphDraggedCallback",
-    "OnNodeInputDisconnectedCallback",
-    "OnNodeOutputDisconnectedCallback",
-    "OnNodeRemovedCallback",
-    "OnVideoFrameCallback",
-    "PaginationOnChangeCallback",
-    "PopoverOnToggleCallback",
-    "RadioGroupOnChangeCallback",
-    "RibbonGalleryOnSelectCallback",
-    "RibbonOnTabClickCallback",
-    "SegmentedOnChangeCallback",
-    "SliderOnValueChangeCallback",
-    "SplitPaneOnResizeCallback",
-    "StatusBarOnViewSelectCallback",
-    "StepperOnStepChangeCallback",
-    "SwitchOnToggleCallback",
-    "TabOnClickCallback",
-    "TextAreaOnFocusLostCallback",
-    "TextAreaOnTextInputCallback",
-    "TextAreaOnVirtualKeyDownCallback",
-    "TextInputOnFocusLostCallback",
-    "TextInputOnTextInputCallback",
-    "TextInputOnVirtualKeyDownCallback",
-    "TimePickerOnChangeCallback",
-    "ToastOnDismissCallback",
-    "TreeViewOnNodeClickCallback",
-    "VideoMountCallback",
-    // ThreadCallback fires on a worker thread (spawned by
-    // Thread::create). Per-language host-invoker thunks for this kind
-    // MUST acquire the host VM lock before dispatching
-    // (PyGILState_Ensure, rb_thread_call_with_gvl, AttachCurrentThread,
-    // etc.). Single-threaded interpreters (Lua, Perl, PHP, Pharo)
-    // can't safely receive this callback; users should use the
-    // writeback-only pattern (Rust extern "C" worker fn + host
-    // WriteBackCallback on main). Every other kind above is invoked on
-    // the main thread from inside another callback (`<Wrapper>::invoke`).
-    "ThreadCallback",
-];
-
-/// Filter `ir.callback_typedefs` down to the entries whose wrapper name is
-/// in [`HOST_INVOKER_KINDS`].
+/// A kind whose callback runs on a worker thread (`ThreadCallback`) must take
+/// the host VM lock in its invoker before dispatching (`PyGILState_Ensure`,
+/// `rb_thread_call_with_gvl`, `AttachCurrentThread`, ...); single-threaded
+/// interpreters (Lua, Perl, PHP) cannot receive it and use the writeback
+/// pattern instead.
 pub fn host_invoker_kinds(ir: &CodegenIR) -> impl Iterator<Item = &CallbackTypedefDef> {
-    ir.callback_typedefs.iter().filter(|cb| {
-        let wrapper = wrapper_name(cb);
-        HOST_INVOKER_KINDS.contains(&wrapper)
-    })
+    ir.callback_typedefs.iter().filter(|cb| cb.wrapper.is_some())
 }
 
-/// `CallbackTypedefDef.name` is e.g. `"CallbackType"`. Strip the trailing
-/// `"Type"` to recover the wrapper struct name (`"Callback"`), which is
-/// the identifier used in C-ABI exports (`AzCallback_createFromHostHandle`,
-/// `AzApp_setCallbackInvoker`) and in language-side dispatch tables.
+/// The wrapper struct of a callback typedef (`"CallbackType"` ->
+/// `"Callback"`): the identifier of the kind in C-ABI exports
+/// (`AzCallback_createFromHostHandle`, `AzApp_setCallbackInvoker`) and in
+/// language-side dispatch tables. A typedef without a wrapper keeps its name
+/// minus `Type`, which only names its trampolines.
 pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
-    cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
+    cb.wrapper
+        .as_deref()
+        .unwrap_or_else(|| cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str()))
 }
 
-/// Predicate: is `type_name` a callback-wrapper struct from the
-/// host-invoker allowlist? Used by the dll_internal codegen to decide
-/// whether to emit the `_setOnX` / `_setOnXWithCtx` pair pattern for
-/// a function whose arg type is this wrapper.
-///
-/// The pair pattern: for every function `Foo::set_on_x(self, data,
-/// callback: Callback)` in api.json, emit both
-///   - `AzFoo_setOnX(self, data, callback: AzCallbackType)` — raw fn-ptr form; body wraps as
-///     `Callback { cb, ctx: None }`.
-///   - `AzFoo_setOnXWithCtx(self, data, callback: AzCallbackType, callback_ctx: AzRefAny)` — for
-///     managed-FFI hosts whose callback-handle ctx lives in a GC'd refany. Body wraps as `Callback
-///     { cb, ctx: Some(ctx) }`.
-pub fn is_callback_wrapper(type_name: &str) -> bool {
-    HOST_INVOKER_KINDS.contains(&type_name.trim())
+/// Is `type_name` a callback wrapper struct (one callback-typedef field, one
+/// `OptionRefAny` context)? Decided by the struct's shape, never its name.
+pub fn is_callback_wrapper(ir: &CodegenIR, type_name: &str) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| s.callback_wrapper_info.is_some())
 }
 
-/// Convert a callback-wrapper type name (`"Callback"`,
-/// `"ButtonOnClickCallback"`, …) into its raw-fn-ptr typedef
-/// counterpart (`"CallbackType"`, `"ButtonOnClickCallbackType"`, …).
-/// The typedef is what the pair-pattern `_setOnX(...)` form takes as
-/// its fn-ptr arg; the typedef name follows the convention
-/// `<WrapperName>Type`.
-pub fn callback_typedef_for(wrapper: &str) -> String {
-    format!("{}Type", wrapper)
+/// The function-pointer typedef a callback wrapper holds (`"Callback"` ->
+/// `"CallbackType"`): what the raw `<fn>(..)` and `<fn>WithCtx(..)` shadow
+/// exports take in place of the wrapper. `None` for a type that is not a
+/// callback wrapper.
+pub fn callback_typedef_for(ir: &CodegenIR, wrapper: &str) -> Option<String> {
+    ir.find_struct(wrapper.trim())?
+        .callback_wrapper_info
+        .as_ref()
+        .map(|info| info.callback_typedef_name.clone())
 }
 
-/// Does `func` have at least one callback-wrapper arg (per
-/// [`HOST_INVOKER_KINDS`]) that is NOT the receiver? Mirrors the
-/// dll-internal emitter's pair-pattern detection exactly: args named
-/// `self` or matching the class name in snake_case are the receiver
-/// and never the callback being registered.
+/// Does `func` (an API function) have a callback argument - see
+/// [`is_callback_wrapper_arg`]? Mirrors the dll-internal emitter's
+/// pair-pattern detection exactly.
 ///
 /// Functions matching this predicate are exported from libazul as a
 /// TRIPLE, not with the literal api.json signature:
@@ -198,27 +98,40 @@ pub fn callback_typedef_for(wrapper: &str) -> String {
 /// clicking executed heap memory → EXC_BAD_ACCESS in every managed
 /// language. See `managed_c_symbol`.
 pub fn has_callback_wrapper_arg(func: &super::ir::FunctionDef) -> bool {
-    use super::ir::FunctionKind;
-    // Mirror the dll emitter's `should_substitute_callbacks` gate: only
-    // API functions get the pair/triple emit. Trait functions (Delete,
-    // DeepCopy, …) on the wrapper type itself and enum-variant
-    // constructors (OptionCallback::Some) keep their literal signature.
-    if !matches!(
-        func.kind,
-        FunctionKind::Constructor
-            | FunctionKind::StaticMethod
-            | FunctionKind::Method
-            | FunctionKind::MethodMut
-    ) {
-        return false;
+    // Only API functions get the pair/triple emit. Trait functions (Delete,
+    // DeepCopy, …) on the wrapper type itself and enum-variant constructors
+    // (OptionCallback::Some) keep their literal signature.
+    func.kind.is_api_function() && func.args.iter().any(|a| is_callback_wrapper_arg(func, a))
+}
+
+/// For an argument the shadow C API covers (see [`is_callback_wrapper_arg`]):
+/// the function-pointer typedef the raw `<fn>` and `<fn>WithCtx` variants take
+/// in place of the wrapper. `None` for any other argument.
+pub fn shadow_callback_typedef<'a>(
+    func: &super::ir::FunctionDef,
+    arg: &'a super::ir::FunctionArg,
+) -> Option<&'a str> {
+    if is_callback_wrapper_arg(func, arg) {
+        arg.callback_info
+            .as_ref()
+            .map(|ci| ci.callback_typedef_name.as_str())
+    } else {
+        None
     }
-    let self_snake = to_snake_case(&func.class_name);
-    func.args.iter().any(|a| {
-        if a.name == "self" || a.name == self_snake {
-            return false;
-        }
-        is_callback_wrapper(&a.type_name)
-    })
+}
+
+/// Is `arg` of `func` a callback argument the shadow C API covers: not the
+/// receiver, and presented as its callback wrapper? The IR presents every
+/// callback argument of an API function as its wrapper
+/// (`ir_builder::build_function_def`), except in the wrapper's own
+/// constructors, which take the bare function pointer to BUILD the wrapper.
+pub fn is_callback_wrapper_arg(func: &super::ir::FunctionDef, arg: &super::ir::FunctionArg) -> bool {
+    func.kind.is_api_function()
+        && !func.is_receiver_arg(arg)
+        && arg
+            .callback_info
+            .as_ref()
+            .is_some_and(|ci| ci.callback_wrapper_name == arg.type_name.trim())
 }
 
 /// The C symbol a managed-FFI binding must bind for `func`.
@@ -238,7 +151,7 @@ pub fn managed_c_symbol(func: &super::ir::FunctionDef) -> String {
 }
 
 /// Look up the ctx-equivalent field name for a callback wrapper struct.
-/// All wrappers in `HOST_INVOKER_KINDS` are `{ cb, <ctx_field> }`
+/// Every callback wrapper is `{ cb, <ctx_field> }`
 /// where the `<ctx_field>` has type `OptionRefAny` but its name is
 /// either `ctx` (core/layout callbacks: `Callback`, `LayoutCallback`,
 /// `VirtualViewCallback`, `ThreadCallback`) or `callable` (every
@@ -333,9 +246,6 @@ pub fn layout_callback_factory_info(
         .as_ref()?
         .callback_wrapper_name
         .clone();
-    if !HOST_INVOKER_KINDS.contains(&callback_wrapper.as_str()) {
-        return None;
-    }
     // Find the field in `s` (recursively) whose type matches the
     // callback wrapper struct. The C ABI splices the registered
     // callback bytes into this field; the path tells the emitter
@@ -402,7 +312,7 @@ fn find_field_of_type(
 
 /// Phase J.1 detector: shared across every language binding. If `func`
 /// is a `with_on_*(self, data: RefAny, callback: <Wrapper>)` method
-/// whose `Wrapper` is in [`HOST_INVOKER_KINDS`], return `Some((smart,
+/// whose `Wrapper` is a callback wrapper, return `Some((smart,
 /// wrapper))` where `smart` is the snake-case sibling method name
 /// (`"on_click"` etc.) and `wrapper` is the callback wrapper kind
 /// (`"Callback"`, `"ButtonOnClickCallback"`, ...).
@@ -428,9 +338,6 @@ pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(Stri
         return None;
     }
     let cb_info = func.args[2].callback_info.as_ref()?;
-    if !HOST_INVOKER_KINDS.contains(&cb_info.callback_wrapper_name.as_str()) {
-        return None;
-    }
     if func.args[2].type_name != cb_info.callback_wrapper_name {
         return None;
     }
@@ -788,62 +695,4 @@ pub fn app_factory_info(ir: &CodegenIR) -> Option<AppFactoryInfo> {
                 window_methods,
             })
         })
-}
-
-#[cfg(test)]
-mod host_invoker_kinds_tests {
-    use super::HOST_INVOKER_KINDS;
-    use std::collections::BTreeSet;
-
-    /// Every `impl_managed_callback!` site in the engine (core + layout) must
-    /// be in [`HOST_INVOKER_KINDS`] and vice versa: a kind missing here gets
-    /// no registration/invoker in any binding (managed closures silently
-    /// cannot be used for it), a kind listed here without an engine thunk
-    /// makes every binding reference `AzApp_set<X>Invoker` symbols the dll
-    /// does not export.
-    #[test]
-    fn matches_every_engine_thunk() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let mut engine = BTreeSet::new();
-        for dir in ["core/src", "layout/src"] {
-            for entry in walkdir::WalkDir::new(root.join(dir))
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
-            {
-                let path = entry.path();
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                // The macro definition and its own test fakes.
-                if name == "host_invoker.rs" || name == "host_invoker_test.rs" {
-                    continue;
-                }
-                let Ok(src) = std::fs::read_to_string(path) else { continue };
-                let mut rest = src.as_str();
-                while let Some(i) = rest.find("impl_managed_callback!") {
-                    rest = &rest[i + "impl_managed_callback!".len()..];
-                    let Some(w) = rest.find("wrapper:") else { break };
-                    let after = rest[w + "wrapper:".len()..].trim_start();
-                    let ident: String = after
-                        .chars()
-                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                        .collect();
-                    // A real macro site names a `<Kind>Callback` wrapper; prose
-                    // that merely mentions the macro does not.
-                    let is_wrapper = ident.ends_with("Callback")
-                        && ident.chars().next().is_some_and(|c| c.is_ascii_uppercase());
-                    if is_wrapper {
-                        engine.insert(ident);
-                    }
-                }
-            }
-        }
-        let listed: BTreeSet<String> = HOST_INVOKER_KINDS.iter().map(|s| s.to_string()).collect();
-        let missing: Vec<_> = engine.difference(&listed).collect();
-        let stale: Vec<_> = listed.difference(&engine).collect();
-        assert!(
-            missing.is_empty() && stale.is_empty(),
-            "HOST_INVOKER_KINDS drifted from the engine's impl_managed_callback! sites.\n  \
-             engine kinds not listed: {missing:?}\n  listed kinds without an engine thunk: {stale:?}"
-        );
-    }
 }

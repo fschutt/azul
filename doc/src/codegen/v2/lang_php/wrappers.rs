@@ -613,9 +613,6 @@ fn emit_callback_register_lines(out: &mut String, args: &[&super::super::ir::Fun
             continue;
         };
         let wrapper = cb.callback_wrapper_name.as_str();
-        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-            continue;
-        }
         let name = sanitize_php_identifier(&a.name);
         out.push_str(&format!(
             "        ${n} = \\Azul\\Azul::registerCallback('{w}', ${n});\n",

@@ -889,7 +889,7 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
                 continue;
             }
             let cb_ty = f.args[2].type_name.trim();
-            if !is_callback_wrapper(cb_ty) {
+            if !is_callback_wrapper(ir, cb_ty) {
                 continue;
             }
             let Some(rest) = f.method_name.strip_prefix("set_on_") else {

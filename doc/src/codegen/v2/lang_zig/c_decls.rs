@@ -49,7 +49,7 @@ use super::{
             FunctionArg, FunctionDef, FunctionKind, MonomorphizedKind, MonomorphizedTypeDef,
             StructDef, TypeAliasDef,
         },
-        managed_host_invoker::{callback_typedef_for, is_callback_wrapper},
+        managed_host_invoker::{has_callback_wrapper_arg, shadow_callback_typedef},
     },
     sanitize_identifier,
 };
@@ -442,16 +442,7 @@ fn extern_fn(out: &mut String, c_name: &str, params: &[String], ret: &str) {
 /// declaration, or the raw / `WithCtx` / `Struct` triplet for API functions
 /// taking a callback wrapper, each followed by its `Byref` twin.
 fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
-    let is_api_function = matches!(
-        f.kind,
-        FunctionKind::Constructor
-            | FunctionKind::StaticMethod
-            | FunctionKind::Method
-            | FunctionKind::MethodMut
-    );
-    let is_self = |a: &FunctionArg| f.is_receiver_arg(a);
-    let has_cb_wrapper_arg =
-        is_api_function && f.args.iter().any(|a| !is_self(a) && is_callback_wrapper(&a.type_name));
+    let has_cb_wrapper_arg = has_callback_wrapper_arg(f);
 
     let ret = f
         .return_type
@@ -473,10 +464,11 @@ fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
     let mut raw_args: Vec<FunctionArg> = Vec::with_capacity(f.args.len());
     let mut ctx_args: Vec<FunctionArg> = Vec::with_capacity(f.args.len() + 1);
     for a in &f.args {
-        let is_cb = !is_self(a) && is_callback_wrapper(&a.type_name);
+        let cb_typedef = shadow_callback_typedef(f, a);
+        let is_cb = cb_typedef.is_some();
         let mut r = a.clone();
-        if is_cb {
-            r.type_name = callback_typedef_for(a.type_name.trim());
+        if let Some(td) = cb_typedef {
+            r.type_name = td.to_string();
         }
         raw_args.push(r.clone());
         ctx_args.push(r);
@@ -678,6 +670,7 @@ pub(crate) mod tests {
             doc: vec![],
             module: "dom".into(),
             external_path: None,
+            wrapper: None,
             dependencies: vec![],
             sort_order: 0,
         });

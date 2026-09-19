@@ -1187,10 +1187,7 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
             .as_deref()
             .map(|t| t.trim() == wrapper_name)
             .unwrap_or(false);
-        let supported =
-            super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper_name);
-
-        if returns_self_wrapper && supported && func.args.len() == 1 {
+        if returns_self_wrapper && func.args.len() == 1 {
             // Direct passthrough — the registered wrapper IS the return.
             let arg_name = sanitize_lua_ident(&func.args[0].name);
             out.push_str(&format!("    {} = function({})\n", lua_method, arg_name));
@@ -1298,18 +1295,17 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
 }
 
 /// Emit a callback-arg coercion line for every callback-typed entry in
-/// `args`. Today we route through `azul._register_callback(<kind>, fn)`
-/// which uses libazul's `_createFromHostHandle` constructor under the
-/// hood — that produces an `AzCallback` / `AzLayoutCallback` *struct* by
-/// value, not just a function pointer, so we substitute the variable in
-/// place and the C-ABI function receives the wrapper struct.
+/// `args`: the user's Lua function goes to `azul._register_callback(<kind>,
+/// fn)`, which builds the kind's wrapper struct through libazul's
+/// `_createFromHostHandle` (every callback wrapper has one). What replaces the
+/// variable depends on the argument's type:
 ///
-/// The kind name comes from the wrapper struct (callback typedef "Foo"
-/// belongs to wrapper "Foo" — IR pre-strips the trailing "Type"). Every
-/// kind in `HOST_INVOKER_KINDS` goes through the host-invoker path; the
-/// remaining kinds fall back to `azul.pin_callback` (lang_lua/managed.rs),
-/// which builds the C function pointer with `ffi.cast` and raises a clear
-/// error where the FFI cannot marshal the typedef's by-value struct args.
+///   * the wrapper struct (every callback argument of an API function, see
+///     `ir_builder::build_function_def`): the WHOLE struct - the call site binds
+///     the `<c_name>Struct` export (`managed_c_symbol`), so the host handle in
+///     its context survives the C boundary;
+///   * the function-pointer typedef (a wrapper's own constructor, which builds
+///     the wrapper from it): just `.cb`.
 fn emit_callback_pin_lines(
     out: &mut String,
     indent: &str,
@@ -1321,65 +1317,19 @@ fn emit_callback_pin_lines(
             continue;
         };
         let wrapper_name = cb.callback_wrapper_name.as_str();
-        let abi_takes_wrapper = !a.type_name.ends_with("Type");
-
-        if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper_name) {
-            // Host-invoker path. We hand the user-supplied Lua function to
-            // `azul._register_callback`, which goes through libazul's
-            // `_createFromHostHandle` constructor under the hood and
-            // returns the matching `AzCallback` / `AzLayoutCallback`
-            // wrapper struct.
-            //
-            // What we substitute for the variable depends on the arg
-            // type api.json declared:
-            //   * If the arg type is the *wrapper struct* (e.g. "ButtonOnClickCallback"), pass the
-            //     WHOLE struct — the wrapper call site binds the `<c_name>Struct` C symbol (see
-            //     `managed_c_symbol`), whose signature takes the wrapper by value, so the
-            //     `.ctx`/`.callable` host handle survives the C boundary.
-            //   * If the arg type is the *raw function pointer typedef* (e.g. "CallbackType"), pass
-            //     just `.cb`. The static thunk in libazul still routes through the host invoker,
-            //     but ANY ctx is dropped at the C boundary because the C ABI doesn't carry it.
-            //     Functions in this shape need a special-case fixup elsewhere (see
-            //     emit_static_method's WindowCreateOptions::create branch).
-            // (2026-07-04: an interim revision always passed `.cb`
-            // because the cdef declared the raw fn-ptr symbol for the
-            // smart setters too — LuaJIT rightly rejected struct→fnptr.
-            // That silently no-op'd every host-invoker click. The
-            // Struct-variant C exports restore the wrapper path.)
-            out.push_str(&format!(
-                "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
-                indent = indent,
-                n = names[i],
-                w = wrapper_name
-            ));
-            if abi_takes_wrapper {
-                out.push_str(&format!(
-                    "{indent}{n} = _{n}_cb\n",
-                    indent = indent,
-                    n = names[i]
-                ));
-            } else {
-                out.push_str(&format!(
-                    "{indent}{n} = _{n}_cb.cb\n",
-                    indent = indent,
-                    n = names[i]
-                ));
-            }
-        } else {
-            // Callback kinds without a host invoker: `azul.pin_callback`
-            // (lang_lua/managed.rs) ffi.casts the Lua function to the C
-            // typedef and pins it. LuaJIT cannot build callbacks whose C
-            // signature passes structs by value (most of these typedefs
-            // do); the call then raises a clear error naming the typedef
-            // instead of silently registering nothing.
-            let cb_typename = format!("Az{}", cb.callback_typedef_name);
-            out.push_str(&format!(
-                "{indent}{n} = azul.pin_callback('{ty}', {n})\n",
-                indent = indent,
-                n = names[i],
-                ty = cb_typename
-            ));
-        }
+        let abi_takes_wrapper = a.type_name.trim() == wrapper_name;
+        out.push_str(&format!(
+            "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
+            indent = indent,
+            n = names[i],
+            w = wrapper_name
+        ));
+        let field = if abi_takes_wrapper { "" } else { ".cb" };
+        out.push_str(&format!(
+            "{indent}{n} = _{n}_cb{field}\n",
+            indent = indent,
+            n = names[i],
+        ));
     }
 }
 

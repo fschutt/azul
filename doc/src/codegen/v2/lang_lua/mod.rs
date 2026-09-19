@@ -391,8 +391,8 @@ const CB_TYPEDEF_LOOP: &str = r#"-- cdef'd one at a time: an FFI that cannot mar
 -- most callback signatures, e.g. `AzCallbackInfo` by value). Such a name
 -- is bound to an opaque pointer-sized alias instead: struct fields typed
 -- with it are already `void*`, function parameters typed with it still
--- declare, and azul.pin_callback reports the kind as unbuildable rather
--- than the whole module failing to load. LuaJIT accepts every declaration
+-- declare, and only creating such a callback fails rather than the whole
+-- module failing to load. LuaJIT accepts every declaration
 -- here (it only reports NYI when a callback is actually created).
 for _, td in ipairs(__az_cb_typedefs) do
     if not pcall(ffi.cdef, td[2]) then

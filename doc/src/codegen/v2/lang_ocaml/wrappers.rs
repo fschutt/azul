@@ -385,7 +385,7 @@ impl ArgPlan {
         let t = a.type_name.trim();
         let (sig, pass, scalar) = match a.ref_kind {
             ArgRefKind::Owned => {
-                let host_kind = if is_callback_wrapper(t) {
+                let host_kind = if is_callback_wrapper(ir, t) {
                     host_invoker_kinds(ir).find(|cb| wrapper_name(cb) == t)
                 } else {
                     None
