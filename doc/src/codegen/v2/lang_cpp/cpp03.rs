@@ -579,6 +579,7 @@ impl CppDialect for Cpp03Generator {
              }}\r\n",
             c_inner_type, c_inner_type
         ));
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(

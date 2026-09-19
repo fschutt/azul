@@ -43,15 +43,10 @@ impl CppDialect for Cpp11Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro - only emitted for C++03; C++11+ uses the
-        // template-reflection helpers (`azul::upcast`, etc.) instead. The
-        // `az_string_from_literal` helper still has to be emitted because
-        // `azul::upcast` calls it.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros: on C++11+ they are shims over
+        // the RefAny template members (create<T> / downcast_ref<T> / ...).
+        // (Also emits the `az_string_from_literal` helper RefAny::create uses.)
+        code.push_str(&generate_reflect_macro(std));
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
@@ -507,6 +502,7 @@ impl CppDialect for Cpp11Generator {
              }}\r\n",
             c_inner_type, c_inner_type
         ));
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(

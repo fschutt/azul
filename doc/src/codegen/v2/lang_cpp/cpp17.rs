@@ -42,12 +42,9 @@ impl CppDialect for Cpp17Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro - C++11+ uses template-reflection helpers instead.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros: on C++11+ they are shims over
+        // the RefAny template members (create<T> / downcast_ref<T> / ...).
+        code.push_str(&generate_reflect_macro(std));
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
@@ -695,6 +692,7 @@ impl CppDialect for Cpp17Generator {
         // C++17: std::optional — yields std::optional<Wrapper> when the
         // payload has a wrapper class (consuming && form for non-copy ones).
         emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(

@@ -931,6 +931,101 @@ pub fn emit_option_to_std_optional(
     }
 }
 
+/// Emit the `std::optional`-spelled accessors every Option wrapper carries in
+/// addition to `isSome()` / `unwrap()` (all dialects, C++03 included):
+///   - `has_value()`: alias of `isSome()`.
+///   - `value()`: for a payload WITHOUT a wrapper class (primitives, plain
+///     enums) a `const` reference to the raw payload, like `unwrap() const`.
+///     For a payload WITH a wrapper class it returns that wrapper by value:
+///     a Copy payload is wrapped in place (its wrapper owns nothing); a
+///     non-Copy payload is MOVED out into the wrapper and this Option resets
+///     to None - the l-value counterpart of `toStdOptional() &&`, so the
+///     payload has exactly one owner and no double free.
+///   Precondition (as for `std::optional::value()`, which throws): `isSome()`.
+///   These headers never throw, so a violation aborts instead of handing out
+///   a wrapper over a zeroed payload whose destructor would then free garbage.
+pub fn emit_option_std_optional_aliases(
+    code: &mut String,
+    inner_type: &str,
+    c_inner_type: &str,
+    ir: &CodegenIR,
+    standard: CppStandard,
+) {
+    let abort_fn = if standard.has_move_semantics() {
+        "std::abort"
+    } else {
+        "abort"
+    };
+    code.push_str("    // std::optional-style spellings (has_value / value)\r\n");
+    code.push_str("    bool has_value() const { return isSome(); }\r\n");
+    if !type_has_wrapper(inner_type, ir) {
+        code.push_str(&format!(
+            "    const {c}& value() const {{ if (!isSome()) {abort}(); return \
+             inner_.Some.payload; }}\r\n",
+            c = c_inner_type,
+            abort = abort_fn
+        ));
+        return;
+    }
+    let payload_is_copy = ir
+        .find_struct(inner_type)
+        .map(|s| s.traits.is_copy)
+        .unwrap_or(false);
+    if payload_is_copy {
+        code.push_str(&format!(
+            "    {w} value() const {{ if (!isSome()) {abort}(); return {w}(inner_.Some.payload); \
+             }}\r\n",
+            w = inner_type,
+            abort = abort_fn
+        ));
+    } else {
+        // Reset to None: `None` is enumerator 0 of every Option tag enum, so a
+        // zeroed union IS the None state and the destructor then drops nothing.
+        let reset = if standard.has_move_semantics() {
+            "inner_ = {};"
+        } else {
+            "memset(&inner_, 0, sizeof(inner_));"
+        };
+        code.push_str(&format!(
+            "    {w} value() {{ if (!isSome()) {abort}(); {c} v = inner_.Some.payload; {reset} \
+             return {w}(v); }}\r\n",
+            w = inner_type,
+            c = c_inner_type,
+            abort = abort_fn,
+            reset = reset
+        ));
+    }
+}
+
+/// C++23 feature gate for the deducing-`this` builder form.
+/// `__cpp_explicit_this_parameter` (P0847, value 202110L) is defined by
+/// clang 18+, gcc 14+ and MSVC 19.32+; an older compiler driven with
+/// `-std=c++23` / `-std=c++2b` (the CI's clang 14, Apple clang 16) does not
+/// define it and gets the classic value-`this` builder overloads instead, so
+/// azul23.hpp compiles on both. Emitted right after the includes; empty below
+/// C++23.
+pub fn generate_deducing_this_feature_macro(standard: CppStandard) -> String {
+    if standard < CppStandard::Cpp23 {
+        return String::new();
+    }
+    let mut code = String::new();
+    code.push_str("// Deducing-`this` (P0847) builder methods: `template<class Self> auto\r\n");
+    code.push_str("// with_xxx(this Self&& self, ...)` - one body for l-values and r-values.\r\n");
+    code.push_str("// Gated on the feature-test macro so a -std=c++23 compiler that predates\r\n");
+    code.push_str(
+        "// P0847 (clang < 18, gcc < 14, Apple clang < 17) still gets the classic form.\r\n",
+    );
+    code.push_str(
+        "#if defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= \
+         202110L\r\n",
+    );
+    code.push_str("#define AZUL_HAS_DEDUCING_THIS 1\r\n");
+    code.push_str("#else\r\n");
+    code.push_str("#define AZUL_HAS_DEDUCING_THIS 0\r\n");
+    code.push_str("#endif\r\n\r\n");
+    code
+}
+
 /// Generate the `azul.cppm` module partition file. Emitted alongside
 /// `azul20.hpp` / `azul23.hpp` so users on a modules-aware toolchain can
 /// `import azul;` instead of `#include "azul20.hpp"`.
@@ -945,11 +1040,32 @@ pub fn generate_module_partition(
 ) -> String {
     let header_name = standard.header_filename();
     let mut code = String::new();
-    code.push_str("// Auto-generated module partition for the Azul C++ wrapper.\r\n");
+    code.push_str("// Auto-generated module interface unit for the Azul C++ wrapper.\r\n");
+    code.push_str("// Build its binary module interface (BMI) once, then `import azul;`\r\n");
     code.push_str(
-        "// Compile with `c++ -std=c++20 -fmodules-ts -c azul.cppm` (or your toolchain's\r\n",
+        "// instead of `#include \"azul20.hpp\"`. Needs azul.h + azul20.hpp next to it.\r\n",
     );
-    code.push_str("// equivalent) so consumers can `import azul;`.\r\n\r\n");
+    code.push_str("//\r\n");
+    code.push_str("//   clang (16+):\r\n");
+    code.push_str("//     clang++ -std=c++20 --precompile azul.cppm -o azul.pcm\r\n");
+    code.push_str(
+        "//     clang++ -std=c++20 -fmodule-file=azul=azul.pcm hello-world.cpp azul.pcm \
+         -L. -lazul -o hello-world\r\n",
+    );
+    code.push_str("//   gcc (11+; writes gcm.cache/azul.gcm next to the object):\r\n");
+    code.push_str("//     g++ -std=c++20 -fmodules-ts -c azul.cppm -o azul.o\r\n");
+    code.push_str(
+        "//     g++ -std=c++20 -fmodules-ts hello-world.cpp azul.o -L. -lazul -o hello-world\r\n",
+    );
+    code.push_str("//   msvc (VS 2022): cl /std:c++20 /EHsc /interface /TP /c azul.cppm, then\r\n");
+    code.push_str(
+        "//     cl /std:c++20 /EHsc /reference azul=azul.ifc hello-world.cpp azul.obj\r\n",
+    );
+    code.push_str("//\r\n");
+    code.push_str(
+        "// (`-fmodules` alone is clang's Objective-C/header-modules switch and never\r\n",
+    );
+    code.push_str("// produces a BMI; `--precompile` does.)\r\n\r\n");
     code.push_str("module;\r\n");
     // Suppress the header's own unit-enum constant namespaces in the global
     // module fragment so we can re-declare them, exported, in the purview
@@ -1785,6 +1901,7 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <cstdint>\r\n");
         code.push_str("#include <cstddef>\r\n");
         code.push_str("#include <cstring>\r\n");
+        code.push_str("#include <cstdlib>\r\n"); // std::abort in Option::value()
         code.push_str("#include <new>\r\n"); // placement new in RefAny::create
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
@@ -1794,6 +1911,7 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <stdint.h>\r\n");
         code.push_str("#include <stddef.h>\r\n");
         code.push_str("#include <string.h>\r\n");
+        code.push_str("#include <stdlib.h>\r\n"); // abort in Option::value()
     }
 
     if standard.has_optional() {
@@ -1877,7 +1995,30 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         "// =============================================================================\r\n\r\n",
     );
 
+    // The C header (azul.h, included above) defines the C forms of these
+    // macros (`AZ_REFLECT(S, destructor)`, `AZ_REFLECT_JSON(S, destructor,
+    // toJson, fromJson)`): C++ runs `~S()` itself, so the C++ forms drop the
+    // destructor argument. Undefine the C forms first - a silent redefinition
+    // with a different arity is -Wmacro-redefined on clang/gcc and C4005 on MSVC.
+    code.push_str("#undef AZ_REFLECT\r\n");
+    code.push_str("#undef AZ_REFLECT_JSON\r\n");
+    code.push_str("#undef AZ_REFLECT_FULL\r\n\r\n");
+
     if standard.has_move_semantics() {
+        // C++11+: the macro is a thin shim over the template members of
+        // `azul::RefAny` (`create<T>`, `downcast_ref<T>`, `downcast_mut<T>`),
+        // so a RefAny made by `S_upcast(model)` and one made by
+        // `RefAny::create(model)` carry the SAME type id and destructor and
+        // downcast interchangeably. The only thing the macro adds over
+        // `RefAny::create` is the pair of JSON hooks (`AZ_REFLECT_JSON`),
+        // which `create<T>` accepts as its two optional trailing arguments.
+        code.push_str("// C++11+: AZ_REFLECT(S) / AZ_REFLECT_JSON(S, toJsonFn, fromJsonFn)\r\n");
+        code.push_str("// emit S_upcast / S_downcast_ref / S_downcast_mut as thin shims over\r\n");
+        code.push_str("// azul::RefAny::create<S> / downcast_ref<S> / downcast_mut<S>. Both\r\n");
+        code.push_str(
+            "// routes share one type id, so their RefAnys downcast interchangeably.\r\n",
+        );
+        code.push_str("// ~S() runs automatically when the last RefAny referencing S drops.\r\n");
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
         code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
         code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
@@ -1886,69 +2027,24 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
              reinterpret_cast<uintptr_t>(fromJsonFn))\r\n\r\n",
         );
         code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
-        code.push_str("    namespace structName##_rtti { \\\r\n");
-        code.push_str("        static const uint64_t type_id_storage = 0; \\\r\n");
-        code.push_str(
-            "        inline uint64_t type_id() { return \
-             reinterpret_cast<uint64_t>(&type_id_storage); } \\\r\n",
-        );
-        // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
-        // which Rust deallocates itself after invoking this destructor.
-        code.push_str(
-            "        inline void destructor(void* ptr) { \
-             static_cast<structName*>(ptr)->~structName(); } \\\r\n",
-        );
-        code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline azul::RefAny structName##_upcast(structName model) { \\\r\n",
         );
-        // AzRefAny_newC memcpys the bytes into a Rust-side allocation that
-        // takes over ownership of the bits, so the temporary lives in stack
-        // storage and is deliberately not destroyed here (destroy-in-place
-        // happens once, via the destructor above, at last drop).
         code.push_str(
-            "        alignas(structName) unsigned char storage_[sizeof(structName)]; \\\r\n",
-        );
-        code.push_str(
-            "        structName* tmp = ::new (static_cast<void*>(storage_)) \
-             structName(std::move(model)); \\\r\n",
-        );
-        code.push_str("        AzGlVoidPtrConst ptr = { tmp, true }; \\\r\n");
-        code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
-        code.push_str(
-            "        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), \
-             alignof(structName), \\\r\n",
-        );
-        code.push_str(
-            "            structName##_rtti::type_id(), name, structName##_rtti::destructor, \
-             serializeFn, deserializeFn)); \\\r\n",
+            "        return azul::RefAny::create<structName>(std::move(model), \
+             static_cast<size_t>(serializeFn), static_cast<size_t>(deserializeFn)); \\\r\n",
         );
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline structName const* structName##_downcast_ref(azul::RefAny& data) { \
              \\\r\n",
         );
-        code.push_str(
-            "        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return \
-             nullptr; \\\r\n",
-        );
-        code.push_str(
-            "        return static_cast<structName const*>(AzRefAny_getDataPtr(&data.inner())); \
-             \\\r\n",
-        );
+        code.push_str("        return data.downcast_ref<structName>(); \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline structName* structName##_downcast_mut(azul::RefAny& data) { \\\r\n",
         );
-        code.push_str(
-            "        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return \
-             nullptr; \\\r\n",
-        );
-        code.push_str(
-            "        return \
-             static_cast<structName*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner()))); \
-             \\\r\n",
-        );
+        code.push_str("        return data.downcast_mut<structName>(); \\\r\n");
         code.push_str("    }\r\n\r\n");
     } else {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
@@ -2014,15 +2110,6 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
 
 /// Template-based reflection for C++11+ headers.
 ///
-/// Emits `azul::upcast<T>`, `azul::downcast_ref<T>`, `azul::downcast_mut<T>`
-/// function templates plus a `azul::type_id<T>()` helper. Per-type identity
-/// is derived from the address of a template-instantiated `static const
-/// uint64_t` - unique per `T`, with program-lifetime storage.
-///
-/// Must be emitted inside `namespace azul { ... }` after `class RefAny` is
-/// fully declared (the templates inline-call `RefAny::inner()`).
-///
-/// C++14 picks up the `type_id_v<T>` variable template; older standards skip it.
 /// Emit the namespace-level scaffolding the `RefAny` template member
 /// functions need: per-type tag holder, type-erased destructor, and (in
 /// C++20+) the `ReflectableModel` concept that constrains them.
@@ -2147,8 +2234,17 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
         "    /// exactly once, via detail::type_destructor<T> on the Rust-side buffer,\r\n",
     );
     code.push_str("    /// when the last reference drops.\r\n");
+    code.push_str("    ///\r\n");
+    code.push_str("    /// `serialize_fn` / `deserialize_fn` are the optional JSON hooks that\r\n");
+    code.push_str("    /// AzRefAny_newC takes (function pointers cast to size_t, 0 = none);\r\n");
+    code.push_str(
+        "    /// AZ_REFLECT_JSON(S, toJson, fromJson) is the macro spelling of passing them.\r\n",
+    );
     code.push_str(&format!("{}\r\n", template_intro));
-    code.push_str("    static RefAny create(T model) {\r\n");
+    code.push_str(
+        "    static RefAny create(T model, size_t serialize_fn = 0, size_t deserialize_fn = 0) \
+         {\r\n",
+    );
     code.push_str("        alignas(T) unsigned char storage_[sizeof(T)];\r\n");
     code.push_str("        T* tmp = ::new (static_cast<void*>(storage_)) T(std::move(model));\r\n");
     code.push_str("        AzGlVoidPtrConst ptr = { tmp, true };\r\n");
@@ -2160,8 +2256,8 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
     code.push_str("            RefAny::type_id<T>(),\r\n");
     code.push_str("            name,\r\n");
     code.push_str("            &detail::type_destructor<T>,\r\n");
-    code.push_str("            0,\r\n");
-    code.push_str("            0\r\n");
+    code.push_str("            serialize_fn,\r\n");
+    code.push_str("            deserialize_fn\r\n");
     code.push_str("        ));\r\n");
     code.push_str("    }\r\n\r\n");
 
