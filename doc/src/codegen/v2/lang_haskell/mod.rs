@@ -244,14 +244,27 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         module: "Azul.Internal.Callbacks".to_string(),
         src: wrappers::generate_callbacks_module(&ctx),
     });
-    let mut api_hs_modules = Vec::new();
     for m in &api_modules {
-        let module = format!("Azul.{}", module_segment(m));
         files.push(HsFile {
-            module: module.clone(),
+            module: wrappers::api_module_name(m),
             src: wrappers::generate_api_module(&ctx, m),
         });
-        api_hs_modules.push(module);
+    }
+    // One module per class, its functions by short name: `Button.create`
+    // with `import qualified Azul.Button as Button`, never a global
+    // `buttonCreate`.
+    let taken: std::collections::BTreeSet<String> =
+        files.iter().map(|f| f.module.clone()).collect();
+    for (class, aliases) in ctx.aliases.borrow().iter() {
+        let module = wrappers::class_module_name(class);
+        anyhow::ensure!(
+            !taken.contains(&module) && module != "Azul",
+            "the Haskell module of class {class}, {module}, is already another generated module"
+        );
+        files.push(HsFile {
+            module,
+            src: wrappers::generate_class_module(&ctx, class, aliases),
+        });
     }
     let idiomatic_bodies: Vec<&str> = files
         .iter()
@@ -259,16 +272,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
             f.module == "Azul.Internal.Runtime"
                 || f.module == "Azul.Internal.Callbacks"
                 || f.module.starts_with("Azul.Internal.Handles.")
-                || api_hs_modules.contains(&f.module)
         })
         .map(|f| f.src.as_str())
         .collect();
-    let mut facade_modules = vec![
+    let facade_modules = vec![
         "Azul.Internal.Runtime".to_string(),
         "Azul.Internal.Handles".to_string(),
         "Azul.Internal.Callbacks".to_string(),
     ];
-    facade_modules.extend(api_hs_modules.iter().cloned());
     files.push(HsFile {
         module: "Azul".to_string(),
         src: wrappers::generate_facade(&ctx, &facade_modules, &idiomatic_bodies),

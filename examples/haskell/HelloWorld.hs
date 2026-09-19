@@ -1,6 +1,11 @@
 module Main where
 
 import Azul
+import qualified Azul.App as App
+import qualified Azul.AppConfig as AppConfig
+import qualified Azul.Button as Button
+import qualified Azul.Dom as Dom
+import qualified Azul.WindowCreateOptions as WindowCreateOptions
 
 newtype DataModel = DataModel { counter :: Int }
 
@@ -9,14 +14,14 @@ onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
 
 layout :: DataModel -> LayoutCallbackInfo -> IO Dom
 layout model _ = do
-  label <- domCreatePWithText (show (counter model)) >>= domWithCss "font-size: 32px; margin: 0;"
-  button <- buttonCreate "Increase counter"
-    >>= buttonWithButtonType ButtonType_Primary
-    >>= buttonOnClick onClick
-    >>= buttonDom
-  domCreateBody >>= domWithChild label >>= domWithChild button
+  label <- Dom.createPWithText (show (counter model)) >>= Dom.withCss "font-size: 32px; margin: 0;"
+  button <- Button.create "Increase counter"
+    >>= Button.withButtonType ButtonType_Primary
+    >>= Button.onClick onClick
+    >>= Button.dom
+  Dom.createBody >>= Dom.withChild label >>= Dom.withChild button
 
 main :: IO ()
 main = do
-  window <- windowCreateOptionsCreate layout
-  appConfigCreate >>= appCreate (DataModel 5) >>= appRun window
+  window <- WindowCreateOptions.create layout
+  AppConfig.create >>= App.create (DataModel 5) >>= App.run window

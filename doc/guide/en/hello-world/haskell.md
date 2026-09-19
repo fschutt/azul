@@ -78,8 +78,8 @@ cabal run --extra-lib-dirs=$PWD hello-world
 and it must stay the same between runs: cabal treats it as part of the build configuration and
 rebuilds the whole package when it changes.
 
-The first run compiles the generated package (about 190 modules and the C shims) and takes
-several minutes. Later runs only compile your own code.
+The first run compiles the generated package (about a thousand small modules and the C shims)
+in parallel, about two minutes on an 8-core machine. Later runs only compile your own code.
 
 ### Building from source
 
@@ -111,6 +111,11 @@ cp target/release/libazul.dylib my_app/
 module Main where
 
 import Azul
+import qualified Azul.App as App
+import qualified Azul.AppConfig as AppConfig
+import qualified Azul.Button as Button
+import qualified Azul.Dom as Dom
+import qualified Azul.WindowCreateOptions as WindowCreateOptions
 
 newtype DataModel = DataModel { counter :: Int }
 
@@ -119,30 +124,34 @@ onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
 
 layout :: DataModel -> LayoutCallbackInfo -> IO Dom
 layout model _ = do
-  label <- domCreatePWithText (show (counter model)) >>= domWithCss "font-size: 32px; margin: 0;"
-  button <- buttonCreate "Increase counter"
-    >>= buttonWithButtonType ButtonType_Primary
-    >>= buttonOnClick onClick
-    >>= buttonDom
-  domCreateBody >>= domWithChild label >>= domWithChild button
+  label <- Dom.createPWithText (show (counter model)) >>= Dom.withCss "font-size: 32px; margin: 0;"
+  button <- Button.create "Increase counter"
+    >>= Button.withButtonType ButtonType_Primary
+    >>= Button.onClick onClick
+    >>= Button.dom
+  Dom.createBody >>= Dom.withChild label >>= Dom.withChild button
 
 main :: IO ()
 main = do
-  window <- windowCreateOptionsCreate layout
-  appConfigCreate >>= appCreate (DataModel 5) >>= appRun window
+  window <- WindowCreateOptions.create layout
+  AppConfig.create >>= App.create (DataModel 5) >>= App.run window
 ```
+
+- `import Azul` brings the types into scope: `Dom`, `CallbackInfo`, the enums (`ButtonType_Primary`,
+  `Update_RefreshDom`). Each class's constructors and methods live in its own module, imported
+  qualified: `Button.create`, `Dom.withChild`, like `Map.insert` from `Data.Map`.
 
 - `onClick` is a pure function: it gets the current model and returns the new model together
   with an `Update`. The package stores the new model; `Update_RefreshDom` runs `layout` again.
   A handler that needs `IO` has the type `DataModel -> CallbackInfo -> IO (DataModel, Update)`.
-- `buttonOnClick` attaches the handler to the model of the running callback, here the model
-  `layout` was called with. `appCreate` takes the initial model, any Haskell value.
+- `Button.onClick` attaches the handler to the model of the running callback, here the model
+  `layout` was called with. `App.create` takes the initial model, any Haskell value.
 - If a handler expects another model type, the package logs
   `azul: ButtonOnClickCallback expected a model of type OtherModel, got DataModel` and does not
   call it. An exception inside a callback is caught and logged the same way, and the app keeps
   running.
 - Every function takes its receiver last, so builder calls chain with `>>=`. Arguments passed
-  by value are moved into the library: after `domWithChild label`, `label` cannot be used again.
+  by value are moved into the library: after `Dom.withChild label`, `label` cannot be used again.
   Using it anyway raises an `AzulError` instead of crashing.
 
 ## Build and run
@@ -159,7 +168,7 @@ LD_LIBRARY_PATH=. cabal run --extra-lib-dirs=$PWD hello-world
 You should see the window pictured on the [hello-world landing page](../hello-world.md).
 Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
-1. `appRun` opens a native window and runs `layout` once with your model.
+1. `App.run` opens a native window and runs `layout` once with your model.
 2. The returned DOM is styled, laid out, and rendered.
 3. The framework then continuously queries whether anything matches the event filter set up
    in the DOM. On click, the framework runs `onClick` with the current model, stores the model
