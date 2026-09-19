@@ -28,8 +28,8 @@ default-search-keys:
 ## Introduction
 
 The Crystal binding is one generated file, `azul.cr`, that declares the C
-API as a `lib LibAzul` block and wraps it in ordinary Crystal classes,
-blocks and enums under the `Azul` namespace. There is no extra runtime and
+API as a `lib LibAzul` block and wraps it in ordinary Crystal classes and
+enums under the `Azul` namespace. There is no extra runtime and
 no code generator to run on your side.
 
 You need Crystal (`brew install crystal`, or the packages from
@@ -111,16 +111,18 @@ class Counter
   end
 end
 
+def on_click(counter : Counter, info : Azul::CallbackInfo) : Azul::Update
+  counter.count += 1
+  Azul::Update::RefreshDom
+end
+
 def layout(counter : Counter, info : Azul::LayoutCallbackInfo) : Azul::Dom
   label = Azul::Dom.p_with_text(counter.count.to_s)
     .with_css("font-size: 32px; margin: 0;")
 
   button = Azul::Button.new("Increase counter")
     .with_button_type(:primary)
-    .with_on_click(counter) do |counter, _info|
-      counter.count += 1
-      Azul::Update::RefreshDom
-    end
+    .with_on_click(counter, ->on_click(Counter, Azul::CallbackInfo))
 
   Azul::Dom.body
     .with_child(label)
@@ -138,19 +140,21 @@ app.run(window)
 
 1. **The model is a plain class.** `Azul::App.new(Counter.new, ...)`
    hands any Crystal object to the framework. Crystal's garbage collector
-   cannot see libazul's heap, so the binding keeps every object and block
-   that libazul references in a table (`Azul::Handles`) and passes libazul
-   only a numeric id. The entry is removed when libazul releases its last
-   reference.
-2. **Callbacks are blocks.** `with_on_click(counter) do |counter, _info|
-   ... end` takes an ordinary block that receives the typed `Counter`. The
-   binding generates the C trampoline, checks the type and looks the
-   object up for you. Because the block is stored in that table rather
-   than passed to C, it may capture local variables.
+   cannot see libazul's heap, so the binding keeps every object and
+   callback that libazul references in a table (`Azul::Handles`) and passes
+   libazul only a numeric id. The entry is removed when libazul releases
+   its last reference.
+2. **Callbacks are methods that take the model as its own type.**
+   `->on_click(Counter, Azul::CallbackInfo)` passes the top-level method.
+   `with_on_click(counter, ...)` upcasts `counter` into a `RefAny`,
+   libazul's type-erased, reference-counted handle; on a click, the
+   binding's C trampoline downcasts that `RefAny` back to `Counter` (a
+   checked cast) and calls `on_click` with it. Handing the same `counter`
+   to several callbacks shares one object: a `RefAny` clone is another
+   reference to it, not a copy. `layout` gets its `Counter` the same way.
 3. **Crystal idioms.** Enum arguments accept symbols
-   (`with_button_type(:primary)`), strings convert to `AzString` on the
-   way in, and `->layout(Counter, Azul::LayoutCallbackInfo)` passes the
-   top-level method as the layout callback.
+   (`with_button_type(:primary)`) and strings convert to `AzString` on the
+   way in.
 
 ## Build and run
 
@@ -177,7 +181,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 1. `app.run` opens a native window and runs `layout` once with your `Counter`.
 2. The returned `Dom` is styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs the click block, observes the `Azul::Update::RefreshDom` return, and re-invokes the layout callback.
+3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs `on_click`, observes the `Azul::Update::RefreshDom` return, and re-invokes the layout callback.
 4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
 
 Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
