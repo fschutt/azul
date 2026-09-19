@@ -1027,6 +1027,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_tab_on_click_callback_thunk,
     setter_fn:      AzApp_setTabOnClickCallbackInvoker,
     from_handle_fn: AzTabOnClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTabOnClickCallback_createFromHostHandleByref,
     extra_args:     [ state: TabHeaderState ],
 }
 
@@ -1295,7 +1296,7 @@ extern "C" fn on_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
 
             match onclick.as_mut() {
                 Some(TabOnClick { callback, refany }) => {
-                    (callback.cb)(refany.clone(), *info, tab_header_state)
+                    callback.invoke(refany.clone(), *info, tab_header_state)
                 }
                 None => Update::DoNothing,
             }
@@ -1589,7 +1590,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

@@ -1926,3 +1926,17 @@ impl_option!(
 #[cfg(test)]
 #[path = "callbacks_test.rs"]
 mod callbacks_test;
+
+impl crate::host_invoker::HostCtxCarrier for LayoutCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // Points at the wrapper's own `ctx`, which `<Wrapper>::invoke`
+        // borrows for the whole call.
+        self.set_callable_ptr(ctx);
+    }
+}
+
+impl crate::host_invoker::HostCtxCarrier for VirtualViewCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.set_callable_ptr(ctx);
+    }
+}

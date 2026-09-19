@@ -1298,6 +1298,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_map_viewport_changed_callback_thunk,
     setter_fn:      AzApp_setMapViewportChangedCallbackInvoker,
     from_handle_fn: AzMapViewportChangedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMapViewportChangedCallback_createFromHostHandleByref,
     extra_args:     [ viewport: MapViewport ],
 }
 
@@ -1316,7 +1317,7 @@ fn invoke_viewport_changed(
     viewport: MapViewport,
 ) -> Update {
     match hook {
-        OptionMapViewportChanged::Some(h) => (h.callback.cb)(h.refany.clone(), *info, viewport),
+        OptionMapViewportChanged::Some(h) => h.callback.invoke(h.refany.clone(), *info, viewport),
         OptionMapViewportChanged::None => Update::DoNothing,
     }
 }
@@ -1346,6 +1347,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_map_pin_tap_callback_thunk,
     setter_fn:      AzApp_setMapPinTapCallbackInvoker,
     from_handle_fn: AzMapPinTapCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMapPinTapCallback_createFromHostHandleByref,
     extra_args:     [ coord: MapLatLon ],
 }
 
@@ -1354,7 +1356,7 @@ azul_core::impl_managed_callback! {
 #[must_use]
 fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon) -> Update {
     match hook {
-        OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), *info, coord),
+        OptionMapPinTap::Some(h) => h.callback.invoke(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
     }
 }
@@ -1436,6 +1438,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_map_mount_callback_thunk,
     setter_fn:      AzApp_setMapMountCallbackInvoker,
     from_handle_fn: AzMapMountCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMapMountCallback_createFromHostHandleByref,
     extra_args:     [ setup: MapSetup ],
 }
 
@@ -1457,7 +1460,7 @@ fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
     };
     // The cache is released while the hook runs: it is app code and may reach
     // back into this map.
-    let setup = (hook.callback.cb)(hook.refany, *info, setup);
+    let setup = hook.callback.invoke(hook.refany, *info, setup);
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.setup = setup;
     }
@@ -3839,7 +3842,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

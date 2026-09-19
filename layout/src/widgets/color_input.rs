@@ -89,6 +89,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_color_input_on_value_change_callback_thunk,
     setter_fn:      AzApp_setColorInputOnValueChangeCallbackInvoker,
     from_handle_fn: AzColorInputOnValueChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzColorInputOnValueChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: ColorInputState ],
 }
 
@@ -1166,7 +1167,7 @@ fn publish(
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
         Some(ColorInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), *info, inner)
+            callback.invoke(refany.clone(), *info, inner)
         }
         None => Update::DoNothing,
     }
@@ -1433,7 +1434,7 @@ extern "C" fn on_hex_committed(
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
         Some(ColorInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -1462,7 +1463,7 @@ fn on_channel_changed(
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
         Some(ColorInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -1800,7 +1801,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
