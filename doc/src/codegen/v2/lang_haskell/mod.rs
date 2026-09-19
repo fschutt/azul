@@ -274,6 +274,18 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         src: wrappers::generate_facade(&ctx, &facade_modules, &idiomatic_bodies),
     });
 
+    // Each internal module imports the modules that declare the names it
+    // uses, never a whole-API facade: through `Azul.Types`,
+    // `Azul.Internal.FFI` and `Azul.Internal.Handles` every module depended
+    // on (and loaded the interfaces of) every module below it, so the ~200
+    // units compiled one layer at a time instead of in parallel.
+    let facades: Vec<(&str, Vec<String>)> = vec![
+        ("Azul.Types", type_modules.clone()),
+        ("Azul.Internal.FFI", ffi_modules.clone()),
+        ("Azul.Internal.Handles", handle_modules.clone()),
+    ];
+    narrow_facade_imports(&mut files, &facades);
+
     // Codegen-time guard: a Haskell module may declare each name at most
     // once. Emitters that key a declaration on something other than the
     // loop variable (a Vec's *element* type inside a per-*Vec* loop, for
@@ -607,6 +619,125 @@ fn module_scope_declarations(src: &str) -> Vec<(String, usize)> {
         out.push((ident.to_string(), lineno));
     }
     out
+}
+
+/// Every name a module brings into scope for its importers: its
+/// declarations (see [`module_scope_declarations`]) plus data constructors
+/// (`data X = C ..`, `  | C ..`) and record fields (`  { f :: ..`,
+/// `  , f :: ..`).
+fn module_scope_names(src: &str) -> Vec<String> {
+    let mut out: Vec<String> = module_scope_declarations(src)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let first_ident = |s: &str| -> Option<String> {
+        let s = s.trim_start();
+        let len = s.find(|c: char| !is_haskell_ident_char(c)).unwrap_or(s.len());
+        (len > 0).then(|| s[..len].to_string())
+    };
+    for line in src.lines() {
+        if line.starts_with("data ") || line.starts_with("newtype ") {
+            if let Some(rhs) = line.split_once('=').map(|(_, r)| r) {
+                out.extend(first_ident(rhs));
+            }
+            continue;
+        }
+        if !line.starts_with(' ') {
+            continue;
+        }
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix("= ").or_else(|| t.strip_prefix("| ")) {
+            out.extend(first_ident(rest).filter(|n| n.starts_with(|c: char| c.is_ascii_uppercase())));
+        } else if let Some(rest) = t.strip_prefix("{ ").or_else(|| t.strip_prefix(", ")) {
+            if let Some(name) = first_ident(rest) {
+                if rest[name.len()..].trim_start().starts_with("::") {
+                    out.push(name);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Rewrite every import of a facade in `facades` - `import <F>` or
+/// `import qualified <F> as <Q>` - into imports of the facade's member
+/// modules that declare a name the file uses (qualified: `<Q>.<name>`;
+/// unqualified: any identifier token). The facades themselves stay, for
+/// user code.
+fn narrow_facade_imports(files: &mut [HsFile], facades: &[(&str, Vec<String>)]) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let by_module: BTreeMap<String, Vec<String>> = files
+        .iter()
+        .map(|f| (f.module.clone(), module_scope_names(&f.src)))
+        .collect();
+    let facade_names: BTreeSet<&str> = facades.iter().map(|(f, _)| *f).collect();
+    for file in files.iter_mut() {
+        if facade_names.contains(file.module.as_str()) {
+            continue;
+        }
+        let tokens: BTreeSet<&str> = file
+            .src
+            .split(|c: char| !(is_haskell_ident_char(c) || c == '.'))
+            .filter(|t| !t.is_empty())
+            .collect();
+        // A facade a module re-exports (`module Azul.Internal.Handles` in
+        // `Azul`'s export list) must stay imported whole.
+        let reexported = |facade: &str| {
+            file.src.lines().any(|l| {
+                let l = l.trim_start().trim_start_matches(['(', ',']).trim();
+                l == format!("module {facade}")
+            })
+        };
+        let mut out = String::with_capacity(file.src.len());
+        for line in file.src.lines() {
+            let rewritten = facades.iter().find_map(|(facade, members)| {
+                if reexported(facade) {
+                    return None;
+                }
+                let t = line.trim();
+                let qualifier = if t == format!("import {facade}") {
+                    None
+                } else if let Some(q) = t
+                    .strip_prefix(&format!("import qualified {facade} as "))
+                    .filter(|q| !q.contains(' '))
+                {
+                    Some(q)
+                } else {
+                    return None;
+                };
+                let used = |m: &String| {
+                    by_module.get(m).is_some_and(|names| {
+                        names.iter().any(|n| match qualifier {
+                            Some(q) => tokens.contains(format!("{q}.{n}").as_str()),
+                            None => tokens.contains(n.as_str()),
+                        })
+                    })
+                };
+                let lines: Vec<String> = members
+                    .iter()
+                    .filter(|m| **m != file.module && used(m))
+                    .map(|m| match qualifier {
+                        Some(q) => format!("import qualified {m} as {q}"),
+                        None => format!("import {m}"),
+                    })
+                    .collect();
+                Some(lines)
+            });
+            match rewritten {
+                Some(lines) => {
+                    for l in lines {
+                        out.push_str(&l);
+                        out.push('\n');
+                    }
+                }
+                None => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        file.src = out;
+    }
 }
 
 fn is_haskell_ident_char(c: char) -> bool {

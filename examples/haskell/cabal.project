@@ -1,2 +1,3 @@
 packages: .
 optional-packages: ./azul-haskell ../azul-haskell
+shared: False
