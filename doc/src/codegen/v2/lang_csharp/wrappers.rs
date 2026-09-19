@@ -423,7 +423,7 @@ pub fn generate_union_hierarchies(
             emitted_header = true;
         }
 
-        emit_union_helper(builder, e);
+        emit_union_helper(builder, e, ir);
     }
 
     if emitted_header {
@@ -1710,7 +1710,7 @@ fn emit_wrapper_method(
 // Tagged-union helper class
 // ============================================================================
 
-fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
+fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let class_name = sanitize_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
     let tag_name = format!("{}_Tag", ffi_name);
@@ -1751,14 +1751,28 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 builder.blank();
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
-                // SKIPPED: payload-bearing variants need per-payload
-                // overloads which depend on the FFI struct layout. The
-                // user can construct these via the public FFI struct
-                // fields directly.
+                // A payload variant: the C constructor libazul exports for it
+                // (`Az{Enum}_{variant}(payload)`) builds the tagged union.
+                let Some(ctor) = ir.variant_constructor(&e.name, &v.name) else {
+                    continue;
+                };
+                let params: Vec<String> = ctor
+                    .args
+                    .iter()
+                    .map(|a| format!("{} {}", map_type_to_csharp(&a.type_name, ir), sanitize_identifier(&a.name)))
+                    .collect();
+                let names: Vec<String> = ctor.args.iter().map(|a| sanitize_identifier(&a.name)).collect();
                 builder.line(&format!(
-                    "// SKIPPED: variant {}.{} has payload — set fields directly on the FFI \
-                     struct.",
+                    "/// <summary>Construct the {}.{} variant.</summary>",
                     e.name, v.name
+                ));
+                builder.line(&format!(
+                    "public static {} {}({}) => NativeMethods.{}({});",
+                    ffi_name,
+                    snake_to_pascal(&v.name),
+                    params.join(", "),
+                    super::super::managed_host_invoker::managed_c_symbol(ctor),
+                    names.join(", ")
                 ));
                 builder.blank();
             }

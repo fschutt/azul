@@ -78,7 +78,7 @@ pub fn emit_all_wrapper_files(
         let chunk = emit_file(
             &format!("{}.java", helper_name),
             |b| {
-                emit_union_helper(b, e);
+                emit_union_helper(b, e, ir);
                 Ok(())
             },
             config,
@@ -1908,7 +1908,7 @@ fn emit_result_return_body(
 // Tagged-union helper class
 // ============================================================================
 
-fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
+fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let class_name = wrapper_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
 
@@ -1948,14 +1948,42 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 builder.blank();
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
+                // A payload variant: the C constructor libazul exports for it
+                // (`Az{Enum}_{variant}(payload)`) builds the tagged union.
+                let Some(ctor) = ir.variant_constructor(&e.name, &v.name) else {
+                    continue;
+                };
+                let params: Vec<String> = ctor
+                    .args
+                    .iter()
+                    .map(|a| {
+                        format!(
+                            "{} {}",
+                            super::map_jvm_type_byvalue(&a.type_name, ir),
+                            sanitize_identifier(&a.name)
+                        )
+                    })
+                    .collect();
+                let names: Vec<String> = ctor.args.iter().map(|a| sanitize_identifier(&a.name)).collect();
                 builder.line(&format!(
-                    "// SKIPPED: variant {}.{} carries a payload — set the variant",
+                    "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
                 builder.line(&format!(
-                    "// via {0}.{1} fields directly (see {0}Variant_{1}).",
-                    ffi_name, v.name
+                    "public static {} {}({}) {{",
+                    super::map_jvm_type_byvalue(&e.name, ir),
+                    idiomatic_method_name(&v.name),
+                    params.join(", ")
                 ));
+                builder.indent();
+                builder.line(&format!(
+                    "return {}.{}({});",
+                    super::functions::native_class_for_func(ctor, ir),
+                    super::super::managed_host_invoker::managed_c_symbol(ctor),
+                    names.join(", ")
+                ));
+                builder.dedent();
+                builder.line("}");
                 builder.blank();
             }
         }

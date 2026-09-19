@@ -1837,24 +1837,7 @@ impl<'a> IRBuilder<'a> {
     fn build_variant_constructor(&self, enum_name: &str, variant: &EnumVariantDef) -> FunctionDef {
         use crate::codegen::v2::ir::FunctionKind;
 
-        // Convert variant name to lowerCamelCase for method name
-        // e.g., "MouseUp" -> "mouseUp", "LeftMouseDown" -> "leftMouseDown"
-        let mut method_name = variant
-            .name
-            .chars()
-            .next()
-            .map(|c| c.to_lowercase().to_string())
-            .unwrap_or_default()
-            + &variant.name[1..];
-        // A variant constructor shares the `Az{Enum}_*` namespace with the
-        // trait functions, which every binding recognizes by name: a variant
-        // `Delete` / `Clone` / `Default` must not become `_delete` / `_clone` /
-        // `default`, so it is `_deleteVariant` / `_cloneVariant` /
-        // `_defaultVariant` instead.
-        if variant_ctor_name_is_reserved(&method_name) {
-            method_name.push_str("Variant");
-        }
-
+        let method_name = variant_constructor_method_name(&variant.name);
         // C-ABI name: Az{EnumName}_{methodName}
         let c_name = format!("Az{}_{}", enum_name, method_name);
 
@@ -2412,6 +2395,26 @@ pub fn vecref_layout_element(
 /// (`delete`, `clone`, `partialEq`, `partialCmp`, `cmp`, `hash`,
 /// `createDefault`, `toDbgString`), plus `default`, the name the bindings give
 /// the `Default` impl.
+/// The method name of an enum variant's constructor: the variant in
+/// lowerCamelCase (`MouseUp` -> `mouseUp`). A variant constructor shares the
+/// `Az{Enum}_*` namespace with the trait functions, which every binding
+/// recognizes by name: a variant `Delete` / `Clone` / `Default` must not
+/// become `_delete` / `_clone` / `default`, so it is `_deleteVariant` /
+/// `_cloneVariant` / `_defaultVariant` instead. `CodegenIR::variant_constructor`
+/// looks a constructor up by it.
+pub fn variant_constructor_method_name(variant_name: &str) -> String {
+    let mut method_name = variant_name
+        .chars()
+        .next()
+        .map(|c| c.to_lowercase().to_string())
+        .unwrap_or_default()
+        + &variant_name[variant_name.chars().next().map_or(0, char::len_utf8)..];
+    if variant_ctor_name_is_reserved(&method_name) {
+        method_name.push_str("Variant");
+    }
+    method_name
+}
+
 fn variant_ctor_name_is_reserved(name: &str) -> bool {
     use crate::codegen::v2::ir::FunctionKind;
     name == "default"

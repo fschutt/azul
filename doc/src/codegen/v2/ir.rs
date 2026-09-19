@@ -80,6 +80,17 @@ impl CodegenIR {
         self.structs.iter().find(|s| s.name == name)
     }
 
+    /// The constructor of variant `variant` of enum `enum_name`
+    /// (`AzTabIndex_overrideInParent`), generated or declared by api.json.
+    pub fn variant_constructor(&self, enum_name: &str, variant: &str) -> Option<&FunctionDef> {
+        let c_name = format!(
+            "Az{}_{}",
+            enum_name,
+            super::ir_builder::variant_constructor_method_name(variant)
+        );
+        self.functions.iter().find(|f| f.c_name == c_name)
+    }
+
     /// Find an enum by name
     pub fn find_enum(&self, name: &str) -> Option<&EnumDef> {
         self.enums.iter().find(|e| e.name == name)

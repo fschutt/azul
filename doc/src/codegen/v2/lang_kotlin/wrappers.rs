@@ -337,7 +337,7 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
         if !should_emit_helper(e, config) {
             continue;
         }
-        emit_union_helper(builder, e);
+        emit_union_helper(builder, e, ir);
     }
 
     Ok(())
@@ -1862,7 +1862,7 @@ fn emit_instance_method(
     emit_kt_smart_setters(builder, func, &displayed_return, ir);
 }
 
-fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
+fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let class_name = kotlin_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
 
@@ -1902,13 +1902,36 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 builder.blank();
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
+                // A payload variant: the C constructor libazul exports for it
+                // (`Az{Enum}_{variant}(payload)`) builds the tagged union.
+                let Some(ctor) = ir.variant_constructor(&e.name, &v.name) else {
+                    continue;
+                };
+                let params: Vec<String> = ctor
+                    .args
+                    .iter()
+                    .map(|a| {
+                        format!(
+                            "{}: {}",
+                            sanitize_kt_identifier(&a.name),
+                            super::map_kt_owned(&a.type_name, ir)
+                        )
+                    })
+                    .collect();
+                let names: Vec<String> =
+                    ctor.args.iter().map(|a| sanitize_kt_identifier(&a.name)).collect();
                 builder.line(&format!(
-                    "// SKIPPED: variant {}.{} carries a payload — set the variant",
+                    "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
                 builder.line(&format!(
-                    "// via {0}.{1} fields directly (see {0}Variant_{1}).",
-                    ffi_name, v.name
+                    "@JvmStatic fun {}({}): {} = {}.{}({})",
+                    idiomatic_method_name(&v.name),
+                    params.join(", "),
+                    super::map_kt_return(&e.name, ir),
+                    super::super::lang_java::functions::native_class_for_func(ctor, ir),
+                    super::super::managed_host_invoker::managed_c_symbol(ctor),
+                    names.join(", ")
                 ));
                 builder.blank();
             }
