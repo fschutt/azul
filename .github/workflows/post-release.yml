@@ -648,23 +648,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ needs.resolve.outputs.version }}"
-          BASE="${{ needs.resolve.outputs.base_url }}"
-          
-          # Test Go compilation
-          git clone https://github.com/fschutt/azul-go ./azul-go
+          # The example's go.mod says `replace azul.rs/ui/go => ./azul-go`.
+          git clone --depth 1 https://github.com/fschutt/azul-go examples/go/azul-go
           cd examples/go
-          go mod edit -replace azul.rs/ui/go=../azul-go
-          go mod tidy
-          
-          # Cross compile to Windows
-          export GOOS=windows
-          export GOARCH=amd64
-          
+          # purego: no cgo, no C cross-compiler, no CGO_* variables.
+          export GOOS=windows GOARCH=amd64
+          go vet ./...
           go build -o hello-world.exe .
-          
-          if [ ! -f "hello-world.exe" ]; then
-            echo "::error::Cross-compiled executable not found!"
-            exit 1
-          fi
+          test -f hello-world.exe || { echo "::error::Cross-compiled executable not found!"; exit 1; }
           echo "Cross-compilation successful!"

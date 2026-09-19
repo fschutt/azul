@@ -1520,22 +1520,33 @@ pub fn copy_language_bindings(
 /// The Go example's module manifest, shipped as `release/<v>/go.mod` next to
 /// `main.go`: `main.go` imports `azul.rs/ui/go`, and this `replace`
 /// resolves it to the `azul-go/` directory shipped alongside — no `go mod
-/// init`, no `go mod edit`, no registry.
+/// init`, no `go mod edit`, no registry. The purego pin comes from
+/// `lang_go::gomod` so this manifest can never drift from the package's.
 pub fn go_example_mod() -> String {
-    "// go.mod for the azul hello-world. `main.go` imports the generated\n\
-     // azul.rs/ui/go package; the replace below points at the copy\n\
-     // shipped in ./azul-go (from the same release), so `go build .` works\n\
-     // as soon as libazul is linkable (CGO_LDFLAGS) and azul.h is on the\n\
-     // include path (CGO_CFLAGS, or /usr/include via a package manager).\n\
-     \n\
-     module hello-world\n\
-     \n\
-     go 1.21\n\
-     \n\
-     require azul.rs/ui/go v0.0.0\n\
-     \n\
-     replace azul.rs/ui/go => ./azul-go\n"
-        .to_string()
+    format!(
+        "// go.mod for the azul hello-world. `main.go` imports the generated\n\
+         // azul.rs/ui/go package; the replace below points at the copy shipped\n\
+         // in ./azul-go (from the same release). purego needs no C compiler:\n\
+         // put libazul.dylib / libazul.so / azul.dll next to main.go and run\n\
+         // `go build .`.\n\
+         \n\
+         module hello-world\n\
+         \n\
+         go 1.21\n\
+         \n\
+         require azul.rs/ui/go v0.0.0\n\
+         \n\
+         require github.com/ebitengine/purego {purego} // indirect\n\
+         \n\
+         replace azul.rs/ui/go => ./azul-go\n",
+        purego = crate::codegen::v2::lang_go::gomod::PUREGO_VERSION
+    )
+}
+
+/// The example's `go.sum`, shipped next to [`go_example_mod`] so `go build`
+/// needs no network: the same pins the generated package carries.
+pub fn go_example_sum() -> String {
+    crate::codegen::v2::lang_go::gomod::generate_go_sum()
 }
 
 /// Bindings the generator splits into one file per api.json module, shipped
@@ -1581,13 +1592,13 @@ pub fn copy_generated_package(
 }
 
 /// Ship the generated Go package as `release/<v>/azul-go/`: every `*.go` in
-/// `codegen_dir/go/` plus its `go.mod` (a glob, so the generator adding or
-/// renaming a file can never leave the release incomplete again) plus
-/// `azul.h`, because the package's cgo preamble `#include "azul.h"`s it and
-/// cgo resolves `-I.` against the package directory. Also writes the
-/// hello-world's `go.mod` ([`go_example_mod`]). Returns the number of files
-/// written; 0 when the codegen output is absent (a warning for the caller,
-/// never an abort).
+/// `codegen_dir/go/` plus its `go.mod` and `go.sum` (a glob, so the
+/// generator adding or renaming a file can never leave the release
+/// incomplete again). The package is purego: no cgo preamble, so no
+/// `azul.h` travels with it. Also writes the hello-world's `go.mod` /
+/// `go.sum` ([`go_example_mod`], [`go_example_sum`]). Returns the number of
+/// files written; 0 when the codegen output is absent (a warning for the
+/// caller, never an abort).
 pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> {
     let go_dir = codegen_dir.join("go");
     if !go_dir.is_dir() {
@@ -1601,7 +1612,7 @@ pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> 
         .filter(|p| {
             p.is_file()
                 && (p.extension().is_some_and(|x| x == "go")
-                    || p.file_name().is_some_and(|f| f == "go.mod"))
+                    || p.file_name().is_some_and(|f| f == "go.mod" || f == "go.sum"))
         })
         .collect();
     entries.sort();
@@ -1610,12 +1621,9 @@ pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> 
         fs::copy(&src, dst_dir.join(name))?;
         n += 1;
     }
-    let header = codegen_dir.join("azul.h");
-    if header.is_file() {
-        fs::copy(&header, dst_dir.join("azul.h"))?;
-        n += 1;
-    }
     fs::write(version_dir.join("go.mod"), go_example_mod())?;
+    n += 1;
+    fs::write(version_dir.join("go.sum"), go_example_sum())?;
     n += 1;
     Ok(n)
 }
@@ -3076,23 +3084,28 @@ mod tests {
         let version_dir = tmp.path().join("release");
         fs::create_dir_all(codegen.join("go")).unwrap();
         fs::create_dir_all(&version_dir).unwrap();
-        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod"] {
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "go.sum"] {
             fs::write(codegen.join("go").join(f), b"x").unwrap();
         }
-        // Not part of the package: a generator scratch file.
+        // Not part of the package: a generator scratch file, and azul.h
+        // (purego needs no header).
         fs::write(codegen.join("go/NOTES.txt"), b"x").unwrap();
         fs::write(codegen.join("azul.h"), b"/* header */").unwrap();
 
         let n = copy_go_package(&version_dir, &codegen).unwrap();
-        assert_eq!(n, 6, "4 package files + azul.h + the example go.mod");
-        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "azul.h"] {
+        assert_eq!(n, 7, "5 package files + the example go.mod + go.sum");
+        for f in ["azul.go", "callbacks.go", "callbacks_export.go", "go.mod", "go.sum"] {
             assert!(version_dir.join("azul-go").join(f).is_file(), "{f}");
         }
         assert!(!version_dir.join("azul-go/NOTES.txt").exists());
+        assert!(!version_dir.join("azul-go/azul.h").exists());
         let gomod = fs::read_to_string(version_dir.join("go.mod")).unwrap();
         assert!(gomod.contains("module hello-world\n"), "{gomod}");
         assert!(gomod.contains("require azul.rs/ui/go v0.0.0\n"), "{gomod}");
+        assert!(gomod.contains("require github.com/ebitengine/purego v"), "{gomod}");
         assert!(gomod.contains("replace azul.rs/ui/go => ./azul-go\n"), "{gomod}");
+        let gosum = fs::read_to_string(version_dir.join("go.sum")).unwrap();
+        assert!(gosum.contains("github.com/ebitengine/purego v"), "{gosum}");
     }
 
     /// No codegen output → nothing written, `Ok(0)` (the caller warns).

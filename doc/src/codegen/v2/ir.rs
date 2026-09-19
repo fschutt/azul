@@ -113,6 +113,15 @@ impl CodegenIR {
         if let Some(s) = self.find_struct(name) {
             return !matches!(s.category, TypeCategory::CallbackTypedef);
         }
+        // Monomorphized generic aliases (`LayoutClearValue =
+        // CssPropertyValue<LayoutClear>`, `PhysicalSizeU32`, ...) are real
+        // structs / tagged unions on the wire even though they live in
+        // `type_aliases`; only a monomorphized SimpleEnum is an int.
+        if let Some(a) = self.find_type_alias(name) {
+            if let Some(m) = &a.monomorphized_def {
+                return !matches!(m.kind, MonomorphizedKind::SimpleEnum { .. });
+            }
+        }
         self.find_enum(name).is_some_and(|e| e.is_union)
     }
 

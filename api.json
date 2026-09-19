@@ -3266,7 +3266,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository (into /usr/lib and /usr/include, where cgo finds them), then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository (into /usr/lib, where the dynamic loader finds it), then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3286,7 +3286,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "CGO_LDFLAGS=\"-lazul -lpthread -lm -ldl\" go build -o hello-world ."
+                                    "content": "go build -o hello-world ."
                                 },
                                 {
                                     "type": "command",
@@ -3300,7 +3300,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
+                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed); azul.LoadLibrary(\"\") finds libazul.so next to the binary",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3316,11 +3316,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "CGO_CFLAGS=\"-I.\" CGO_LDFLAGS=\"-L. -lazul -lpthread -lm -ldl\" go build -o hello-world ."
+                                    "content": "go build -o hello-world ."
                                 },
                                 {
                                     "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
+                                    "content": "./hello-world"
                                 }
                             ]
                         },
@@ -3330,7 +3330,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Install libazul.dylib and azul.h from the self-hosted Homebrew tap, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h) against the Homebrew prefix",
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed); point the dynamic loader at the Homebrew prefix when running",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3350,11 +3350,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "CGO_CFLAGS=\"-I$(brew --prefix)/include\" CGO_LDFLAGS=\"-L$(brew --prefix)/lib -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation\" go build -o hello-world ."
+                                    "content": "go build -o hello-world ."
                                 },
                                 {
                                     "type": "command",
-                                    "content": "./hello-world"
+                                    "content": "DYLD_LIBRARY_PATH=\"$(brew --prefix)/lib\" ./hello-world"
                                 }
                             ]
                         },
@@ -3364,7 +3364,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
+                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed); azul.LoadLibrary(\"\") finds libazul.dylib next to the binary",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3380,11 +3380,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "CGO_CFLAGS=\"-I.\" CGO_LDFLAGS=\"-L. -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation\" go build -o hello-world ."
+                                    "content": "go build -o hello-world ."
                                 },
                                 {
                                     "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                                    "content": "./hello-world"
                                 }
                             ]
                         },
@@ -3394,7 +3394,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed, copy them next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h) with MSVC's import library",
+                            "description": "Install azul.dll from the self-hosted NuGet feed, copy it next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3410,31 +3410,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll.lib\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.h\" ."
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-go-$VERSION.tar.gz"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_ENABLED=1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_CFLAGS=-I."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_LDFLAGS=azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -3452,7 +3432,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket, copy them next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
+                            "description": "Install azul.dll from the self-hosted Scoop bucket, copy it next to main.go, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3468,31 +3448,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.h\" ."
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-go-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-go-$VERSION.tar.gz"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_ENABLED=1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_CFLAGS=-I."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_LDFLAGS=azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -3510,7 +3470,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the prebuilt library and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod whose replace points at the generated azul-go/ package next to it, and azul.h)",
+                            "description": "Download the prebuilt DLL and the Go bundle, then build the hello-world against the generated azul-go package (the tarball carries main.go, a ready go.mod/go.sum whose replace points at the generated azul-go/ package next to it; the package is purego, so no C compiler, no cgo flags and no azul.h are needed); azul.LoadLibrary(\"\") finds azul.dll next to the binary",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3526,22 +3486,6 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_ENABLED=1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_CFLAGS=-I."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "set CGO_LDFLAGS=azul.dll.lib"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "go build -o hello-world.exe ."
                                 },
                                 {
@@ -3553,8 +3497,8 @@
                     ],
                     "bundle": {
                         "azul-go/": "azul-go/",
-                        "azul.h": "azul.h",
                         "go.mod": "go.mod",
+                        "go.sum": "go.sum",
                         "main.go": "main.go"
                     }
                 },

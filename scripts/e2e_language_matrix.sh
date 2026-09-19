@@ -1184,66 +1184,27 @@ lang_go() {
   local f; f="$(log_path go)"
   (
     set -x
-    rm -rf "$REPO_ROOT/examples/azul-go"
-    mkdir -p "$REPO_ROOT/examples/azul-go"
-    if ! cp -r "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/azul-go/"; then
+    # purego: no C compiler, no CGO_*, no azul.h. The example's go.mod says
+    # `replace azul.rs/ui/go => ./azul-go`, so stage the generated package there
+    # and put the shared library next to the binary (LoadLibrary("") looks in
+    # the executable's directory, then the cwd, then the loader path).
+    rm -rf "$REPO_ROOT/examples/go/azul-go"
+    mkdir -p "$REPO_ROOT/examples/go/azul-go"
+    if ! cp "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/go/azul-go/"; then
       echo "go: no generated bindings at $CODEGEN_DIR/go — run the codegen step first" >&2
       exit 1
     fi
-    [ -f "$REPO_ROOT/examples/azul-go/azul.go" ] || {
-      echo "go: $CODEGEN_DIR/go staged no azul.go into examples/azul-go" >&2
-      exit 1
-    }
-    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
-    cp "$LIB_PATH"           "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
-    cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
+    cp "$LIB_PATH" "$REPO_ROOT/examples/go/"
     cd "$REPO_ROOT/examples/go" || exit 1
-    export CGO_ENABLED=1
-    export CGO_CFLAGS="-I."
-    # cgo with gcc does not finish on the runner. Its first probe is a
-    # generated C file of ~94k lines — five deliberately failing functions for
-    # each of the ~9,400 C names the binding references, all under the 5.6 MB
-    # azul.h — and gcc's error-recovery path crawls through it: one cc1 ran
-    # 150 s+ on a fast arm64 box and 900 s+ on the 2-core ubuntu runner, twice
-    # (2026-09-12/14). clang takes the same probe in 16 s and the whole build
-    # in 35 s (measured in golang:1.22, Debian clang 14). The e2e runner
-    # installs clang; use it wherever it exists.
-    # NOT on Windows: the clang there is the MSVC-flavoured one, and it hands
-    # Go's GNU-style linker flags (`--start-group`, `-tsaware`) to link.exe,
-    # which rejects them (exit 1181). Windows cgo wants its MinGW gcc, whose
-    # probe finishes anyway now that the package references ~1.5k C names.
-    if [ "$IS_WINDOWS" != 1 ] && command -v clang >/dev/null 2>&1; then
-      export CC=clang
-    fi
     local OUT="hello-world-go-e2e"
-    if [ "$IS_MACOS" = 1 ]; then
-      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
-    elif [ "$IS_WINDOWS" = 1 ]; then
-      # The binding itself asks for `-lazul` (`#cgo LDFLAGS` in azul.go), so the
-      # MinGW linker needs the directory to search: without `-L` it failed with
-      # "cannot find -lazul" even though the import lib was named in full. ld
-      # resolves `-lazul` to azul.dll there; the dll resolves from PATH at run
-      # time. Windows-style path, because gcc is a native Windows program.
-      local win_release_dir; win_release_dir="$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
-      export CGO_LDFLAGS="-L$win_release_dir $win_release_dir/azul.dll.lib"
-      OUT="hello-world-go-e2e.exe"
-    else
-      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
-    fi
-    # -x with a timestamp on every toolchain step: the runner ran past 900 s
-    # twice with the last lines still compiling the standard library, so the
-    # log has to say where the minutes go before the budget is judged again.
-    go build -x -o "$OUT" . 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$(date +%H:%M:%S)" "$l"; done
-    [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
+    [ "$IS_WINDOWS" = 1 ] && OUT="hello-world-go-e2e.exe"
+    go vet ./... || exit 1
+    go build -o "$OUT" . || exit 1
     "./$OUT"
   ) >"$f" 2>&1
-  finish go "go build/run failed (cgo + libazul link)"
+  finish go "go build/run failed (purego + libazul)"
 }
 
-# ---- Lua / LuaJIT ------------------------------------------------------------
-# Toolchain: luajit (preferred; vanilla lua has no ffi) (CI: apt `luajit` /
-# brew `luajit`). Recipe lifted from rust.yml e2e_native "E2E - Lua".
 lang_lua() {
   local BIN; BIN="$(command -v luajit || command -v lua || true)"
   [ -n "$BIN" ] || { skip lua "luajit not installed (apt/brew: luajit)"; return; }
