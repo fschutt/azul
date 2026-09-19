@@ -110,13 +110,21 @@ FFLAGS  ?= -O2 -std=f2008 -ffree-line-length-none -fimplicit-none
 # -O0 costs nothing at run time, and gfortran compiles azul_api.f90 in
 # well under a minute instead of several minutes at -O2.
 AZUL_FFLAGS ?= -O0 -std=f2008 -ffree-line-length-none -fimplicit-none
-# Find the library next to the executable: libazul.dylib's install name is
-# @rpath/libazul.dylib, libazul.so is looked up through the ELF rpath.
+# Where libazul is: next to the executable by default, or e.g.
+# `make LIBDIR="$(brew --prefix)/lib"`. The directory is also the run-time
+# search path (libazul.dylib's install name is @rpath/libazul.dylib,
+# libazul.so is looked up through the ELF rpath).
+LIBDIR  ?= .
+ifeq ($(LIBDIR),.)
 ifeq ($(shell uname -s),Darwin)
-LDFLAGS ?= -L. -Wl,-rpath,@executable_path
+RPATH   := @executable_path
 else
-LDFLAGS ?= -L. -Wl,-rpath,'$$ORIGIN'
+RPATH   := '$$ORIGIN'
 endif
+else
+RPATH   := $(LIBDIR)
+endif
+LDFLAGS ?= -L$(LIBDIR) -Wl,-rpath,$(RPATH)
 LIBS    ?= -lazul
 
 EXE     := hello_world
