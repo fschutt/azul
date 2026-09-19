@@ -106,7 +106,17 @@ endif
 # without it -std=f2008 truncates them into hard errors. Intel ifort/ifx
 # allows 7200-char lines by default, so the flag is gfortran-only anyway.
 FFLAGS  ?= -O2 -std=f2008 -ffree-line-length-none -fimplicit-none
+# The binding's own modules. They are thin glue around libazul calls, so
+# -O0 costs nothing at run time, and gfortran compiles azul_api.f90 in
+# well under a minute instead of several minutes at -O2.
+AZUL_FFLAGS ?= -O0 -std=f2008 -ffree-line-length-none -fimplicit-none
+# Find the library next to the executable: libazul.dylib's install name is
+# @rpath/libazul.dylib, libazul.so is looked up through the ELF rpath.
+ifeq ($(shell uname -s),Darwin)
+LDFLAGS ?= -L. -Wl,-rpath,@executable_path
+else
 LDFLAGS ?= -L. -Wl,-rpath,'$$ORIGIN'
+endif
 LIBS    ?= -lazul
 
 EXE     := hello_world
@@ -120,10 +130,11 @@ EXE     := hello_world
 all: $(EXE)
 
 %.o: %.f90
-	$(FC) $(FFLAGS) -c $<
+	$(FC) $(AZUL_FFLAGS) -c $<
 
 {rules}
 hello_world.o: hello_world.f90 azul.o
+	$(FC) $(FFLAGS) -c hello_world.f90
 
 $(EXE): hello_world.o $(AZUL_OBJS)
 	$(FC) $(FFLAGS) hello_world.o $(AZUL_OBJS) $(LDFLAGS) $(LIBS) -o $(EXE)
