@@ -3012,7 +3012,7 @@ jobs:
         # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3028,7 +3028,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]
@@ -3371,7 +3371,7 @@ jobs:
         # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3387,7 +3387,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]

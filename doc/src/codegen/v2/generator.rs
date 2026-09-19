@@ -218,21 +218,16 @@ impl GenerationTargets {
 
         // 16. Lua (LuaJIT FFI) bindings
         println!("[16/35] Generating Lua bindings...");
+        // ONE azul.lua runs on both LuaJIT (`ffi`) and vanilla Lua + cffi-lua
+        // (`cffi`): its prologue does `pcall(require, 'ffi')` with a
+        // `require('cffi')` fallback and never uses LuaJIT-only literals.
+        // `azul_cffi.lua` is the SAME file under the name the vanilla-Lua
+        // install guide downloads — a plain copy, no text surgery (the old
+        // `String::replace` of the prologue silently produced a no-op copy
+        // whenever the needle drifted).
         let lua_bindings = super::lang_lua::generate(ir, &CodegenConfig::c_header())?;
-        Self::write_string(
-            lua_bindings.clone(),
-            &codegen_dir.join("azul.lua"),
-        )?;
-        
-        let cffi_bindings = lua_bindings
-            .replace(
-                "if not jit then\n    error('azul.lua requires LuaJIT (the `ffi` module is not available in standard Lua)')\nend\n\nlocal ffi = require('ffi')",
-                "local ffi = require('cffi')"
-            );
-        Self::write_string(
-            cffi_bindings,
-            &codegen_dir.join("azul_cffi.lua"),
-        )?;
+        Self::write_string(lua_bindings.clone(), &codegen_dir.join("azul_cffi.lua"))?;
+        Self::write_string(lua_bindings, &codegen_dir.join("azul.lua"))?;
         // LuaRocks rejects a filename/content version mismatch, so the
         // file name must stay `azul-<version>-<rev>.rockspec` in sync
         // with the `version = "..."` inside generate_rockspec() — both

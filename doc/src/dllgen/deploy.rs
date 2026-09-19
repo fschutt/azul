@@ -845,10 +845,13 @@ struct BindingFile {
 /// `algol68`, `powershell`) binding + scaffolding file referenced by the
 /// install instructions in api.json, mapped to its on-disk source.
 ///
-/// The WHITELIST languages (c, cpp, rust, python, csharp, java, kotlin, lua,
-/// ruby, node, ocaml) are intentionally absent: they download the native libs /
-/// C·C++ headers (already laid down by the deploy) or generate their binding
-/// locally, so nothing extra is copied for them.
+/// The WHITELIST languages (c, cpp, rust, python, csharp, java, kotlin, node,
+/// ocaml) are intentionally absent: they download the native libs / C·C++
+/// headers (already laid down by the deploy) or generate their binding
+/// locally, so nothing extra is copied for them. `lua` (azul.lua, azul_cffi.lua;
+/// the versioned rockspec is copied dynamically) and `ruby` (azul.rb,
+/// azul.gemspec) ARE listed below: their
+/// guides download those single files straight from the release.
 ///
 /// `dst` values are flat because no two non-whitelist languages collide on a
 /// filename — the only nested paths (`Azul/Types.hs`, `Azul/Internal/FFI.hs`)
@@ -1071,7 +1074,7 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "vb6/HelloWorld.vbp",
         source: BindingSource::Examples,
     },
-    // --- zig (azul.zig `@import`s azul_c.zig, the pre-translated C ABI) ---
+    // --- zig (azul.zig: idiomatic wrappers + the C ABI pre-translated to Zig in one file) ---
     BindingFile {
         dst: "azul.zig",
         src: "azul.zig",
@@ -1225,6 +1228,13 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile {
         dst: "azul.lua",
         src: "azul.lua",
+        source: BindingSource::Codegen,
+    },
+    // Same bytes as azul.lua under the name the vanilla-Lua (cffi-lua) install
+    // guide downloads; generator.rs writes both.
+    BindingFile {
+        dst: "azul_cffi.lua",
+        src: "azul_cffi.lua",
         source: BindingSource::Codegen,
     },
     // NOTE: the LuaRocks rockspec is handled dynamically in

@@ -2391,10 +2391,10 @@
                         }
                     ],
                     "bundle": {
+                        "azul.cppm": "azul.cppm",
                         "azul.h": "azul.h",
                         "azul20.hpp": "azul20.hpp",
-                        "hello-world-cpp20.cpp": "hello-world-cpp20.cpp",
-                        "azul.cppm": "azul.cppm"
+                        "hello-world-cpp20.cpp": "hello-world-cpp20.cpp"
                     }
                 },
                 "cpp23": {
@@ -2734,10 +2734,10 @@
                         }
                     ],
                     "bundle": {
+                        "azul.cppm": "azul.cppm",
                         "azul.h": "azul.h",
                         "azul23.hpp": "azul23.hpp",
-                        "hello-world-cpp23.cpp": "hello-world-cpp23.cpp",
-                        "azul.cppm": "azul.cppm"
+                        "hello-world-cpp23.cpp": "hello-world-cpp23.cpp"
                     }
                 },
                 "crystal": {
@@ -4235,7 +4235,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
+                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (or vanilla Lua with cffi-lua; every by-value struct call goes through its <fn>Byref twin, so LuaJIT's x86-64 stack-argument limit no longer applies - verified on arm64/macOS, x86-64 unverified)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -4291,7 +4291,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi)",
+                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (or vanilla Lua with cffi-lua)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -4385,7 +4385,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
+                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (or vanilla Lua with cffi-lua; every by-value struct call goes through its <fn>Byref twin, so LuaJIT's x86-64 stack-argument limit no longer applies - verified on arm64/macOS, x86-64 unverified)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -4728,15 +4728,15 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4754,10 +4754,6 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
                                 },
                                 {
@@ -4767,6 +4763,10 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4792,15 +4792,15 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4818,10 +4818,6 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
                                 },
                                 {
@@ -4831,6 +4827,10 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4856,15 +4856,15 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4894,15 +4894,15 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -4924,10 +4924,6 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
@@ -4937,6 +4933,10 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install . --deps-only -y"
                                 },
                                 {
                                     "type": "command",
@@ -5859,7 +5859,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here from a download next to the project; `sudo apt install azul` / `dnf install azul` from the azul.rs repositories (see the C tab) work just as well",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here from a download next to the project; `sudo apt install azul` / `dnf install azul` from the azul.rs repositories (see the C tab) work just as well",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5893,7 +5893,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here /opt/homebrew/lib, where the self-hosted Homebrew tap installs it",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here /opt/homebrew/lib, where the self-hosted Homebrew tap installs it",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5931,7 +5931,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories \u2014 here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop.git set AZ_LINK_PATH for you instead)",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop.git set AZ_LINK_PATH for you instead)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6405,7 +6405,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated the generated azul.zig (containing the C ABI pre-translated to Zig, no @cImport) + build.zig, then `zig build run` links -lazul from /usr/lib",
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated azul.zig (the C ABI pre-translated to Zig, no @cImport) + build.zig, then `zig build run` links -lazul from /usr/lib",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6435,7 +6435,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig, the C ABI pre-translated to Zig: no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6495,7 +6495,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig, the C ABI pre-translated to Zig: no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6589,7 +6589,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library and the generated Zig binding (azul.zig + the pre-translated C ABI azul_c.zig, no @cImport, no azul.h needed) with a minimal build.zig",
+                            "description": "Download the native library and the generated Zig binding (azul.zig, the C ABI pre-translated to Zig: no @cImport, no azul.h needed) with a minimal build.zig",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6612,7 +6612,6 @@
                     ],
                     "bundle": {
                         "azul.zig": "azul.zig",
-                        "azul_c.zig": "azul_c.zig",
                         "build.zig": "build.zig",
                         "hello-world.zig": "hello-world.zig"
                     }
@@ -17345,21 +17344,6 @@
                                 ],
                                 "fn_body": "object.warn(message)"
                             },
-                            "log": {
-                                "doc": [
-                                    "Emit an informational message. Same destinations as [`CallbackInfo::warn`];",
-                                    "use it for things worth seeing in a trace but not worth alarming anyone."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "message": "String"
-                                    }
-                                ],
-                                "fn_body": "object.log(message)"
-                            },
                             "set_transient_window_open": {
                                 "doc": [
                                     "Open (or close) the `<transient-window>` at `node` regardless of its `open` attribute.",
@@ -19115,6 +19099,24 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_media_muted(node)"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Emit an informational message. Same destinations as [`CallbackInfo::warn`];",
+                                    "use it for things worth seeing in a trace but not worth alarming anyone."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "level": "AppLogLevel"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(level, message)"
                             }
                         },
                         "repr": "C"

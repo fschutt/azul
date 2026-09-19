@@ -449,12 +449,16 @@ pub fn return_c_typename(cb: &CallbackTypedefDef) -> Option<String> {
 /// Returns `None` for `void`-returning kinds (no writeback). Every return type
 /// used by [`HOST_INVOKER_KINDS`] is covered; a new callback kind whose typedef
 /// returns an aggregate must add its size here. Sizes are the repr(C) LP64
-/// layout of the wrapper struct (computed from `api.json`/the C header).
+/// layout of the wrapper struct as clang reports it for the generated
+/// `azul.h` — re-check after any change to those structs with
+/// `printf("%zu", sizeof(AzDom))` against `target/codegen/azul.h` (2026-09-19:
+/// AzDom grew 240 -> 280 and AzVirtualViewReturn 280 -> 320 without this
+/// table following, which truncated every Dom a Perl layout callback returned).
 pub fn return_c_size(cb: &CallbackTypedefDef) -> Option<usize> {
     let rt = return_c_typename(cb)?;
     Some(match rt.as_str() {
-        "AzDom" => 240,
-        "AzVirtualViewReturn" => 280,
+        "AzDom" => 280,
+        "AzVirtualViewReturn" => 320,
         "AzOnTextInputReturn" => 8,
         // AzUpdate and every other repr(C) fieldless enum return -> C int.
         "AzUpdate" => 4,
@@ -517,6 +521,7 @@ pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
     out.push_str("    /* User-data RefAny on top of the host-handle path: one shared\n");
     out.push_str("       lifetime story for both callback registration and refany_create. */\n");
     out.push_str("    AzRefAny AzRefAny_newHostHandle(uint64_t);\n");
+    out.push_str("    void AzRefAny_newHostHandleByref(uint64_t, AzRefAny*);\n");
     out.push_str("    uint64_t AzRefAny_getHostHandle(const AzRefAny*);\n\n");
     out.push_str("    /* Generic invoker fallback — fires when no per-kind invoker is\n");
     out.push_str("       registered. Useful for hosts that want one dispatch site for\n");
@@ -546,6 +551,12 @@ pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
         ));
         out.push_str(&format!(
             "    Az{w} Az{w}_createFromHostHandle(uint64_t);\n",
+            w = wrapper
+        ));
+        // Out-pointer twin for FFIs that cannot receive a struct by value
+        // (purego, cffi-lua); exported by every `impl_managed_callback!` site.
+        out.push_str(&format!(
+            "    void Az{w}_createFromHostHandleByref(uint64_t, Az{w}*);\n",
             w = wrapper
         ));
     }
@@ -631,4 +642,115 @@ mod tests {
         assert_eq!(c_typename("Update"), "AzUpdate");
         assert_eq!(c_typename("RefAny"), "AzRefAny");
     }
+}
+
+// ============================================================================
+// Application-object factory (`App.create(model, layoutFn)` + `app.run(opts)`)
+// ============================================================================
+
+/// IR-derived description of the "application object" pattern that the
+/// managed guides expose as `App.create(model, layoutFn)` followed by
+/// `app.run(windowOptions)`:
+///
+/// * a class `S` with a constructor taking exactly `[Owned RefAny, Owned C]`
+///   (in either order) where `C` has a `_default` factory
+///   (`AzApp_create(AzRefAny, AzAppConfig)`);
+/// * at least one method of `S` taking, by value, a struct `W` that matches
+///   [`layout_callback_factory_info`] (`AzApp_run(&App, WindowCreateOptions)`,
+///   `AzApp_addWindow(...)`).
+///
+/// A binding uses it to emit a typed `create<T>(data, fn)` that registers
+/// the layout callback once, keeps its bytes in the wrapper, and splices them
+/// into `W.<field_path>` inside every window-taking method (only when the
+/// caller's options still carry the default/no-op callback, so an explicit
+/// `W.create(fn)` keeps winning). Nothing here names `App`, `AppConfig` or
+/// `WindowCreateOptions`: the shape is matched structurally, so a second
+/// class of the same shape would get the same treatment.
+#[derive(Clone, Debug)]
+pub struct AppFactoryInfo {
+    /// The application class (e.g. `"App"`).
+    pub class_name: String,
+    /// Its 2-arg constructor's C name (e.g. `"AzApp_create"`).
+    pub create_c_name: String,
+    /// Index (0-based, in `create`'s arg list) of the `RefAny` model arg.
+    pub data_arg_index: usize,
+    /// Index of the config arg and its IR type name (e.g. `"AppConfig"`).
+    pub config_arg_index: usize,
+    pub config_type: String,
+    /// The config type's `_default` factory (e.g. `"AzAppConfig_default"`).
+    pub config_default_c_name: String,
+    /// Every method of `class_name` that takes a window-options struct by
+    /// value: `(method c_name, index of that arg, factory info of its type)`.
+    /// Non-empty by construction.
+    pub window_methods: Vec<(String, usize, LayoutCallbackFactoryInfo)>,
+}
+
+/// See [`AppFactoryInfo`]. `None` when the IR has no class of that shape.
+pub fn app_factory_info(ir: &CodegenIR) -> Option<AppFactoryInfo> {
+    use super::ir::{ArgRefKind, FunctionKind, TypeCategory};
+    let is_refany = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::RefAny))
+    };
+    let default_of = |t: &str| {
+        ir.functions
+            .iter()
+            .find(|f| f.class_name == t.trim() && matches!(f.kind, FunctionKind::Default))
+            .map(|f| f.c_name.clone())
+    };
+    ir.functions
+        .iter()
+        .filter(|f| {
+            matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+                && f.args.len() == 2
+                && f.args.iter().all(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+                && f.return_type.as_deref().map(str::trim) == Some(f.class_name.as_str())
+        })
+        .find_map(|create| {
+            let data_arg_index = create.args.iter().position(|a| is_refany(&a.type_name))?;
+            let config_arg_index = 1 - data_arg_index;
+            let config_type = create.args[config_arg_index].type_name.trim().to_string();
+            if is_refany(&config_type) {
+                return None;
+            }
+            let config_default_c_name = default_of(&config_type)?;
+            let window_methods: Vec<(String, usize, LayoutCallbackFactoryInfo)> = ir
+                .functions
+                .iter()
+                .filter(|m| {
+                    m.class_name == create.class_name
+                        && matches!(m.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                })
+                .filter_map(|m| {
+                    let hits: Vec<(usize, LayoutCallbackFactoryInfo)> = m
+                        .args
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, a)| {
+                            if !matches!(a.ref_kind, ArgRefKind::Owned) {
+                                return None;
+                            }
+                            let s = ir.find_struct(a.type_name.trim())?;
+                            layout_callback_factory_info(s, ir).map(|info| (i, info))
+                        })
+                        .collect();
+                    match hits.as_slice() {
+                        [(i, info)] => Some((m.c_name.clone(), *i, info.clone())),
+                        _ => None,
+                    }
+                })
+                .collect();
+            if window_methods.is_empty() {
+                return None;
+            }
+            Some(AppFactoryInfo {
+                class_name: create.class_name.clone(),
+                create_c_name: create.c_name.clone(),
+                data_arg_index,
+                config_arg_index,
+                config_type,
+                config_default_c_name,
+                window_methods,
+            })
+        })
 }

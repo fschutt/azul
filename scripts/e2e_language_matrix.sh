@@ -876,7 +876,7 @@ lang_deps_cleanup() {
       ;;
     zig)
       rm -f "$REPO_ROOT/examples/zig/hello-world-e2e" "$REPO_ROOT/examples/zig/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig" "$REPO_ROOT/examples/zig/azul_c.zig"
+      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig"
       rm -f "$REPO_ROOT/examples/zig/$(basename "$LIB_PATH")"
       ;;
     odin)
@@ -1255,19 +1255,11 @@ lang_lua() {
     cd "$REPO_ROOT/examples/lua" || exit 1
     "$BIN" hello-world.lua
   ) >"$f" 2>&1
-  # LuaJIT's FFI cannot make a C call that passes an aggregate BY VALUE on some
-  # ABIs (notably x86-64 SysV): `App_create(RefAny, AppConfig)` takes AppConfig
-  # by value -> "NYI: cannot call this C function (yet)". This is a LuaJIT
-  # toolchain limitation (no version fixes it -- a current 2.1 build still NYIs),
-  # NOT a binding bug: the identical azul.lua runs fine on arm64/macOS where the
-  # ABI passes the struct differently. Report SKIP (a real toolchain limit) so it
-  # does not gate; fixing it would need a by-pointer C-ABI variant for every
-  # by-value-struct function.
-  if grep -q "NYI: cannot call this C function" "$f" 2>/dev/null; then
-    skip lua "LuaJIT FFI NYI: cannot call by-value-aggregate C fns (App_create) on this ABI (works on arm64/macOS)"
-    return
-  fi
-  finish lua "lua build/run failed (LuaJIT ffi required)"
+  # Every call that passes or returns a struct by value goes through its
+  # `<fn>Byref` twin (azul.lua routes them from the IR), so LuaJIT's x86-64
+  # stack-argument limit ("NYI: cannot call this C function") no longer
+  # applies; an NYI in the log is now a real binding bug, not a toolchain skip.
+  finish lua "lua build/run failed (LuaJIT ffi, or cffi-lua for PUC Lua, required)"
 }
 
 # ---- Node.js -----------------------------------------------------------------
@@ -1546,9 +1538,9 @@ lang_scala() {
 
 # ---- Zig ---------------------------------------------------------------------
 # Toolchain: zig (CI: goto-bus-stop/setup-zig or mlugg/setup-zig). The example
-# imports azul.zig, which @imports azul_c.zig — the C ABI pre-translated from
-# the IR (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB
-# header took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
+# imports azul.zig — one file carrying the C ABI pre-translated from the IR
+# (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB header
+# took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
 # explicit build-exe form for stability (build.zig targets 0.16).
 lang_zig() {
   have zig || { skip zig "zig not installed (mlugg/setup-zig)"; return; }
@@ -1556,10 +1548,9 @@ lang_zig() {
   (
     set -x
     cp "$CODEGEN_DIR/azul.zig"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul_c.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
     cp "$LIB_PATH"               "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    [ -f "$REPO_ROOT/examples/zig/azul_c.zig" ] || {
-      echo "zig: $CODEGEN_DIR/azul_c.zig missing — run the codegen step first" >&2
+    [ -f "$REPO_ROOT/examples/zig/azul.zig" ] || {
+      echo "zig: $CODEGEN_DIR/azul.zig missing — run the codegen step first" >&2
       exit 1
     }
     cd "$REPO_ROOT/examples/zig" || exit 1
@@ -1579,7 +1570,7 @@ lang_zig() {
     fi
     "$BIN"
   ) >"$f" 2>&1
-  finish zig "zig build/run failed (azul.zig + azul_c.zig)"
+  finish zig "zig build/run failed (azul.zig)"
 }
 
 # ---- Odin --------------------------------------------------------------------
@@ -1834,9 +1825,9 @@ lang_ocaml() {
     set -x
     # Only copy the generated sources (globbed: the split is one unit per
     # api.json module, and the unit list is the generator's business). The
-    # example's own dune/dune-project already define BOTH the azul library
-    # and the hello_world executable — overwriting them with the codegen's
-    # library-only dune breaks the build.
+    # example's own dune/dune-project are byte-identical to the generated ones
+    # (lang_ocaml/dune.rs: library + hello_world executable), so they are
+    # left in place.
     rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
     cp "$CODEGEN_DIR"/ocaml/*.ml  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
     cp "$CODEGEN_DIR"/ocaml/*.mli "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true

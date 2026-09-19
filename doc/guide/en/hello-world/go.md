@@ -114,7 +114,7 @@ There are certain Go-specific things this example shows:
   azul.Bind: type assertion failed, expected *main.profileModel, got *main.counterModel
   ```
 
-See the [Observability Guide](../observability.md) for how to monitor live applications with Prometheus 
+See the [Observability Guide](../deploying/observability.md) for how to monitor live applications with Prometheus 
 and Grafana for live errors (which would show you the `azul.Bind` errors) - additionally, you can write 
 unit tests with coverage to make sure no downcast errors happen and that `stdout` is clean of warnings.
 
