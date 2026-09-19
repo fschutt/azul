@@ -1146,13 +1146,26 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR, co
         if let Some(model) = &sig.model_arg {
             builder.line("prev := AzulCurrentData; prevHas := AzulHasCurrentData;");
             builder.line(&format!("AzulCurrentData := PAzRefAny({})^; AzulHasCurrentData := True;", model));
-            builder.line("try");
-            builder.line(&format!("  TAz{}Invoker(obj).Invoke({});", sig.kind, forward.join(", ")));
-            builder.line("finally");
-            builder.line("  AzulCurrentData := prev; AzulHasCurrentData := prevHas;");
-            builder.line("end;");
-        } else {
-            builder.line(&format!("TAz{}Invoker(obj).Invoke({});", sig.kind, forward.join(", ")));
+        }
+        // An exception must not escape into the engine (it would end the
+        // program). out_ptr is pre-filled with the kind's default, so a
+        // failed callback leaves it untouched and only logs.
+        builder.line("try");
+        builder.line(&format!("  TAz{}Invoker(obj).Invoke({});", sig.kind, forward.join(", ")));
+        builder.line("except");
+        builder.line("  on E: Exception do");
+        builder.line(&format!(
+            "    {};",
+            report_line(&sig, &format!("'azul: {} raised ' + E.ClassName + ': ' + E.Message", sig.kind))
+        ));
+        builder.line("else");
+        builder.line(&format!(
+            "  {};",
+            report_line(&sig, &format!("'azul: {} raised a non-Exception object'", sig.kind))
+        ));
+        builder.line("end;");
+        if sig.model_arg.is_some() {
+            builder.line("AzulCurrentData := prev; AzulHasCurrentData := prevHas;");
         }
         builder.dedent();
         builder.line("end;");
@@ -1356,16 +1369,10 @@ fn emit_typed_wrapper_impl(builder: &mut CodeBuilder, sig: &CallbackSig) {
     builder.indent();
     builder.line("if obj = nil then cls := 'nil' else cls := obj.ClassName;");
     builder.line(&format!(
-        "cls := 'azul: {} callback expected a model of class ' + T.ClassName + ', got ' + cls;",
+        "cls := 'azul: {} expected a model of class ' + T.ClassName + ', got ' + cls;",
         k
     ));
-    match &sig.log {
-        Some((idx, c_fn, level)) => {
-            let p = &sig.params[*idx];
-            builder.line(&format!("{}({}({}), {}, azul_string_from(cls));", c_fn, p.ptr_type, p.name, level));
-        }
-        None => builder.line("WriteLn(StdErr, cls);"),
-    }
+    builder.line(&format!("{};", report_line(sig, "cls")));
     if let Some(ret) = &sig.ret {
         emit_default_out(builder, ret);
     }
@@ -1403,6 +1410,19 @@ fn emit_typed_wrapper_impl(builder: &mut CodeBuilder, sig: &CallbackSig) {
     builder.dedent();
     builder.line("end;");
     builder.blank();
+}
+
+/// One statement that reports `msg` (a Pascal string expression) for a
+/// callback of this kind: through the kind's `*_log(ptr, Error, message)`
+/// capable argument when it has one (`CallbackInfo`), else on stderr.
+fn report_line(sig: &CallbackSig, msg: &str) -> String {
+    match &sig.log {
+        Some((idx, c_fn, level)) => {
+            let p = &sig.params[*idx];
+            format!("{}({}({}), {}, azul_string_from({}))", c_fn, p.ptr_type, p.name, level, msg)
+        }
+        None => format!("WriteLn(StdErr, {})", msg),
+    }
 }
 
 /// The argument list handed to a user callback: the model expression (raw
