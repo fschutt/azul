@@ -121,6 +121,8 @@ contains
 
       call body%with_child(label)
       call body%with_child(button%dom())
+    class default
+      error stop 'layout: the model is not a model_t'
     end select
   end function layout
 
@@ -134,6 +136,8 @@ contains
     type is (model_t)
       model%counter = model%counter + 1
       update = Update_RefreshDom
+    class default
+      error stop 'on_click: the model is not a model_t'
     end select
   end function on_click
 
@@ -158,8 +162,10 @@ There are a few Fortran-specific things in this example:
    instead of one.
 2. `app_create(model_t(counter=5), ...)` copies your model into the binding. Each
    callback receives that copy as `class(*), intent(inout) :: model`, and changes made
-   inside `type is (model_t)` are kept. If the model has a different type, no branch
-   matches: `layout` returns an empty body and `on_click` returns `Update_DoNothing`.
+   inside `type is (model_t)` are kept: `class(*)` is "any type", the model as
+   libazul holds it, and `select type` is the checked downcast back to yours. A model
+   of any other type is a programming error, so `class default` stops the program
+   with a message instead of silently rendering an empty body or ignoring the click.
 3. `call button%with_on_click(model, on_click)` binds the model the layout callback is
    running with, not a copy, so the click changes the same counter.
 4. `layout` and `on_click` are ordinary module functions. Their dummy arguments must

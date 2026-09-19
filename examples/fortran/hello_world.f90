@@ -30,6 +30,8 @@ contains
 
       call body%with_child(label)
       call body%with_child(button%dom())
+    class default
+      error stop 'layout: the model is not a model_t'
     end select
   end function layout
 
@@ -43,6 +45,8 @@ contains
     type is (model_t)
       model%counter = model%counter + 1
       update = Update_RefreshDom
+    class default
+      error stop 'on_click: the model is not a model_t'
     end select
   end function on_click
 
