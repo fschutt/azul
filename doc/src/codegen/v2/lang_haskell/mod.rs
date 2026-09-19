@@ -890,8 +890,11 @@ mod split_tests {
     use std::collections::BTreeMap;
 
     fn generated() -> BTreeMap<String, String> {
-        let ir = test_fixture_ir();
-        let out = generate(&ir, &CodegenConfig::c_header()).expect("haskell codegen");
+        split_files(&test_fixture_ir())
+    }
+
+    fn split_files(ir: &CodegenIR) -> BTreeMap<String, String> {
+        let out = generate(ir, &CodegenConfig::c_header()).expect("haskell codegen");
         let mut files = BTreeMap::new();
         let mut cur: Option<String> = None;
         for line in out.lines() {
@@ -947,6 +950,125 @@ mod split_tests {
             assert!(azul.contains(&format!("module {}", m)), "Azul lacks {}:\n{}", m, azul);
         }
         assert!(azul.contains("T.Update(..)"), "unwrapped types are re-exported:\n{}", azul);
+    }
+
+    /// The fixture plus a host-invoker callback kind: `RefAny`,
+    /// `CallbackInfo`, `ButtonOnClickCallback` and `Button.with_on_click`.
+    fn callback_fixture() -> CodegenIR {
+        use super::super::ir::{
+            ArgRefKind, CallbackArgInfo, CallbackTypedefDef, FunctionArg, FunctionDef,
+            FunctionKind, StructDef, TypeCategory,
+        };
+        let mut ir = test_fixture_ir();
+        let arg = |name: &str, ty: &str, rk: ArgRefKind| FunctionArg {
+            name: name.into(),
+            type_name: ty.into(),
+            ref_kind: rk,
+            doc: None,
+            callback_info: None,
+        };
+        let func = |class: &str, method: &str, kind, args, ret: Option<&str>| FunctionDef {
+            c_name: format!("Az{}_{}", class, method),
+            class_name: class.into(),
+            method_name: method.into(),
+            kind,
+            args,
+            return_type: ret.map(|s| s.to_string()),
+            fn_body: None,
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        };
+        let mut st = |name: &str, category| {
+            let mut s: StructDef = ir.structs.iter().find(|s| s.name == "Button").unwrap().clone();
+            s.name = name.into();
+            s.module = "callbacks".into();
+            s.fields.truncate(0);
+            s.category = category;
+            ir.type_to_module.insert(name.into(), "callbacks".into());
+            ir.structs.push(s);
+        };
+        st("RefAny", TypeCategory::RefAny);
+        st("CallbackInfo", TypeCategory::Regular);
+        st("ButtonOnClickCallback", TypeCategory::Regular);
+        ir.callback_typedefs.push(CallbackTypedefDef {
+            name: "ButtonOnClickCallbackType".into(),
+            args: vec![
+                arg("data", "RefAny", ArgRefKind::Owned),
+                arg("info", "CallbackInfo", ArgRefKind::Owned),
+            ],
+            return_type: Some("Update".into()),
+            doc: vec![],
+            module: "callbacks".into(),
+            external_path: None,
+            dependencies: vec![],
+            sort_order: 0,
+        });
+        ir.type_to_module.insert("ButtonOnClickCallbackType".into(), "callbacks".into());
+        for class in ["RefAny", "CallbackInfo", "ButtonOnClickCallback"] {
+            ir.functions.push(func(class, "delete", FunctionKind::Delete, vec![arg("x", class, ArgRefKind::RefMut)], None));
+        }
+        ir.functions.push(func("RefAny", "clone", FunctionKind::DeepCopy, vec![arg("instance", "RefAny", ArgRefKind::Ref)], Some("RefAny")));
+        let mut cb = arg("callback", "ButtonOnClickCallback", ArgRefKind::Owned);
+        cb.callback_info = Some(CallbackArgInfo {
+            callback_typedef_name: "ButtonOnClickCallbackType".into(),
+            callback_wrapper_name: "ButtonOnClickCallback".into(),
+            trampoline_name: String::new(),
+        });
+        ir.functions.push(func(
+            "Button",
+            "with_on_click",
+            FunctionKind::Method,
+            vec![arg("button", "Button", ArgRefKind::Owned), arg("data", "RefAny", ArgRefKind::Owned), cb],
+            Some("Button"),
+        ));
+        ir
+    }
+
+    /// The callback contract: the invoker runs the user's function under the
+    /// guard (an exception must never unwind into libazul) with the RefAny
+    /// as the current model; handlers may be functions of the typed model;
+    /// `with_on_click` gets the model-bound `buttonOnClick`; by-value
+    /// wrappers are moved (use-after-move raises) and a by-value `RefAny`
+    /// that is not a callback's data accepts any Haskell value.
+    #[test]
+    fn callbacks_are_guarded_typed_and_model_bound() {
+        let files = split_files(&callback_fixture());
+        let cbs = &files["src/Azul/Internal/Callbacks.hs"];
+        assert!(
+            cbs.contains("azulInvokeButtonOnClickCallback handle p0 p1 out = azulGuard \"ButtonOnClickCallback\" azulStderr $ do"),
+            "{}",
+            cbs
+        );
+        assert!(cbs.contains("azulWithCurrentData p0 $ do"), "{}", cbs);
+        assert!(!cbs.contains(" try ("), "the old unguarded try: {}", cbs);
+        for head in [
+            "instance {-# OVERLAPPING #-} ButtonOnClickCallbackHandler (RefAny -> CallbackInfo -> IO T.Update)",
+            "instance {-# OVERLAPPABLE #-} Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> IO T.Update)",
+            "instance Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> (a, T.Update))",
+            "instance Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> IO (a, T.Update))",
+            "class ToRefAny d where",
+        ] {
+            assert!(cbs.contains(head), "missing `{}`:\n{}", head, cbs);
+        }
+        let widgets = &files["src/Azul/Widgets.hs"];
+        assert!(
+            widgets.contains("buttonWithOnClick :: (ButtonOnClickCallbackHandler h2) => RefAny -> h2 -> Button -> IO Button"),
+            "{}",
+            widgets
+        );
+        assert!(
+            widgets.contains("buttonOnClick :: (ButtonOnClickCallbackHandler h2) => h2 -> Button -> IO Button"),
+            "{}",
+            widgets
+        );
+        assert!(widgets.contains("azulCurrentRefAnyClone \"buttonOnClick\""), "{}", widgets);
+        assert!(widgets.contains("moveButton self $"), "{}", widgets);
+        let dom = &files["src/Azul/Dom.hs"];
+        assert!(dom.contains("moveDom a1 $"), "{}", dom);
+        let runtime = &files["src/Azul/Internal/Runtime.hs"];
+        assert!(runtime.contains("azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()"));
+        assert!(runtime.contains("Moved -> throwIO (AzulUseAfterMove cls)"));
     }
 
     /// The per-class surface is grouped by api.json module: the FFI import,
