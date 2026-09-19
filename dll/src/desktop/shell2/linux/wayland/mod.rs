@@ -4559,6 +4559,10 @@ impl WaylandWindow {
             // common.last_hovered_node has no writer anywhere, so hit-node
             // context menus never opened on Wayland.
             if mouse_button == MouseButton::Right {
+                // Hit-test the PRESS position itself (X11 does the same):
+                // the hover snapshot is the last motion's, and a press that
+                // arrives before any motion has none.
+                self.update_hit_test(position);
                 if let Some(hit_node) = self.get_first_hovered_node() {
                     if self.try_show_context_menu(hit_node, position) {
                         // Context menu was shown, consume the event
