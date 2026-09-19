@@ -194,6 +194,8 @@ mod float_and_scrollbar;
 mod float_integration;
 #[path = "focus_manager.rs"]
 mod focus_manager;
+#[path = "focus_ring_survives_full_relayout.rs"]
+mod focus_ring_survives_full_relayout;
 #[path = "focus_ring_tween.rs"]
 mod focus_ring_tween;
 #[path = "frame_perf.rs"]

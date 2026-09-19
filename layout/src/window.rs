@@ -6939,19 +6939,16 @@ impl LayoutWindow {
             }
         }
 
-        // Caret / selection tween post-pass: compare the freshly built caret /
-        // selection geometry against what the previous frame rendered and, if
-        // a tween is configured and in flight, PATCH the display-list items
-        // with interpolated rects (the solver's cached DL keeps the true
-        // geometry — Arc::make_mut copies before the patch, same contract as
-        // the VirtualView placeholder swap above).
-        {
-            let now = (system_callbacks.get_system_time_fn.cb)();
-            self.apply_text_tweens(dom_id, &mut display_list, now);
-        }
-
         // Store the final layout result for this DOM. `styled_dom` was passed
         // in by value, so we move it into the map without cloning.
+        //
+        // This happens BEFORE the tween post-pass below: that pass looks the
+        // focused node up in `layout_results` (its hierarchy, its enclosing
+        // scroll frame) to place the focus ring, and a full relayout cleared
+        // the map at its start. With the pass running first, every
+        // full-layout frame found no result and appended no ring - so a
+        // widget whose focus callback asks for a DOM refresh (AzWidgets'
+        // TextArea) ended each Tab press on a ring-less frame.
         self.layout_results.insert(
             dom_id,
             DomLayoutResult {
@@ -6964,6 +6961,27 @@ impl LayoutWindow {
                 scroll_id_to_node_id,
             },
         );
+
+        // Caret / selection tween post-pass: compare the freshly built caret /
+        // selection geometry against what the previous frame rendered and, if
+        // a tween is configured and in flight, PATCH the display-list items
+        // with interpolated rects (the solver's cached DL keeps the true
+        // geometry — Arc::make_mut copies before the patch, same contract as
+        // the VirtualView placeholder swap above). The list is taken out of
+        // the stored result for the pass and put back, so the Arc stays
+        // unique and the patch never deep-copies it.
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            let mut display_list = self
+                .layout_results
+                .get_mut(&dom_id)
+                .map(|lr| core::mem::take(&mut lr.display_list))
+                .unwrap_or_default();
+            self.apply_text_tweens(dom_id, &mut display_list, now);
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                lr.display_list = display_list;
+            }
+        }
 
         // PUBLISH-AFTER-CONSUME, closed: a VirtualView invoke above may have
         // published a new virtual size into the ScrollManager — an input the
