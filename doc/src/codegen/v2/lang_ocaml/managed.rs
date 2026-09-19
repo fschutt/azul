@@ -84,8 +84,9 @@ pub fn layout_factory_fn_name(class_name: &str) -> String {
 /// How the invoker hands one C-ABI argument (always `const T*` on the wire)
 /// to the OCaml closure. Derived from the arg's IR type only.
 pub enum InvokerArg {
-    /// `RefAny`: the host value is looked up in the handle table and passed
-    /// as the closure's `'m` (the model).
+    /// `RefAny`: passed as a `ref_any` record holding a CLONE of the
+    /// engine's argument, so the host function may keep it (store it, hand it
+    /// to a widget) past the call. `RefAny.downcast` recovers the OCaml value.
     Model,
     /// A regular struct / tagged union: a typed `Ctypes.ptr` to the C bytes.
     TypedPtr { typ_value: String, ocaml_type: String },
@@ -140,7 +141,7 @@ pub fn invoker_arg(arg: &FunctionArg, ir: &CodegenIR) -> InvokerArg {
 /// The OCaml type of one closure parameter.
 pub fn invoker_arg_type(a: &InvokerArg) -> String {
     match a {
-        InvokerArg::Model => "'m".to_string(),
+        InvokerArg::Model => "ref_any".to_string(),
         InvokerArg::TypedPtr { ocaml_type, .. } => ocaml_type.clone(),
         InvokerArg::UnitEnum { module, .. } => format!("{}.t", module),
         InvokerArg::Opaque => "unit Ctypes.ptr".to_string(),
@@ -151,8 +152,7 @@ pub fn invoker_arg_type(a: &InvokerArg) -> String {
 fn invoker_arg_expr(a: &InvokerArg, i: usize) -> String {
     match a {
         InvokerArg::Model => format!(
-            "(match azul_refany_get (Ctypes.from_voidp az_ref_any arg{}) with | Some x -> x | None \
-             -> failwith \"RefAny carries no OCaml host value\")",
+            "(make_ref_any (ffi_az_ref_any_clone (Ctypes.from_voidp az_ref_any arg{})))",
             i
         ),
         InvokerArg::TypedPtr { typ_value, .. } => {
@@ -219,7 +219,7 @@ pub fn invoker_ret_type(r: &InvokerRet) -> String {
 
 /// The exact OCaml type of a host closure for `cb`, as the invoker calls it
 /// and as `azul_register_<kind>` / `azul_<class>_with_layout` demand it:
-/// `'m -> az_callback_info Ctypes.structure Ctypes.ptr -> Update.t`.
+/// `ref_any -> az_callback_info Ctypes.structure Ctypes.ptr -> Update.t`.
 pub fn closure_signature(cb: &CallbackTypedefDef, ir: &CodegenIR) -> String {
     let mut parts: Vec<String> = cb
         .args
@@ -375,6 +375,30 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
     builder.line("  match Hashtbl.find_opt _azul_handles id with");
     builder.line("  | None -> None");
     builder.line("  | Some o -> Some (Obj.obj o)");
+    builder.dedent();
+    builder.blank();
+
+    // RefAny.downcast's lookup: only a value RefAny.upcast stored (an
+    // exception value `K.Value v` of the key's local exception) is handed out.
+    // The table also holds callback closures and, for raw-path users, values
+    // of any type; everything that is not an exception-with-argument block
+    // reads as "not this type", so a stray RefAny can never be misread.
+    builder.line("(* Raised by RefAny.lift when a callback's RefAny holds another type; *)");
+    builder.line("(* the invoker logs it (through the callback's info when it can) and *)");
+    builder.line("(* leaves the engine's default result - Update.DoNothing, no DOM.    *)");
+    builder.line("exception Azul_downcast_failed of string");
+    builder.blank();
+    builder.line("(* The exception value RefAny.upcast stored under `refany`, if any. *)");
+    builder.line("let azul_refany_get_exn (refany : az_ref_any structure ptr) : exn option =");
+    builder.indent();
+    builder.line("let id = Unsigned.UInt64.to_int64 (_az_ref_any_get_host_handle refany) in");
+    builder.line("if Int64.equal id 0L then None");
+    builder.line("else");
+    builder.line("  match Hashtbl.find_opt _azul_handles id with");
+    builder.line("  | Some o when Obj.is_block o && Obj.tag o = 0 && Obj.size o >= 1");
+    builder.line("               && Obj.is_block (Obj.field o 0)");
+    builder.line("               && Obj.tag (Obj.field o 0) = Obj.object_tag -> Some (Obj.obj o : exn)");
+    builder.line("  | _ -> None");
     builder.dedent();
     builder.blank();
 
@@ -644,7 +668,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     }
     builder.line("match Hashtbl.find_opt _azul_handles (Unsigned.UInt64.to_int64 id) with");
     builder.line(&format!(
-        "| None -> Printf.eprintf \"[azul] {} invoker: unknown host handle %Ld\\n\" \
+        "| None -> Printf.eprintf \"[azul] {} invoker: unknown host handle %Ld\\n%!\" \
          (Unsigned.UInt64.to_int64 id)",
         wrapper
     ));
@@ -684,8 +708,35 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         }
     }
     builder.dedent();
+    // A failed RefAny.lift downcast is reported like every other binding
+    // reports it: `info.log(Error, "...")` on the first argument whose class
+    // has `log(level, message)` (CallbackInfo), else stderr.
+    let log_failure = cb
+        .args
+        .iter()
+        .enumerate()
+        .find_map(|(i, a)| {
+            let t = a.type_name.trim();
+            let f = ir.functions_for_class(t).find(|f| {
+                f.method_name == "log"
+                    && f.args.len() == 3
+                    && f.is_receiver_arg(&f.args[0])
+                    && f.args[2].type_name.trim() == "String"
+            })?;
+            let level = f.args[1].type_name.trim();
+            ir.find_enum(level)?.variants.iter().find(|v| v.name == "Error")?;
+            Some(format!(
+                "{} (Ctypes.from_voidp {} arg{}) ({m}.to_int {m}.Error) (azul_az_string msg)",
+                super::functions::ocaml_binding_name(&f.c_name),
+                ocaml_ffi_type_name(t),
+                i,
+                m = ocaml_module_name(level),
+            ))
+        })
+        .unwrap_or_else(|| "Printf.eprintf \"[azul][error] %s\\n%!\" msg".to_string());
+    builder.line(&format!("with Azul_downcast_failed msg -> {}", log_failure));
     builder.line(&format!(
-        "with e -> Printf.eprintf \"[azul] {} invoker error: %s\\n\" (Printexc.to_string e))",
+        "   | e -> Printf.eprintf \"[azul] {} invoker error: %s\\n%!\" (Printexc.to_string e))",
         wrapper
     ));
     builder.dedent();

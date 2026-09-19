@@ -23,8 +23,16 @@
 //!   builders per `smart_callback_setter_info`, typed by the callback's
 //!   typedef), `?<kind>` for a class matching `layout_callback_factory_info`,
 //!   `~<name>` for composite (struct / RefAny) constructor args — a lone
-//!   `RefAny` arg is the host model, `~model`, and is wrapped for the user —
+//!   `RefAny` arg is `~data`, the application's `RefAny.t` —
 //!   positional scalars, and a trailing `()` when nothing is positional.
+//! - **Callbacks** (`host_fn`): every argument whose type is a host-invoker
+//!   callback wrapper takes a plain OCaml function (a free function or a
+//!   closure); registration with the host invoker happens inside the method.
+//!   The function receives the data `RefAny` as a `RefAny.t` it may keep,
+//!   every other argument in its OCaml type (`CallbackInfo.t`, borrowed
+//!   records, decoded enums) and returns the typedef's OCaml return type.
+//! - **`RefAny.key` / `upcast` / `downcast`**: type-safe conversion between an
+//!   OCaml value and a `RefAny.t` (a per-type key; no `Obj.magic` for users).
 //!   When the class has a `dom()` conversion, `create` returns that `dom`.
 //! - **Tag helpers** (`TagHelper`): `create_<tag>()` on a class with
 //!   `with_child` becomes `<tag> ~children`; `create_<tag>_with_text(text)`
@@ -46,15 +54,15 @@ use super::{
             FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
         managed_host_invoker::{
-            callback_typedef_for, layout_callback_factory_info, smart_callback_setter_info,
-            wrapper_name,
+            callback_typedef_for, host_invoker_kinds, is_callback_wrapper,
+            layout_callback_factory_info, smart_callback_setter_info, wrapper_name,
         },
+        managed_lang_helpers::is_refany_type,
     },
     functions::ocaml_binding_name,
     inner_pointer_form_type,
     managed::{
-        callback_kind_label, invoker_arg, invoker_arg_type, layout_factory_fn_name,
-        register_fn_name, InvokerArg,
+        callback_kind_label, invoker_arg, layout_factory_fn_name, register_fn_name, InvokerArg,
     },
     map_type_to_ocaml_typ, ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name,
     sanitize_doc, sanitize_identifier, to_snake_case, unit_enum_module,
@@ -320,6 +328,18 @@ enum ArgPass {
     /// Owned wrapped struct: accept its record, pass `x.raw`, mark it
     /// `disposed` after the call (the C ABI moved the bytes).
     Record(String),
+    /// Owned `RefAny`: accept `ref_any`, pass a CLONE (the engine takes its
+    /// own reference), so the caller's value stays usable - the same `data`
+    /// can go to several widgets.
+    RefAny,
+    /// Owned host-invoker callback wrapper: accept the OCaml function
+    /// (`host_fn`), register it with the host invoker and pass the result.
+    HostFn {
+        register: String,
+        adapter: String,
+        /// `azul_register_<kind>` returns a record (consume it) or raw bytes.
+        returns_record: bool,
+    },
     /// Everything else: the Ctypes value as-is.
     Raw,
 }
@@ -365,8 +385,26 @@ impl ArgPlan {
         let t = a.type_name.trim();
         let (sig, pass, scalar) = match a.ref_kind {
             ArgRefKind::Owned => {
+                let host_kind = if is_callback_wrapper(t) {
+                    host_invoker_kinds(ir).find(|cb| wrapper_name(cb) == t)
+                } else {
+                    None
+                };
                 if t == "String" {
                     ("string".to_string(), ArgPass::String, true)
+                } else if is_refany_type(t, ir) {
+                    ("ref_any".to_string(), ArgPass::RefAny, false)
+                } else if let Some(cb) = host_kind {
+                    let (fn_sig, adapter) = host_fn(cb, ir, records);
+                    (
+                        format!("({})", fn_sig),
+                        ArgPass::HostFn {
+                            register: register_fn_name(t),
+                            adapter,
+                            returns_record: records.contains(t),
+                        },
+                        false,
+                    )
                 } else if records.contains(t) {
                     let r = ocaml_wrapper_type_name(t);
                     (r.clone(), ArgPass::Record(r), false)
@@ -392,6 +430,7 @@ impl ArgPlan {
     fn param(&self) -> String {
         match &self.pass {
             ArgPass::Record(r) => format!("({} : {})", self.id, r),
+            ArgPass::RefAny => format!("({} : ref_any)", self.id),
             _ => self.id.clone(),
         }
     }
@@ -402,6 +441,19 @@ impl ArgPlan {
             ArgPass::String => format!("(azul_az_string {})", self.id),
             ArgPass::UnitEnum(m) => format!("({}.to_int {})", m, self.id),
             ArgPass::Record(_) => format!("{}.raw", self.id),
+            ArgPass::RefAny => format!("(ffi_az_ref_any_clone (Ctypes.addr {}.raw))", self.id),
+            ArgPass::HostFn {
+                register,
+                adapter,
+                returns_record,
+            } => {
+                let reg = format!("(let __f = {} in {} {})", self.id, register, adapter);
+                if *returns_record {
+                    format!("(let __cb = {} in __cb.disposed <- true; __cb.raw)", reg)
+                } else {
+                    reg
+                }
+            }
             ArgPass::Raw => self.id.clone(),
         }
     }
@@ -625,22 +677,17 @@ enum BaseCtor {
 enum CtorArg {
     Positional(ArgPlan),
     Labelled(ArgPlan),
-    /// The lone `RefAny` of the constructor: the host model, wrapped for the
-    /// caller.
+    /// The lone `RefAny` of the constructor: `~data`, the caller's
+    /// `RefAny.t` (cloned into the call).
     Model { label: String },
 }
 
 enum OptionKind {
     /// `?label:<sig>` -> `<method> __obj v`.
     Value { method: String, sig: String },
-    /// `?label:<closure_sig>` -> `<method> __obj (azul_refany_create ())
-    /// (<register> <adapter>)`.
-    Callback {
-        method: String,
-        closure_sig: String,
-        adapter: String,
-        register: String,
-    },
+    /// `?label:(data, fn)` -> `<method> __obj data fn`: the method's
+    /// callback argument already takes the OCaml function (`host_fn`).
+    Callback { method: String, fn_sig: String },
 }
 
 struct CtorOption {
@@ -686,85 +733,58 @@ fn is_base_constructor(func: &FunctionDef, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
-/// The host closure of a `with_<x>(self, data: RefAny, cb)` builder. The
-/// constructor supplies the `RefAny` itself (a unit), so the closure never
-/// sees it. For the standard `(data, info)` pair with a unit-enum return the
-/// info is dropped too: `unit -> Update.t`. Every other kind gets its real
-/// typed argument list (the invoker's view, minus the RefAny) and return.
-fn setter_closure(cb: &CallbackTypedefDef, ir: &CodegenIR, records: &BTreeSet<&str>) -> (String, String) {
-    let args: Vec<InvokerArg> = cb.args.iter().map(|a| invoker_arg(a, ir)).collect();
+/// A host-invoker callback kind as the OCaml user writes it, and the
+/// trampoline (`adapter`, a function of `__f`, the user's function) that turns
+/// it into the low-level closure `azul_register_<kind>` / the layout factory
+/// call. Every argument arrives in its OCaml type: the data `RefAny` as the
+/// `ref_any` clone the invoker made (keepable), structs as their OCaml value
+/// (`CallbackInfo.t` is the structure itself), records borrowed (`disposed`
+/// set, so no finaliser ever deletes engine memory), unit enums decoded. The
+/// return is the typedef's OCaml type, converted back by `RetPlan::to_raw`.
+fn host_fn(cb: &CallbackTypedefDef, ir: &CodegenIR, records: &BTreeSet<&str>) -> (String, String) {
     let ret = RetPlan::build(cb.return_type.as_deref(), ir, records);
-    let standard_pair = args.len() == 2 && matches!(args[0], InvokerArg::Model);
-    if standard_pair && matches!(ret, RetPlan::UnitEnum(_)) {
-        return (
-            format!("unit -> {}", ret.sig()),
-            "(fun _ _ -> __f ())".to_string(),
-        );
-    }
     let mut params: Vec<String> = Vec::new();
-    let mut names: Vec<String> = Vec::new();
+    let mut user_args: Vec<String> = Vec::new();
     let mut sig: Vec<String> = Vec::new();
-    for (i, a) in args.iter().enumerate() {
-        if matches!(a, InvokerArg::Model) {
-            params.push("_".to_string());
-            continue;
-        }
-        let n = format!("__a{}", i);
-        params.push(n.clone());
-        names.push(n);
-        sig.push(invoker_arg_type(a));
-    }
-    if names.is_empty() {
-        names.push("()".to_string());
-        sig.push("unit".to_string());
-    }
-    if params.is_empty() {
-        params.push("()".to_string());
-    }
-    sig.push(ret.sig());
-    let call = ret.to_raw(&format!("__f {}", names.join(" ")));
-    (
-        sig.join(" -> "),
-        format!("(fun {} -> {})", params.join(" "), call),
-    )
-}
-
-/// The host closure of a layout-callback factory: it receives the app model
-/// (`'m`, the `RefAny` `App.create ~model` wrapped) and returns the DOM. For
-/// the standard `(data, info)` pair the info is dropped: `'m -> dom`; extra
-/// payload args, if any, are passed typed.
-fn layout_closure(cb: &CallbackTypedefDef, ir: &CodegenIR, records: &BTreeSet<&str>) -> (String, String) {
-    let args: Vec<InvokerArg> = cb.args.iter().map(|a| invoker_arg(a, ir)).collect();
-    let ret = RetPlan::build(cb.return_type.as_deref(), ir, records);
-    let drop_info = args.len() == 2 && matches!(args[0], InvokerArg::Model);
-    let mut params: Vec<String> = Vec::new();
-    let mut names: Vec<String> = Vec::new();
-    let mut sig: Vec<String> = Vec::new();
-    for (i, a) in args.iter().enumerate() {
-        match a {
+    for (i, a) in cb.args.iter().enumerate() {
+        let v = format!("__a{}", i);
+        params.push(v.clone());
+        match invoker_arg(a, ir) {
             InvokerArg::Model => {
-                params.push("__m".to_string());
-                names.push("__m".to_string());
-                sig.push("'m".to_string());
+                user_args.push(v);
+                sig.push("ref_any".to_string());
             }
-            _ if drop_info => params.push("_".to_string()),
-            _ => {
-                let n = format!("__a{}", i);
-                params.push(n.clone());
-                names.push(n);
-                sig.push(invoker_arg_type(a));
+            InvokerArg::TypedPtr { typ_value, .. } => {
+                let t = a.type_name.trim();
+                if records.contains(t) {
+                    let r = ocaml_wrapper_type_name(t);
+                    user_args.push(format!(
+                        "({{ raw = Ctypes.(!@) {}; disposed = true }} : {})",
+                        v, r
+                    ));
+                    sig.push(r);
+                } else {
+                    user_args.push(format!("(Ctypes.(!@) {})", v));
+                    sig.push(format!("{} Ctypes.structure", typ_value));
+                }
+            }
+            InvokerArg::UnitEnum { module, .. } => {
+                user_args.push(v);
+                sig.push(format!("{}.t", module));
+            }
+            InvokerArg::Opaque => {
+                user_args.push(v);
+                sig.push("unit Ctypes.ptr".to_string());
             }
         }
     }
-    if names.is_empty() {
-        names.push("()".to_string());
-        sig.push("unit".to_string());
-    }
     if params.is_empty() {
         params.push("()".to_string());
+        user_args.push("()".to_string());
+        sig.push("unit".to_string());
     }
     sig.push(ret.sig());
-    let call = ret.to_raw(&format!("__f {}", names.join(" ")));
+    let call = ret.to_raw(&format!("__f {}", user_args.join(" ")));
     (
         sig.join(" -> "),
         format!("(fun {} -> {})", params.join(" "), call),
@@ -792,18 +812,16 @@ fn builder_option(
     let label = sanitize_identifier(&to_snake_case(raw_label));
     let method = method_emission_name(f, ir);
     if let Some((_, wrapper)) = smart_callback_setter_info(f) {
-        let cb = ir
-            .callback_typedefs
-            .iter()
-            .find(|c| c.name == callback_typedef_for(&wrapper))?;
-        let (closure_sig, adapter) = setter_closure(cb, ir, records);
+        let cb_arg = f.args.iter().find(|a| a.type_name.trim() == wrapper)?;
+        let plan = ArgPlan::build(cb_arg, ir, records);
+        if !matches!(plan.pass, ArgPass::HostFn { .. }) {
+            return None;
+        }
         return Some(CtorOption {
             label,
             kind: OptionKind::Callback {
                 method,
-                closure_sig,
-                adapter,
-                register: register_fn_name(&wrapper),
+                fn_sig: plan.sig,
             },
         });
     }
@@ -863,7 +881,7 @@ impl SmartCtor {
                     label = sanitize_identifier(&to_snake_case(&base_func.args[0].name));
                 }
                 used.insert(label.clone());
-                let (closure_sig, adapter) = layout_closure(cb, ir, records);
+                let (closure_sig, adapter) = host_fn(cb, ir, records);
                 BaseCtor::Layout {
                     label,
                     closure_sig,
@@ -883,7 +901,7 @@ impl SmartCtor {
                 for a in &base_func.args {
                     if a.type_name.trim() == "RefAny" && matches!(a.ref_kind, ArgRefKind::Owned) {
                         let label = if refany_count == 1 {
-                            "model".to_string()
+                            "data".to_string()
                         } else {
                             sanitize_identifier(&to_snake_case(&a.name))
                         };
@@ -947,15 +965,15 @@ impl SmartCtor {
         for o in &self.options {
             match &o.kind {
                 OptionKind::Value { sig, .. } => atoms.push(format!("?{}:{}", o.label, sig)),
-                OptionKind::Callback { closure_sig, .. } => {
-                    atoms.push(format!("?{}:({})", o.label, closure_sig))
+                OptionKind::Callback { fn_sig, .. } => {
+                    atoms.push(format!("?{}:(ref_any * {})", o.label, fn_sig))
                 }
             }
         }
         for a in &self.args {
             match a {
                 CtorArg::Labelled(p) => atoms.push(format!("{}:{}", p.id, p.sig)),
-                CtorArg::Model { label } => atoms.push(format!("{}:'a", label)),
+                CtorArg::Model { label } => atoms.push(format!("{}:ref_any", label)),
                 CtorArg::Positional(_) => {}
             }
         }
@@ -981,7 +999,7 @@ impl SmartCtor {
         for a in &self.args {
             match a {
                 CtorArg::Labelled(p) => params.push(format!("~{}", p.id)),
-                CtorArg::Model { label } => params.push(format!("~{}", label)),
+                CtorArg::Model { label } => params.push(format!("~({} : ref_any)", label)),
                 CtorArg::Positional(_) => {}
             }
         }
@@ -1006,7 +1024,8 @@ impl SmartCtor {
                     .iter()
                     .map(|a| match a {
                         CtorArg::Positional(p) | CtorArg::Labelled(p) => p.id.clone(),
-                        CtorArg::Model { label } => format!("(azul_refany_create {})", label),
+                        // create_raw's RefAny parameter clones it itself.
+                        CtorArg::Model { label } => label.clone(),
                     })
                     .collect();
                 if call_args.is_empty() {
@@ -1038,15 +1057,10 @@ impl SmartCtor {
                     "let __obj = (match {} with | Some __v -> {} __obj __v | None -> __obj) in",
                     o.label, method
                 )),
-                OptionKind::Callback {
-                    method,
-                    adapter,
-                    register,
-                    ..
-                } => builder.line(&format!(
-                    "let __obj = (match {} with | Some __f -> {} __obj (azul_refany_create ()) \
-                     ({} {}) | None -> __obj) in",
-                    o.label, method, register, adapter
+                OptionKind::Callback { method, .. } => builder.line(&format!(
+                    "let __obj = (match {} with | Some (__d, __f) -> {} __obj __d __f \
+                     | None -> __obj) in",
+                    o.label, method
                 )),
             }
         }
@@ -1057,6 +1071,60 @@ impl SmartCtor {
         builder.dedent();
     }
 }
+
+// ----------------------------------------------------------------------------
+// RefAny <-> OCaml value
+// ----------------------------------------------------------------------------
+
+/// Added to the `RefAny` class module (the IR type with `TypeCategory::RefAny`).
+/// A `'a key` is a local exception constructor: `upcast` stores `K.Value v`
+/// behind the RefAny's host handle, `downcast` matches it back. Distinct keys
+/// never match each other, so a downcast with the wrong key is `None` - the
+/// OCaml counterpart of `RefAny::downcast_ref::<T>()` - and needs no
+/// `Obj.magic` in user code. Works on every OCaml the package supports (4.14+).
+const REFANY_INTERFACE: &str = "\
+(* A type witness for 'a: create one per model type, named for error messages. *)
+type 'a key
+val key : string -> 'a key
+(* OCaml value -> RefAny (the engine keeps it alive until the last clone drops). *)
+val upcast : 'a key -> 'a -> t
+(* RefAny -> OCaml value; [None] if it holds a value of another key. *)
+val downcast : 'a key -> t -> 'a option
+(* A callback over the typed value: the RefAny is downcast before [f] runs. On a *)
+(* mismatch [f] does not run; the error goes to the callback's info.log (Error) *)
+(* and the engine keeps its default result (Update.DoNothing, no DOM). *)
+val lift : 'a key -> ('a -> 'rest) -> t -> 'rest
+(* [upcast] + [lift]: the (data, callback) pair every ~on_<event> option takes. *)
+val bind : 'a key -> 'a -> ('a -> 'rest) -> t * (t -> 'rest)";
+
+const REFANY_IMPLEMENTATION: &str = "\
+type 'a key = { name : string; inj : 'a -> exn; prj : exn -> 'a option }
+let key (type a) (name : string) : a key =
+    let module K = struct exception Value of string * a end in
+    { name; inj = (fun v -> K.Value (name, v)); prj = (function K.Value (_, v) -> Some v | _ -> None) }
+let upcast (k : 'a key) (v : 'a) : t = azul_refany_create (k.inj v)
+let downcast (k : 'a key) (r : t) : 'a option =
+    match azul_refany_get_exn (Ctypes.addr r.raw) with
+    | Some e -> k.prj e
+    | None -> None
+(* The key name a RefAny's value was upcast with: field 1 of `K.Value (name, v)`. *)
+let upcast_name (r : t) : string option =
+    match azul_refany_get_exn (Ctypes.addr r.raw) with
+    | Some e ->
+        let o = Obj.repr e in
+        if Obj.size o >= 3 && Obj.is_block (Obj.field o 1) && Obj.tag (Obj.field o 1) = Obj.string_tag
+        then Some (Obj.obj (Obj.field o 1) : string) else None
+    | None -> None
+let lift (k : 'a key) (f : 'a -> 'rest) : t -> 'rest = fun r ->
+    match downcast k r with
+    | Some v -> f v
+    | None ->
+        let got = match upcast_name r with
+            | Some n -> n
+            | None -> \"a RefAny that RefAny.upcast did not create\" in
+        raise (Azul_downcast_failed
+            (Printf.sprintf \"RefAny downcast failed: expected %s, got %s\" k.name got))
+let bind (k : 'a key) (v : 'a) (f : 'a -> 'rest) : t * (t -> 'rest) = (upcast k v, lift k f)";
 
 // ----------------------------------------------------------------------------
 // Tag helpers (Dom-shaped classes)
@@ -1277,6 +1345,11 @@ impl<'a> ClassPlan<'a> {
         for t in &self.tags {
             builder.line(&t.signature());
         }
+        if is_refany_type(&s.name, ir) {
+            for l in REFANY_INTERFACE.lines() {
+                builder.line(l);
+            }
+        }
         // The `.mli` SEALS the module: the implementation defines these, and
         // without the `val` a consumer can reach none of them. Same
         // predicates both sides so the two cannot drift.
@@ -1349,6 +1422,11 @@ impl<'a> ClassPlan<'a> {
         }
         for t in &self.tags {
             builder.line(&t.implementation());
+        }
+        if is_refany_type(&s.name, ir) {
+            for l in REFANY_IMPLEMENTATION.lines() {
+                builder.line(l);
+            }
         }
 
         emit_ocaml_eq_hash_if_supported(builder, s, ir, self.has_wrapper);
