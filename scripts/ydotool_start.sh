@@ -5,14 +5,18 @@
 # state and never run the platform's own input handlers.
 #
 #   ./scripts/ydotool_start.sh          # start the daemon, fix the socket, self-test
+#   ./scripts/ydotool_start.sh restart  # stop, then start
 #   ./scripts/ydotool_start.sh stop     # stop it again
 #
-# Afterwards, in the shell that drives the tests:
-#   export YDOTOOL_SOCKET=/tmp/.ydotool_socket
-#   ydotool mousemove --absolute -x 960 -y 540
-#   ydotool click 0xC0                  # left click (0x40 press, 0x80 release, 0xC1 right)
+# Afterwards (ydotool 0.1.x syntax - the version Ubuntu/Mint ship):
+#   ydotool mousemove -- -10000 -10000  # relative; a big negative move parks it top-left
+#   ydotool mousemove 960 540           # ... so this lands on (960, 540)
+#   ydotool click 1                     # 1 left, 2 right, 3 middle (press + release)
 #   ydotool type --key-delay 20 'text'
-#   ydotool key 1:1 1:0                 # Escape (evdev code 1, press then release)
+#   ydotool key Esc                     # key names, combos as ctrl+a
+# The 0.1.x CLI cannot HOLD a button, so it cannot drag. The daemon itself
+# replays any `struct input_event` a client writes to its socket, which can:
+# scripts/ydotool_input.py speaks that directly (down / move / up / wheel).
 #
 # Why a script: /dev/uinput is root-only, so the daemon needs sudo; the socket
 # it creates is root-only by default (0600), so clients fail with "backend
@@ -20,6 +24,12 @@
 # daemon started with a trailing `&` from an interactive helper dies with that
 # shell, leaving a STALE socket file behind that looks alive but is not.
 # `systemd-run` keeps it alive as a transient unit instead.
+#
+# THE POINTER: KWin applies the pointer ACCELERATION profile to the virtual
+# device like to any mouse, so a relative move of N pixels lands anywhere
+# but N pixels away - one large "go to (x, y)" jump pins the cursor in a
+# screen corner. The script gives THAT device a flat profile at neutral
+# speed (1:1); the real mouse keeps its settings.
 set -u
 
 SOCKET=/tmp/.ydotool_socket
@@ -30,12 +40,17 @@ if ! command -v ydotoold >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ "${1:-}" = "stop" ]; then
+stop_daemon() {
     sudo systemctl stop "$UNIT.service" 2>/dev/null
+    sudo pkill -x ydotoold 2>/dev/null
     sudo rm -f "$SOCKET"
     echo "ydotoold stopped"
-    exit 0
-fi
+}
+
+case "${1:-}" in
+    stop) stop_daemon; exit 0 ;;
+    restart) stop_daemon ;;
+esac
 
 alive() { pgrep -x ydotoold >/dev/null 2>&1; }
 
@@ -60,9 +75,23 @@ fi
 [ "$(stat -c %a "$SOCKET")" = "666" ] || sudo chmod 666 "$SOCKET"
 
 export YDOTOOL_SOCKET="$SOCKET"
-if ydotool mousemove -x 0 -y 0 2>&1 | grep -q 'backend unavailable'; then
+if ! ydotool mousemove 0 0 2>&1 | grep -q 'Using ydotoold backend'; then
     echo "the client still cannot reach the daemon (socket $SOCKET)" >&2
     exit 1
 fi
 echo "ydotoold running (unit $UNIT), socket $SOCKET is $(stat -c %a "$SOCKET")"
+# Flat acceleration for the virtual device (see THE POINTER above).
+dev=$(grep -l 'ydotoold virtual device' /sys/class/input/event*/device/name 2>/dev/null | head -1)
+if [ -n "$dev" ]; then
+    kdev=/org/kde/KWin/InputDevice/$(basename "$(dirname "$(dirname "$dev")")")
+    if busctl --user introspect org.kde.KWin "$kdev" >/dev/null 2>&1; then
+        busctl --user set-property org.kde.KWin "$kdev" org.kde.KWin.InputDevice \
+            pointerAccelerationProfileFlat b true
+        busctl --user set-property org.kde.KWin "$kdev" org.kde.KWin.InputDevice \
+            pointerAcceleration d 0
+        echo "pointer: flat 1:1 acceleration on $kdev"
+    else
+        echo "pointer: not KWin - check that the compositor does not accelerate the virtual device" >&2
+    fi
+fi
 echo "export YDOTOOL_SOCKET=$SOCKET"
