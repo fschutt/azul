@@ -2465,12 +2465,8 @@ impl WaylandWindow {
                     // client_side (compositor draws nothing); everything
                     // else requests server_side. client_side=1, server_side=2.
                     let flags = &window.common.current_window_state().flags;
-                    let wants_csd = crate::desktop::csd::should_inject_csd(
-                        flags.has_decorations,
-                        flags.decorations,
-                    );
-                    let frameless = flags.decorations == azul_core::window::WindowDecorations::None;
-                    let mode: u32 = if wants_csd || frameless { 1 } else { 2 };
+                    let mode: u32 =
+                        xdg_decoration_mode(flags.has_decorations, flags.decorations);
                     // set_mode: opcode 1, signature "u".
                     type SetModeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32);
                     let set_mode_fn: SetModeFn =
@@ -11192,6 +11188,51 @@ fn measure_popup_content(
         fallback.height
     );
     Some(measured)
+}
+
+/// The `zxdg_toplevel_decoration_v1` mode a window asks for: `1` =
+/// client-side (the compositor draws nothing), `2` = server-side.
+///
+/// A compositor's decoration is all or nothing: there is no "frame without a
+/// title" the way X11's Motif hints (`NoTitle` -> border only) or macOS's
+/// hidden title (`NoTitle` -> traffic lights over the app's own content) can
+/// express. So every mode in which the APP draws its own title row asks for
+/// client-side, and only `Normal` (and the auto-injected titlebar, which
+/// X11 also maps to full WM decorations) leaves the frame to the compositor.
+/// Asking for server-side under `NoTitle` put KWin's full title bar above
+/// the app's own: a double titlebar.
+fn xdg_decoration_mode(
+    has_decorations: bool,
+    decorations: azul_core::window::WindowDecorations,
+) -> u32 {
+    use azul_core::window::WindowDecorations as D;
+    let wants_csd = crate::desktop::csd::should_inject_csd(has_decorations, decorations);
+    if wants_csd || matches!(decorations, D::None | D::NoTitle | D::NoControls) {
+        1
+    } else {
+        2
+    }
+}
+
+#[cfg(test)]
+mod decoration_mode_tests {
+    use azul_core::window::WindowDecorations as D;
+
+    use super::xdg_decoration_mode;
+
+    #[test]
+    fn only_a_normal_frame_is_left_to_the_compositor() {
+        assert_eq!(xdg_decoration_mode(true, D::Normal), 2);
+        assert_eq!(xdg_decoration_mode(true, D::NoTitleAutoInject), 2);
+    }
+
+    #[test]
+    fn a_window_that_draws_its_own_title_asks_for_client_side() {
+        assert_eq!(xdg_decoration_mode(true, D::NoTitle), 1, "the app draws the title");
+        assert_eq!(xdg_decoration_mode(true, D::NoControls), 1);
+        assert_eq!(xdg_decoration_mode(true, D::None), 1, "frameless");
+        assert_eq!(xdg_decoration_mode(false, D::None), 1);
+    }
 }
 
 /// xdg_popup configure callback
