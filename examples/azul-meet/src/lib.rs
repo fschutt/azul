@@ -2,15 +2,15 @@ use azul::{
     app::RendererOptions,
     audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame},
     callbacks::{
-        CallbackInfo, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
+        CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
     },
     camera::CameraConfig,
     css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
-    dom::{Callback, DomNodeId, NodeId, OnAudioFrameCallback, OnConsumerFrameCallback},
+    dom::{Callback, DomNodeId, NodeId},
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     iroh::{IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohRelayMode},
-    option::{OptionRefAny, OptionRendererOptions, OptionString},
+    option::{OptionRendererOptions, OptionString},
     prelude::*,
     screen::ScreenCaptureConfig,
     str::String as AzString,
@@ -205,13 +205,6 @@ fn feed_consumer(track: u32) -> FrameConsumer {
     FrameConsumer::create(track, FEED_W, FEED_H)
 }
 
-fn feed_callback() -> OnConsumerFrameCallback {
-    OnConsumerFrameCallback {
-        cb: send_feed_frame,
-        callable: OptionRefAny::None,
-    }
-}
-
 struct LayoutSnapshot {
     link: String,
     name: String,
@@ -271,7 +264,7 @@ fn meet_layout(mut data: RefAny) -> Dom {
         Dom::create_div().with_css(TILE).with_child(
             CameraWidget::create(CameraConfig::default())
                 .with_consumer(feed_consumer(CAMERA_TRACK))
-                .with_on_consumer_frame(data.clone(), feed_callback())
+                .with_on_consumer_frame(data.clone(), send_feed_frame)
                 .dom()
                 .with_css("width: 100%; height: 100%;"),
         )
@@ -291,7 +284,7 @@ fn meet_layout(mut data: RefAny) -> Dom {
             Dom::create_div().with_css(TILE).with_child(
                 ScreenCaptureWidget::create(ScreenCaptureConfig::default())
                     .with_consumer(feed_consumer(SCREEN_TRACK))
-                    .with_on_consumer_frame(data.clone(), feed_callback())
+                    .with_on_consumer_frame(data.clone(), send_feed_frame)
                     .dom()
                     .with_css("width: 100%; height: 100%;"),
             ),
@@ -396,10 +389,7 @@ fn meet_layout(mut data: RefAny) -> Dom {
             })
             .with_on_frame(
                 data.clone(),
-                OnAudioFrameCallback {
-                    cb: mic_on_frame,
-                    callable: OptionRefAny::None,
-                },
+                mic_on_frame,
             )
             .dom()
             .with_css("width: 1px; height: 1px; overflow: hidden;"),
@@ -615,10 +605,7 @@ fn start_pumping(data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
         TimerId::unique(),
         Timer::create(
             peer,
-            TimerCallback {
-                cb: pump_link,
-                ctx: OptionRefAny::None,
-            },
+            pump_link,
             get_time,
         )
         .with_interval(Duration::System(SystemTimeDiff::from_millis(PUMP_MS))),

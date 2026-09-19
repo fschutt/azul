@@ -61,7 +61,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!m) return AzDom_createBody();
     AzMapViewport viewport = m->viewport;
 
-    MapTileLayer layer = MapTileLayer::default_();
+    MapTileLayer layer = MapTileLayer::createDefault();
     String credit(AzString_clone(&layer.inner().attribution));
 
     MapWidget widget = MapWidget::create(layer);
@@ -106,7 +106,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 int main() {
     MapState model = {
-        MapViewport::default_().release(),
+        MapViewport::createDefault().release(),
         HttpClient::create(HttpClientConfig::create()),
         ThreadPool::create(4)
     };

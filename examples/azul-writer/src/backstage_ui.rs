@@ -1,8 +1,7 @@
 use azul::{
-    callbacks::{BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, RefAny},
+    callbacks::{ButtonOnClickCallbackType, RefAny},
     css::{EventFilter, HoverEventFilter, SystemStyle},
-    dom::{BackstageOnNavSelectCallback, Dom},
-    option::OptionRefAny,
+    dom::Dom,
     str::String as AzString,
     widgets::{Backstage, Button, QuickAccessAction, QuickAccessBar, QuickAccessStyle},
 };
@@ -321,10 +320,7 @@ pub fn backstage_screen(state: &AppState, data: &RefAny, pal: &Palette, sys: &Sy
         .with_active_item(state.backstage_pane)
         .with_on_nav_select(
             data.clone(),
-            BackstageOnNavSelectCallback {
-                cb: crate::on_backstage_nav as BackstageOnNavSelectCallbackType,
-                callable: OptionRefAny::None,
-            },
+            crate::on_backstage_nav,
         )
         .with_on_back(
             data.clone(),

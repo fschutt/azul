@@ -1,4 +1,4 @@
-use azul::{option::OptionRefAny, prelude::*, task::TerminateTimer};
+use azul::{prelude::*, task::TerminateTimer};
 
 struct AnimState {
     frame: u64,
@@ -65,10 +65,7 @@ extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
         TimerId::unique(),
         Timer::create(
             data.clone(),
-            TimerCallback {
-                cb: tick,
-                ctx: OptionRefAny::None,
-            },
+            tick,
             info.get_system_time_fn(),
         ),
     );

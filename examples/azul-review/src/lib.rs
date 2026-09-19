@@ -263,10 +263,7 @@ fn arm_idle_timer(info: &mut CallbackInfo, data: RefAny, id: TimerId) {
     info.remove_timer(id);
     let timer = Timer::create(
         data,
-        TimerCallback {
-            cb: on_annotation_idle,
-            ctx: OptionRefAny::None,
-        },
+        on_annotation_idle,
         info.get_system_time_fn(),
     )
     .with_delay(Duration::System(SystemTimeDiff::from_millis(

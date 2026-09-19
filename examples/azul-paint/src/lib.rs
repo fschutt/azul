@@ -1,8 +1,8 @@
 use azul::{
-    callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo},
+    callbacks::{CallbackType, RenderImageCallbackInfo},
     css::PhysicalSizeU32,
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
-    dom::{DatasetMergeCallback, RenderImageCallback},
+    dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
     file::FileReadBytesResult,
     gl::{GlContextPtr, Texture},
@@ -1032,9 +1032,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     .with_css(CANVAS)
     .with_marker(azul::option::OptionString::Some(canvas_marker.as_str().into()))
     .with_dataset(OptionRefAny::Some(cache))
-    .with_merge_callback(DatasetMergeCallback::from(
-        merge_cache as DatasetMergeCallbackType,
-    ))
+    .with_merge_callback(merge_cache)
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
         data.clone(),

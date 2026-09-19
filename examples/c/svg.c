@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     printf("Read %ld bytes from %s\n", file_size, svg_path);
 
     AzU8VecRef svg_ref = { .ptr = svg_bytes, .len = (size_t)file_size };
-    AzSvgParseOptions opts = AzSvgParseOptions_default();
+    AzSvgParseOptions opts = AzSvgParseOptions_createDefault();
     AzResultParsedSvgSvgParseError result = AzParsedSvg_fromBytes(svg_ref, opts);
 
     const AzParsedSvg* parsed;
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     }
     printf("SVG parsed successfully\n");
 
-    AzSvgRenderOptions render_opts = AzSvgRenderOptions_default();
+    AzSvgRenderOptions render_opts = AzSvgRenderOptions_createDefault();
     AzLayoutSize target_size = { .width = 900.0f, .height = 900.0f };
     render_opts.target_size.Some = (AzOptionLayoutSizeVariant_Some){
         .tag = AzOptionLayoutSize_Tag_Some,
