@@ -8319,9 +8319,12 @@ where
         }
 
         // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
-        // context z-index:auto on position:absolute does NOT establish stacking context
-        if position == LayoutPosition::Absolute {
-            return !z_auto;
+        // context BY THEIR Z-INDEX. They still form one for every other reason below
+        // (opacity < 1, a transform): returning here for `z-index: auto` skipped those
+        // checks, so an absolutely positioned element with `opacity: 0` painted fully
+        // opaque (the Tooltip widget's hidden tip was always visible).
+        if position == LayoutPosition::Absolute && !z_auto {
+            return true;
         }
 
         // position:relative with explicit z-index integer establishes stacking context

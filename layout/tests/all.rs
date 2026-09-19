@@ -300,6 +300,8 @@ mod session_regression;
 mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
+#[path = "static_opacity_paints.rs"]
+mod static_opacity_paints;
 #[path = "subtree_relayout.rs"]
 mod subtree_relayout;
 #[path = "svg_paint.rs"]
