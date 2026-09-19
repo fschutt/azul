@@ -32,8 +32,9 @@
 //!
 //!   * Build: the Go toolchain (Go 1.18+, generics). `CGO_ENABLED` is
 //!     irrelevant.
-//!   * Run: `libazul.dylib` / `libazul.so` / `azul.dll` next to the
-//!     executable, in the working directory, or on the loader path
+//!   * Run: `libazul.dylib` / `libazul.so` / `azul.dll` (or the release's
+//!     platform-suffixed download name, e.g. `libazul.x86_64.dylib`) next to
+//!     the executable, in the working directory, or on the loader path
 //!     (`LoadLibrary("")`), or at an explicit path (`LoadLibrary(path)`).
 //!
 //! # Output protocol
@@ -170,7 +171,8 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
         "// on the running platform: lib{n}.dylib (macOS), {n}.dll (Windows), lib{n}.so",
         n = LIB_NAME
     ));
-    b.line("// (everything else).");
+    b.line("// (everything else). LoadLibrary also accepts the release's platform-suffixed");
+    b.line("// download names, see LibraryFileNames.");
     b.line("func LibraryFileName() string {");
     b.line("    switch runtime.GOOS {");
     b.line("    case \"darwin\", \"ios\":");
@@ -182,14 +184,62 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("    }");
     b.line("}");
     b.blank();
+    b.line("// LibraryFileNames lists every file name the native library may have on the");
+    b.line("// running platform, most specific first: the platform-suffixed name the");
+    b.line(&format!(
+        "// release publishes (lib{n}.x86_64.dylib, lib{n}.linux-aarch64.so, {n}.i686.dll,",
+        n = LIB_NAME
+    ));
+    b.line("// ...) and the canonical LibraryFileName(). LoadLibrary(\"\") accepts either, so");
+    b.line("// a download does not have to be renamed.");
+    b.line("func LibraryFileNames() []string {");
+    b.line("    return libraryFileNamesFor(runtime.GOOS, runtime.GOARCH)");
+    b.line("}");
+    b.blank();
+    b.line("// libraryFileNamesFor is LibraryFileNames for an explicit GOOS/GOARCH. The");
+    b.line("// names follow the release file list (azul-doc dllgen/deploy.rs) and the");
+    b.line("// Rust crate's build_link.rs.");
+    b.line("func libraryFileNamesFor(goos, goarch string) []string {");
+    b.line("    canonical := \"\"");
+    b.line("    specific := \"\"");
+    b.line("    switch goos {");
+    b.line("    case \"darwin\", \"ios\":");
+    b.line(&format!("        canonical = \"lib{}.dylib\"", LIB_NAME));
+    b.line("        if goos == \"darwin\" && goarch == \"amd64\" {");
+    b.line(&format!("            specific = \"lib{}.x86_64.dylib\"", LIB_NAME));
+    b.line("        }");
+    b.line("    case \"windows\":");
+    b.line(&format!("        canonical = \"{}.dll\"", LIB_NAME));
+    b.line("        if goarch == \"386\" {");
+    b.line(&format!("            specific = \"{}.i686.dll\"", LIB_NAME));
+    b.line("        }");
+    b.line("    default:");
+    b.line(&format!("        canonical = \"lib{}.so\"", LIB_NAME));
+    b.line("        if goos == \"linux\" {");
+    b.line("            suffix := map[string]string{");
+    b.line("                \"386\": \"linux-i686\", \"arm64\": \"linux-aarch64\", \"arm\": \"linux-armv7\",");
+    b.line("                \"ppc64\": \"linux-ppc64\", \"ppc64le\": \"linux-ppc64\", \"s390x\": \"linux-s390x\",");
+    b.line("                \"riscv64\": \"linux-riscv64\",");
+    b.line("            }[goarch]");
+    b.line("            if suffix != \"\" {");
+    b.line(&format!("                specific = \"lib{}.\" + suffix + \".so\"", LIB_NAME));
+    b.line("            }");
+    b.line("        }");
+    b.line("    }");
+    b.line("    if specific == \"\" {");
+    b.line("        return []string{canonical}");
+    b.line("    }");
+    b.line("    return []string{specific, canonical}");
+    b.line("}");
+    b.blank();
     b.line("// LoadLibrary loads the native library and wires the callback trampolines.");
     b.line("// Call it once, before anything else in this package; later calls are");
     b.line("// no-ops that return nil.");
     b.line("//");
-    b.line("// With an empty path, LibraryFileName() is searched in this order: the");
-    b.line("// directory of the running executable, the current working directory, and");
-    b.line("// the dynamic loader's own search path (DYLD_LIBRARY_PATH / LD_LIBRARY_PATH /");
-    b.line("// PATH). A non-empty path is opened as given (absolute, or relative to the");
+    b.line("// With an empty path, every name in LibraryFileNames() is searched in this");
+    b.line("// order: the directory of the running executable, the current working");
+    b.line("// directory, and the dynamic loader's own search path (DYLD_LIBRARY_PATH /");
+    b.line("// LD_LIBRARY_PATH / PATH). A non-empty path is opened as given (absolute, or relative to the");
     b.line("// working directory) - the place to unpack a //go:embed'ed library to.");
     b.line("// On failure the error lists every candidate that was tried and why it");
     b.line("// failed.");
@@ -203,14 +253,20 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("    if path != \"\" {");
     b.line("        candidates = []string{path}");
     b.line("    } else {");
-    b.line("        name := LibraryFileName()");
+    b.line("        names := LibraryFileNames()");
+    b.line("        var dirs []string");
     b.line("        if exe, err := os.Executable(); err == nil {");
-    b.line("            candidates = append(candidates, filepath.Join(filepath.Dir(exe), name))");
+    b.line("            dirs = append(dirs, filepath.Dir(exe))");
     b.line("        }");
-    b.line("        if cwd, err := os.Getwd(); err == nil {");
-    b.line("            candidates = append(candidates, filepath.Join(cwd, name))");
+    b.line("        if cwd, err := os.Getwd(); err == nil && (len(dirs) == 0 || dirs[0] != cwd) {");
+    b.line("            dirs = append(dirs, cwd)");
     b.line("        }");
-    b.line("        candidates = append(candidates, name)");
+    b.line("        for _, dir := range dirs {");
+    b.line("            for _, name := range names {");
+    b.line("                candidates = append(candidates, filepath.Join(dir, name))");
+    b.line("            }");
+    b.line("        }");
+    b.line("        candidates = append(candidates, names...)");
     b.line("    }");
     b.line("    var tried []string");
     b.line("    for _, candidate := range candidates {");
@@ -226,7 +282,7 @@ fn generate_azul_go(config: &CodegenConfig) -> Result<String> {
     b.line("        tried = append(tried, fmt.Sprintf(\"%s: %v\", candidate, err))");
     b.line("    }");
     b.line("    return fmt.Errorf(\"azul.LoadLibrary: could not load %s; tried:\\n  %s\",");
-    b.line("        LibraryFileName(), strings.Join(tried, \"\\n  \"))");
+    b.line("        strings.Join(LibraryFileNames(), \" or \"), strings.Join(tried, \"\\n  \"))");
     b.line("}");
     b.blank();
     b.line("// azRegister binds a purego function value (`fptr` is a pointer to it) to");
