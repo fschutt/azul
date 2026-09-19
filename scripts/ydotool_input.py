@@ -15,6 +15,8 @@ Usage:  ydotool_input.py <cmd> [args...] ...   (executed in order)
   reset                 move the pointer to the top-left corner (relative -10000,-10000)
   moveto X Y            absolute screen position (reset + relative move)
   move DX DY            relative move
+  at X Y                declare where the pointer IS (no motion) - for a path in a
+                        later invocation while a button is held
   down [left|right]     press and hold a mouse button
   up [left|right]       release it
   click [left|right]
@@ -91,6 +93,8 @@ def main(argv):
         elif c == "moveto":
             x, y = int(argv[i]), int(argv[i + 1]); i += 2
             d.move(-10000, -10000); d.move(x, y); pos = [x, y]
+        elif c == "at":
+            pos = [int(argv[i]), int(argv[i + 1])]; i += 2
         elif c == "move":
             dx, dy = int(argv[i]), int(argv[i + 1]); i += 2
             d.move(dx, dy)
