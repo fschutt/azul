@@ -5,7 +5,7 @@
 //! binding uses both halves of: `<c_name>` takes the bare function pointer
 //! typedef (what a plain `extern(C)` function's address is passed to), and
 //! `<c_name>Struct` takes the wrapper struct whole, which is how the idiomatic
-//! layer hands libazul a trampoline plus the `ctx` RefAny naming a D delegate.
+//! layer hands libazul a trampoline plus the `ctx` RefAny naming the D function.
 //!
 //! Every declaration is `nothrow @nogc`: libazul never throws D exceptions and
 //! never touches the D GC (callbacks re-enter D through trampolines that catch

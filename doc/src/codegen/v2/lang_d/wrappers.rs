@@ -18,13 +18,15 @@
 //!
 //! # Callbacks
 //!
-//! A callback parameter takes any callable with typed parameters (function,
-//! delegate, lambda). The C side is one non-capturing `extern(C)` trampoline per
-//! callback typedef (`azul.trampolines`); the callable travels, type-erased to a
-//! delegate over the C arguments, in a `RefAny` handle - in the callback's `ctx`
-//! (read back through the info type's `getCtx`) and/or in the data `RefAny`
-//! passed next to it. The data argument itself is any class object, handed back
-//! to the callable with its static type `T`.
+//! A callback parameter is a function pointer with the D parameter types
+//! (`Update function(T, CallbackInfo)`): the application passes a free function
+//! (`&onClick`), never a closure. The C side is one `extern(C)` trampoline per
+//! callback typedef (`azul.trampolines`). It finds an `_AzulFn` - the
+//! application's function plus `_azulInvoke_<Typedef>!T`, which downcasts the
+//! data `RefAny` to `T`, converts the other arguments and converts the result
+//! back to its C type - in the callback's `ctx` (read back through the info
+//! type's `getCtx`) and/or in the data `RefAny` passed next to it. The data
+//! argument itself is any class object, handed back with its static type `T`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -320,7 +322,7 @@ struct Param {
 enum CheckArg {
     /// A default-initialized local of this type.
     Local(String),
-    /// A lambda literal.
+    /// A function literal.
     Callable(String),
 }
 
@@ -547,7 +549,7 @@ impl Plan {
                     out.push(format!("{} __p{};", ty, i));
                     args.push(format!("__p{}", i));
                 }
-                CheckArg::Callable(lambda) => args.push(lambda.clone()),
+                CheckArg::Callable(literal) => args.push(literal.clone()),
             }
         }
         let call = match self.kind {
@@ -1591,7 +1593,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
 
         struct CbPlan {
             arg: usize,
-            closure: bool,
+            typed: bool,
             data_first: bool,
             carry_in_data: Option<usize>,
             ctx_usable: bool,
@@ -1612,21 +1614,21 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 ctx_arg && option_refany && (cb.wrapper.is_some() || layout_factory.is_some());
             let carry_in_data = (data_first && cb_args.len() == 1 && refany_args.len() == 1)
                 .then(|| refany_args[0]);
-            let closure = self.callback_convertible(td)
+            let typed = self.callback_convertible(td)
                 && (ctx_usable || carry_in_data.is_some())
                 && option_refany;
-            if closure && data_first {
+            if typed && data_first {
                 generic = true;
             }
             cplans.push(CbPlan {
                 arg: *i,
-                closure,
+                typed,
                 data_first,
-                carry_in_data: if closure { carry_in_data } else { None },
+                carry_in_data: if typed { carry_in_data } else { None },
                 ctx_usable,
             });
         }
-        let layout_factory = layout_factory.filter(|_| cplans.first().is_some_and(|p| p.closure));
+        let layout_factory = layout_factory.filter(|_| cplans.first().is_some_and(|p| p.typed));
 
         // The template parameter `T` (the application data's class): deduced
         // from the data argument when there is one, else from the callable.
@@ -1655,7 +1657,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
         let mut trampolines: Vec<String> = Vec::new();
         let mut used_names: BTreeSet<String> = BTreeSet::new();
         used_names.insert("self".to_string());
-        let mut t_from_callable = false;
+        let mut t_declared = false;
 
         for (i, a) in args.iter().enumerate() {
             let mut pname = member_name(&a.name);
@@ -1670,43 +1672,18 @@ impl<'m, 'a> Emitter<'m, 'a> {
             if let Some(plan) = cplans.iter().find(|p| p.arg == i) {
                 let cb = &cb_args.iter().find(|(j, _)| *j == i).unwrap().1;
                 let td = cb.td;
-                if plan.closure {
-                    let fparam = format!("F{}", i);
-                    let t_name = if plan.data_first && data_arg.is_none() && !t_from_callable {
-                        // T comes from the callable's first parameter.
-                        t_from_callable = true;
-                        tparams.push(fparam.clone());
-                        tparams.push(format!("T = Parameters!({})[0]", fparam));
-                        constraint.push(format!("isCallable!({})", fparam));
-                        constraint.push(format!(
-                            "Parameters!({}).length == {}",
-                            fparam,
-                            td.args.len()
-                        ));
+                if plan.typed {
+                    // The application passes a free function whose parameter
+                    // types are the D ones (`Update function(Counter,
+                    // CallbackInfo)`); `T`, the data class, is deduced from
+                    // the data argument or, without one, from the function.
+                    if plan.data_first && data_arg.is_none() && !t_declared {
+                        t_declared = true;
+                        tparams.push("T".to_string());
                         constraint.push("is(T == class)".to_string());
-                        "T"
-                    } else {
-                        tparams.push(fparam.clone());
-                        "T"
-                    };
-                    let (user_args, user_ret) = self.user_signature(td, plan.data_first)?;
-                    let inits: Vec<String> = user_args
-                        .iter()
-                        .map(|u| {
-                            if plan.data_first && u == t_name {
-                                "T.init".to_string()
-                            } else {
-                                format!("{}.init", u)
-                            }
-                        })
-                        .collect();
-                    let call = format!("{}.init({})", fparam, inits.join(", "));
-                    if user_ret == "void" {
-                        constraint.push(format!("is(typeof({}) == void)", call));
-                    } else {
-                        constraint.push(format!("is(typeof({}) : {})", call, user_ret));
                     }
-                    let lambda_params: Vec<String> = user_args
+                    let (user_args, user_ret) = self.user_signature(td, plan.data_first)?;
+                    let lit_params: Vec<String> = user_args
                         .iter()
                         .enumerate()
                         .map(|(j, u)| {
@@ -1718,23 +1695,31 @@ impl<'m, 'a> Emitter<'m, 'a> {
                             format!("{} __x{}", u, j)
                         })
                         .collect();
-                    let lambda = if user_ret == "void" {
-                        format!("({}) {{ }}", lambda_params.join(", "))
+                    let literal = if user_ret == "void" {
+                        format!("function void({}) {{ }}", lit_params.join(", "))
                     } else {
-                        format!("({}) => {}.init", lambda_params.join(", "), user_ret)
+                        format!(
+                            "function {}({}) {{ return {}.init; }}",
+                            user_ret,
+                            lit_params.join(", "),
+                            user_ret
+                        )
                     };
                     params.push(Param {
                         name: pname.clone(),
-                        ty: fparam.clone(),
-                        check: CheckArg::Callable(lambda),
+                        ty: format!("{} function({})", user_ret, user_args.join(", ")),
+                        check: CheckArg::Callable(literal),
                     });
-                    let dg = self.erased_type(td)?;
-                    pre.extend(self.erased_closure(
-                        td,
-                        &pname,
-                        &format!("__erased{}", i),
-                        plan.data_first,
-                    )?);
+                    let ifp = self.invoker_type(td)?;
+                    let invoker = if plan.data_first {
+                        format!("&_azulInvoke_{}!T", td.name)
+                    } else {
+                        format!("&_azulInvoke_{}", td.name)
+                    };
+                    pre.push(format!(
+                        "auto __fn{} = new _AzulFn!({})(cast(void*) {}, {});",
+                        i, ifp, pname, invoker
+                    ));
                     trampolines.push(td.name.clone());
                     let tramp = format!("&_azulTrampoline_{}", td.name);
                     match &cb.wrapper {
@@ -1748,10 +1733,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
                             ));
                             if plan.ctx_usable {
                                 body.push(format!(
-                                    "{}.{} = _wrap_OptionRefAny(_azulRefAny(null, new _AzulClosure!({})(__erased{})));",
+                                    "{}.{} = _wrap_OptionRefAny(_azulRefAny(null, __fn{}));",
                                     local,
                                     super::raw_identifier(ctx_field),
-                                    dg,
                                     i
                                 ));
                             } else {
@@ -1805,21 +1789,14 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     ty: "T".to_string(),
                     check: CheckArg::Local("_CheckData".to_string()),
                 });
-                let closure = cplans
+                let callback = cplans
                     .iter()
                     .find(|p| p.carry_in_data == Some(i))
-                    .map(|p| {
-                        let td = cb_args.iter().find(|(j, _)| *j == p.arg).unwrap().1.td;
-                        format!(
-                            "new _AzulClosure!({})(__erased{})",
-                            self.erased_type(td).unwrap_or_default(),
-                            p.arg
-                        )
-                    })
+                    .map(|p| format!("__fn{}", p.arg))
                     .unwrap_or_else(|| "null".to_string());
                 body.push(format!(
                     "AzRefAny {} = _azulRefAny({}, {});",
-                    local, pname, closure
+                    local, pname, callback
                 ));
                 call_args.push(local.clone());
                 continue;
@@ -2012,14 +1989,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 let ctx_field = callback_ctx_field(&fac.callback_wrapper, m.ir)
                     .unwrap_or_else(|| "ctx".to_string());
                 path.push(super::raw_identifier(&ctx_field));
-                let td = cb_args[0].1.td;
                 body.push(format!("auto __o = {}._own(__r);", dname));
                 body.push(format!("auto __ctx = &__o._ptr().{};", path.join(".")));
                 body.push("AzOptionRefAny_delete(__ctx);".to_string());
-                body.push(format!(
-                    "*__ctx = _wrap_OptionRefAny(_azulRefAny(null, new _AzulClosure!({})(__erased0)));",
-                    self.erased_type(td)?
-                ));
+                body.push("*__ctx = _wrap_OptionRefAny(_azulRefAny(null, __fn0));".to_string());
                 body.push("return __o;".to_string());
             } else {
                 body.push("return _own(__r);".to_string());
@@ -2210,73 +2183,77 @@ impl<'m, 'a> Emitter<'m, 'a> {
         Some((parts, self.cb_user_ret(td)?.0))
     }
 
-    /// `AzUpdate delegate(AzRefAny, AzCallbackInfo)`: what a trampoline calls.
-    fn erased_type(&self, td: &CallbackTypedefDef) -> Option<String> {
-        let args: Vec<String> = td
-            .args
-            .iter()
-            .map(|a| self.cb_c_arg(a))
-            .collect::<Option<_>>()?;
-        Some(format!(
-            "{} delegate({})",
-            self.cb_c_ret(td)?,
-            args.join(", ")
-        ))
+    /// `AzUpdate function(void*, AzRefAny, AzCallbackInfo)`: the invoker a
+    /// trampoline calls, with the application's function as the `void*`.
+    fn invoker_type(&self, td: &CallbackTypedefDef) -> Option<String> {
+        let mut args: Vec<String> = vec!["void*".to_string()];
+        for a in &td.args {
+            args.push(self.cb_c_arg(a)?);
+        }
+        Some(format!("{} function({})", self.cb_c_ret(td)?, args.join(", ")))
     }
 
-    /// The delegate the trampoline calls: C values in, the user's callable in
-    /// the middle, a C value out.
-    fn erased_closure(
-        &self,
-        td: &CallbackTypedefDef,
-        user: &str,
-        var: &str,
-        data_first: bool,
-    ) -> Option<Vec<String>> {
-        let mut out = Vec::new();
-        let params: Vec<String> = td
-            .args
-            .iter()
-            .enumerate()
-            .map(|(j, a)| Some(format!("{} __c{}", self.cb_c_arg(a)?, j)))
-            .collect::<Option<_>>()?;
-        let ret = self.cb_c_ret(td)?;
-        let cb = format!("__cb_{}", var.trim_start_matches('_'));
-        out.push(format!("auto {} = {};", cb, user));
-        out.push(format!(
-            "{} {} = delegate {}({}) {{",
-            self.erased_type(td)?,
-            var,
-            ret,
-            params.join(", ")
-        ));
+    /// `_azulInvoke_<Typedef>`: C values in, the application's function in the
+    /// middle, a C value out. A template over the data class `T` when the
+    /// callback's first argument is the data `RefAny`, which it downcasts.
+    fn emit_invoker(&self, w: &mut W, td: &CallbackTypedefDef, data_first: bool) -> Option<()> {
+        let mut params: Vec<String> = vec!["void* __user".to_string()];
+        for (j, a) in td.args.iter().enumerate() {
+            params.push(format!("{} __c{}", self.cb_c_arg(a)?, j));
+        }
+        let (user_args, user_ret) = self.user_signature(td, data_first)?;
+        let mut body: Vec<String> = vec![format!(
+            "auto __f = cast({} function({})) __user;",
+            user_ret,
+            user_args.join(", ")
+        )];
         let mut call = Vec::new();
         for j in 0..td.args.len() {
             if j == 0 && data_first {
-                out.push("    AzRefAny __p0 = __c0;".to_string());
-                out.push("    T __u0 = _azulObject!T(&__p0);".to_string());
+                body.push("AzRefAny __p0 = __c0;".to_string());
+                body.push("T __u0 = _azulObject!T(&__p0);".to_string());
             } else {
                 let (_, ty) = self.cb_user_arg(td, j, data_first)?;
                 let e = match ty {
                     Some(ty) => self.m.take_expr(&ty, &format!("__c{}", j))?,
                     None => format!("__c{}", j),
                 };
-                out.push(format!("    auto __u{} = {};", j, e));
+                body.push(format!("auto __u{} = {};", j, e));
             }
             call.push(format!("__u{}", j));
         }
         let (rex, rty) = self.cb_user_ret(td)?;
         match rty {
-            Ty::Void => {
-                out.push(format!("    {}({});", cb, call.join(", ")));
-            }
+            Ty::Void => body.push(format!("__f({});", call.join(", "))),
             ty => {
-                out.push(format!("    {} __ur = {}({});", rex, cb, call.join(", ")));
-                out.push(format!("    return {};", self.m.in_expr(&ty, "__ur")?));
+                body.push(format!("{} __ur = __f({});", rex, call.join(", ")));
+                body.push(format!("return {};", self.m.in_expr(&ty, "__ur")?));
             }
         }
-        out.push("};".to_string());
-        Some(out)
+        w.l(
+            0,
+            &format!(
+                "/// Calls the application's `{}` function with D values.",
+                td.name
+            ),
+        );
+        w.l(
+            0,
+            &format!(
+                "package {} _azulInvoke_{}{}({})",
+                self.cb_c_ret(td)?,
+                td.name,
+                if data_first { "(T)" } else { "" },
+                params.join(", ")
+            ),
+        );
+        w.l(0, "{");
+        for l in &body {
+            w.l(1, l);
+        }
+        w.l(0, "}");
+        w.l(0, "");
+        Some(())
     }
 
     fn emit_trampolines(&mut self, w: &mut W) {
@@ -2284,7 +2261,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
         let some_none = option_parts(m, "OptionRefAny");
         for tdn in self.trampolines.clone() {
             let td = m.callbacks[&tdn];
-            let (Some(erased), Some(ret)) = (self.erased_type(td), self.cb_c_ret(td)) else {
+            let (Some(ifp), Some(ret)) = (self.invoker_type(td), self.cb_c_ret(td)) else {
                 continue;
             };
             let params: Vec<String> = td
@@ -2297,6 +2274,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
             let data_first = td.args.first().is_some_and(|a| {
                 a.ref_kind == ArgRefKind::Owned && matches!(m.owned(&a.type_name), Ty::RefAny)
             });
+            if self.emit_invoker(w, td, data_first).is_none() {
+                continue;
+            }
             let ctx = td.args.iter().enumerate().find_map(|(j, a)| {
                 (a.ref_kind == ArgRefKind::Owned)
                     .then(|| m.ctx_getter(a.type_name.trim()))
@@ -2323,7 +2303,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(1, "try");
             w.l(1, "{");
             w.l(2, "_azulAttachThread();");
-            w.l(2, &format!("{} __f;", erased));
+            w.l(2, &format!("_AzulFn!({}) __f;", ifp));
             if let (Some((j, getter, info)), Some((none_member, none_index, some_member))) =
                 (&ctx, &some_none)
             {
@@ -2337,8 +2317,8 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 w.l(
                     3,
                     &format!(
-                        "__f = _azulClosure!({})(&__ctx.{}.payload);",
-                        erased, some_member
+                        "__f = _azulFn!({})(&__ctx.{}.payload);",
+                        ifp, some_member
                     ),
                 );
             }
@@ -2346,14 +2326,14 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 w.l(2, "AzRefAny __d = __c0;");
                 w.l(2, "scope (exit) AzRefAny_delete(&__d);");
                 w.l(2, "if (__f is null)");
-                w.l(3, &format!("__f = _azulClosure!({})(&__d);", erased));
+                w.l(3, &format!("__f = _azulFn!({})(&__d);", ifp));
             }
             w.l(2, "if (__f is null)");
-            w.l(3, &format!("_azulNoClosure(\"{}\");", tdn));
+            w.l(3, &format!("_azulNoCallback(\"{}\");", tdn));
             if ret == "void" {
-                w.l(2, &format!("__f({});", names.join(", ")));
+                w.l(2, &format!("__f.invoke(__f.user, {});", names.join(", ")));
             } else {
-                w.l(2, &format!("return __f({});", names.join(", ")));
+                w.l(2, &format!("return __f.invoke(__f.user, {});", names.join(", ")));
             }
             w.l(1, "}");
             w.l(1, "catch (Throwable __t)");

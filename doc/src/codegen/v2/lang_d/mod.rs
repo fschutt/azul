@@ -8,11 +8,11 @@
 //!   exactly like C, so no header importer is involved. See `types.rs` and
 //!   `functions.rs`.
 //! * the D API (`import azul;`): a struct per api.json type, native `string`,
-//!   `Nullable!T`, `T[]` and exceptions at member boundaries, delegates and
-//!   lambdas for callbacks, any class object as application data, and
+//!   `Nullable!T`, `T[]` and exceptions at member boundaries, free functions
+//!   with typed parameters for callbacks, any class object as application data, and
 //!   `toString` / `dup` / `opEquals` / `opCmp` / `toHash` / `defaultValue` for
 //!   the derived traits. See `model.rs` (type mapping), `runtime.rs` (handle
-//!   boxes, closure handles) and `wrappers.rs` (emitter).
+//!   boxes, callback handles) and `wrappers.rs` (emitter).
 //!
 //! # Ownership
 //!
@@ -130,7 +130,7 @@ pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(Str
         (
             "d/source/azul/runtime.d".to_string(),
             format!(
-                "{}/// Handle boxes, closure handles, exceptions and string conversions.\nmodule azul.runtime;\n\nimport azul;\n{}\n{}",
+                "{}/// Handle boxes, callback handles, exceptions and string conversions.\nmodule azul.runtime;\n\nimport azul;\n{}\n{}",
                 header(&p, &ir.api_version),
                 runtime::IMPORTS,
                 runtime::RUNTIME
@@ -139,7 +139,7 @@ pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(Str
         (
             "d/source/azul/trampolines.d".to_string(),
             format!(
-                "{}/// One C entry point per callback typedef that finds the D delegate to call.\nmodule azul.trampolines;\n\nimport azul;\n{}\n{}",
+                "{}/// One C entry point per callback typedef, and the invoker that calls the D function.\nmodule azul.trampolines;\n\nimport azul;\n{}\n{}",
                 PART_HEADER,
                 runtime::IMPORTS,
                 p.trampolines
@@ -293,9 +293,12 @@ void main()
   `Name.body()`, `get_x` is `x` and `set_x` is `x = value` (property syntax),
   `is_x` is `isX`. Field accessors of a handle write through
   (`window.windowState.size.dimensions.width = 400`).
-* Callbacks take a function, delegate or lambda with typed parameters; the
-  application data is any class object and comes back with its own type. The
-  binding keeps both alive (GC roots) for as long as libazul holds them.
+* A callback is a free function whose parameters are the D types
+  (`Update onClick(Counter c, CallbackInfo info)`), passed as `&onClick`, never
+  a closure. The application data is any class object: the binding downcasts
+  the `RefAny` back to that class before the call and converts the result to
+  its C type after it, and keeps the object alive (a GC root) for as long as
+  libazul holds it.
 * Memory is managed. Copying a handle shares its value; the last copy frees
   it. Passing a handle by value moves the value into libazul, as in Rust, and
   using any copy afterwards throws `AzulMovedError`; call `dup()` first to keep
@@ -330,7 +333,7 @@ fn header(p: &Parts, version: &str) -> String {
 //
 // `import azul;` is the API: a struct per api.json type (a refcounted handle, or
 // a plain struct for Copy types), D enums, native string / Nullable!T / T[] and
-// exceptions, delegates for callbacks. The C ABI is declared below it (Az*).
+// exceptions, free functions for callbacks. The C ABI is declared below it (Az*).
 //
 // Build: compile this module with your program and link libazul:
 //   dmd app.d azul.d -L-L. -L-lazul
