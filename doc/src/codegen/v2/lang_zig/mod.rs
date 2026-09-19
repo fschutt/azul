@@ -493,8 +493,8 @@ pub inline fn _asAzString(s: anytype) C.AzString {
 
 // ---- Option / Vec ----------------------------------------------------------
 
-/// `spec` = `.{ .T = C.AzOptionX, .some = C.AzOptionX_some, .none = C.AzOptionX_none,
-/// .clone = C.AzOptionX_clone (or null), .map = <inner conversion> }`.
+/// `spec` = `.{ .T = C.Az<Option>, .some = C.Az<Option>_some, .none = C.Az<Option>_none,
+/// .clone = C.Az<Option>_clone or null, .map = <inner conversion> }`.
 ///   * `spec.T` by value: moved; a pointer to it: cloned;
 ///   * `?V` -> some(map(v)) / none; `null` -> none; any other value -> some(map(value)).
 pub inline fn _asAzOption(val: anytype, comptime spec: anytype) spec.T {
@@ -508,9 +508,9 @@ pub inline fn _asAzOption(val: anytype, comptime spec: anytype) spec.T {
     };
 }
 
-/// `spec` = `.{ .T = C.AzXVec, .Item = C.AzX, .create = C.AzXVec_create,
-/// .copyFromPtr = C.AzXVec_copyFromPtr, .fromItem = C.AzXVec_fromItem,
-/// .clone = C.AzXVec_clone (or null), .map = <item conversion> }`.
+/// `spec` = `.{ .T = C.Az<Vec>, .Item = C.Az<Item>, .create = C.Az<Vec>_create,
+/// .copyFromPtr = C.Az<Vec>_copyFromPtr, .fromItem = C.Az<Vec>_fromItem,
+/// .clone = C.Az<Vec>_clone or null, .map = <item conversion> }`.
 ///   * `spec.T` by value: moved; a pointer to it: cloned;
 ///   * a slice / array / pointer-to-array of `spec.Item`: deep-copied by `copyFromPtr`
 ///     (the caller keeps its buffer);

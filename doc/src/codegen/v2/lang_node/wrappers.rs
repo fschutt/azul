@@ -774,13 +774,13 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         b.line(" * primitive elements decoded by-value (safe past close).");
     } else if has_clone && wrapper_class.is_some() {
         b.line(" * Iterate the underlying Vec — each yielded element is");
-        b.line(" * deep-cloned via the type's _deepCopy export so the");
+        b.line(" * deep-cloned via the type's clone export so the");
         b.line(" * returned wrapper owns its own heap allocations and");
         b.line(" * survives the Vec being closed.");
     } else {
         b.line(" * Iterate the underlying Vec — yielded elements borrow");
         b.line(" * from the Vec's buffer; don't keep them past the Vec's");
-        b.line(" * lifetime. No _deepCopy export available for the element");
+        b.line(" * lifetime. No clone export available for the element");
         b.line(" * type.");
     }
     b.line(" */");
@@ -795,8 +795,8 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         (true, _, _) => b.line("yield buf[i];"),
         (false, true, Some(class)) => {
             b.line(&format!(
-                "const __cloned = lib.Az{}_deepCopy(buf[i]);",
-                elem_ty
+                "const __cloned = lib.{}(buf[i]);",
+                node_clone_fn(&elem_ty, ir).unwrap_or_default()
             ));
             b.line(&format!("yield new {}(__cloned);", class));
         }
@@ -962,9 +962,17 @@ fn node_has_delete(type_name: &str, ir: &CodegenIR) -> bool {
 
 /// True iff `Az<type_name>_deepCopy` (DeepCopy kind) is exported.
 fn node_has_clone(type_name: &str, ir: &CodegenIR) -> bool {
+    node_clone_fn(type_name, ir).is_some()
+}
+
+/// The C name of a type's deep-copy trait function (`AzU8Vec_clone`), if it
+/// has one - never a suffix spelled here (`_deepCopy` named 222 functions
+/// libazul does not export).
+fn node_clone_fn<'a>(type_name: &str, ir: &'a CodegenIR) -> Option<&'a str> {
     ir.functions
         .iter()
-        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::DeepCopy))
+        .find(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::DeepCopy))
+        .map(|f| f.c_name.as_str())
 }
 
 /// True iff the IR's struct for `payload_ty` is categorised as a
@@ -1046,8 +1054,9 @@ fn emit_node_option_result_body(b: &mut CodeBuilder, info: &NodeOptResultInfo, i
         // allocation, then delete the outer (drops the original
         // payload's heap allocations).
         b.line(&format!(
-            "const __cloned = lib.Az{}_deepCopy({});",
-            info.payload_ty, payload_path
+            "const __cloned = lib.{}({});",
+            node_clone_fn(&info.payload_ty, ir).unwrap_or_default(),
+            payload_path
         ));
         if !outer_delete.is_empty() {
             b.line(&outer_delete);

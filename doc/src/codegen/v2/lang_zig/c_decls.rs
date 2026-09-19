@@ -105,7 +105,7 @@ pub fn generate_c_decls(ir: &CodegenIR, config: &CodegenConfig) -> String {
         if !config.should_include_type(&f.class_name) {
             continue;
         }
-        emit_function(&mut out, f, config);
+        emit_function(&mut out, ir, f, config);
     }
     out
 }
@@ -441,7 +441,7 @@ fn extern_fn(out: &mut String, c_name: &str, params: &[String], ret: &str) {
 /// Mirror of `lang_c::generate_function_declaration`: the plain
 /// declaration, or the raw / `WithCtx` / `Struct` triplet for API functions
 /// taking a callback wrapper, each followed by its `Byref` twin.
-fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
+fn emit_function(out: &mut String, ir: &CodegenIR, f: &FunctionDef, config: &CodegenConfig) {
     let has_cb_wrapper_arg = has_callback_wrapper_arg(f);
 
     let ret = f
@@ -457,7 +457,7 @@ fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
             .map(|a| param(&a.name, &arg_type(&a.type_name, a.ref_kind, config)))
             .collect();
         extern_fn(out, &f.c_name, &params, &ret);
-        emit_byref_twin(out, &f.c_name, &ret, f.return_type.is_some(), &f.args, config);
+        emit_byref_twin(out, ir, &f.c_name, &ret, f.return_type.as_deref(), &f.args, config);
         return;
     }
 
@@ -485,7 +485,6 @@ fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
             .map(|a| param(&a.name, &arg_type(&a.type_name, a.ref_kind, config)))
             .collect()
     };
-    let has_ret = f.return_type.is_some();
     out.push_str("// Raw variant: fn pointer only (ctx is implicitly None).\n");
     extern_fn(out, &f.c_name, &to_params(&raw_args), &ret);
     out.push_str("// WithCtx variant: fn pointer + AzOptionRefAny ctx for host-handle dispatch.\n");
@@ -494,31 +493,36 @@ fn emit_function(out: &mut String, f: &FunctionDef, config: &CodegenConfig) {
     out.push_str("// Struct variant: the whole callback-wrapper struct by value (cb + ctx).\n");
     let with_struct = format!("{}Struct", f.c_name);
     extern_fn(out, &with_struct, &to_params(&f.args), &ret);
-    emit_byref_twin(out, &f.c_name, &ret, has_ret, &raw_args, config);
-    emit_byref_twin(out, &with_ctx, &ret, has_ret, &ctx_args, config);
-    emit_byref_twin(out, &with_struct, &ret, has_ret, &f.args, config);
+    let rt = f.return_type.as_deref();
+    emit_byref_twin(out, ir, &f.c_name, &ret, rt, &raw_args, config);
+    emit_byref_twin(out, ir, &with_ctx, &ret, rt, &ctx_args, config);
+    emit_byref_twin(out, ir, &with_struct, &ret, rt, &f.args, config);
 }
 
 /// `<c_name>Byref`: owned aggregates by pointer, return via out-pointer.
-/// Emitted under exactly the predicate `lang_c::emit_c_byref_twin` uses,
-/// so every twin declared here exists in the DLL.
+/// Emitted under exactly the predicate the DLL exports it under
+/// (`lang_rust::emit_byref_twin`, `lang_c::emit_c_byref_twin`): an owned
+/// argument or the return is a value aggregate - a struct or tagged union,
+/// never a C enum, alias or function pointer - so every twin declared here
+/// exists. (A name test, "starts uppercase", declared twins for C-enum
+/// arguments the DLL never exported.)
 fn emit_byref_twin(
     out: &mut String,
+    ir: &CodegenIR,
     c_name: &str,
     ret: &str,
-    has_return: bool,
+    return_type: Option<&str>,
     args: &[FunctionArg],
     config: &CodegenConfig,
 ) {
     let is_aggregate = |a: &FunctionArg| {
-        matches!(a.ref_kind, ArgRefKind::Owned)
-            && a.type_name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-            && !a.type_name.ends_with("CallbackType")
-            && !a.type_name.ends_with("FnType")
+        matches!(a.ref_kind, ArgRefKind::Owned) && ir.is_value_aggregate(&a.type_name)
     };
-    if !args.iter().any(is_aggregate) {
+    let ret_is_aggregate = return_type.is_some_and(|r| ir.is_value_aggregate(r));
+    if !args.iter().any(is_aggregate) && !ret_is_aggregate {
         return;
     }
+    let has_return = return_type.is_some();
     let mut params: Vec<String> = Vec::with_capacity(args.len() + 1);
     if has_return {
         params.push(format!("__ret: {}", pointer_to(ret, false)));
@@ -772,10 +776,11 @@ pub(crate) mod tests {
             z.contains("pub extern fn AzFoo_create(count: u32, mode: AzUpdate) AzFoo;\n"),
             "{z}"
         );
-        // `Update` is an owned aggregate by lang_c's predicate, so the twin exists there too.
+        // The return `Foo` is a struct, so the DLL exports a twin; `Update` is
+        // a C enum, not an aggregate, and stays by value.
         assert!(
             z.contains(
-                "pub extern fn AzFoo_createByref(__ret: [*c]AzFoo, count: u32, mode: [*c]AzUpdate) void;\n"
+                "pub extern fn AzFoo_createByref(__ret: [*c]AzFoo, count: u32, mode: AzUpdate) void;\n"
             ),
             "{z}"
         );

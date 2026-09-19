@@ -15824,8 +15824,9 @@
                                     "",
                                     "# C API",
                                     "```c",
+                                    "AzStringPair params[] = { { AzString_fromConstStr(\"id\"), AzString_fromConstStr(\"42\") } };",
                                     "AzCallbackInfo_switchRoute(&info, AzString_fromConstStr(\"/user/:id\"),",
-                                    "    AzStringPairVec_fromConstSlice(&[AzStringPair { key: \"id\", value: \"42\" }]));",
+                                    "    AzStringPairVec_copyFromPtr(params, 1));",
                                     "```"
                                 ],
                                 "priority": 62.0,

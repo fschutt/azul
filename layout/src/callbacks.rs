@@ -1757,8 +1757,9 @@ impl CallbackInfo {
     ///
     /// # C API
     /// ```c
+    /// AzStringPair params[] = { { AzString_fromConstStr("id"), AzString_fromConstStr("42") } };
     /// AzCallbackInfo_switchRoute(&info, AzString_fromConstStr("/user/:id"),
-    ///     AzStringPairVec_fromConstSlice(&[AzStringPair { key: "id", value: "42" }]));
+    ///     AzStringPairVec_copyFromPtr(params, 1));
     /// ```
     pub fn switch_route(&mut self, pattern: AzString, params: azul_core::window::StringPairVec) {
         self.push_change(CallbackChange::SwitchRoute { pattern, params });
