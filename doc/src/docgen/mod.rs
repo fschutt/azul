@@ -139,14 +139,6 @@ pub fn generate_docs(
     Ok(docs)
 }
 
-/// Languages always shown inline (above the fold). The original 11 solid
-/// bindings stay flat; the languages promoted on 2026-07-04 (zig, go,
-/// pascal, scala, fortran, haskell) land in the "more languages…" overflow
-/// (any whitelisted language NOT in this list renders there).
-const PRIMARY_LANGUAGES: &[&str] = &[
-    "rust", "python", "c", "cpp", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
-];
-
 /// The SHIPPED tier: the languages the site shows install tabs for, links a
 /// guide for, and whose hello-world the CI gate (`--gate-shipped` in
 /// scripts/e2e_language_matrix.sh, SHIPPED_LANGS) must pass on every OS.
@@ -169,60 +161,38 @@ pub fn is_shipped_language(lang: &str) -> bool {
     SHIPPED_LANGUAGES.contains(&lang)
 }
 
-/// Languages that may appear on the azul.rs frontpage install tabs: the
-/// shipped tier plus the C++ dialect variants (`cpp03` … `cpp23`, which the
-/// C++ dropdown needs in the installation JSON to populate the version
-/// selector; they carry `dialectOf: "cpp"` and are never a tab of their own).
+/// The C++ standards the C++ dropdown offers. They carry `dialectOf: "cpp"` in
+/// api.json and are never a tab of their own, but the installation JSON needs
+/// them so the version selector can populate.
+const CPP_DIALECTS: &[&str] = &["cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23"];
+
+/// True if `lang` may appear on the azul.rs frontpage install tabs: exactly the
+/// shipped tier, plus the C++ dialect variants its dropdown needs.
 ///
-/// Until 2026-09-07 this list also carried 12 "beta"/"alpha" bindings
-/// (perl, lisp, php, odin, nim, racket, red, d, crystal, v, swift, julia):
-/// generated, on the frontpage, and never gated — their hello-world guides
-/// had already been removed for exactly that reason. A visitor cannot tell
-/// a gated tab from an ungated one, so an ungated tab is a claim.
-///
-/// They come back one at a time through [`FRONTPAGE_BETA_LANGUAGES`], once the
-/// binding is idiomatic and its hello-world passes its matrix lane.
-///
-/// This is the single source of truth: both the server-rendered tab HTML
+/// This is the single gate: both the server-rendered tab HTML
 /// (`generate_language_tabs_html`) and the client-side installation JSON
 /// (`generate_installation_json`) filter against it, so even if api.json's
-/// `tabOrder` drifts to include another language, the frontpage stays
-/// restricted to this set.
-const FRONTPAGE_LANGUAGES: &[&str] = &[
-    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml", "zig", "go",
-    "pascal", "scala", "fortran", "haskell", "python", "d", "crystal", "swift",
-    // C++ dialect variants — dropdown options only, never standalone tabs.
-    "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
-];
-
-/// Beta-tier bindings on the frontpage: generated as an idiomatic native API
-/// (not raw C calls), their hello-world passes its lane in
-/// scripts/e2e_language_matrix.sh (BETA_LANGS, run in CI but not gating), and
-/// their install steps build that hello-world. They sit in the "More" grid with
-/// the other secondary languages, never in [`PRIMARY_LANGUAGES`].
-const FRONTPAGE_BETA_LANGUAGES: &[&str] = &[];
-
-/// True if `lang` is allowed on the frontpage (see [`FRONTPAGE_LANGUAGES`]).
+/// `tabOrder` lists another language, the frontpage stays restricted to what
+/// CI proves. A visitor cannot tell a gated tab from an ungated one, so an
+/// ungated tab would be a claim.
 fn is_frontpage_language(lang: &str) -> bool {
-    FRONTPAGE_LANGUAGES.contains(&lang)
+    is_shipped_language(lang) || CPP_DIALECTS.contains(&lang)
 }
 
 /// Generate the HTML for language tabs based on tabOrder configuration.
 ///
-/// Renders the four primary languages as flat buttons; the rest go into a
-/// `<details>` wrapper that the user can expand. Dialect groups (e.g. C++)
-/// are always rendered as a single dropdown regardless of which row they
-/// land in. The `<details>` is part of the same `.lang-grid` so clicking
-/// inside it doesn't change the language unless the user chooses one.
+/// Every shipped language is one flat button, in `tabOrder` order; there is no
+/// "more" overflow, because everything on the frontpage is equally gated.
+/// Dialect groups (e.g. C++) render as a single dropdown.
 ///
-/// Only languages in [`FRONTPAGE_LANGUAGES`] are ever rendered, even if
+/// Only [`is_frontpage_language`] languages are ever rendered, even if
 /// `tabOrder` lists more — non-whitelisted entries are skipped (NOT appended),
 /// so a half-working binding can't leak onto the frontpage.
 fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
     // Use tabOrder if specified, otherwise use default order. Either way,
     // restrict to the frontpage whitelist so broken bindings stay hidden.
     let tab_order: Vec<String> = if installation.tab_order.is_empty() {
-        PRIMARY_LANGUAGES.iter().map(|s| s.to_string()).collect()
+        SHIPPED_LANGUAGES.iter().map(|s| s.to_string()).collect()
     } else {
         installation.tab_order.clone()
     };
@@ -269,36 +239,11 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
         }
     };
 
-    let mut primary_tabs = Vec::new();
-    let mut overflow_tabs = Vec::new();
-    for lang in &tab_order {
-        let html = match render_lang_button(lang) {
-            Some(s) => s,
-            None => continue,
-        };
-        if PRIMARY_LANGUAGES.iter().any(|p| p == lang) {
-            primary_tabs.push(html);
-        } else {
-            overflow_tabs.push(html);
-        }
-    }
-
-    let mut out = primary_tabs.join("\n        ");
-    if !overflow_tabs.is_empty() {
-        // The toggle is a button IN the row, not a block under it: collapsed,
-        // it costs no vertical space at all. Checkbox + label rather than
-        // <details> because a <details> box cannot put its summary in the flex
-        // row and its contents on the next line. `$$EXAMPLE_ID$$` is
-        // substituted per example, so the id stays unique down the page.
-        out.push_str(&format!(
-            "\n        <input type=\"checkbox\" class=\"lang-more-toggle\" \
-             id=\"lang-more-$$EXAMPLE_ID$$\">\n        \
-             <label class=\"lang-more-btn\" for=\"lang-more-$$EXAMPLE_ID$$\"></label>\n        \
-             <div class=\"lang-more-grid\">\n        {}\n        </div>",
-            overflow_tabs.join("\n        ")
-        ));
-    }
-    out
+    tab_order
+        .iter()
+        .filter_map(|lang| render_lang_button(lang))
+        .collect::<Vec<_>>()
+        .join("\n        ")
 }
 
 /// Rendered example with all code variants for JavaScript.
@@ -1519,8 +1464,6 @@ mod stylesheet_contract {
         ".ui-hero {",
         ".feature-section {",
         ".lang-grid button,",
-        ".lang-more-btn",
-        ".lang-more-toggle:checked ~ .lang-more-grid",
         ".code-panel {",
         ".example-code {",
         "#latestrelease {",
@@ -1674,26 +1617,10 @@ mod shipped_tier_tests {
         let beta: Vec<&str> = script[bstart + "BETA_LANGS=(".len()..bend]
             .split_whitespace()
             .collect();
-        for l in FRONTPAGE_LANGUAGES {
+        for l in SHIPPED_LANGUAGES {
             assert!(
-                is_shipped_language(l)
-                    || l.starts_with("cpp")
-                    || FRONTPAGE_BETA_LANGUAGES.contains(l),
-                "frontpage tab {l} is neither shipped nor a frontpage beta language"
-            );
-        }
-        for l in FRONTPAGE_BETA_LANGUAGES {
-            assert!(
-                FRONTPAGE_LANGUAGES.contains(l),
-                "beta language {l} is not on the frontpage"
-            );
-            assert!(
-                beta.contains(l),
-                "frontpage beta language {l} is not in BETA_LANGS of the matrix script, so no lane runs its hello-world"
-            );
-            assert!(
-                !PRIMARY_LANGUAGES.contains(l),
-                "beta language {l} must stay in the More grid"
+                !beta.contains(l),
+                "{l} is in SHIPPED_LANGUAGES and in BETA_LANGS of the matrix script; a tier is one or the other"
             );
         }
     }
