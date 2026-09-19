@@ -1,4 +1,4 @@
-//! Idiomatic Go wrapper-type emission for the Go (cgo) generator.
+//! Idiomatic Go wrapper-type emission for the Go (purego) generator.
 //!
 //! For every IR struct we emit a wrapper around the Go-native mirror
 //! type from `types.go`:
@@ -39,7 +39,8 @@
 //! * Aggregate parameters and returns are the Go-native `Az*` types, so a
 //!   consumer package can name every type in every signature.
 //!
-//! This file imports no cgo: every C call goes through `functions*.go`.
+//! Every native call goes through the raw layer in `functions.go`; this
+//! file contains no purego of its own.
 //!
 //! # Skipped categories
 //!
@@ -54,7 +55,9 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::{go_pointer_to, go_value_type};
-use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case};
+use super::super::managed_host_invoker::{layout_callback_factory_info, to_snake_case, LayoutCallbackFactoryInfo};
+use super::super::managed_lang_helpers::is_refany_type;
+use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier};
 
 /// Generate the contents of `wrappers.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -127,8 +130,8 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// if you forget; the finalizer is cleared inside `Close()` so the same");
     b.line("// destructor never executes twice. Methods/factories that RETURN an owned");
     b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed.");
-    b.line("// Every C call goes through the raw layer in functions*.go; this file has");
-    b.line("// no cgo of its own.");
+    b.line("// Every native call goes through the raw layer in functions.go (purego);");
+    b.line("// this file binds nothing itself.");
     b.blank();
     b.line("package azul");
     b.blank();
@@ -231,13 +234,16 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     // signatures and rebind the receiver instead.
     let self_arg = to_snake_case(&s.name);
 
-    // Constructors & static factories.
-    let has_factory = super::super::managed_host_invoker::layout_callback_factory_info(s, ir).is_some();
+    // Constructors & static factories. The constructor that takes the
+    // layout callback kind is emitted by managed.rs as the smart factory
+    // `<Class>Create(fn <Kind>Func)` instead (same Go name).
+    let factory = layout_callback_factory_info(s, ir);
     for f in ir.functions_for_class(&s.name) {
-        if has_factory && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod) {
-            if f.method_name == "create" || f.method_name == "new" {
-                continue; // Suppressed in favor of smart factory in managed.rs
-            }
+        if factory
+            .as_ref()
+            .is_some_and(|info| is_layout_factory_constructor(f, info))
+        {
+            continue;
         }
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
@@ -295,6 +301,23 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.line("}");
         b.blank();
     }
+}
+
+/// Is `f` the constructor `layout_callback_factory_info` matched for its
+/// class: a constructor / static factory whose single argument is the
+/// factory's callback kind and which returns the class itself? The same
+/// structural test the shared helper applies, so no method name is
+/// special-cased here.
+fn is_layout_factory_constructor(f: &FunctionDef, info: &LayoutCallbackFactoryInfo) -> bool {
+    matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+        && f.args.len() == 1
+        && f.args[0]
+            .callback_info
+            .as_ref()
+            .is_some_and(|ci| ci.callback_wrapper_name == info.callback_wrapper)
+        && f.return_type
+            .as_deref()
+            .is_some_and(|r| r.trim() == info.class_name)
 }
 
 /// `v := <call>; ret := &<W>{ inner: &v }; SetFinalizer(...)` — box an
@@ -606,9 +629,15 @@ fn format_call_args(
             continue;
         }
         let var_name = sanitize_identifier(&a.name);
-        if go_value_type(&a.type_name, ir) == "AzRefAny" {
-            // Unpack the wrapper's RefAny back into the raw AzRefAny by value
-            out.push(format!("*RefAnyWrap({}).inner", var_name));
+        if is_refany_type(&a.type_name, ir) {
+            // `any` on the Go side. A consuming parameter gets its own
+            // reference (a fresh handle, or a clone of a caller's *RefAny);
+            // a borrowing one just sees the wrapper's value.
+            if a.ref_kind == ArgRefKind::Owned {
+                out.push(format!("azGoRefAnyOwned({})", var_name));
+            } else {
+                out.push(format!("RefAnyWrap({}).inner", var_name));
+            }
         } else if let Some(s) = ir.find_struct(&a.type_name) {
             if should_emit_wrapper(s, ir, config) {
                 if a.ref_kind == super::super::ir::ArgRefKind::Owned {
@@ -638,7 +667,7 @@ fn is_self_arg(name: &str, self_arg: &str) -> bool {
 /// Go-native type of an argument as the raw layer spells it.
 pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR, config: &CodegenConfig) -> String {
     let base = go_value_type(type_name, ir);
-    if base == "AzRefAny" {
+    if is_refany_type(type_name, ir) {
         return "any".to_string();
     }
     if let Some(s) = ir.find_struct(type_name) {

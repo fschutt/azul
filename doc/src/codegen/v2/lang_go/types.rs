@@ -1,4 +1,4 @@
-//! Go-native type emission for the Go (cgo) generator.
+//! Go-native type emission for the Go (purego) generator.
 //!
 //! `types.go` no longer references a single `C.` name: every api.json type
 //! is spelled as a Go type whose memory layout is the `repr(C)` layout the
@@ -784,8 +784,10 @@ pub(crate) mod tests {
     fn unit_enum_is_uint32_with_sequential_consts() {
         let out = gen();
         assert!(out.contains("type AzUpdate uint32\n"));
-        assert!(out.contains("    AzUpdate_DoNothing AzUpdate = 0\n"));
-        assert!(out.contains("    AzUpdate_RefreshDom AzUpdate = 1\n"));
+        // Variant constants carry the unprefixed IR name (the guide writes
+        // `azul.Update_RefreshDom`); the type keeps the C name.
+        assert!(out.contains("    Update_DoNothing AzUpdate = 0\n"), "{out}");
+        assert!(out.contains("    Update_RefreshDom AzUpdate = 1\n"), "{out}");
     }
 
     #[test]
