@@ -6038,7 +6038,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew install Virtuslab/scala-cli/scala-cli"
+                                    "content": "brew install scala-cli"
                                 },
                                 {
                                     "type": "command",
