@@ -9315,6 +9315,82 @@ impl WaylandPopup {
         let wayland = parent.wayland.clone();
         let xkb = parent.xkb.clone();
 
+        let current_window_state = FullWindowState {
+            title: options.window_state.title.clone(),
+            size: options.window_state.size,
+            position: options.window_state.position,
+            flags: options.window_state.flags,
+            theme: parent.common.current_window_state().theme,
+            debug_state: parent.common.current_window_state().debug_state,
+            keyboard_state: azul_core::window::KeyboardState::default(),
+            mouse_state: azul_core::window::MouseState::default(),
+            touch_state: azul_core::window::TouchState::default(),
+            ime_position: parent.common.current_window_state().ime_position,
+            platform_specific_options: options.window_state.platform_specific_options.clone(),
+            renderer_options: parent.common.current_window_state().renderer_options,
+            background_color: options.window_state.background_color,
+            layout_callback: options.window_state.layout_callback.clone(),
+            close_callback: options.window_state.close_callback.clone(),
+            monitor_id: parent.common.current_window_state().monitor_id,
+            window_id: options.window_state.window_id.clone(),
+            // The xdg_popup grab gives it the keyboard; report it focused so
+            // the engine's focus-loss dismiss sees a true→false edge later.
+            window_focused: true,
+            active_route: azul_core::resources::OptionRouteMatch::None,
+            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
+        };
+        // A popup is a CHILD: share the PARENT's already-warmed manager, which
+        // is both the warmest option and the one whose embedded (icon) faces the
+        // popup is most likely to need. Falls back to the app-level manager.
+        let mut layout_window = match parent.common.layout_window.as_ref() {
+            Some(parent_lw) => {
+                LayoutWindow::from_font_manager(parent_lw.font_manager.clone_shared())
+            }
+            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                parent.resources.font_manager.as_ref(),
+                &parent.resources.fc_cache,
+            )
+            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
+        };
+        layout_window.routes = parent.resources.config.routes.clone();
+        // Seed with the parent window's image map so css-id / url("...")
+        // images inside the popup resolve (whole-map seed at creation).
+        if let Some(parent_lw) = parent.common.layout_window.as_ref() {
+            layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
+        }
+        let mut common = event::CommonWindowState::new(
+            current_window_state,
+            options.theme,
+            options.background_color_light,
+            options.background_color_dark,
+            parent.common.fc_cache.clone(),
+            parent.resources.system_style.clone(),
+            parent.common.app_data.clone(),
+            parent.resources.undo_manager.clone(),
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+        common.gl_context_ptr = None.into();
+        common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
+        // A menu is SIZED TO ITS CONTENT, and a Wayland popup has to know its
+        // size before it exists: the positioner is created with it and the
+        // compositor places and constrains the popup against it. X11 maps
+        // its menu window at an estimate and resizes it once laid out; here
+        // the menu is laid out first, off-screen, and the measured size is
+        // what the positioner, the buffer and the layout all see. Before
+        // this every menu was a 200-by-n-items estimate and its real items,
+        // padding and shadow were clipped into that box.
+        let popup_size = if options.size_to_content {
+            match measure_popup_content(&mut common, &parent.resources, popup_size) {
+                Some(measured) => measured,
+                None => popup_size,
+            }
+        } else {
+            popup_size
+        };
+        common.update_unsynced_state(|ws| ws.size.dimensions = popup_size);
+
         // 1. Create xdg_positioner
         let positioner = unsafe { (wayland.xdg_wm_base_create_positioner)(parent.xdg_wm_base) };
 
@@ -9470,64 +9546,6 @@ impl WaylandPopup {
 
         // 11. Create window state — the popup's own `CommonWindowState`, so it
         // is a `PlatformWindow` like every toplevel.
-        let current_window_state = FullWindowState {
-            title: options.window_state.title.clone(),
-            size: options.window_state.size,
-            position: options.window_state.position,
-            flags: options.window_state.flags,
-            theme: parent.common.current_window_state().theme,
-            debug_state: parent.common.current_window_state().debug_state,
-            keyboard_state: azul_core::window::KeyboardState::default(),
-            mouse_state: azul_core::window::MouseState::default(),
-            touch_state: azul_core::window::TouchState::default(),
-            ime_position: parent.common.current_window_state().ime_position,
-            platform_specific_options: options.window_state.platform_specific_options.clone(),
-            renderer_options: parent.common.current_window_state().renderer_options,
-            background_color: options.window_state.background_color,
-            layout_callback: options.window_state.layout_callback.clone(),
-            close_callback: options.window_state.close_callback.clone(),
-            monitor_id: parent.common.current_window_state().monitor_id,
-            window_id: options.window_state.window_id.clone(),
-            // The xdg_popup grab gives it the keyboard; report it focused so
-            // the engine's focus-loss dismiss sees a true→false edge later.
-            window_focused: true,
-            active_route: azul_core::resources::OptionRouteMatch::None,
-            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
-            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
-        };
-        // A popup is a CHILD: share the PARENT's already-warmed manager, which
-        // is both the warmest option and the one whose embedded (icon) faces the
-        // popup is most likely to need. Falls back to the app-level manager.
-        let mut layout_window = match parent.common.layout_window.as_ref() {
-            Some(parent_lw) => {
-                LayoutWindow::from_font_manager(parent_lw.font_manager.clone_shared())
-            }
-            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
-                parent.resources.font_manager.as_ref(),
-                &parent.resources.fc_cache,
-            )
-            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
-        };
-        layout_window.routes = parent.resources.config.routes.clone();
-        // Seed with the parent window's image map so css-id / url("...")
-        // images inside the popup resolve (whole-map seed at creation).
-        if let Some(parent_lw) = parent.common.layout_window.as_ref() {
-            layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
-        }
-        let mut common = event::CommonWindowState::new(
-            current_window_state,
-            options.theme,
-            options.background_color_light,
-            options.background_color_dark,
-            parent.common.fc_cache.clone(),
-            parent.resources.system_style.clone(),
-            parent.common.app_data.clone(),
-            parent.resources.undo_manager.clone(),
-        );
-        common.layout_window = Some(layout_window);
-        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
-        common.gl_context_ptr = None.into();
-        common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
         Ok(Self {
             wayland,
             xkb,
@@ -11114,6 +11132,66 @@ impl WaylandWindow {
             }
         }
     }
+}
+
+/// Lay the popup's DOM out once at the parent's size and return its natural
+/// content size (rounded up like `menu::popup_size_px`), or `None` when the
+/// layout callback produced nothing measurable. The popup's window state is
+/// left pointing at the measured size only by the caller.
+fn measure_popup_content(
+    common: &mut event::CommonWindowState,
+    resources: &super::AppResources,
+    fallback: azul_core::geom::LogicalSize,
+) -> Option<azul_core::geom::LogicalSize> {
+    use azul_core::geom::LogicalSize;
+    // Measure the way X11's `apply_size_to_content` does: lay out at the
+    // ESTIMATED width, with room to grow downwards. A block-level menu
+    // container fills whatever width it is given, so a generous width is
+    // what it measures back (a 4096-wide "menu" the compositor clamped to
+    // the whole screen); at the estimate it measures the estimate, or more
+    // where an item overflows it. The height is the content's own extent.
+    common.update_unsynced_state(|ws| {
+        ws.size.dimensions = LogicalSize::new(fallback.width.max(1.0), 4096.0);
+    });
+    let relayout_reason = common.take_relayout_reason();
+    let borrows = common.layout_borrows();
+    let layout_window = borrows.layout_window?;
+    let mut debug_messages = None;
+    crate::desktop::shell2::common::layout::regenerate_layout(
+        layout_window,
+        borrows.app_data,
+        borrows.current_window_state,
+        borrows.renderer_resources,
+        borrows.gl_context_ptr,
+        borrows.fc_cache,
+        &resources.font_registry,
+        borrows.system_style,
+        &resources.icon_provider,
+        &mut debug_messages,
+        relayout_reason,
+    )
+    .ok()?;
+    let natural = common
+        .layout_window
+        .as_ref()
+        .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }))
+        .map(|lr| {
+            lr.layout_tree
+                .get_content_size(azul_layout::solver3::LayoutNodeId::new(0))
+        })?;
+    if natural.width <= 0.0 || natural.height <= 0.0 {
+        common.update_unsynced_state(|ws| ws.size.dimensions = fallback);
+        return None;
+    }
+    let measured = self::menu::popup_size_px(natural);
+    crate::plog_info!(
+        "[wayland-popup] size_to_content: measured {:.0}x{:.0} (estimate was {:.0}x{:.0})",
+        measured.width,
+        measured.height,
+        fallback.width,
+        fallback.height
+    );
+    Some(measured)
 }
 
 /// xdg_popup configure callback

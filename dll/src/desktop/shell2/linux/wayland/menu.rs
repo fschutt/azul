@@ -148,6 +148,9 @@ pub fn create_menu_popup_options(
         ctx: azul_core::refany::OptionRefAny::Some(menu_data_refany),
     };
 
+    // Measured before the popup is created (see `measure_popup_content`);
+    // `menu_size` is only the estimate the measurement falls back to.
+    options.size_to_content = true;
     options.window_state.flags.window_type = azul_core::window::WindowType::Menu;
     options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
     options.window_state.flags.is_always_on_top = true;
