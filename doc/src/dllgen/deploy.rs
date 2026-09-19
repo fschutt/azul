@@ -1143,15 +1143,10 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "v/hello-world.v",
         source: BindingSource::Examples,
     },
-    // swift: the example does `import Azul`; azul.swift is that module in one
-    // file, built next to azul.h and the module map that exposes it as CAzul
-    // (the build commands head hello-world.swift). The SwiftPM package is
-    // target/codegen/swift/.
-    BindingFile {
-        dst: "azul.swift",
-        src: "azul.swift",
-        source: BindingSource::Codegen,
-    },
+    // swift: the example does `import Azul`; the module's sources ship as
+    // `azul-swift/` (one file per API area, see GENERATED_PACKAGES), built
+    // with `swiftc -j` next to azul.h and the module map that exposes it as
+    // CAzul (the build commands head hello-world.swift).
     BindingFile {
         dst: "module.modulemap",
         src: "module.modulemap",
@@ -1542,6 +1537,9 @@ const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
     ("azul-haskell", "haskell", |name| {
         name.ends_with(".hs") || name.ends_with(".c") || name.ends_with(".h") || name.ends_with(".cabal")
     }),
+    // The Swift module in one file per API area: `swiftc -j` compiles the
+    // files in parallel (the single-file `azul.swift` took ~3 minutes).
+    ("azul-swift", "swift/Sources/Azul", |name| name.ends_with(".swift")),
 ];
 
 /// Copy every file under `codegen_dir/<sub>/` (recursively, keeping the
@@ -3112,9 +3110,9 @@ mod tests {
         assert!(!version_dir.join("go.mod").exists());
     }
 
-    /// Fortran and OCaml ship every per-module file the generator wrote, by
-    /// glob: the hand-kept lists still named the pre-split `azul.f90` and
-    /// `azul.ml`, so both tarballs came out without a binding.
+    /// Fortran, OCaml, Haskell and Swift ship every per-module file the
+    /// generator wrote, by glob: the hand-kept lists still named the pre-split
+    /// `azul.f90` and `azul.ml`, so both tarballs came out without a binding.
     #[test]
     fn generated_packages_ship_every_per_module_file() {
         let tmp = tempfile::tempdir().unwrap();
@@ -3124,7 +3122,11 @@ mod tests {
         fs::create_dir_all(codegen.join("ocaml")).unwrap();
         fs::create_dir_all(codegen.join("haskell/src/Azul/Types")).unwrap();
         fs::create_dir_all(codegen.join("haskell/cbits")).unwrap();
+        fs::create_dir_all(codegen.join("swift/Sources/Azul")).unwrap();
         fs::create_dir_all(&version_dir).unwrap();
+        for f in ["Dom.swift", "Css.swift", "README.md"] {
+            fs::write(codegen.join("swift/Sources/Azul").join(f), b"x").unwrap();
+        }
         for f in ["azul.cabal", "src/Azul.hs", "src/Azul/Types/Dom.hs", "cbits/azul_dom.c"] {
             fs::write(codegen.join("haskell").join(f), b"x").unwrap();
         }
@@ -3141,7 +3143,10 @@ mod tests {
                 copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
             })
             .collect();
-        assert_eq!(copied, [5, 6, 4]);
+        assert_eq!(copied, [5, 6, 4, 2]);
+        // Swift's module sources land flat in azul-swift/ (the tarball's Azul/).
+        assert!(version_dir.join("azul-swift/Dom.swift").is_file());
+        assert!(!version_dir.join("azul-swift/README.md").exists());
         // Haskell's package is nested: src/ modules and cbits/ shims keep their paths.
         assert!(version_dir.join("azul-haskell/azul.cabal").is_file());
         assert!(version_dir.join("azul-haskell/src/Azul/Types/Dom.hs").is_file());

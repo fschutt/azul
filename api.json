@@ -6152,7 +6152,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
+                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6168,7 +6168,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -L. -lazul -o libAzulSwift.so"
                                 },
                                 {
                                     "type": "command",
@@ -6186,7 +6186,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
+                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6202,7 +6202,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.dylib"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -L. -lazul -o libAzulSwift.dylib"
                                 },
                                 {
                                     "type": "command",
@@ -6220,7 +6220,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library and the Swift bundle (azul.swift, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
+                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6240,7 +6240,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift azul.dll.lib -o AzulSwift.dll"
+                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift azul.dll.lib -o AzulSwift.dll"
                                 },
                                 {
                                     "type": "command",
@@ -6254,8 +6254,8 @@
                         }
                     ],
                     "bundle": {
+                        "azul-swift/": "Azul/",
                         "azul.h": "azul.h",
-                        "azul.swift": "azul.swift",
                         "hello-world.swift": "hello-world.swift",
                         "module.modulemap": "module.modulemap"
                     }

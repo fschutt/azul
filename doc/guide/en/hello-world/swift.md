@@ -28,10 +28,10 @@ default-search-keys:
 
 ## Introduction
 
-The Swift binding is a Swift module named `Azul` (one file, `azul.swift`)
-that wraps the C API in Swift classes, closures and enums. It sits on top of
-a Clang module, `CAzul`, which `module.modulemap` builds from `azul.h`.
-Your program only does `import Azul`.
+The Swift binding is a Swift module named `Azul` (its sources are one file
+per API area, in `Azul/`) that wraps the C API in Swift classes and enums.
+It sits on top of a Clang module, `CAzul`, which `module.modulemap` builds
+from `azul.h`. Your program only does `import Azul`.
 
 You need:
 
@@ -48,9 +48,10 @@ makes passing structs by value across the FFI boundary correct.
 
 ## Installation
 
-The release bundle `azul-swift-$VERSION.tar.gz` contains `azul.swift`,
-`azul.h`, `module.modulemap` and `hello-world.swift`. The `Azul` module is
-built first, then the example against it:
+The release bundle `azul-swift-$VERSION.tar.gz` contains the `Azul`
+module's sources in `Azul/`, `azul.h`, `module.modulemap` and
+`hello-world.swift`. The `Azul` module is built first, then the example
+against it:
 
 Linux:
 
@@ -58,7 +59,7 @@ Linux:
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
 curl -LO https://azul.rs/ui/release/$VERSION/azul-swift-$VERSION.tar.gz
 tar xzf azul-swift-$VERSION.tar.gz
-swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so
+swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -L. -lazul -o libAzulSwift.so
 swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -o hello-world
 LD_LIBRARY_PATH=. ./hello-world
 ```
@@ -69,7 +70,7 @@ macOS:
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 curl -LO https://azul.rs/ui/release/$VERSION/azul-swift-$VERSION.tar.gz
 tar xzf azul-swift-$VERSION.tar.gz
-swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.dylib
+swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -L. -lazul -o libAzulSwift.dylib
 swiftc -I. hello-world.swift -L. -lAzulSwift -lazul \
   -framework Foundation -framework AppKit -framework OpenGL \
   -framework CoreGraphics -framework CoreText -o hello-world
@@ -83,7 +84,7 @@ curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 curl -LO https://azul.rs/ui/release/$VERSION/azul-swift-$VERSION.tar.gz
 tar xzf azul-swift-$VERSION.tar.gz
-swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift azul.dll.lib -o AzulSwift.dll
+swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift azul.dll.lib -o AzulSwift.dll
 swiftc -I. hello-world.swift AzulSwift.lib azul.dll.lib -o hello-world.exe
 hello-world.exe
 ```
@@ -96,10 +97,11 @@ A few details in these commands matter:
   case-insensitive file system (the macOS and Windows defaults),
   `libAzul.dylib` / `Azul.dll` would be the same file as `libazul.dylib` /
   `azul.dll`.
-- **Building the `Azul` module takes a few minutes** (about three on an
-  Apple Silicon Mac), because `azul.swift` covers the whole API in one file.
-  You only build it once: keep `libAzulSwift` and `Azul.swiftmodule`
-  around, and your own program then compiles in seconds.
+- **`-j8` compiles the module's files in parallel** (one per API area;
+  match it to your core count): about 25 seconds on an 8-core Apple Silicon
+  Mac. You only build it once: keep `libAzulSwift` and `Azul.swiftmodule`
+  around, and your own program then compiles in seconds. On Windows, run
+  these commands in a shell that expands `Azul/*.swift` (Git Bash).
 - The binaries embed no rpath, which is why the run step needs
   `LD_LIBRARY_PATH=.` / `DYLD_LIBRARY_PATH=.`.
 
@@ -116,7 +118,7 @@ cargo run -p azul-doc --release -- codegen all
 cargo build -p azul-dll --release --features build-dll
 ```
 
-Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings end up at `target/codegen/`: `azul.swift`, `azul.h` and `module.modulemap` as above, and `target/codegen/swift/` holds the same code as a SwiftPM package (`Package.swift`, `Sources/Azul/`, one file per API area). Because that package is split into many files, `swiftc -j4 Sources/Azul/*.swift` builds the module in parallel, about 2.5 times faster than the single file.
+Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings end up at `target/codegen/`: `azul.h` and `module.modulemap` as above, and `target/codegen/swift/` is the Swift binding as a SwiftPM package (`Package.swift`, and `Sources/Azul/`, which the release ships as `Azul/`).
 
 ## Simple "Counter" Example
 
@@ -129,16 +131,18 @@ final class Counter {
     var count = 5
 }
 
+func onClick(_ counter: Counter, _ info: CallbackInfo) -> Update {
+    counter.count += 1
+    return .refreshDom
+}
+
 func layout(_ counter: Counter, _ info: LayoutCallbackInfo) -> Dom {
     let label = Dom.pWithText(String(counter.count))
         .withCss("font-size: 32px; margin: 0;")
 
     let button = Button("Increase counter")
         .withButtonType(.primary)
-        .withOnClick(counter) { counter, _ in
-            counter.count += 1
-            return .refreshDom
-        }
+        .withOnClick(counter, onClick: onClick)
 
     return Dom.body()
         .withChild(label)
@@ -159,10 +163,14 @@ app.run(window)
    class. The binding retains the object for as long as libazul references
    it (`Unmanaged.passRetained`) and releases it when libazul drops its
    last reference, so there is no manual memory management.
-2. **Callbacks are closures.** The trailing closure receives the typed
-   `Counter`. The binding supplies the C trampoline that libazul calls,
-   the type check and the downcast. `layout` is an ordinary function passed
-   by name.
+2. **Callbacks are plain functions that take the model as its own type.**
+   `withOnClick(counter, onClick: onClick)` upcasts `counter` into a
+   `RefAny`, libazul's type-erased, reference-counted handle, which retains
+   the object. On a click, the binding's C trampoline downcasts that `RefAny`
+   back to `Counter` (a checked cast) and calls `onClick` with it. Handing the
+   same `counter` to several callbacks shares one object: a `RefAny` clone is
+   another reference to it, not a copy. `layout` gets its `Counter` the same
+   way, from the model `App` was created with.
 3. **Swift idioms.** Enums use leading-dot syntax (`.primary`,
    `.refreshDom`), Swift `String`s convert to `AzString` on the way in,
    and every `with*` method returns the updated value, so a DOM is one
@@ -197,7 +205,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 1. `app.run` opens a native window and runs `layout` once with your `Counter`.
 2. The returned `Dom` is styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs the click closure, observes the `.refreshDom` return, and re-invokes the layout callback.
+3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs `onClick`, observes the `.refreshDom` return, and re-invokes the layout callback.
 4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
 
 Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
