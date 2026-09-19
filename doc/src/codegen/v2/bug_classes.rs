@@ -1689,13 +1689,21 @@ fn package_versions_are_the_api_version() {
     let v = &ir().api_version;
     assert!(!v.is_empty(), "IR has no api_version");
     let mut offenders = Vec::new();
-    let checks: [(&str, &str, &str); 3] = [
+    // (file, relative to target/codegen or - `examples/...` - the repo, field
+    // start, field end). The Kotlin build script's own `version` is the
+    // hello-world APP's; the binding it pins is `azul.version`.
+    let checks: [(&str, &str, &str); 4] = [
         ("Azul.csproj", "<Version>", "</Version>"),
-        ("kotlin/build.gradle.kts", "version = \"", "\""),
+        ("kotlin/build.gradle.kts", "(findProperty(\"azul.version\") as String?) ?: \"", "\""),
         ("node/package.json", "\"version\": \"", "\""),
+        ("examples/kotlin/pom.xml", "<azul.version>", "</azul.version>"),
     ];
     for (file, open, close) in checks {
-        let text = generated(file);
+        let text = match file.strip_prefix("examples/") {
+            Some(_) => std::fs::read_to_string(repo_root().join(file))
+                .unwrap_or_else(|e| panic!("{file}: {e}")),
+            None => generated(file),
+        };
         match text.find(open).map(|p| &text[p + open.len()..]).and_then(|r| r.find(close).map(|q| &r[..q])) {
             Some(found) if found == v => {}
             Some(found) => offenders.push(format!("{file}: version `{found}`, api.json says `{v}`")),

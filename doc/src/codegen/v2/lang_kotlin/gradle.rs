@@ -18,15 +18,12 @@
 //! documented. `examples/kotlin/build.gradle.kts` is a verbatim copy of
 //! this output so the in-repo example and the shipped file cannot drift.
 
-/// The `build.gradle.kts` body. `version` is the azul release the maven
-/// route pins by default (`-Pazul.version=` overrides it at build time).
-pub fn generate_build_gradle_kts() -> String {
-    build_gradle_kts_with_version(DEFAULT_AZUL_VERSION)
+/// The `build.gradle.kts` body. `version` - api.json's - is the azul
+/// release the maven route pins by default (`-Pazul.version=` overrides it
+/// at build time); examples/kotlin/pom.xml's `<azul.version>` pins the same.
+pub fn generate_build_gradle_kts(version: &str) -> String {
+    build_gradle_kts_with_version(version)
 }
-
-/// Default `rs.azul` artifact version for the maven route. Kept in one
-/// place with the Kotlin `pom.xml`'s `<azul.version>`.
-pub const DEFAULT_AZUL_VERSION: &str = "0.2.0";
 
 /// Maven artifact id of the published Kotlin binding, as the guide's
 /// `implementation("rs.azul:azul:$VERSION")` names it. Overridable per build
@@ -151,7 +148,10 @@ mod tests {
     #[test]
     fn example_build_gradle_matches_generated() {
         let example = include_str!("../../../../../examples/kotlin/build.gradle.kts");
-        assert_eq!(example, generate_build_gradle_kts());
+        let api = crate::api::ApiData::from_str(include_str!("../../../../../api.json"))
+            .expect("api.json parses");
+        let version = api.get_latest_version_str().expect("a version");
+        assert_eq!(example, generate_build_gradle_kts(version));
         let settings = include_str!("../../../../../examples/kotlin/settings.gradle.kts");
         assert_eq!(settings, generate_settings_gradle_kts());
     }

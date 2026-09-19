@@ -201,7 +201,7 @@ impl GenerationTargets {
             &codegen_dir.join("Azul.cs"),
         )?;
         Self::write_string(
-            super::lang_csharp::csproj::generate_csproj(),
+            super::lang_csharp::csproj::generate_csproj(&ir.api_version),
             &codegen_dir.join("Azul.csproj"),
         )?;
 
@@ -442,7 +442,7 @@ impl GenerationTargets {
             &codegen_dir.join("kotlin/Azul.kt"),
         )?;
         Self::write_string(
-            super::lang_kotlin::gradle::generate_build_gradle_kts(),
+            super::lang_kotlin::gradle::generate_build_gradle_kts(&ir.api_version),
             &codegen_dir.join("kotlin/build.gradle.kts"),
         )?;
         Self::write_string(

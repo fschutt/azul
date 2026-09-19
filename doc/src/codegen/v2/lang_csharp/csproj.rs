@@ -15,8 +15,9 @@
 //! configurable knobs — every Azul C# user starts from the same shape.
 //! Pure stdlib, no external NuGet dependencies.
 
-/// Single public function returning the full `Azul.csproj` body.
-pub fn generate_csproj() -> String {
+/// Single public function returning the full `Azul.csproj` body, for the
+/// binding of api.json `version`.
+pub fn generate_csproj(version: &str) -> String {
     // Note: tabs/spaces inside the literal are intentional and match the
     // canonical MSBuild output. Indentation is two spaces.
     let s = r#"<Project Sdk="Microsoft.NET.Sdk">
@@ -47,7 +48,7 @@ pub fn generate_csproj() -> String {
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>Azul</AssemblyName>
     <RootNamespace>Azul</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>{VERSION}</Version>
     <Description>C# bindings for the Azul GUI framework.</Description>
     <PackageId>Azul.Net</PackageId>
     <Authors>Azul Contributors</Authors>
@@ -90,5 +91,5 @@ pub fn generate_csproj() -> String {
 
 </Project>
 "#;
-    s.to_string()
+    s.replace("{VERSION}", version)
 }
