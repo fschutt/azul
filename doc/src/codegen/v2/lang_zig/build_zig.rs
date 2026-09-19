@@ -2,7 +2,8 @@
 //!
 //! The Zig binding is source-only from the user's perspective: the
 //! prebuilt native shared library (`libazul.so` / `libazul.dylib` /
-//! `azul.dll`) plus our generated `azul.zig` is everything
+//! `azul.dll`) plus the single generated `azul.zig` (which embeds the
+//! pre-translated C ABI, so no header and no include path) is everything
 //! they need. The `build.zig` here:
 //!
 //! 1. declares an executable from `hello-world.zig`,
@@ -28,7 +29,8 @@ pub fn generate_build_zig() -> String {
 // `azul.zig` and the prebuilt native library
 // (`libazul.so` / `libazul.dylib` / `azul.dll`) into the same directory
 // as this file, then run `zig build run`. (`azul.h` is not needed: the C
-// ABI is pre-translated in `azul_c.zig`.)
+// ABI is pre-translated inside `azul.zig`, and no rpath is embedded — run
+// with `LD_LIBRARY_PATH=.` / `DYLD_LIBRARY_PATH=.` on Linux / macOS.)
 //
 // Tested against Zig 0.16. For older Zig (0.11 / 0.12) the
 // `addExecutable` call took `root_source_file` / `target` /

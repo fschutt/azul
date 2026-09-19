@@ -24,6 +24,7 @@ fn layout(model: MyModelRef, _: azul.LayoutCallbackInfo) azul.Dom {
 
     var button = azul.Button.create("Increase counter");
     button.setButtonType(azul.C.AzButtonType_Primary);
+    
     button.setOnClick(model.clone(), onClick);
     
     var body = azul.Dom.createBody();
@@ -35,10 +36,11 @@ fn layout(model: MyModelRef, _: azul.LayoutCallbackInfo) azul.Dom {
 pub fn main(init: std.process.Init) !void {
     _ = init; 
     
-    // Create the model
-    const data = .{ .counter = 5 };
+    // Deviation from the guide: a named model type, not `.{ .counter = 5 }` (an anonymous literal has no runtime layout and never matches MyModelRef's type id).
+    const data = MyDataModel{ .counter = 5 };
 
     var window = azul.WindowCreateOptions.create(layout);
+    
     window.inner.window_state.title = azul.C.AzString_fromUtf8("Hello World".ptr, 11);
     window.inner.window_state.size.dimensions.width = 400.0;
     window.inner.window_state.size.dimensions.height = 300.0;
