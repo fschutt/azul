@@ -9,15 +9,17 @@
 # every failure, so a binding that drops, mis-wraps or leaks a class of API
 # fails here as a class.
 #
-# Each program also honours AZ_MEMTEST_N (repeat the whole plan N times), so
-# `--memtest` runs it under scripts/run_memtest.sh: a debugger run (crashes,
-# double frees) plus a small-N / large-N peak-RSS comparison (leaks).
+# Each program is also that binding's memtest: libazul built with
+# `--features alloc-stats` counts the bytes it holds, and every case runs once
+# to warm up, then AZ_MEMTEST_N more times (default 1), and must leave that
+# count unchanged. `--memtest` additionally runs each program under gdb/lldb,
+# so a crash or double free is reported with its backtrace.
 #
 #   bash scripts/conformance.sh [--memtest] [lang ...]
 #
 # With no languages, every language that has a generated program runs.
 # Prerequisites (this script builds neither):
-#   cargo build --release -p azul-dll --features build-dll   -> target/release
+#   cargo build --release -p azul-dll --features build-dll,alloc-stats -> target/release
 #   cargo run -r -p azul-doc -- codegen all                  -> target/codegen
 # Exit status: 0 iff every requested program built and passed.
 # =============================================================================
@@ -62,14 +64,33 @@ else
   export LD_LIBRARY_PATH="$RELEASE_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
-# run <lang> <command...>: the program itself, or under the memtest harness.
+# run <lang> <command...>: the program itself, or (--memtest) under a
+# debugger that prints a backtrace on a crash.
 run() {
   local lang="$1"; shift
-  if [ "$MEMTEST" = 1 ]; then
-    bash "$REPO_ROOT/scripts/run_memtest.sh" "conformance-$lang" "$@"
-  else
+  if [ "$MEMTEST" = 0 ]; then
     "$@"
+    return
   fi
+  local out
+  # lldb on macOS (a Homebrew gdb there cannot run programs unsigned), gdb
+  # elsewhere.
+  if [ "$IS_MACOS" = 1 ] && command -v lldb >/dev/null 2>&1; then
+    out="$(AZ_MEMTEST_N=2 lldb --batch -o run -o 'bt 12' -- "$@" 2>&1)"
+  elif command -v gdb >/dev/null 2>&1; then
+    out="$(AZ_MEMTEST_N=2 gdb -batch -return-child-result -ex run -ex 'bt 12' --args "$@" 2>&1)"
+  elif command -v lldb >/dev/null 2>&1; then
+    out="$(AZ_MEMTEST_N=2 lldb --batch -o run -o 'bt 12' -- "$@" 2>&1)"
+  else
+    echo "[$lang] FAIL: --memtest needs gdb or lldb" >&2
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -vE '^\[(New|Thread) ' | tail -40
+  if printf '%s' "$out" | grep -qE 'SIGSEGV|SIGABRT|SIGBUS|EXC_BAD_ACCESS|stop reason = signal'; then
+    echo "[$lang] FAIL: crashed under the debugger" >&2
+    return 1
+  fi
+  printf '%s' "$out" | grep -qE 'failure\(s\)' && ! printf '%s' "$out" | grep -qE ' [1-9][0-9]* failure\(s\)'
 }
 
 # ---- C ----------------------------------------------------------------------

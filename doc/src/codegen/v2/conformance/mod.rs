@@ -1,8 +1,11 @@
 //! The conformance plan: one language-neutral list of checks, derived from the
 //! IR, that every binding's generated conformance program renders in its own
-//! language. The program doubles as that binding's memtest: it runs the whole
-//! plan `AZ_MEMTEST_N` times (default 1), so `scripts/run_memtest.sh` can
-//! compare peak RSS across N and catch crashes under a debugger.
+//! language. The program doubles as that binding's memtest: libazul built
+//! with `--features alloc-stats` counts the bytes it holds, and every case
+//! runs once to warm up, then `AZ_MEMTEST_N` more times (default 1), and must
+//! leave that count unchanged - a leak fails as exactly the case that leaks.
+//! A crash or double free fails the run itself (`scripts/conformance.sh
+//! --memtest` also runs it under a debugger).
 //!
 //! Because every binding runs the SAME plan, a defect shows up as a class:
 //! "hash is never surfaced in Lua" is one failing check per hashable type, in

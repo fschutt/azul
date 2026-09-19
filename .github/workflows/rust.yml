@@ -2719,7 +2719,7 @@ jobs:
 
       - name: Build azul-dll (release, dynamic, debug-server)
         if: steps.cache-valid.outputs.skip != 'true'
-        run: cargo build --release -p azul-dll --features build-dll,debug-server
+        run: cargo build --release -p azul-dll --features build-dll,debug-server,alloc-stats
 
       # Same Python as the e2e leg's `Set up Python` (the extension is built
       # against this interpreter; the image default moves between image releases).
