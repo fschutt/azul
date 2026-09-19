@@ -3531,14 +3531,6 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal build"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "cabal run hello-world"
                                 }
                             ]
@@ -3565,15 +3557,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=$PWD"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. cabal run hello-world"
+                                    "content": "LD_LIBRARY_PATH=. cabal run --extra-lib-dirs=$PWD hello-world"
                                 }
                             ]
                         },
@@ -3603,15 +3587,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=\"$(brew --prefix)/lib\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal run hello-world"
+                                    "content": "cabal run --extra-lib-dirs=\"$(brew --prefix)/lib\" hello-world"
                                 }
                             ]
                         },
@@ -3637,15 +3613,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=$PWD"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. cabal run hello-world"
+                                    "content": "cabal run --extra-lib-dirs=$PWD hello-world"
                                 }
                             ]
                         },
@@ -3671,28 +3639,17 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=$PWD"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cabal run hello-world"
+                                    "content": "cabal run --extra-lib-dirs=$PWD hello-world"
                                 }
                             ]
                         }
                     ],
                     "bundle": {
-                        "Azul.hs": "azul-haskell/src/Azul.hs",
-                        "Azul/Internal/FFI.hs": "azul-haskell/src/Azul/Internal/FFI.hs",
-                        "Azul/Types.hs": "azul-haskell/src/Azul/Types.hs",
                         "HelloWorld.hs": "HelloWorld.hs",
                         "azul-example.cabal": "azul-example.cabal",
-                        "azul.cabal": "azul-haskell/azul.cabal",
+                        "azul-haskell/": "azul-haskell/",
                         "azul.h": "azul-haskell/cbits/azul.h",
-                        "azul_shims.c": "azul-haskell/cbits/azul_shims.c"
+                        "cabal.project": "cabal.project"
                     }
                 },
                 "java": {

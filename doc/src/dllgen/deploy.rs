@@ -832,7 +832,7 @@ enum BindingSource {
 /// together with where the deploy copies it FROM.
 ///
 /// `dst` is the path **relative to `release/{version}/`** and must match the
-/// curl target byte-for-byte (e.g. Haskell's nested `Azul/Types.hs`). `src` is
+/// curl target byte-for-byte. `src` is
 /// relative to either `target/codegen/` or `examples/` depending on `source`.
 struct BindingFile {
     dst: &'static str,
@@ -854,9 +854,7 @@ struct BindingFile {
 /// guides download those single files straight from the release.
 ///
 /// `dst` values are flat because no two non-whitelist languages collide on a
-/// filename — the only nested paths (`Azul/Types.hs`, `Azul/Internal/FFI.hs`)
-/// are what the Haskell `curl -o src/Azul/...` steps genuinely request under
-/// `release/{version}/`.
+/// filename.
 const BINDING_FILES: &[BindingFile] = &[
     // --- ada ---
     BindingFile {
@@ -919,34 +917,8 @@ const BINDING_FILES: &[BindingFile] = &[
     //     (`callbacks.go`, `callbacks_export.go`) are what `main.go` imports.
     //     The hello-world's own `go.mod` (with the `replace` onto `./azul-go`)
     //     is written by the same function. ---
-    // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
-    BindingFile {
-        dst: "azul.cabal",
-        src: "haskell/azul.cabal",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul.hs",
-        src: "haskell/src/Azul.hs",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul/Types.hs",
-        src: "haskell/src/Azul/Types.hs",
-        source: BindingSource::Codegen,
-    },
-    BindingFile {
-        dst: "Azul/Internal/FFI.hs",
-        src: "haskell/src/Azul/Internal/FFI.hs",
-        source: BindingSource::Codegen,
-    },
-    // The cabal package's C shim (cbits/) — without it the downloaded
-    // package cannot build (azul.h is published separately at top level).
-    BindingFile {
-        dst: "azul_shims.c",
-        src: "haskell/cbits/azul_shims.c",
-        source: BindingSource::Codegen,
-    },
+    // --- haskell (the `azul` package itself ships as the azul-haskell/
+    //     directory, see GENERATED_PACKAGES) ---
     BindingFile {
         dst: "HelloWorld.hs",
         src: "haskell/HelloWorld.hs",
@@ -955,6 +927,11 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile {
         dst: "azul-example.cabal",
         src: "haskell/azul-example.cabal",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "cabal.project",
+        src: "haskell/cabal.project",
         source: BindingSource::Examples,
     },
     // --- lisp (ships the ASDF driver system + example so the quickload flow works) ---
@@ -1562,11 +1539,16 @@ const GENERATED_PACKAGES: &[(&str, &str, fn(&str) -> bool)] = &[
     ("azul-ocaml", "ocaml", |name| {
         name.ends_with(".ml") || name.ends_with(".mli") || name == "dune" || name == "dune-project" || name == "azul.opam"
     }),
+    ("azul-haskell", "haskell", |name| {
+        name.ends_with(".hs") || name.ends_with(".c") || name.ends_with(".h") || name.ends_with(".cabal")
+    }),
 ];
 
-/// Copy every file of `codegen_dir/<sub>/` that `keep` accepts into
-/// `version_dir/<package>/`. Returns the number of files written; 0 when the
-/// codegen output is absent (a warning for the caller, never an abort).
+/// Copy every file under `codegen_dir/<sub>/` (recursively, keeping the
+/// relative layout: Haskell's `src/Azul/...` and `cbits/`) whose file name
+/// `keep` accepts into `version_dir/<package>/`. Returns the number of files
+/// written; 0 when the codegen output is absent (a warning for the caller,
+/// never an abort).
 pub fn copy_generated_package(
     version_dir: &Path,
     codegen_dir: &Path,
@@ -1580,13 +1562,24 @@ pub fn copy_generated_package(
     }
     let dst_dir = version_dir.join(package);
     fs::create_dir_all(&dst_dir)?;
-    let mut entries: Vec<PathBuf> = fs::read_dir(&src_dir)?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.file_name().and_then(|f| f.to_str()).is_some_and(keep))
-        .collect();
+    let mut entries = Vec::new();
+    let mut dirs = vec![src_dir.clone()];
+    while let Some(dir) = dirs.pop() {
+        for p in fs::read_dir(&dir)?.filter_map(|e| e.ok().map(|e| e.path())) {
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.file_name().and_then(|f| f.to_str()).is_some_and(keep) {
+                entries.push(p);
+            }
+        }
+    }
     entries.sort();
     for src in &entries {
-        fs::copy(src, dst_dir.join(src.file_name().unwrap()))?;
+        let dst = dst_dir.join(src.strip_prefix(&src_dir).unwrap());
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst)?;
     }
     Ok(entries.len())
 }
@@ -3129,7 +3122,12 @@ mod tests {
         let version_dir = tmp.path().join("release");
         fs::create_dir_all(codegen.join("fortran")).unwrap();
         fs::create_dir_all(codegen.join("ocaml")).unwrap();
+        fs::create_dir_all(codegen.join("haskell/src/Azul/Types")).unwrap();
+        fs::create_dir_all(codegen.join("haskell/cbits")).unwrap();
         fs::create_dir_all(&version_dir).unwrap();
+        for f in ["azul.cabal", "src/Azul.hs", "src/Azul/Types/Dom.hs", "cbits/azul_dom.c"] {
+            fs::write(codegen.join("haskell").join(f), b"x").unwrap();
+        }
         for f in ["azul.f90", "azul_types_css.f90", "azul_ffi_dom.f90", "Makefile", "sources.txt"] {
             fs::write(codegen.join("fortran").join(f), b"x").unwrap();
         }
@@ -3143,7 +3141,11 @@ mod tests {
                 copy_generated_package(&version_dir, &codegen, package, sub, *keep).unwrap()
             })
             .collect();
-        assert_eq!(copied, [5, 6]);
+        assert_eq!(copied, [5, 6, 4]);
+        // Haskell's package is nested: src/ modules and cbits/ shims keep their paths.
+        assert!(version_dir.join("azul-haskell/azul.cabal").is_file());
+        assert!(version_dir.join("azul-haskell/src/Azul/Types/Dom.hs").is_file());
+        assert!(version_dir.join("azul-haskell/cbits/azul_dom.c").is_file());
         assert!(version_dir.join("azul-fortran/azul_types_css.f90").is_file());
         assert!(version_dir.join("azul-fortran/Makefile").is_file());
         assert!(version_dir.join("azul-ocaml/azul_types_dom_2.ml").is_file());
