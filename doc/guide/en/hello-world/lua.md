@@ -32,7 +32,7 @@ rely on the `ffi` module. The easiest way to get this is by using LuaJIT 2.1+, w
 includes the `ffi` module by default. 
 
 If you are using vanilla PUC Lua (5.1-5.4), you will need to install a third-party FFI 
-module such as `luaffi` or `cffi-lua` via LuaRocks first.
+module such as `luaffi` via LuaRocks first.
 
 ## Installation
 
@@ -48,8 +48,6 @@ and put it next to your script (or point `LUA_PATH` at it):
 
 ```sh
 wget https://azul.rs/ui/release/$VERSION/azul.lua
-# Or for vanilla Lua:
-# wget https://azul.rs/ui/release/$VERSION/azul_cffi.lua
 ```
 
 In either case, you still need to download the native `libazul` library from 

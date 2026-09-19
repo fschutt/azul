@@ -193,6 +193,10 @@ during debugging:
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
 
+// Macro has to be used before using the *Ref structs later on
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor,
+                MyDataModel_toJson, MyDataModel_fromJson);
+
 AzJson MyDataModel_toJson(AzRefAny refany) {
     MyDataModelRef ref = MyDataModelRef_create(&refany);
     if (!MyDataModel_downcastRef(&refany, &ref)) {
@@ -218,9 +222,6 @@ AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
     MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
     return AzResultRefAnyString_ok(MyDataModel_upcast(model));
 }
-
-AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor,
-                MyDataModel_toJson, MyDataModel_fromJson);
 ```
 
 ### Further Notes
