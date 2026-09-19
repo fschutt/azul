@@ -917,7 +917,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses (MSVC's oldest language mode is /std:c++14, so the C++03 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -941,7 +941,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp03.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp03.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -955,7 +955,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket (a git repository served from azul.rs), then compile with MSVC (cl) against the Scoop install directory",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket (a git repository served from azul.rs), then compile with MSVC (cl) against the Scoop install directory (MSVC's oldest language mode is /std:c++14, so the C++03 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -979,7 +979,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp03.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp03.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -993,7 +993,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt (MSVC's oldest language mode is /std:c++14, so the C++03 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1013,7 +1013,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world-cpp03.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. hello-world-cpp03.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1259,7 +1259,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses (MSVC's oldest language mode is /std:c++14, so the C++11 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1283,7 +1283,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp11.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp11.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1297,7 +1297,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket (a git repository served from azul.rs), then compile with MSVC (cl) against the Scoop install directory",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket (a git repository served from azul.rs), then compile with MSVC (cl) against the Scoop install directory (MSVC's oldest language mode is /std:c++14, so the C++11 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1321,7 +1321,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp11.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp11.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1335,7 +1335,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt (MSVC's oldest language mode is /std:c++14, so the C++11 example is compiled in C++14 mode)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1355,7 +1355,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world-cpp11.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. hello-world-cpp11.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1625,7 +1625,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world-cpp14.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp14.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1663,7 +1663,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp14.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp14.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1697,7 +1697,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world-cpp14.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /EHsc /I. hello-world-cpp14.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1967,7 +1967,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. /I%AZ_LINK_PATH% hello-world-cpp17.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp17.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2005,7 +2005,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp17.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp17.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2039,7 +2039,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. hello-world-cpp17.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /EHsc /I. hello-world-cpp17.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2309,7 +2309,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. /I%AZ_LINK_PATH% hello-world-cpp20.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp20.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2347,7 +2347,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp20.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp20.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2381,7 +2381,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. hello-world-cpp20.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /EHsc /I. hello-world-cpp20.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2652,7 +2652,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. /I%AZ_LINK_PATH% hello-world-cpp23.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /EHsc /I. /I%AZ_LINK_PATH% hello-world-cpp23.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2690,7 +2690,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp23.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /EHsc /I. /I%USERPROFILE%\\scoop\\apps\\azul\\current hello-world-cpp23.cpp %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2724,7 +2724,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. hello-world-cpp23.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /EHsc /I. hello-world-cpp23.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
