@@ -18,6 +18,8 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
+use azul_core::{geom::LogicalPosition, transient::TransientAnchor};
+
 use super::{super::super::common::debug_server::LogCategory, WaylandWindow};
 use crate::log_error;
 
@@ -34,6 +36,36 @@ pub(crate) struct MenuLayoutData {
     /// address absolute screen coordinates, so positioning must happen via
     /// the compositor with this rect.
     pub trigger_rect: LogicalRect,
+    /// Which edge of `trigger_rect` the popup opens on. A menu bar item and
+    /// a dropdown open BELOW their trigger with the left edges aligned; a
+    /// context menu opens at the pointer. This used to be decided at popup
+    /// creation with a single answer for every menu - the pointer corner -
+    /// so every dropdown hung off its trigger's bottom-RIGHT corner, one
+    /// trigger width to the right of where it belongs.
+    pub edge: TransientAnchor,
+}
+
+/// The edge a menu opens on, from what the opener knew: a real trigger rect
+/// means "below the control"; none means "at the pointer" (a context menu,
+/// whose trigger rect is the zero-sized cursor point).
+#[must_use]
+pub fn menu_edge_for(anchor: Option<LogicalRect>) -> TransientAnchor {
+    match anchor {
+        Some(rect) if rect.size.width > 0.0 || rect.size.height > 0.0 => TransientAnchor::Bottom,
+        _ => TransientAnchor::Cursor,
+    }
+}
+
+/// The popup size as the positioner and the buffer must both see it.
+///
+/// A menu's measured size is a fraction; the positioner took it truncated
+/// (`as i32`) while the buffer and the viewport destination took it
+/// rounded up, so the surface was one pixel larger than the box the
+/// compositor had positioned and constrained (the "258 logical -> 259 px"
+/// in the log). One rounding, up, for everyone.
+#[must_use]
+pub fn popup_size_px(size: LogicalSize) -> LogicalSize {
+    LogicalSize::new(size.width.max(1.0).ceil(), size.height.max(1.0).ceil())
 }
 
 /// Layout callback for menu popup windows
@@ -95,12 +127,14 @@ pub fn create_menu_popup_options(
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
+    edge: TransientAnchor,
     menu_size: LogicalSize,
 ) -> WindowCreateOptions {
     let menu_data = MenuLayoutData {
         menu: menu.clone(),
         system_style: system_style.clone(),
         trigger_rect,
+        edge,
     };
 
     let menu_data_refany = RefAny::new(menu_data);
@@ -145,6 +179,30 @@ pub fn calculate_menu_size(menu: &Menu, _system_style: &SystemStyle) -> LogicalS
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A real trigger rect (a menu bar item, a dropdown's control) opens the
+    /// menu below it; the zero-sized cursor point of a context menu opens it
+    /// at the pointer.
+    #[test]
+    fn a_trigger_rect_opens_below_and_a_cursor_point_opens_at_the_pointer() {
+        let swatch = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::new(14.0, 14.0));
+        assert_eq!(menu_edge_for(Some(swatch)), TransientAnchor::Bottom);
+        let cursor = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::zero());
+        assert_eq!(menu_edge_for(Some(cursor)), TransientAnchor::Cursor);
+        assert_eq!(menu_edge_for(None), TransientAnchor::Cursor);
+    }
+
+    /// The size the positioner is told and the buffer that is attached must
+    /// agree: 258.4 logical is 259 for both, never 258 for one and 259 for
+    /// the other.
+    #[test]
+    fn the_positioner_and_the_buffer_round_the_popup_size_the_same_way() {
+        let px = popup_size_px(LogicalSize::new(258.4, 288.0));
+        assert_eq!((px.width as i32, px.height as i32), (259, 288));
+        assert_eq!(px.width, px.width.ceil(), "already integral");
+        let tiny = popup_size_px(LogicalSize::new(0.0, 0.2));
+        assert_eq!((tiny.width, tiny.height), (1.0, 1.0), "never a zero-sized popup");
+    }
 
     #[test]
     fn test_calculate_menu_size() {

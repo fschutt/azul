@@ -1795,6 +1795,7 @@ impl WaylandWindow {
         let trigger_rect = anchor.unwrap_or_else(|| {
             azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
         });
+        let edge = self::menu::menu_edge_for(anchor);
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -1802,6 +1803,7 @@ impl WaylandWindow {
             menu,
             &self.common.system_style,
             trigger_rect,
+            edge,
             menu_size,
         );
 
@@ -1840,15 +1842,14 @@ impl WaylandWindow {
                 let mut r = refany.clone();
                 let menu = r
                     .downcast_ref::<self::menu::MenuLayoutData>()
-                    .map(|d| d.trigger_rect);
+                    .map(|d| (d.trigger_rect, d.edge));
                 let mut r2 = refany.clone();
                 let transient = r2
                     .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>(
                     )
                     .map(|d| (d.placement.anchor_rect, d.placement.anchor));
                 match (menu, transient) {
-                    (Some(rect), _) => (Some(rect), azul_core::transient::TransientAnchor::Cursor),
-                    (None, Some((rect, edge))) => (Some(rect), edge),
+                    (Some((rect, edge)), _) | (None, Some((rect, edge))) => (Some(rect), edge),
                     (None, None) => (None, azul_core::transient::TransientAnchor::Cursor),
                 }
             }
@@ -1867,9 +1868,11 @@ impl WaylandWindow {
         anchor_rect.size.width = anchor_rect.size.width.max(1.0);
         anchor_rect.size.height = anchor_rect.size.height.max(1.0);
 
-        let mut popup_size = options.window_state.size.dimensions;
-        popup_size.width = popup_size.width.max(1.0);
-        popup_size.height = popup_size.height.max(1.0);
+        // One rounding for the positioner, the buffer and the viewport
+        // destination alike (see `menu::popup_size_px`).
+        let popup_size = self::menu::popup_size_px(options.window_state.size.dimensions);
+        let mut options = options;
+        options.window_state.size.dimensions = popup_size;
 
         crate::plog_info!(
             "[wayland-popup] open_menu_popup: anchor=({:.0},{:.0} {:.0}x{:.0}) size={:.0}x{:.0}",
@@ -6424,6 +6427,7 @@ impl WaylandWindow {
             menu,
             &self.common.system_style,
             trigger_rect,
+            azul_core::transient::TransientAnchor::Cursor,
             menu_size,
         );
 
