@@ -60,6 +60,7 @@
 
 #[cfg(test)]
 mod bug_classes;
+pub mod c_layout;
 pub mod config;
 pub mod conformance;
 pub mod generator;

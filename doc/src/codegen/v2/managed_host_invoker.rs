@@ -408,10 +408,11 @@ fn find_field_of_type(
 /// (`"Callback"`, `"ButtonOnClickCallback"`, ...).
 ///
 /// Requires args[2].type_name to match the wrapper struct name (NOT
-/// the fn-pointer typedef form). When the API exposes the typedef
-/// form (`CheckBoxOnToggleCallbackType` etc.) the smart factory would
-/// need an extra `.cb` field extract bridge; today only Button matches
-/// the wrapper-struct shape.
+/// the fn-pointer typedef form). Every `with_*` / `set_*` that takes a
+/// callback wrapper struct matches (58 methods on 43 classes as of
+/// 2026-09-19); an API entry that exposes only the typedef form
+/// (`CheckBoxOnToggleCallbackType` etc.) would need an extra `.cb` field
+/// extract bridge and does not match.
 pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(String, String)> {
     use super::ir::FunctionKind;
     if !matches!(
@@ -491,29 +492,18 @@ pub fn return_c_typename(cb: &CallbackTypedefDef) -> Option<String> {
 /// tagged-union payload fields), and copying `sizeof(host_record)` bytes
 /// overflows the out-pointer and smashes the callback frame.
 ///
-/// Returns `None` for `void`-returning kinds (no writeback). Every return type
-/// used by [`HOST_INVOKER_KINDS`] is covered; a new callback kind whose typedef
-/// returns an aggregate must add its size here. Sizes are the repr(C) LP64
-/// layout of the wrapper struct as clang reports it for the generated
-/// `azul.h` — re-check after any change to those structs with
-/// `printf("%zu", sizeof(AzDom))` against `target/codegen/azul.h` (2026-09-19:
-/// AzDom grew 240 -> 280 and AzVirtualViewReturn 280 -> 320 without this
-/// table following, which truncated every Dom a Perl layout callback returned).
-pub fn return_c_size(cb: &CallbackTypedefDef, _ir: &super::ir::CodegenIR) -> Option<usize> {
-    let rt = return_c_typename(cb)?;
-    Some(match rt.as_str() {
-        "AzDom" => 280,
-        "AzVirtualViewReturn" => 320,
-        "AzOnTextInputReturn" => 8,
-        // AzUpdate and every other repr(C) fieldless enum return -> C int.
-        "AzUpdate" => 4,
-        // Fallback for any not-yet-catalogued aggregate return: a fieldless
-        // enum is 4 bytes; anything larger MUST be added above (an under-copy
-        // truncates the return, an over-copy would overflow). We choose the
-        // conservative enum size so a mistake fails loudly (wrong value) rather
-        // than corrupting memory.
-        _ => 4,
-    })
+/// Returns `None` for `void`-returning kinds (no writeback). The size is the
+/// repr(C) 64-bit layout `azul.h` declares, computed from the IR by
+/// [`super::c_layout::type_layout`] - a size table kept by hand drifted
+/// (2026-09-19: AzDom 240 -> 280, AzVirtualViewReturn 280 -> 320, truncating
+/// every Dom a Perl layout callback returned) and silently fell back to 4
+/// bytes for any return type it did not list.
+pub fn return_c_size(cb: &CallbackTypedefDef, ir: &super::ir::CodegenIR) -> Option<usize> {
+    let rt = cb.return_type.as_deref()?.trim();
+    if rt == "void" {
+        return None;
+    }
+    super::c_layout::type_layout(rt, ir).map(|l| l.size)
 }
 
 /// A stable name for the i-th positional arg of a callback. Falls back to
