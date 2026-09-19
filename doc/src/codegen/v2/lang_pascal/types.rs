@@ -146,7 +146,7 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     )
 }
 
-fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
+pub(super) fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&e.name) {
         return false;
     }
