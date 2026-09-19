@@ -247,6 +247,26 @@ fn find_function_differences(
                 "argument count mismatch: api.json has {}, source has {}",
                 api_arg_count, source_arg_count
             ));
+        } else {
+            // Argument types, in order: what `autofix add` would write for the
+            // source argument (a generic `C: Into<T>` resolved to `T`) against
+            // what api.json declares. A drifted type is invisible to every
+            // other check - the codegen trusts api.json - so e.g. a callback
+            // declared as its bare function-pointer typedef, where the source
+            // takes the context-carrying wrapper, silently lost the context.
+            let api_args = api_fn
+                .fn_args
+                .iter()
+                .filter(|arg_map| !arg_map.contains_key("self"))
+                .flat_map(|arg_map| arg_map.iter());
+            for ((api_name, api_ty), source_arg) in api_args.zip(source_method.args.iter()) {
+                let (source_ty, _) = source_arg_ffi_type(source_arg);
+                if !same_ffi_arg_type(api_ty, &source_ty) {
+                    diffs.push(format!(
+                        "argument `{api_name}`: api.json declares `{api_ty}`, source takes `{source_ty}`"
+                    ));
+                }
+            }
         }
 
         if !diffs.is_empty() {
@@ -497,6 +517,65 @@ fn normalize_type_name(ty: &str, class_name: &str) -> String {
     stripped.trim().to_string()
 }
 
+/// Does api.json's `api_ty` declare the source argument `source_ty` (as
+/// `source_arg_ffi_type` spells it)? Besides equality, three representations
+/// are the same argument: a borrowed `&T` (`*const T`) passed by value and
+/// re-borrowed in the `fn_body`, a byte slice (`U8VecRef`) passed as an owned
+/// `U8Vec`, and `Option<T>` spelled as its FFI option (`OptionT`).
+fn same_ffi_arg_type(api_ty: &str, source_ty: &str) -> bool {
+    let norm = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (api_ty, source_ty) = (norm(api_ty), norm(source_ty));
+    if api_ty == source_ty {
+        return true;
+    }
+    if source_ty.strip_prefix("*const ") == Some(api_ty.as_str()) {
+        return true;
+    }
+    if source_ty == "U8VecRef" && api_ty == "U8Vec" {
+        return true;
+    }
+    if let Some(inner) = source_ty
+        .strip_prefix("Option<")
+        .and_then(|t| t.strip_suffix('>'))
+    {
+        let inner = inner.trim();
+        let mut cap = inner.chars();
+        let upper = cap
+            .next()
+            .map(|c| c.to_ascii_uppercase().to_string() + cap.as_str())
+            .unwrap_or_default();
+        return api_ty == format!("Option{upper}");
+    }
+    false
+}
+
+/// Every api.json function whose signature differs from its source method
+/// (self kind, argument count, argument types), by class, sorted.
+pub fn signature_drift(
+    index: &TypeIndex,
+    api_data: &ApiData,
+) -> Vec<(String, FunctionDiff)> {
+    let Some(version) = api_data.get_latest_version_str() else {
+        return Vec::new();
+    };
+    let Some(version_data) = api_data.get_version(version) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for module in version_data.api.values() {
+        for class_name in module.classes.keys() {
+            let Some(type_def) = index.resolve(class_name, None) else {
+                continue;
+            };
+            if let Some(cmp) = compare_type_functions(type_def, api_data, version) {
+                out.extend(cmp.differences.into_iter().map(|d| (class_name.clone(), d)));
+            }
+        }
+    }
+    out.sort_by(|a, b| (&a.0, &a.1.name).cmp(&(&b.0, &b.1.name)));
+    out
+}
+
 /// Convert a Rust argument type to an FFI-compatible type
 /// Returns (ffi_type, accessor_suffix) where accessor_suffix is appended to the variable in fn_body
 /// e.g. ("String", ".as_str()") for &str
@@ -591,6 +670,7 @@ pub fn list_type_functions(
             .collect(),
         api_only: comparison.extra_in_api,
         both: comparison.matching,
+        differences: comparison.differences,
     })
 }
 
@@ -604,6 +684,9 @@ pub struct FunctionListResult {
     pub api_only: Vec<String>,
     /// Functions in both
     pub both: Vec<String>,
+    /// Functions in both whose signatures differ (self kind, argument count or
+    /// argument types)
+    pub differences: Vec<FunctionDiff>,
 }
 
 /// Find dependent types for a method
@@ -750,6 +833,37 @@ pub fn generate_remove_type_patch(type_name: &str, module_name: &str, version: &
 }
 
 /// Convert a MethodDef to FunctionData for api.json
+/// A source argument's api.json type and the `fn_body` accessor it needs:
+/// what `autofix add` writes for it, and so what an existing api.json entry
+/// must declare for it. Generic `C: Into<T>` parameters arrive here already
+/// resolved to `T` (`type_index::extract_into_bounds`).
+fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<String>) {
+    let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
+    // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
+    // BEFORE this point, so the string-prefix arms in
+    // `convert_arg_type_for_ffi` never see a reference. Wrap API types
+    // here per the FFI checker's own policy — pointers, never `&T` — and
+    // re-borrow in the fn_body via a `{}` template accessor. Dropping the
+    // ref to a VALUE (the old behavior) generated a call that MOVED a
+    // struct the caller still owns: broken codegen, silently, on the
+    // first imported method with a reference argument.
+    if accessor.is_none() && ffi_type != "String" && !ffi_type.ends_with("VecRef") {
+        match arg.ref_kind {
+            crate::api::RefKind::Ref => (
+                format!("*const {ffi_type}"),
+                Some("unsafe { &*{} }".to_string()),
+            ),
+            crate::api::RefKind::RefMut => (
+                format!("*mut {ffi_type}"),
+                Some("unsafe { &mut *{} }".to_string()),
+            ),
+            _ => (ffi_type, accessor),
+        }
+    } else {
+        (ffi_type, accessor)
+    }
+}
+
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     use super::type_index::SelfKind;
 
@@ -780,31 +894,7 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
     // Add remaining arguments with FFI type conversion
     for arg in &method.args {
         let mut arg_map = IndexMap::new();
-        let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
-        // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
-        // BEFORE this point, so the string-prefix arms in
-        // `convert_arg_type_for_ffi` never see a reference. Wrap API types
-        // here per the FFI checker's own policy — pointers, never `&T` — and
-        // re-borrow in the fn_body via a `{}` template accessor. Dropping the
-        // ref to a VALUE (the old behavior) generated a call that MOVED a
-        // struct the caller still owns: broken codegen, silently, on the
-        // first imported method with a reference argument.
-        let (ffi_type, accessor) =
-            if accessor.is_none() && ffi_type != "String" && !ffi_type.ends_with("VecRef") {
-                match arg.ref_kind {
-                    crate::api::RefKind::Ref => (
-                        format!("*const {ffi_type}"),
-                        Some("unsafe { &*{} }".to_string()),
-                    ),
-                    crate::api::RefKind::RefMut => (
-                        format!("*mut {ffi_type}"),
-                        Some("unsafe { &mut *{} }".to_string()),
-                    ),
-                    _ => (ffi_type, accessor),
-                }
-            } else {
-                (ffi_type, accessor)
-            };
+        let (ffi_type, accessor) = source_arg_ffi_type(arg);
         arg_map.insert(arg.name.clone(), ffi_type);
         fn_args.push(arg_map);
         arg_accessors.push((arg.name.clone(), accessor));
@@ -1500,3 +1590,96 @@ fn collect_types_from_type_str(type_str: &str, out: &mut Vec<String>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The methods of `impl T { .. }` in `source`, as the workspace index
+    /// extracts them (generic `C: Into<W>` parameters resolved to `W`).
+    fn methods(source: &str) -> BTreeMap<String, MethodDef> {
+        let file: syn::File = syn::parse_file(source).expect("test source parses");
+        let mut out = BTreeMap::new();
+        for item in &file.items {
+            if let syn::Item::Impl(block) = item {
+                for impl_item in &block.items {
+                    if let syn::ImplItem::Fn(f) = impl_item {
+                        let m = super::super::type_index::extract_method_def(f, "T")
+                            .expect("method extracts");
+                        out.insert(m.name.clone(), m);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn diffs(source: &str, api_class: &str) -> Vec<String> {
+        let methods = methods(source);
+        let refs: BTreeMap<String, &MethodDef> =
+            methods.iter().map(|(k, v)| (k.clone(), v)).collect();
+        let class: ClassData = serde_json::from_str(api_class).expect("test class parses");
+        let names: Vec<String> = refs.keys().cloned().collect();
+        find_function_differences(&names, &refs, &class)
+            .into_iter()
+            .flat_map(|d| d.differences)
+            .collect()
+    }
+
+    const SOURCE: &str = r#"
+        impl T {
+            pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(
+                &mut self,
+                name: AzString,
+                register_fn: R,
+            ) {}
+        }
+    "#;
+
+    /// The bug class behind the 2026-09-19 callback audit: the source takes
+    /// the context-carrying wrapper (`R: Into<RegisterComponentLibraryFn>`),
+    /// api.json declared the bare function-pointer typedef, and nothing
+    /// noticed - so no binding could hand a closure's context over.
+    #[test]
+    fn a_wrapper_argument_declared_as_its_typedef_is_reported() {
+        let found = diffs(
+            SOURCE,
+            r#"{"functions": {"add_component_library": {
+                "fn_args": [{"self": "refmut"}, {"name": "String"},
+                            {"register_fn": "RegisterComponentLibraryFnType"}],
+                "fn_body": "object.add_component_library(name, register_fn)"}}}"#,
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("register_fn") && found[0].contains("RegisterComponentLibraryFn`"));
+    }
+
+    #[test]
+    fn a_matching_signature_is_not_reported() {
+        let found = diffs(
+            SOURCE,
+            r#"{"functions": {"add_component_library": {
+                "fn_args": [{"self": "refmut"}, {"name": "String"},
+                            {"register_fn": "RegisterComponentLibraryFn"}],
+                "fn_body": "object.add_component_library(name, register_fn)"}}}"#,
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// Representations of the same argument: a borrowed `&T` passed by value
+    /// (re-borrowed in the fn_body) and `Option<T>` spelled `OptionT`.
+    #[test]
+    fn equivalent_representations_are_not_reported() {
+        let found = diffs(
+            r#"
+            impl T {
+                pub fn get(&self, id: &DomId, span: Option<i32>) {}
+            }
+            "#,
+            r#"{"functions": {"get": {
+                "fn_args": [{"self": "ref"}, {"id": "DomId"}, {"span": "OptionI32"}],
+                "fn_body": "object.get(&id, span.into())"}}}"#,
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+}
+

@@ -206,6 +206,24 @@ pub fn autofix_api(
         );
     }
 
+    // Functions in both source and api.json whose signatures drifted apart
+    // (argument types included): reported, never auto-patched - api.json may
+    // deliberately declare the C-facing form of a source type.
+    let drift = function_diff::signature_drift(&index, api_data);
+    if !drift.is_empty() {
+        println!(
+            "\n{} {} function signature(s) differ from the source:",
+            "!".yellow(),
+            drift.len()
+        );
+        for (class, d) in &drift {
+            println!("  {}.{}", class.white(), d.name);
+            for line in &d.differences {
+                println!("      {}", line.dimmed());
+            }
+        }
+    }
+
     // Report results
     println!("\n{}", "Analysis Results:".white().bold());
     println!(

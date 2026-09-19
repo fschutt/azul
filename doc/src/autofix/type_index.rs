@@ -3237,7 +3237,7 @@ fn extract_into_inner_type(bound: &syn::TypeParamBound) -> Option<String> {
 }
 
 /// Extract a single method definition from an ImplItemFn
-fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
+pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
     let method_name = method.sig.ident.to_string();
 
     // Check visibility (pub or not) - vis is on the method, not the sig

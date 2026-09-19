@@ -926,11 +926,26 @@ fn main() -> anyhow::Result<()> {
                         println!();
                     }
 
+                    if !result.differences.is_empty() {
+                        println!(
+                            "[ WARN ] Signature differs from the source ({}):",
+                            result.differences.len()
+                        );
+                        for d in &result.differences {
+                            println!("  ~ {}", d.name);
+                            for line in &d.differences {
+                                println!("      {}", line);
+                            }
+                        }
+                        println!();
+                    }
+
                     println!(
-                        "Summary: {} source-only, {} api-only, {} matching",
+                        "Summary: {} source-only, {} api-only, {} matching, {} differing",
                         result.source_only.len(),
                         result.api_only.len(),
-                        result.both.len()
+                        result.both.len(),
+                        result.differences.len()
                     );
                 }
                 Err(e) => {
