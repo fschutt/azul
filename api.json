@@ -2765,7 +2765,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "crystal build hello-world.cr --link-flags \"-L.\""
+                                    "content": "crystal build hello-world.cr --link-flags \"-L$PWD\""
                                 },
                                 {
                                     "type": "command",
@@ -2795,7 +2795,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "crystal build hello-world.cr --link-flags \"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText\""
+                                    "content": "crystal build hello-world.cr --link-flags \"-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText\""
                                 },
                                 {
                                     "type": "command",
@@ -2833,7 +2833,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "crystal build hello-world.cr --link-flags azul.dll.lib"
+                                    "content": "crystal build hello-world.cr --link-flags \"$PWD\\azul.dll.lib\""
                                 },
                                 {
                                     "type": "command",
@@ -2927,7 +2927,7 @@
                             "os": [
                                 "macos"
                             ],
-                            "description": "Download the native library, the generated azul.d and the hello-world driver, then compile both together with dmd (or ldc2)",
+                            "description": "Download the native library, the generated azul.d and the hello-world driver, then compile both together with ldc2 (dmd has no Apple Silicon backend)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2943,7 +2943,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world"
+                                    "content": "ldc2 hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world"
                                 },
                                 {
                                     "type": "command",

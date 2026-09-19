@@ -2983,12 +2983,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -3004,13 +3006,15 @@ jobs:
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3342,12 +3346,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -3363,13 +3369,15 @@ jobs:
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'

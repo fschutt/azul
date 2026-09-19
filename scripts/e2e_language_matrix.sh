@@ -1581,7 +1581,17 @@ lang_odin() {
 }
 
 lang_d() {
-  have dmd || { skip d "dmd not installed (D compiler)"; return; }
+  # dmd has no arm64 backend: on an Apple Silicon runner it emits x86_64
+  # objects that cannot link against the arm64 libazul ("symbol(s) not found
+  # for architecture x86_64"). macOS uses LDC (same front end, LLVM backend,
+  # same flags); everywhere else dmd, with LDC as the fallback.
+  local DC=dmd
+  [ "$IS_MACOS" = 1 ] && DC=ldc2
+  if ! have "$DC"; then
+    if have ldc2; then DC=ldc2; elif have dmd; then DC=dmd; else
+      skip d "neither dmd nor ldc2 installed (D compiler)"; return
+    fi
+  fi
   local f; f="$(log_path d)"
   (
     set -x
@@ -1594,17 +1604,17 @@ lang_d() {
     cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" || exit 1
     cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/d" || exit 1
-    dmd -o- hello-world.d azul.d || exit 1
+    "$DC" -o- hello-world.d azul.d || exit 1
     local SRC=(-Iazul-d/source hello-world.d azul-d/source/azul/*.d)
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      dmd "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+      "$DC" "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      dmd "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
+      "$DC" "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
     else
-      dmd "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
+      "$DC" "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
@@ -1624,14 +1634,16 @@ lang_crystal() {
     cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/crystal" || exit 1
     local BIN=./hello-world-e2e
+    # -L must be ABSOLUTE: crystal runs the linker from its cache directory,
+    # so a relative `-L.` never finds libazul ("unable to find library -lazul").
     if [ "$IS_MACOS" = 1 ]; then
-      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
       crystal build hello-world.cr -o hello-world-e2e --link-flags "$RELEASE_DIR/azul.dll.lib" || exit 1
     else
-      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L." || exit 1
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L$PWD" || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
