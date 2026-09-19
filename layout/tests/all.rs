@@ -132,6 +132,8 @@ mod fakefont;
 
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
+#[path = "abspos_in_flex_containing_block.rs"]
+mod abspos_in_flex_containing_block;
 #[path = "anonymous_nodes.rs"]
 mod anonymous_nodes;
 #[path = "block_merge_filter.rs"]

@@ -182,21 +182,33 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
         // dimensions (replaced) +spec:positioning:9020aa - "absolutely positioned" means
         // position:absolute or position:fixed
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-            // is a grid container have their CB determined by grid-placement properties;
-            // Taffy already handles this during grid layout, so skip re-positioning here.
-            // Same applies to flex containers (Flexbox §4.1).
+            // An absolutely positioned child of a flex or grid container that IS
+            // its containing block (the container is positioned) was already
+            // placed by taffy, grid-placement included (CSS Grid §9.1); keep that.
+            //
+            // Only then. Taffy has no `static`: it treats every container as
+            // positioned, so it places an abspos child against its immediate
+            // flex/grid parent even when the real containing block is further up
+            // (the nearest positioned ancestor, else the initial containing
+            // block) - and a `fixed` child against it too. Flexbox §4.1 lets the
+            // flex parent supply only the STATIC position, which taffy's result
+            // already is for an axis whose insets are both auto. Skipping every
+            // flex/grid child pinned the Toast widget (`bottom; right`) to the
+            // bottom of a label-high unpositioned column, over the row above it.
             {
                 use azul_core::dom::FormattingContext;
-                let parent_is_flex_or_grid = node
-                    .parent
-                    .and_then(|p| tree.get(LayoutNodeId::new(p)))
-                    .is_some_and(|pn| {
-                        matches!(
-                            pn.formatting_context,
-                            FormattingContext::Flex | FormattingContext::Grid
-                        )
-                    });
-                if parent_is_flex_or_grid {
+                let parent_is_the_flex_or_grid_cb = position_type == LayoutPosition::Absolute
+                    && node
+                        .parent
+                        .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                        .is_some_and(|pn| {
+                            matches!(
+                                pn.formatting_context,
+                                FormattingContext::Flex | FormattingContext::Grid
+                            ) && get_position_type(ctx.styled_dom, pn.dom_node_id)
+                                .is_positioned()
+                        });
+                if parent_is_the_flex_or_grid_cb {
                     continue;
                 }
             }
@@ -784,9 +796,22 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 if height_is_auto && (top_is_auto || bottom_is_auto) {
                     if let Ok(res) = &interior {
                         let bp = tree.nodes[node_index].box_props.unpack();
+                        // A flex or grid box's overflow size already includes its
+                        // padding (taffy measures the padding box); a block's does
+                        // not. Adding the padding again made an auto-height
+                        // padded flex abspos box (the Toast) a padding too tall.
+                        let padding_in_overflow = matches!(
+                            tree.nodes[node_index].formatting_context,
+                            azul_core::dom::FormattingContext::Flex
+                                | azul_core::dom::FormattingContext::Grid
+                        );
+                        let padding = if padding_in_overflow {
+                            0.0
+                        } else {
+                            bp.padding.top + bp.padding.bottom
+                        };
                         solved_size.height = res.output.overflow_size.height
-                            + bp.padding.top
-                            + bp.padding.bottom
+                            + padding
                             + bp.border.top
                             + bp.border.bottom;
                         if top_is_auto && !bottom_is_auto {
