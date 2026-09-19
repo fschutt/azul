@@ -1,7 +1,7 @@
 package com.azul;
 
 class Counter {
-    public int count = 0;
+    public int count = 5;
 }
 
 public class HelloWorld {
@@ -12,16 +12,17 @@ public class HelloWorld {
         }
     }
 
-    public static Dom layout(Counter data, AzLayoutCallbackInfo info) {
-        String countStr = String.format("Count: %d", data.count);
-        Button btn = Button.create(countStr)
+    public static Dom layout(Counter data, LayoutCallbackInfo info) {
+        String countStr = String.format("%d", data.count);
+        Button btn = Button.create("Increase counter")
             .withOnClick(data, HelloWorld::onClick);
         
         return Dom.createBody()
+            .withChild(Dom.createPWithText(countStr))
             .withChild(btn.dom());
     }
 
-    public static Update onClick(Counter data, AzCallbackInfo info) {
+    public static Update onClick(Counter data, CallbackInfo info) {
         data.count++;
         return Update.RefreshDom; 
     }

@@ -29,10 +29,12 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
-        ir::CodegenIR,
+        ir::{CallbackTypedefDef, CodegenIR},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
+        managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
-    emit_file, LIBRARY_NAME,
+    emit_file, ffi_type_name, map_jvm_type, types::should_include_struct, user_enum_type_name,
+    wrappers::wrapper_class_name, LIBRARY_NAME,
 };
 
 /// Generate `AzulNativeManaged.java` + `AzulHostInvoker.java` and append
@@ -42,11 +44,8 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
     out.push_str(&emit_file(
         "AzulNativeManaged.java",
         |b| {
-            b.line("import com.sun.jna.Library;");
-            b.line("import com.sun.jna.Native;");
-            b.line("import com.sun.jna.Pointer;");
+            // `emit_file` already imported Library/Native/Pointer/Structure.
             b.line("import com.sun.jna.Callback;");
-            b.line("import com.sun.jna.Structure;");
             b.blank();
             b.line("/**");
             b.line(" * P/Invoke surface for libazul's host-invoker C-ABI exports.");
@@ -117,11 +116,10 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
     out.push_str(&emit_file(
         "AzulHostInvoker.java",
         |b| {
-            b.line("import com.sun.jna.Pointer;");
+            // `emit_file` already imported Pointer/Structure/java.util.List.
+            b.line("import java.util.ArrayList;");
             b.line("import java.util.HashMap;");
             b.line("import java.util.Map;");
-            b.line("import java.util.ArrayList;");
-            b.line("import java.util.List;");
             b.blank();
 
             b.line("/**");
@@ -139,7 +137,9 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.line("private static final Map<Long, Object> handles = new HashMap<>();");
             b.line("private static long nextHandleId = 0;");
             b.line("private static final List<Object> livePins = new ArrayList<>();");
-            b.line("private static boolean initialized = false;");
+            // `volatile`: the double-checked-locking fast path in
+            // ensureInitialized() reads it outside the lock.
+            b.line("private static volatile boolean initialized = false;");
             b.line("private static final Object initLock = new Object();");
             b.blank();
 
@@ -291,7 +291,7 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             // arg type / return is neither void nor enum nor wrapper
             // struct). Don't abort the whole arc on one mismatch.
             for cb in host_invoker_kinds(ir) {
-                emit_data_typed_invoker_sam(b, cb, ir);
+                emit_data_typed_invoker_sam(b, cb, ir, config);
             }
 
             b.dedent();
@@ -406,10 +406,8 @@ fn emit_typed_invoker_sam(
     cb: &super::super::ir::CallbackTypedefDef,
     ir: &super::super::ir::CodegenIR,
 ) {
-    use super::super::ir::FunctionKind;
     let wrapper = wrapper_name(cb);
-    let cb_has_return = has_return(cb);
-    if !cb_has_return {
+    if !has_return(cb) {
         return;
     }
     let Some(ret_ty) = cb.return_type.as_deref() else {
@@ -417,34 +415,18 @@ fn emit_typed_invoker_sam(
     };
     let ret_ty = ret_ty.trim();
     // Only emit when the return type is a struct with an emitted
-    // wrapper class — i.e. there's a `<ReturnType>_delete` function
-    // and the struct isn't filtered out. Primitive / enum returns
+    // wrapper class (the same predicate `wrappers.rs` uses to emit the
+    // class, so the two can never drift). Primitive / enum returns
     // (e.g. Update for ButtonOnClickCallback) keep using the raw
     // outPtr-write path because the typed wrapper would just be a
     // boxed primitive without a meaningful splice savings.
-    let Some(ret_struct) = ir.find_struct(ret_ty) else {
-        return;
-    };
-    if !ir
-        .functions
-        .iter()
-        .any(|f| f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete))
-    {
-        return;
-    }
-    if matches!(
-        ret_struct.category,
-        super::super::ir::TypeCategory::Recursive
-            | super::super::ir::TypeCategory::VecRef
-            | super::super::ir::TypeCategory::DestructorOrClone
-            | super::super::ir::TypeCategory::GenericTemplate
-    ) {
+    if !has_wrapper_class(ret_ty, ir) {
         return;
     }
 
-    let wrapper_class = ret_ty.to_string();
-    let ffi_ret = super::ffi_type_name(ret_ty);
-    let cb_ffi = super::ffi_type_name(wrapper);
+    let wrapper_class = wrapper_class_name(ret_ty);
+    let ffi_ret = ffi_type_name(ret_ty);
+    let cb_ffi = ffi_type_name(wrapper);
     let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
 
     // Typed interface signature: `(long id, Pointer arg0, ..., Pointer argN) -> <Wrapper>`.
@@ -543,121 +525,207 @@ fn emit_typed_invoker_sam(
     b.blank();
 }
 
-/// Phase CC-1 (Java): emit `<Wrapper>WithData<T>` typed SAM + a
-/// `register<Wrapper>(Class<T> klass, <Wrapper>WithData<T> typed)`
-/// overload that handles refanyGet + cast + arg-wrap + outPtr-write
-/// internally. Per-kind conformability check — skip emit when any of:
+// ============================================================================
+// Phase CC-1 — `<Wrapper>WithData<T>` typed SAMs
+// ============================================================================
+
+/// How one positional argument of a `<Wrapper>WithData<T>` SAM is
+/// surfaced to the user. Derived purely from the IR shape of the callback
+/// typedef's arg type — no type names:
 ///
-///   - First callback arg is not `RefAny` (no data slot to type)
-///   - Any subsequent arg's type isn't a struct with an emitted wrapper class (`(Pointer)`
-///     constructor needed for arg-wrap)
-///   - Return type is neither void, an enum (writes `result.value` to outPtr), nor a wrapper struct
-///     (bytes-splice into outPtr)
-///
-/// Per the user-locked decision: iterate ALL HOST_INVOKER_KINDS, skip
-/// non-conformers individually; never abort the whole arc.
-fn emit_data_typed_invoker_sam(
-    b: &mut super::super::generator::CodeBuilder,
-    cb: &super::super::ir::CallbackTypedefDef,
-    ir: &super::super::ir::CodegenIR,
-) {
-    use super::super::ir::FunctionKind;
+/// * a struct with a wrapper class → the wrapper (`CallbackInfo`), built with its `(Pointer)`
+///   constructor;
+/// * any other struct that `types.rs` emits as a JNA `Structure` → the `Az<T>` FFI struct, built
+///   with the `Az<T>(Pointer)` overlay constructor (a read-only snapshot);
+/// * a unit enum → the user-facing Java enum, decoded with `X.fromInt(ptr.getInt(0))`;
+/// * a primitive (after alias resolution) → the JVM primitive, read through `Pointer.getXxx(0)`;
+/// * everything else (tagged unions, monomorphized aliases, callback typedefs, recursive types) →
+///   the raw `Pointer` the invoker received.
+pub(super) enum SamArg {
+    Wrapper(String),
+    Pod(String),
+    Enum(String),
+    Prim { jvm: String, getter: &'static str },
+    RawPointer,
+}
+
+/// How the SAM's return value is written back through the invoker's
+/// out-pointer.
+pub(super) enum SamRet {
+    Void,
+    /// Unit enum: `outPtr.setInt(0, result.value)`.
+    Enum(String),
+    /// Struct with a wrapper class: byte-splice of the wrapped value, then `__consume()`.
+    Wrapper { class: String, ffi: String },
+    /// Plain JNA `Structure` without a wrapper (e.g. `AzOnTextInputReturn`): byte-splice.
+    Pod(String),
+}
+
+impl SamArg {
+    pub(super) fn java_type(&self) -> String {
+        match self {
+            SamArg::Wrapper(t) | SamArg::Pod(t) | SamArg::Enum(t) => t.clone(),
+            SamArg::Prim { jvm, .. } => jvm.clone(),
+            SamArg::RawPointer => "Pointer".to_string(),
+        }
+    }
+}
+
+impl SamRet {
+    pub(super) fn java_type(&self) -> String {
+        match self {
+            SamRet::Void => "void".to_string(),
+            SamRet::Enum(t) | SamRet::Pod(t) => t.clone(),
+            SamRet::Wrapper { class, .. } => class.clone(),
+        }
+    }
+}
+
+/// IR-derived description of the `<Wrapper>WithData<T>` SAM for one
+/// host-invoker kind, or `None` when the kind is not conformant (its
+/// first arg is not the engine's `RefAny`, or its return type has no
+/// out-pointer encoding). Shared by the `AzulHostInvoker` emitter and by
+/// the wrapper-class emitter (`wrappers.rs`), which emits the typed `<T>`
+/// builder siblings and `App.create(T, fn)` only for kinds that got their
+/// SAM — the two decisions cannot drift apart.
+pub(super) struct DataTypedSam {
+    /// Callback wrapper kind (`"ButtonOnClickCallback"`).
+    pub wrapper: String,
+    /// Its FFI struct (`"AzButtonOnClickCallback"`).
+    pub cb_ffi: String,
+    /// Every arg after the leading `RefAny`, with its Java parameter name.
+    pub args: Vec<(SamArg, String)>,
+    pub ret: SamRet,
+}
+
+pub(super) fn data_typed_sam_info(
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<DataTypedSam> {
     let wrapper = wrapper_name(cb);
-    let cb_ffi = super::ffi_type_name(wrapper);
-    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
-
-    // Conformance probe #1: first arg must be `RefAny` (the data slot
-    // we'll type via `<T>`).
-    let first = cb.args.first();
-    let first_is_refany = first
-        .map(|a| a.type_name.trim() == "RefAny")
-        .unwrap_or(false);
-    if !first_is_refany {
-        return;
+    // Conformance probe #1: the first arg is the engine's RefAny (the
+    // data slot typed via `<T>`).
+    let first = cb.args.first()?;
+    if !is_refany_type(&first.type_name, ir) {
+        return None;
     }
+    let is_pod = |t: &str| {
+        ir.find_struct(t)
+            .is_some_and(|s| should_include_struct(s, config))
+    };
+    let is_unit_enum = |t: &str| ir.find_enum(t).is_some_and(|e| !e.is_union);
 
-    // Subsequent args: prefer wrapper-class types (`new <Wrapper>(ptr)`),
-    // fall back to raw `Pointer` per arg when no wrapper class exists.
-    // This keeps Callback / ButtonOnClick / etc. conforming despite
-    // `CallbackInfo` being POD-Copy-no-_delete (so no wrapper class) —
-    // the typed Data<T> win on the data slot is still worth it even
-    // when the info slot remains a Pointer. ArgKind tags the form so
-    // the emitter knows whether to construct or pass through.
-    enum ArgKind {
-        Wrapper(String),
-        Struct(String),
-        RawPointer,
-    }
-    let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
+    let mut args = Vec::new();
     for (i, a) in cb.args.iter().enumerate().skip(1) {
         let t = a.type_name.trim();
-        let kind = if managed_has_wrapper_class(t, ir) {
-            ArgKind::Wrapper(t.to_string())
-        } else if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() {
-            ArgKind::Struct(t.to_string())
+        let kind = if has_wrapper_class(t, ir) {
+            SamArg::Wrapper(wrapper_class_name(t))
+        } else if is_pod(t) {
+            SamArg::Pod(ffi_type_name(t))
+        } else if is_unit_enum(t) {
+            SamArg::Enum(user_enum_type_name(t))
         } else {
-            ArgKind::RawPointer
+            let jvm = map_jvm_type(t, ir);
+            let getter = match jvm.as_str() {
+                "byte" => Some("getByte"),
+                "short" => Some("getShort"),
+                "int" => Some("getInt"),
+                "long" => Some("getLong"),
+                "float" => Some("getFloat"),
+                "double" => Some("getDouble"),
+                _ => None,
+            };
+            match getter {
+                Some(getter) => SamArg::Prim { jvm, getter },
+                None => SamArg::RawPointer,
+            }
         };
         let name = if a.name.is_empty() {
             format!("arg{}", i)
         } else {
             a.name.clone()
         };
-        extra_args.push((kind, name));
+        args.push((kind, name));
     }
 
-    // Conformance probe #3: return type must be void / enum / wrapper
-    // struct (we know how to plumb each to outPtr).
-    enum RetShape {
-        Void,
-        Enum,
-        WrapperStruct,
-    }
-    let (return_decl, ret_shape) = match cb.return_type.as_deref().map(str::trim) {
-        None => ("void".to_string(), RetShape::Void),
-        Some("void") => ("void".to_string(), RetShape::Void),
-        Some(rt) => {
-            if managed_has_wrapper_class(rt, ir) {
-                (rt.to_string(), RetShape::WrapperStruct)
-            } else if ir.find_enum(rt).is_some() {
-                // Surface the unprefixed enum name (e.g. `Update`) —
-                // that's what JVM users actually call `.value` on
-                // (unit enums are emitted unprefixed; see
-                // `user_enum_type_name` in mod.rs).
-                (super::user_enum_type_name(rt), RetShape::Enum)
-            } else {
-                return;
+    // Conformance probe #2: the return type must have an out-pointer
+    // encoding we know how to write.
+    let ret = if !has_return(cb) {
+        SamRet::Void
+    } else {
+        let rt = cb.return_type.as_deref().map(str::trim).unwrap_or("void");
+        if has_wrapper_class(rt, ir) {
+            SamRet::Wrapper {
+                class: wrapper_class_name(rt),
+                ffi: ffi_type_name(rt),
             }
+        } else if is_unit_enum(rt) {
+            SamRet::Enum(user_enum_type_name(rt))
+        } else if is_pod(rt) {
+            SamRet::Pod(ffi_type_name(rt))
+        } else {
+            return None;
         }
     };
-    // Avoid unused-warning when probe #3 yields neither Enum nor
-    // WrapperStruct (the `FunctionKind` import only matters once we
-    // add per-arg consume logic; keep the import path explicit so a
-    // future arg-consume extension lights up without re-import).
-    let _ = std::marker::PhantomData::<FunctionKind>;
+
+    Some(DataTypedSam {
+        wrapper: wrapper.to_string(),
+        cb_ffi: ffi_type_name(wrapper),
+        args,
+        ret,
+    })
+}
+
+/// [`data_typed_sam_info`] looked up by callback wrapper kind
+/// (`"ButtonOnClickCallback"`). `None` when the kind is not a
+/// host-invoker kind or is not conformant.
+pub(super) fn data_typed_sam_for_kind(
+    kind: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<DataTypedSam> {
+    host_invoker_kinds(ir)
+        .find(|cb| wrapper_name(cb) == kind)
+        .and_then(|cb| data_typed_sam_info(cb, ir, config))
+}
+
+/// Phase CC-1 (Java): emit `<Wrapper>WithData<T>` typed SAM + a
+/// `register<Wrapper>(Class<T> klass, <Wrapper>WithData<T> typed)`
+/// overload that handles refanyGet + cast + arg-decode + outPtr-write
+/// internally. Non-conformant kinds (see [`data_typed_sam_info`]) are
+/// skipped individually; the arc never aborts on one mismatch.
+fn emit_data_typed_invoker_sam(
+    b: &mut super::super::generator::CodeBuilder,
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let Some(sam) = data_typed_sam_info(cb, ir, config) else {
+        return;
+    };
+    let wrapper = sam.wrapper.as_str();
+    let cb_ffi = sam.cb_ffi.as_str();
+    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+    let return_decl = sam.ret.java_type();
 
     // === Typed SAM interface ===
     b.line("/**");
     b.line(&format!(
-        " * Typed Data<T> SAM for {}: first arg is the deref'd-and-cast",
+        " * Typed Data&lt;T&gt; SAM for {}: first arg is the deref'd-and-cast",
         wrapper
     ));
-    b.line(" * `T` payload of the RefAny; remaining args are wrapper-class");
-    b.line(" * types instead of raw `Pointer`. The matching `register` overload");
-    b.line(" * handles the refanyGet + isInstance check + arg-wrap + outPtr-write");
-    b.line(" * plumbing. Use this when you already know the concrete data type.");
+    b.line(" * `T` payload of the RefAny; remaining args are wrapper-class /");
+    b.line(" * FFI-struct / enum / primitive values instead of raw `Pointer`s.");
+    b.line(" * The matching `register` overload handles the refanyGet +");
+    b.line(" * isInstance check + arg decoding + outPtr-write plumbing.");
     b.line(" */");
     b.line("@FunctionalInterface");
     b.line(&format!("public interface {}WithData<T> {{", wrapper));
     b.indent();
     let mut iface_params = vec!["T data".to_string()];
-    for (kind, name) in &extra_args {
-        let ty = match kind {
-            ArgKind::Wrapper(t) => t.clone(),
-            ArgKind::Struct(t) => super::ffi_type_name(t),
-            ArgKind::RawPointer => "Pointer".to_string(),
-        };
-        iface_params.push(format!("{} {}", ty, name));
+    for (kind, name) in &sam.args {
+        iface_params.push(format!("{} {}", kind.java_type(), name));
     }
     b.line(&format!(
         "{} invoke({});",
@@ -671,13 +739,13 @@ fn emit_data_typed_invoker_sam(
     // === Register overload ===
     b.line("/**");
     b.line(&format!(
-        " * Register a typed Data<T> `{}WithData<T>`. Wraps the typed SAM",
+        " * Register a typed Data&lt;T&gt; `{}WithData&lt;T&gt;`. Wraps the typed SAM",
         wrapper
     ));
     b.line(" * into the raw invoker; performs the refanyGet, runtime-class");
-    b.line(" * check, arg-wrap, and outPtr-write internally. If the deref'd");
+    b.line(" * check, arg decoding, and outPtr-write internally. If the deref'd");
     b.line(" * payload doesn't match `klass.isInstance`, the invocation is");
-    b.line(" * silently skipped (no-op default for non-matching data).");
+    b.line(" * silently skipped (the engine then uses the kind's default return).");
     b.line(" */");
     b.line(&format!(
         "public static <T> {}.ByValue register{}(Class<T> klass, {}WithData<T> typed) {{",
@@ -685,22 +753,13 @@ fn emit_data_typed_invoker_sam(
     ));
     b.indent();
 
-    // Raw lambda param list mirrors the existing `<Wrapper>InvokerCallback`
-    // SAM: `(long id, Pointer arg0, ..., Pointer outPtr)` for non-void
-    // returns; outPtr is omitted in the void case (the underlying SAM
-    // still has it but we ignore by-pattern).
+    // Raw lambda param list mirrors the `<Wrapper>InvokerCallback` SAM:
+    // `(long id, Pointer arg0, ..., [Pointer outPtr])` — the trailing
+    // out-pointer exists only for non-void kinds (`has_return`).
     let mut raw_lambda_params = vec!["long id".to_string(), "Pointer arg0".to_string()];
-    for (_kind, name) in &extra_args {
-        // Raw invoker always takes Pointer per arg; the wrapper-class
-        // construction happens inside the lambda body.
+    for (_kind, name) in &sam.args {
         raw_lambda_params.push(format!("Pointer {}", name));
     }
-    // `<Wrapper>InvokerCallback` only carries the trailing
-    // `Pointer outPtr` when the callback has a non-void return
-    // (`lang_java/managed.rs` line 88 / 315 — the `has_return(cb)`
-    // gate). Mirror it here so the typed Data<T> lambda signature
-    // lines up with the SAM exactly. ThreadCallback (void) is the
-    // canonical case that exposed this.
     if has_return(cb) {
         raw_lambda_params.push("Pointer outPtr".to_string());
     }
@@ -712,59 +771,77 @@ fn emit_data_typed_invoker_sam(
     ));
     b.indent();
     b.line("Object __data = refanyGet(arg0);");
-    // `klass.isInstance(null)` returns false — so the null-payload
-    // case (refany freed / unset) silently skips dispatch. Mirrors
-    // the existing untyped-handler patterns in HelloWorld.java.
+    // `klass.isInstance(null)` is false — a null payload (refany freed /
+    // unset) is passed through as `null` rather than skipped.
     b.line("if (__data != null && !klass.isInstance(__data)) return;");
     b.line("@SuppressWarnings(\"unchecked\")");
     b.line("T __typed = (T) __data;");
     let mut call_args = vec!["__typed".to_string()];
-    for (kind, name) in &extra_args {
+    // Wrapper-class args are built over ENGINE-OWNED memory (`const
+    // T*` for the duration of the callback): non-owning wrappers, never
+    // `_delete`d, invalidated in `finally` once the callback returns.
+    let mut borrowed: Vec<String> = Vec::new();
+    for (kind, name) in &sam.args {
         match kind {
-            ArgKind::Wrapper(ty) => {
+            SamArg::Wrapper(ty) => {
+                b.line(&format!("{} __{} = {}.__borrow({});", ty, name, ty, name));
+                call_args.push(format!("__{}", name));
+                borrowed.push(format!("__{}", name));
+            }
+            SamArg::Pod(ty) => {
                 b.line(&format!("{} __{} = new {}({});", ty, name, ty, name));
                 call_args.push(format!("__{}", name));
             }
-            ArgKind::Struct(ty) => {
-                let ffi_ty = super::ffi_type_name(ty);
-                b.line(&format!("{} __{} = new {}({});", ffi_ty, name, ffi_ty, name));
+            SamArg::Enum(ty) => {
+                // Unit enums travel as a C `int`; the invoker hands us a
+                // pointer to it.
+                b.line(&format!(
+                    "{} __{} = {}.fromInt({}.getInt(0));",
+                    ty, name, ty, name
+                ));
                 call_args.push(format!("__{}", name));
             }
-            ArgKind::RawPointer => {
+            SamArg::Prim { jvm, getter } => {
+                b.line(&format!("{} __{} = {}.{}(0);", jvm, name, name, getter));
+                call_args.push(format!("__{}", name));
+            }
+            SamArg::RawPointer => {
                 call_args.push(name.clone());
             }
         }
     }
-    match ret_shape {
-        RetShape::Void => {
+    if !borrowed.is_empty() {
+        b.line("try {");
+        b.indent();
+    }
+    match &sam.ret {
+        SamRet::Void => {
             b.line(&format!("typed.invoke({});", call_args.join(", ")));
         }
-        RetShape::Enum => {
+        SamRet::Enum(_) => {
             b.line(&format!(
                 "{} __result = typed.invoke({});",
                 return_decl,
                 call_args.join(", ")
             ));
             // Unit-only enums emit a `.value` field of type `int`
-            // (`AzUpdate.RefreshDom.value == 1`). Defensive null-check:
-            // a `null` return from the SAM is treated as "default
-            // value 0" — matches the legacy behaviour where the user
-            // forgot to write outPtr.
+            // (`Update.RefreshDom.value == 1`). A `null` return is
+            // treated as ordinal 0 — same as the legacy behaviour where
+            // the user forgot to write outPtr.
             b.line("outPtr.setInt(0, __result == null ? 0 : __result.value);");
         }
-        RetShape::WrapperStruct => {
+        SamRet::Wrapper { ffi, .. } => {
             b.line(&format!(
                 "{} __result = typed.invoke({});",
                 return_decl,
                 call_args.join(", ")
             ));
             b.line("if (__result == null) return;");
-            let ffi_ret = super::ffi_type_name(&return_decl);
-            b.line(&format!("{}.ByValue __raw =", ffi_ret));
+            b.line(&format!("{}.ByValue __raw =", ffi));
             b.indent();
             b.line(&format!(
                 "({}.ByValue) Structure.newInstance({}.ByValue.class, __result.rawPointer());",
-                ffi_ret, ffi_ret
+                ffi, ffi
             ));
             b.dedent();
             b.line("__raw.read();");
@@ -774,6 +851,29 @@ fn emit_data_typed_invoker_sam(
             // the user's wrapper would otherwise double-drop on GC.
             b.line("__result.__consume();");
         }
+        SamRet::Pod(_) => {
+            b.line(&format!(
+                "{} __result = typed.invoke({});",
+                return_decl,
+                call_args.join(", ")
+            ));
+            b.line("if (__result == null) return;");
+            // A plain value struct built by the user in Java: push its
+            // fields into its backing memory, then copy the bytes out.
+            b.line("__result.write();");
+            b.line("int sz = __result.size();");
+            b.line("outPtr.write(0, __result.getPointer().getByteArray(0, sz), 0, sz);");
+        }
+    }
+    if !borrowed.is_empty() {
+        b.dedent();
+        b.line("} finally {");
+        b.indent();
+        for name in &borrowed {
+            b.line(&format!("{}.close();", name));
+        }
+        b.dedent();
+        b.line("}");
     }
     b.dedent();
     b.line("};");
@@ -781,28 +881,4 @@ fn emit_data_typed_invoker_sam(
     b.dedent();
     b.line("}");
     b.blank();
-}
-
-/// Mirror of `lang_java/wrappers.rs::has_wrapper_class` (kept local
-/// to avoid making the helper `pub` solely for this caller).
-fn managed_has_wrapper_class(type_name: &str, ir: &super::super::ir::CodegenIR) -> bool {
-    use super::super::ir::{FunctionKind, TypeCategory};
-    let Some(s) = ir.find_struct(type_name) else {
-        return false;
-    };
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    let has_delete = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete));
-    let has_methods = ir.functions.iter().any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut));
-    has_delete || has_methods
 }

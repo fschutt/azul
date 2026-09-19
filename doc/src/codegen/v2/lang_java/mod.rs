@@ -18,8 +18,9 @@
 //!    pointer parameters.
 //! 3. `<Type>_Tag.java` per tagged-union enum — a Java `enum` for the discriminator and
 //!    `<Type>.java` for the outer payload `Union` helper structure.
-//! 4. `<Type>.java` wrapper class for every type that has a matching `_delete` C function.
-//!    Implements `AutoCloseable`.
+//! 4. `<Type>.java` wrapper class for every type that has a matching `_delete` C function or
+//!    at least one instance method (see `managed_lang_helpers::has_wrapper_class`). Implements
+//!    `AutoCloseable`; `close()` frees the native value only when a `_delete` exists.
 //!
 //! All of the JNA boilerplate (Structure subclass, ByValue, ByReference,
 //! Union, Pointer) is dropped in by [`types`] and [`wrappers`]; this
@@ -383,6 +384,23 @@ pub fn is_java_reserved(name: &str) -> bool {
             | "permits"
             | "var"
     )
+}
+
+/// Escape a doc line for use inside a `/** ... */` Javadoc comment.
+///
+/// Java's lexer interprets `\u` / `\U` as Unicode escapes even inside
+/// comments (JLS §3.3): a doc string like `C:\Users\name` is rejected as
+/// an invalid escape. Double the backslashes so the literal text survives,
+/// neutralise `*/` and HTML-significant characters. One implementation for
+/// every emitter in this module (types, functions, wrappers).
+pub(crate) fn javadoc_escape(s: &str) -> String {
+    // `&` first, otherwise the entities produced for `<` / `>` would be
+    // re-escaped to `&amp;lt;`.
+    s.replace('\\', "\\\\")
+        .replace('&', "&amp;")
+        .replace("*/", "*&#47;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Convert a snake_case name to lowerCamelCase for Java method names.
