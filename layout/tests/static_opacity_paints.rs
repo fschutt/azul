@@ -49,7 +49,7 @@ fn an_inline_opacity_zero_div_is_wrapped_in_an_opacity_group() {
             .with_css("opacity: 0; width: 50px; height: 20px; background-color: red;"),
     );
     let ops = opacities(dom);
-    assert!(ops.iter().any(|o| *o == 0.0), "PushOpacity(0) expected, got {ops:?}");
+    assert!(ops.contains(&0.0), "PushOpacity(0) expected, got {ops:?}");
 }
 
 /// The same div, absolutely positioned inside a relative parent (the
@@ -65,7 +65,7 @@ fn an_absolutely_positioned_opacity_zero_div_is_wrapped_in_an_opacity_group() {
         ),
     );
     let ops = opacities(dom);
-    assert!(ops.iter().any(|o| *o == 0.0), "PushOpacity(0) expected, got {ops:?}");
+    assert!(ops.contains(&0.0), "PushOpacity(0) expected, got {ops:?}");
 }
 
 /// The widget case: the tooltip's tip starts hidden.
@@ -78,7 +78,7 @@ fn a_tooltip_tip_is_hidden_until_hovered() {
     .dom();
     let ops = opacities(Dom::create_body().with_child(tip));
     assert!(
-        ops.iter().any(|o| *o == 0.0),
+        ops.contains(&0.0),
         "the tooltip's tip must be painted inside an opacity-0 group, got {ops:?}"
     );
 }

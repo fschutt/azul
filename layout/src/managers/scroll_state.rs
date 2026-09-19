@@ -1174,7 +1174,7 @@ impl ScrollManager {
 
     /// The scrollbar thumb being held right now, if any.
     #[must_use]
-    pub fn thumb_drag(&self) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
+    pub const fn thumb_drag(&self) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
         self.thumb_drag
     }
 
