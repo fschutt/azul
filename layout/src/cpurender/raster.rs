@@ -1619,69 +1619,58 @@ pub fn render_display_list_damaged(
             },
         })
     };
-    // Make the rects pairwise DISJOINT while covering EXACTLY their union: each
-    // rect is cut against the ones already kept and only the pieces outside
-    // them survive. The per-rect passes below then clear + paint every damaged
-    // pixel exactly once (no double alpha-blend where rects overlapped) and
-    // NO pixel outside the requested damage.
-    //
-    // This used to grow two overlapping rects into their bounding BOX. The
-    // box covers pixels neither rect asked for - the band between an exposed
-    // scroll strip and a scrollbar column that meet in a corner - and those
-    // pixels were cleared and repainted while the frame reported only the
-    // requested rects. Wherever the damage report is what gets presented or
-    // byte-converted (an ARGB8888 commit-swizzle pool), that band went out
-    // stale or with R and B swapped.
-    let piece = |x0: i32, y0: i32, x1: i32, y1: i32| SnappedRect {
-        x0,
-        y0,
-        x1,
-        y1,
-        logical: LogicalRect {
-            origin: LogicalPosition {
-                x: x0 as f32 / dpi_factor,
-                y: y0 as f32 / dpi_factor,
-            },
-            size: LogicalSize {
-                width: (x1 - x0) as f32 / dpi_factor,
-                height: (y1 - y0) as f32 / dpi_factor,
-            },
-        },
-    };
-    // `a` minus `b`: up to four pieces (bands above and below `b`, then the
-    // left and right remainders beside it).
-    let subtract = |a: &SnappedRect, b: &SnappedRect| -> Vec<SnappedRect> {
-        let overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
-        if !overlap {
-            return vec![piece(a.x0, a.y0, a.x1, a.y1)];
-        }
-        let mut out = Vec::with_capacity(4);
-        if a.y0 < b.y0 {
-            out.push(piece(a.x0, a.y0, a.x1, b.y0));
-        }
-        if b.y1 < a.y1 {
-            out.push(piece(a.x0, b.y1, a.x1, a.y1));
-        }
-        let (my0, my1) = (a.y0.max(b.y0), a.y1.min(b.y1));
-        if a.x0 < b.x0 {
-            out.push(piece(a.x0, my0, b.x0, my1));
-        }
-        if b.x1 < a.x1 {
-            out.push(piece(b.x1, my0, a.x1, my1));
-        }
-        out
-    };
-    let mut rects: Vec<SnappedRect> = Vec::new();
-    for r in damage_rects.iter().filter_map(snap_out) {
-        let mut pieces = vec![r];
-        for kept in &rects {
-            pieces = pieces.iter().flat_map(|p| subtract(p, kept)).collect();
-            if pieces.is_empty() {
-                break;
+    let mut rects: Vec<SnappedRect> = damage_rects.iter().filter_map(snap_out).collect();
+
+    // Merge OVERLAPPING rects (strictly overlapping in physical pixels; rects
+    // that merely touch stay separate). After this, the rects are pairwise
+    // disjoint, so the per-rect passes below clear + paint every damaged pixel
+    // EXACTLY once — no double alpha-blend where rects used to overlap, and no
+    // ballooned union.
+    let mut i = 0;
+    while i < rects.len() {
+        let mut j = i + 1;
+        let mut merged_any = false;
+        while j < rects.len() {
+            let (a, b) = (&rects[i], &rects[j]);
+            let overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+            if overlap {
+                let x0 = a.x0.min(b.x0);
+                let y0 = a.y0.min(b.y0);
+                let x1 = a.x1.max(b.x1);
+                let y1 = a.y1.max(b.y1);
+                rects[i] = SnappedRect {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    logical: LogicalRect {
+                        origin: LogicalPosition {
+                            x: x0 as f32 / dpi_factor,
+                            y: y0 as f32 / dpi_factor,
+                        },
+                        size: LogicalSize {
+                            width: (x1 - x0) as f32 / dpi_factor,
+                            height: (y1 - y0) as f32 / dpi_factor,
+                        },
+                    },
+                };
+                rects.swap_remove(j);
+                merged_any = true;
+                // rects[i] grew — restart its inner scan, it may now overlap
+                // rects it previously missed.
+            } else {
+                j += 1;
             }
         }
-        rects.extend(pieces);
+        if merged_any {
+            // re-scan the same i (the union may reach earlier-skipped rects)
+            if rects.len() > 1 {
+                continue;
+            }
+        }
+        i += 1;
     }
+
     // One pass PER damage rect, each with its own clip seeded to exactly that
     // rect. An item spanning several rects renders once per rect, but the
     // rects are disjoint so no pixel is ever blended twice. Crucially, an item
