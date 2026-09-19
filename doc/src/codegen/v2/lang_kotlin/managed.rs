@@ -16,7 +16,7 @@
 use super::{
     super::{
         generator::CodeBuilder,
-        ir::{CallbackTypedefDef, CodegenIR},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type},
     },
@@ -410,6 +410,38 @@ pub(super) struct KtDataSamShape {
     pub return_decl: String,
 }
 
+
+/// The first callback argument whose class has `log(level, message: String)`
+/// (`CallbackInfo`), as `(Kotlin variable, Error level expression)`.
+fn kt_failure_logger(
+    cb: &CallbackTypedefDef,
+    shape: &KtDataSamShape,
+    ir: &CodegenIR,
+) -> Option<(String, String)> {
+    for ((kind, name), a) in shape.extra_args.iter().zip(cb.args.iter().skip(1)) {
+        if !matches!(kind, KtSamArg::Wrapper { .. }) {
+            continue;
+        }
+        let ty = a.type_name.trim();
+        let f = ir.functions.iter().find(|f| {
+            f.class_name == ty
+                && f.method_name == "log"
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                && f.args.len() == 3
+                && f.args[2].type_name.trim() == "String"
+                && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+        })?;
+        let level_ty = f.args[1].type_name.trim();
+        let e = ir.find_enum(level_ty).filter(|e| !e.is_union)?;
+        let variant = e.variants.iter().find(|v| v.name == "Error")?;
+        return Some((
+            format!("__{}", name),
+            format!("{}.{}.value", user_enum_type_name(level_ty), variant.name),
+        ));
+    }
+    None
+}
+
 /// THE predicate for "a `<Kind>WithData<T>` typed SAM is emitted for this
 /// callback kind": `args[0]` must be the engine's `RefAny` (the host-handle
 /// carrier the bridge resolves to `T`) and the return must be void, a unit
@@ -573,34 +605,55 @@ fn emit_kt_data_typed_invoker_sam(
         raw_lambda_args.push("outPtr".to_string());
     }
 
-    // `inv@` label: the early-skip on an unknown/mismatched host handle
-    // `return@inv`s out of the SAM lambda before anything is wrapped.
+    // `inv@` label: a model of the wrong class `return@inv`s out of the
+    // SAM lambda after logging.
     builder.line(&format!("val raw = {} inv@{{", raw_sam));
     builder.indent();
     builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
     builder.line("val __data = refanyGet(arg0)");
-    // An unknown id (0 / already released) or a foreign type never reaches
-    // the user; the engine then reads the default the thunk pre-filled.
-    builder.line("if (__data == null || !klass.isInstance(__data)) return@inv");
-    builder.line("val __typed: T = klass.cast(__data)");
-    let mut call_args = vec!["__typed".to_string()];
+    // Wrapper args borrow engine memory for the duration of the call; they
+    // are built first so a failure report can already log through them.
     let mut borrowed: Vec<String> = Vec::new();
     for (kind, name) in &shape.extra_args {
-        match kind {
-            KtSamArg::Wrapper { class, has_delete } => {
-                // The SAM args are platform-typed `Pointer?`; the C thunk
-                // always fills these slots, so `!!` documents the contract.
-                if *has_delete {
-                    builder.line(&format!(
-                        "val __{} = {}({}!!, owned = false)",
-                        name, class, name
-                    ));
-                } else {
-                    builder.line(&format!("val __{} = {}({}!!)", name, class, name));
-                }
-                call_args.push(format!("__{}", name));
-                borrowed.push(format!("__{}", name));
+        if let KtSamArg::Wrapper { class, has_delete } = kind {
+            // The SAM args are platform-typed `Pointer?`; the C thunk
+            // always fills these slots, so `!!` documents the contract.
+            if *has_delete {
+                builder.line(&format!("val __{} = {}({}!!, owned = false)", name, class, name));
+            } else {
+                builder.line(&format!("val __{} = {}({}!!)", name, class, name));
             }
+            borrowed.push(format!("__{}", name));
+        }
+    }
+    // A model of the wrong class or a throwing callback is reported through
+    // the first argument with a `log(level, message)` method (CallbackInfo),
+    // else on stderr, and never reaches JNA: the engine pre-filled the out
+    // slot with the kind's default, so a failed call leaves it alone.
+    let logger = kt_failure_logger(cb, &shape, ir);
+    let report = |builder: &mut CodeBuilder, msg: &str| match &logger {
+        Some((arg, level)) => builder.line(&format!("{}.log({}, {})", arg, level, msg)),
+        None => builder.line(&format!("System.err.println({})", msg)),
+    };
+    builder.line("try {");
+    builder.indent();
+    builder.line("if (__data == null || !klass.isInstance(__data)) {");
+    builder.indent();
+    report(
+        builder,
+        &format!(
+            "\"azul: {} expected a model of class \" + klass.name + \", got \" + (__data?.javaClass?.name ?: \"null\")",
+            wrapper
+        ),
+    );
+    builder.line("return@inv");
+    builder.dedent();
+    builder.line("}");
+    builder.line("val __typed: T = klass.cast(__data)");
+    let mut call_args = vec!["__typed".to_string()];
+    for (kind, name) in &shape.extra_args {
+        match kind {
+            KtSamArg::Wrapper { .. } => call_args.push(format!("__{}", name)),
             KtSamArg::PodStruct(ffi) => {
                 builder.line(&format!(
                     "val __{n} = (Structure.newInstance({f}::class.java, {n}!!) as {f}).also {{ it.read() }}",
@@ -632,10 +685,6 @@ fn emit_kt_data_typed_invoker_sam(
                 call_args.push(name.clone());
             }
         }
-    }
-    if !borrowed.is_empty() {
-        builder.line("try {");
-        builder.indent();
     }
     match &shape.ret {
         KtSamRet::Void => {
@@ -675,8 +724,15 @@ fn emit_kt_data_typed_invoker_sam(
             builder.line("outPtr?.write(0, __result.pointer.getByteArray(0, sz), 0, sz)");
         }
     }
-    if !borrowed.is_empty() {
-        builder.dedent();
+    builder.dedent();
+    builder.line("} catch (__e: Throwable) {");
+    builder.indent();
+    report(builder, &format!("\"azul: {} raised \" + __e", wrapper));
+    builder.line("__e.printStackTrace()");
+    builder.dedent();
+    if borrowed.is_empty() {
+        builder.line("}");
+    } else {
         builder.line("} finally {");
         builder.indent();
         for b in &borrowed {
