@@ -129657,6 +129657,29 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RegisterComponentLibraryFn": {
+                        "external": "azul_core::xml::RegisterComponentLibraryFn",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "RegisterComponentLibraryFnType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
